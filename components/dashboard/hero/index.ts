@@ -5,5 +5,5 @@ export {
     formatCondition,
     renderHighLow,
     STATIC_WIDGET_CLASS,
-    getSourceIndicatorColor
+    getSourceIndicatorColor,
 } from './HeroWidgets';

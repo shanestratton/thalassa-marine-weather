@@ -66,10 +66,10 @@ export interface ConsensusMatrixData {
 // ── Model Definitions ─────────────────────────────────────────
 
 const MODELS = [
-    { id: 'gfs_seamless',     label: 'GFS',     color: '#38bdf8' },
-    { id: 'ecmwf_ifs025',     label: 'ECMWF',   color: '#a78bfa' },
-    { id: 'icon_seamless',    label: 'ICON',    color: '#34d399' },
-    { id: 'gem_seamless',     label: 'GEM',     color: '#fb923c' },
+    { id: 'gfs_seamless', label: 'GFS', color: '#38bdf8' },
+    { id: 'ecmwf_ifs025', label: 'ECMWF', color: '#a78bfa' },
+    { id: 'icon_seamless', label: 'ICON', color: '#34d399' },
+    { id: 'gem_seamless', label: 'GEM', color: '#fb923c' },
 ];
 
 const KMH_TO_KTS = 0.539957;
@@ -98,11 +98,12 @@ async function fetchMultiModelWind(
     }
 
     try {
-        const modelIds = MODELS.map(m => m.id).join(',');
-        const lats = points.map(p => p.lat.toFixed(4)).join(',');
-        const lons = points.map(p => p.lon.toFixed(4)).join(',');
+        const modelIds = MODELS.map((m) => m.id).join(',');
+        const lats = points.map((p) => p.lat.toFixed(4)).join(',');
+        const lons = points.map((p) => p.lon.toFixed(4)).join(',');
 
-        const url = `https://customer-api.open-meteo.com/v1/forecast?` +
+        const url =
+            `https://customer-api.open-meteo.com/v1/forecast?` +
             `latitude=${lats}&longitude=${lons}` +
             `&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
             `&models=${modelIds}` +
@@ -134,7 +135,10 @@ async function fetchMultiModelWind(
             let bestDiff = Infinity;
             for (let t = 0; t < timestamps.length; t++) {
                 const diff = Math.abs(new Date(timestamps[t]).getTime() - pointEta.getTime());
-                if (diff < bestDiff) { bestDiff = diff; bestIdx = t; }
+                if (diff < bestDiff) {
+                    bestDiff = diff;
+                    bestIdx = t;
+                }
             }
 
             const models: ModelPoint[] = [];
@@ -173,7 +177,6 @@ async function fetchMultiModelWind(
 
         log.info(`[ConsensusMatrix] Got real data for ${pointModels.size}/${points.length} points`);
         return pointModels.size > 0 ? pointModels : null;
-
     } catch (err) {
         log.warn('[ConsensusMatrix] Multi-model fetch failed:', err);
         return null;
@@ -184,27 +187,41 @@ async function fetchMultiModelWind(
 
 const M_PER_S_TO_KTS = 1.94384;
 
-function sampleWindGrid(grid: WindGrid, lat: number, lon: number, hour: number): { speedMs: number; dirDeg: number } | null {
+function sampleWindGrid(
+    grid: WindGrid,
+    lat: number,
+    lon: number,
+    hour: number,
+): { speedMs: number; dirDeg: number } | null {
     const h = Math.min(Math.max(0, Math.round(hour)), grid.totalHours - 1);
     const speedData = grid.speed[h];
     const uData = grid.u[h];
     const vData = grid.v[h];
     if (!speedData || !uData || !vData) return null;
 
-    const latIdx = (lat - grid.south) / (grid.north - grid.south) * (grid.height - 1);
-    const lonIdx = (lon - grid.west) / (grid.east - grid.west) * (grid.width - 1);
+    const latIdx = ((lat - grid.south) / (grid.north - grid.south)) * (grid.height - 1);
+    const lonIdx = ((lon - grid.west) / (grid.east - grid.west)) * (grid.width - 1);
     if (latIdx < 0 || latIdx >= grid.height || lonIdx < 0 || lonIdx >= grid.width) return null;
 
-    const r0 = Math.floor(latIdx), r1 = Math.min(r0 + 1, grid.height - 1);
-    const c0 = Math.floor(lonIdx), c1 = Math.min(c0 + 1, grid.width - 1);
-    const dr = latIdx - r0, dc = lonIdx - c0;
+    const r0 = Math.floor(latIdx),
+        r1 = Math.min(r0 + 1, grid.height - 1);
+    const c0 = Math.floor(lonIdx),
+        c1 = Math.min(c0 + 1, grid.width - 1);
+    const dr = latIdx - r0,
+        dc = lonIdx - c0;
 
-    const u = uData[r0 * grid.width + c0] * (1 - dr) * (1 - dc) + uData[r0 * grid.width + c1] * (1 - dr) * dc +
-              uData[r1 * grid.width + c0] * dr * (1 - dc) + uData[r1 * grid.width + c1] * dr * dc;
-    const v = vData[r0 * grid.width + c0] * (1 - dr) * (1 - dc) + vData[r0 * grid.width + c1] * (1 - dr) * dc +
-              vData[r1 * grid.width + c0] * dr * (1 - dc) + vData[r1 * grid.width + c1] * dr * dc;
+    const u =
+        uData[r0 * grid.width + c0] * (1 - dr) * (1 - dc) +
+        uData[r0 * grid.width + c1] * (1 - dr) * dc +
+        uData[r1 * grid.width + c0] * dr * (1 - dc) +
+        uData[r1 * grid.width + c1] * dr * dc;
+    const v =
+        vData[r0 * grid.width + c0] * (1 - dr) * (1 - dc) +
+        vData[r0 * grid.width + c1] * (1 - dr) * dc +
+        vData[r1 * grid.width + c0] * dr * (1 - dc) +
+        vData[r1 * grid.width + c1] * dr * dc;
 
-    return { speedMs: Math.sqrt(u * u + v * v), dirDeg: ((Math.atan2(-u, -v) * 180 / Math.PI) + 360) % 360 };
+    return { speedMs: Math.sqrt(u * u + v * v), dirDeg: ((Math.atan2(-u, -v) * 180) / Math.PI + 360) % 360 };
 }
 
 function perturb(value: number, factor: number, lat: number, lon: number, hour: number): number {
@@ -214,18 +231,21 @@ function perturb(value: number, factor: number, lat: number, lon: number, hour: 
 }
 
 const FALLBACK_MODELS = [
-    { label: 'GFS',   color: '#38bdf8', gustFactor: 1.40, perturbation: 0 },
+    { label: 'GFS', color: '#38bdf8', gustFactor: 1.4, perturbation: 0 },
     { label: 'ECMWF', color: '#a78bfa', gustFactor: 1.35, perturbation: 0.12 },
-    { label: 'ICON',  color: '#34d399', gustFactor: 1.45, perturbation: 0.18 },
-    { label: 'GEM',   color: '#fb923c', gustFactor: 1.38, perturbation: 0.15 },
+    { label: 'ICON', color: '#34d399', gustFactor: 1.45, perturbation: 0.18 },
+    { label: 'GEM', color: '#fb923c', gustFactor: 1.38, perturbation: 0.15 },
 ];
 
 function generateFallbackModels(grid: WindGrid, lat: number, lon: number, hour: number): ModelPoint[] {
     const sample = sampleWindGrid(grid, lat, lon, hour);
     if (!sample) return [];
 
-    return FALLBACK_MODELS.map(def => {
-        const speedMs = def.perturbation === 0 ? sample.speedMs : Math.max(0, perturb(sample.speedMs, def.perturbation, lat, lon, hour));
+    return FALLBACK_MODELS.map((def) => {
+        const speedMs =
+            def.perturbation === 0
+                ? sample.speedMs
+                : Math.max(0, perturb(sample.speedMs, def.perturbation, lat, lon, hour));
         const windKts = speedMs * M_PER_S_TO_KTS;
         return {
             model: def.label,
@@ -269,13 +289,13 @@ export async function generateConsensusMatrix(
             lat: node.lat,
             lon: node.lon,
             hoursFromDep: h,
-            distanceNM: Math.round((node as any).distanceNM ?? (progress * isoResult.totalDistanceNM)),
+            distanceNM: Math.round((node as any).distanceNM ?? progress * isoResult.totalDistanceNM),
         });
     }
 
     // Try live multi-model fetch
     const liveData = await fetchMultiModelWind(samplePoints, depTime);
-    const dataSource = liveData ? 'live' : 'grid-fallback' as const;
+    const dataSource = liveData ? 'live' : ('grid-fallback' as const);
 
     // Build rows
     const rows: ConsensusRow[] = [];
@@ -283,7 +303,9 @@ export async function generateConsensusMatrix(
     for (let i = 0; i < samplePoints.length; i++) {
         const pt = samplePoints[i];
         const blockTime = new Date(depTime.getTime() + pt.hoursFromDep * 3600000);
-        const timeLabel = blockTime.toLocaleDateString('en-AU', { weekday: 'short' }) + ' ' +
+        const timeLabel =
+            blockTime.toLocaleDateString('en-AU', { weekday: 'short' }) +
+            ' ' +
             blockTime.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
 
         // Get models — live or fallback
@@ -295,17 +317,16 @@ export async function generateConsensusMatrix(
         if (models.length === 0) continue;
 
         // Find outlier
-        const maxModel = models.reduce((max, m) => m.windKts > max.windKts ? m : max, models[0]);
+        const maxModel = models.reduce((max, m) => (m.windKts > max.windKts ? m : max), models[0]);
         maxModel.isOutlier = true;
 
-        const winds = models.map(m => m.windKts);
+        const winds = models.map((m) => m.windKts);
         const spreadKts = Math.round((Math.max(...winds) - Math.min(...winds)) * 10) / 10;
-        const confidence: 'high' | 'medium' | 'low' =
-            spreadKts < 5 ? 'high' : spreadKts < 12 ? 'medium' : 'low';
+        const confidence: 'high' | 'medium' | 'low' = spreadKts < 5 ? 'high' : spreadKts < 12 ? 'medium' : 'low';
 
         let exceedsComfort = false;
         if (comfortParams) {
-            exceedsComfort = models.some(m => {
+            exceedsComfort = models.some((m) => {
                 if (comfortParams.maxWindKts !== undefined && m.windKts > comfortParams.maxWindKts) return true;
                 if (comfortParams.maxGustKts !== undefined && m.gustKts > comfortParams.maxGustKts) return true;
                 return false;
@@ -313,17 +334,24 @@ export async function generateConsensusMatrix(
         }
 
         rows.push({
-            timeLabel, timestamp: blockTime.toISOString(),
-            hoursFromDep: pt.hoursFromDep, lat: pt.lat, lon: pt.lon,
-            distanceNM: pt.distanceNM, models, spreadKts, confidence, exceedsComfort,
+            timeLabel,
+            timestamp: blockTime.toISOString(),
+            hoursFromDep: pt.hoursFromDep,
+            lat: pt.lat,
+            lon: pt.lon,
+            distanceNM: pt.distanceNM,
+            models,
+            spreadKts,
+            confidence,
+            exceedsComfort,
             worstCase: { model: maxModel.model, windKts: maxModel.windKts, gustKts: maxModel.gustKts },
         });
     }
 
     const avgSpread = rows.length > 0 ? rows.reduce((s, r) => s + r.spreadKts, 0) / rows.length : 0;
     const modelsUsed = liveData
-        ? [...new Set([...liveData.values()].flat().map(m => m.model))]
-        : FALLBACK_MODELS.map(m => m.label);
+        ? [...new Set([...liveData.values()].flat().map((m) => m.model))]
+        : FALLBACK_MODELS.map((m) => m.label);
 
     return {
         rows,
@@ -332,9 +360,9 @@ export async function generateConsensusMatrix(
         dataSource,
         summary: {
             avgSpreadKts: Math.round(avgSpread * 10) / 10,
-            maxSpreadKts: rows.length > 0 ? Math.round(Math.max(...rows.map(r => r.spreadKts)) * 10) / 10 : 0,
-            lowConfidenceCount: rows.filter(r => r.confidence === 'low').length,
-            comfortBreachCount: rows.filter(r => r.exceedsComfort).length,
+            maxSpreadKts: rows.length > 0 ? Math.round(Math.max(...rows.map((r) => r.spreadKts)) * 10) / 10 : 0,
+            lowConfidenceCount: rows.filter((r) => r.confidence === 'low').length,
+            comfortBreachCount: rows.filter((r) => r.exceedsComfort).length,
         },
     };
 }

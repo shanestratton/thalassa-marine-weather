@@ -1,9 +1,9 @@
 /**
  * PinService — Saved pins with Supabase persistence
- * 
+ *
  * Personal pin history: every pin you drop (in chat or log page) is
  * saved here so you can quickly re-share favourite spots.
- * 
+ *
  * Table: saved_pins
  */
 
@@ -17,7 +17,7 @@ export interface SavedPin {
     latitude: number;
     longitude: number;
     caption: string;
-    category: string;      // e.g. 'pin_scenic', 'pin_food', 'pin_repairs', 'general'
+    category: string; // e.g. 'pin_scenic', 'pin_food', 'pin_repairs', 'general'
     region?: string;
     created_at: string;
 }
@@ -27,7 +27,6 @@ const TABLE = 'saved_pins';
 // --- SERVICE ---
 
 class PinServiceClass {
-
     /**
      * Save a pin to the user's personal history.
      */
@@ -40,7 +39,9 @@ class PinServiceClass {
     }): Promise<SavedPin | null> {
         if (!supabase) return null;
 
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return null;
 
         const { data, error } = await supabase
@@ -68,7 +69,9 @@ class PinServiceClass {
     async getMyPins(limit = 20): Promise<SavedPin[]> {
         if (!supabase) return [];
 
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return [];
 
         const { data, error } = await supabase
@@ -90,10 +93,7 @@ class PinServiceClass {
     async deletePin(pinId: string): Promise<boolean> {
         if (!supabase) return false;
 
-        const { error } = await supabase
-            .from(TABLE)
-            .delete()
-            .eq('id', pinId);
+        const { error } = await supabase.from(TABLE).delete().eq('id', pinId);
 
         return !error;
     }

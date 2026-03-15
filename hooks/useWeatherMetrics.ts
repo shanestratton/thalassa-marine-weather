@@ -25,7 +25,7 @@ export const useWeatherMetrics = ({
     current,
     forecast,
     activeDay,
-    dynamicHeaderMetrics
+    dynamicHeaderMetrics,
 }: UseWeatherMetricsParams): UseWeatherMetricsResult => {
     const [activeDayData, setActiveDayData] = useState<WeatherMetrics>(current);
     const [activeHour, setActiveHour] = useState(0);
@@ -34,7 +34,7 @@ export const useWeatherMetrics = ({
     const hourlyMap = useMemo(() => {
         if (!hourly) return new Map<number, HourlyForecast>();
         const map = new Map<number, HourlyForecast>();
-        hourly.forEach(h => {
+        hourly.forEach((h) => {
             const time = new Date(h.time).getTime();
             map.set(time, h);
         });
@@ -57,7 +57,7 @@ export const useWeatherMetrics = ({
 
             // If exact match fails, try nearby times (within 30min window)
             if (!matchedHourly && hourly) {
-                matchedHourly = hourly.find(h => {
+                matchedHourly = hourly.find((h) => {
                     const hTime = new Date(h.time).getTime();
                     return Math.abs(hTime - selectedTime) < 1800000;
                 });
@@ -70,7 +70,8 @@ export const useWeatherMetrics = ({
                 const selectedHour = selectedDate.getHours();
 
                 // Get day data
-                const dayData = activeDay === 0 ? current : forecast?.find(f => f.isoDate === selectedDateStr) || current;
+                const dayData =
+                    activeDay === 0 ? current : forecast?.find((f) => f.isoDate === selectedDateStr) || current;
 
                 // Batch state updates
                 setActiveDayData({
@@ -82,12 +83,10 @@ export const useWeatherMetrics = ({
                     sunrise: 'sunrise' in dayData ? dayData.sunrise : undefined,
                     sunset: 'sunset' in dayData ? dayData.sunset : undefined,
                     highTemp: 'highTemp' in dayData ? dayData.highTemp : undefined,
-                    lowTemp: 'lowTemp' in dayData ? dayData.lowTemp : undefined
+                    lowTemp: 'lowTemp' in dayData ? dayData.lowTemp : undefined,
                 } as WeatherMetrics);
 
-                const hourOffset = activeDay === 0
-                    ? selectedHour - new Date().getHours()
-                    : selectedHour;
+                const hourOffset = activeDay === 0 ? selectedHour - new Date().getHours() : selectedHour;
                 setActiveHour(hourOffset);
             }
         }
@@ -95,6 +94,6 @@ export const useWeatherMetrics = ({
 
     return {
         activeDayData,
-        activeHour
+        activeHour,
     };
 };

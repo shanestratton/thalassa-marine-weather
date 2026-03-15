@@ -26,20 +26,20 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
         const hour = i;
         const windSpeed = 12 + Math.sin(i / 4) * 8; // Mock oscillating wind
         const waveHeight = 1.5 + Math.sin(i / 6) * 1; // Mock oscillating waves
-        const isDay = (hour % 24) >= 6 && (hour % 24) < 18; // Rough day/night
+        const isDay = hour % 24 >= 6 && hour % 24 < 18; // Rough day/night
 
         return {
             hour,
             time: `T+${hour}`,
             windSpeed: Math.max(0, windSpeed),
             waveHeight: Math.max(0, waveHeight),
-            isDay
+            isDay,
         };
     });
 
     // Calculate max values for scaling
-    const maxWind = Math.max(...timelineData.map(d => d.windSpeed));
-    const maxWave = Math.max(...timelineData.map(d => d.waveHeight));
+    const maxWind = Math.max(...timelineData.map((d) => d.windSpeed));
+    const maxWave = Math.max(...timelineData.map((d) => d.waveHeight));
 
     // Waypoint positions (as percentage of total duration)
     const waypointPositions = voyagePlan.waypoints.map((wp, idx) => {
@@ -73,8 +73,9 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
                         {timelineData.map((data, i) => (
                             <div
                                 key={i}
-                                className={`flex-1 transition-colors ${data.isDay ? 'bg-amber-500/5' : 'bg-sky-900/20'
-                                    }`}
+                                className={`flex-1 transition-colors ${
+                                    data.isDay ? 'bg-amber-500/5' : 'bg-sky-900/20'
+                                }`}
                                 style={{ borderRight: '1px solid rgba(255,255,255,0.02)' }}
                             />
                         ))}
@@ -85,10 +86,7 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
                         {timelineData.map((data, i) => {
                             const heightPercent = (data.windSpeed / maxWind) * 60; // 60% of container
                             return (
-                                <div
-                                    key={i}
-                                    className="flex-1 relative group cursor-pointer"
-                                >
+                                <div key={i} className="flex-1 relative group cursor-pointer">
                                     <div
                                         className="w-full bg-gradient-to-t from-sky-500/40 to-sky-400/60 rounded-t transition-all hover:from-sky-500/60 hover:to-sky-400/80"
                                         style={{ height: `${heightPercent}%` }}
@@ -97,7 +95,9 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
                                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
                                             <div className="bg-slate-800 ${t.border.strong} rounded-lg px-3 py-2 text-sm whitespace-nowrap shadow-xl">
                                                 <div className="font-bold text-white mb-1">{data.time}</div>
-                                                <div className="text-sky-300">Wind: {data.windSpeed.toFixed(1)} kts</div>
+                                                <div className="text-sky-300">
+                                                    Wind: {data.windSpeed.toFixed(1)} kts
+                                                </div>
                                                 <div className="text-sky-300">Wave: {data.waveHeight.toFixed(1)} m</div>
                                             </div>
                                         </div>
@@ -110,11 +110,13 @@ export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, ve
                     {/* Wave Height Line */}
                     <svg className="absolute inset-0 pointer-events-none" preserveAspectRatio="none">
                         <polyline
-                            points={timelineData.map((data, i) => {
-                                const x = (i / (timelineData.length - 1)) * 100;
-                                const y = 100 - (data.waveHeight / maxWave) * 40; // 40% of container (top portion)
-                                return `${x},${y}`;
-                            }).join(' ')}
+                            points={timelineData
+                                .map((data, i) => {
+                                    const x = (i / (timelineData.length - 1)) * 100;
+                                    const y = 100 - (data.waveHeight / maxWave) * 40; // 40% of container (top portion)
+                                    return `${x},${y}`;
+                                })
+                                .join(' ')}
                             fill="none"
                             stroke="rgba(59, 130, 246, 0.8)"
                             strokeWidth="2"

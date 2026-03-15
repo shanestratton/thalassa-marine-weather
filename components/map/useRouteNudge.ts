@@ -20,11 +20,7 @@ import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('useRouteNudge');
 
-export function useRouteNudge(
-    mapRef: MutableRefObject<mapboxgl.Map | null>,
-    mapReady: boolean,
-    showPassage: boolean,
-) {
+export function useRouteNudge(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean, showPassage: boolean) {
     const nudgeMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
     useEffect(() => {
@@ -122,11 +118,12 @@ export function useRouteNudge(
             // ── Live penalty tooltip during drag ──
             // Haversine for quick distance calc (NM)
             const R_NM = 3440.065;
-            const toRad = (d: number) => d * Math.PI / 180;
+            const toRad = (d: number) => (d * Math.PI) / 180;
             const haversineNm = (la1: number, lo1: number, la2: number, lo2: number) => {
-                const dLat = toRad(la2 - la1), dLon = toRad(lo2 - lo1);
-                const a = Math.sin(dLat / 2) ** 2 +
-                    Math.cos(toRad(la1)) * Math.cos(toRad(la2)) * Math.sin(dLon / 2) ** 2;
+                const dLat = toRad(la2 - la1),
+                    dLon = toRad(lo2 - lo1);
+                const a =
+                    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(la1)) * Math.cos(toRad(la2)) * Math.sin(dLon / 2) ** 2;
                 return R_NM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
             };
 
@@ -165,9 +162,11 @@ export function useRouteNudge(
                 log.info(`[Nudge] Via-point set: ${newLat.toFixed(4)}, ${newLng.toFixed(4)}`);
 
                 // Dispatch event for usePassagePlanner to handle
-                window.dispatchEvent(new CustomEvent('thalassa:route-nudge', {
-                    detail: { lat: newLat, lon: newLng },
-                }));
+                window.dispatchEvent(
+                    new CustomEvent('thalassa:route-nudge', {
+                        detail: { lat: newLat, lon: newLng },
+                    }),
+                );
 
                 // Remove marker after brief delay (route will recompute)
                 setTimeout(() => {
@@ -193,8 +192,12 @@ export function useRouteNudge(
         }
 
         // Change cursor on hover
-        const handleRouteEnter = () => { map.getCanvas().style.cursor = 'grab'; };
-        const handleRouteLeave = () => { map.getCanvas().style.cursor = ''; };
+        const handleRouteEnter = () => {
+            map.getCanvas().style.cursor = 'grab';
+        };
+        const handleRouteLeave = () => {
+            map.getCanvas().style.cursor = '';
+        };
         if (map.getLayer('route-line-layer')) {
             map.on('mouseenter', 'route-line-layer', handleRouteEnter);
             map.on('mouseleave', 'route-line-layer', handleRouteLeave);
@@ -214,12 +217,14 @@ export function useRouteNudge(
                     map.off('touchstart', layerId, handleRouteTouchStart as any);
                     map.off('touchend', layerId, cancelRoutePress as any);
                     map.off('touchmove', layerId, cancelRoutePress as any);
-                } catch (_) { /* layer removed */ }
+                } catch (_) {
+                    /* layer removed */
+                }
             }
             try {
                 map.off('mouseenter', 'route-line-layer', handleRouteEnter);
                 map.off('mouseleave', 'route-line-layer', handleRouteLeave);
-            } catch (_) { }
+            } catch (_) {}
         };
     }, [mapReady, showPassage]);
 }

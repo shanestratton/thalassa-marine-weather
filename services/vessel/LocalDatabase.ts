@@ -18,21 +18,21 @@ import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 export type MutationType = 'INSERT' | 'UPDATE' | 'DELETE';
 
 export interface SyncQueueItem {
-    id: string;                    // UUID for the queue entry itself
-    table_name: string;            // 'inventory_items' | 'maintenance_tasks' | 'maintenance_history'
-    record_id: string;             // UUID of the actual record
+    id: string; // UUID for the queue entry itself
+    table_name: string; // 'inventory_items' | 'maintenance_tasks' | 'maintenance_history'
+    record_id: string; // UUID of the actual record
     mutation_type: MutationType;
-    payload: string;               // JSON-stringified row data
-    created_at: string;            // ISO timestamp
+    payload: string; // JSON-stringified row data
+    created_at: string; // ISO timestamp
     status: 'pending' | 'syncing' | 'failed';
     retry_count: number;
     error_message?: string;
 }
 
 export interface SyncMeta {
-    lastPullTimestamp: string | null;   // ISO timestamp of last successful pull
-    lastPushTimestamp: string | null;   // ISO timestamp of last successful push
-    deviceId: string;                  // Unique device identifier
+    lastPullTimestamp: string | null; // ISO timestamp of last successful pull
+    lastPushTimestamp: string | null; // ISO timestamp of last successful push
+    deviceId: string; // Unique device identifier
 }
 
 // ── File paths ─────────────────────────────────────────────────
@@ -67,7 +67,7 @@ async function readJsonFile<T>(filename: string, fallback: T): Promise<T> {
             directory: Directory.Documents,
         });
 
-        const exists = result.files.some(f => {
+        const exists = result.files.some((f) => {
             const name = typeof f === 'string' ? f : f.name;
             return name === filename;
         });
@@ -163,10 +163,7 @@ export function query<T>(tableName: string, predicate: (item: T) => boolean): T[
 /**
  * Insert a record locally + queue for sync.
  */
-export async function insertLocal<T extends { id: string }>(
-    tableName: string,
-    record: T,
-): Promise<T> {
+export async function insertLocal<T extends { id: string }>(tableName: string, record: T): Promise<T> {
     ensureInit();
     if (!cache[tableName]) cache[tableName] = {};
 
@@ -211,10 +208,7 @@ export async function updateLocal<T extends { id: string; updated_at?: string }>
 /**
  * Delete a record locally + queue for sync.
  */
-export async function deleteLocal(
-    tableName: string,
-    id: string,
-): Promise<void> {
+export async function deleteLocal(tableName: string, id: string): Promise<void> {
     ensureInit();
     if (!cache[tableName]?.[id]) return;
 
@@ -226,10 +220,7 @@ export async function deleteLocal(
 /**
  * Bulk upsert records (used by sync pull — does NOT queue for push).
  */
-export async function bulkUpsert<T extends { id: string }>(
-    tableName: string,
-    records: T[],
-): Promise<void> {
+export async function bulkUpsert<T extends { id: string }>(tableName: string, records: T[]): Promise<void> {
     ensureInit();
     if (!cache[tableName]) cache[tableName] = {};
 
@@ -243,10 +234,7 @@ export async function bulkUpsert<T extends { id: string }>(
 /**
  * Bulk delete records by IDs (used by sync — does NOT queue).
  */
-export async function bulkDelete(
-    tableName: string,
-    ids: string[],
-): Promise<void> {
+export async function bulkDelete(tableName: string, ids: string[]): Promise<void> {
     ensureInit();
     for (const id of ids) {
         delete cache[tableName]?.[id];
@@ -270,7 +258,7 @@ async function enqueueSync(
     // Deduplicate: if there's already a pending mutation for this record,
     // replace it (latest mutation wins within the queue)
     const existingIdx = syncQueueCache.findIndex(
-        q => q.record_id === recordId && q.table_name === tableName && q.status === 'pending'
+        (q) => q.record_id === recordId && q.table_name === tableName && q.status === 'pending',
     );
 
     const item: SyncQueueItem = {
@@ -303,7 +291,7 @@ async function enqueueSync(
  * Get all pending items from the sync queue.
  */
 export function getPendingQueue(): SyncQueueItem[] {
-    return (syncQueueCache || []).filter(q => q.status === 'pending');
+    return (syncQueueCache || []).filter((q) => q.status === 'pending');
 }
 
 /**
@@ -331,7 +319,7 @@ export async function markSyncing(ids: string[]): Promise<void> {
  */
 export async function removeSynced(ids: string[]): Promise<void> {
     if (!syncQueueCache) return;
-    syncQueueCache = syncQueueCache.filter(q => !ids.includes(q.id));
+    syncQueueCache = syncQueueCache.filter((q) => !ids.includes(q.id));
     await flushSyncQueue();
 }
 
@@ -396,7 +384,7 @@ async function flushSyncQueue(): Promise<void> {
 // ── Utilities ──────────────────────────────────────────────────
 
 function generateUUID(): string {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
         const r = (Math.random() * 16) | 0;
         return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
     });

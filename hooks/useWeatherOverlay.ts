@@ -1,4 +1,3 @@
-
 import { useEffect, useRef, MutableRefObject } from 'react';
 import { ParticleEngine } from '../components/ParticleEngine';
 import { WeatherMetrics } from '../types';
@@ -8,29 +7,29 @@ export const useWeatherOverlay = (
     mapInstance: MutableRefObject<any>,
     activeLayer: 'wind' | 'waves' | 'rain' | 'global-wind',
     metrics: WeatherMetrics,
-    showWeather: boolean
+    showWeather: boolean,
 ) => {
     const engineRef = useRef<ParticleEngine | null>(null);
 
     // Weather Sampling Functions
     const sampleWeatherData = (targetLat: number, targetLon: number, type: string): number | null => {
         const noise = Math.sin(targetLat * 3) * Math.cos(targetLon * 3);
-        if (type === 'wind') return Math.max(0.1, (metrics.windSpeed || 0) + (noise * 4));
+        if (type === 'wind') return Math.max(0.1, (metrics.windSpeed || 0) + noise * 4);
         if (type === 'waves') {
             if (metrics.isEstimated || (metrics.waveHeight || 0) < 0.2) return 0;
-            return Math.max(0.1, (metrics.waveHeight || 0) + (noise * 0.5));
+            return Math.max(0.1, (metrics.waveHeight || 0) + noise * 0.5);
         }
         if (type === 'rain') {
             if (!metrics.precipitation && !metrics.condition.toLowerCase().includes('rain')) return 0;
             const baseRain = metrics.precipitation || 2.0;
             const rainCluster = Math.sin(targetLat * 10 + targetLon * 10) + Math.cos(targetLat * 5);
-            return rainCluster > 0 ? baseRain + (noise) : 0;
+            return rainCluster > 0 ? baseRain + noise : 0;
         }
         return 0;
     };
 
     const sampleDirection = (lat: number, lon: number) => {
-        const baseDir = (metrics.windDegree ?? 0);
+        const baseDir = metrics.windDegree ?? 0;
         const variation = Math.sin(lat * 2 + lon * 2) * 20;
         return (baseDir + variation + 360) % 360;
     };
@@ -73,18 +72,19 @@ export const useWeatherOverlay = (
             // Initial Sizing
             handleResize();
 
-            engineRef.current = new ParticleEngine(
-                canvas,
-                map,
-                sampleWeatherData,
-                sampleDirection
-            );
+            engineRef.current = new ParticleEngine(canvas, map, sampleWeatherData, sampleDirection);
             engineRef.current.start();
         }
 
         // Map Events for Engine Sync
-        const handleMoveStart = () => { engineRef.current?.setFastMode(false); engineRef.current?.wake(); };
-        const handleZoomStart = () => { engineRef.current?.setFastMode(true); engineRef.current?.wake(); };
+        const handleMoveStart = () => {
+            engineRef.current?.setFastMode(false);
+            engineRef.current?.wake();
+        };
+        const handleZoomStart = () => {
+            engineRef.current?.setFastMode(true);
+            engineRef.current?.wake();
+        };
         const handleZoomEnd = () => {
             engineRef.current?.setFastMode(false);
             engineRef.current?.sync();

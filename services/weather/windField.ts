@@ -23,8 +23,8 @@ export interface WindGrid {
     /** Scalar speed (m/s) per hour: [hour][row][col] */
     speed: Float32Array[];
     /** Grid coordinates */
-    width: number;   // columns
-    height: number;  // rows
+    width: number; // columns
+    height: number; // rows
     lats: number[];
     lons: number[];
     /** Bounds */
@@ -47,7 +47,7 @@ export async function fetchWindGrid(
     south: number,
     west: number,
     east: number,
-    zoom: number
+    zoom: number,
 ): Promise<WindGrid | null> {
     try {
         const res = zoom > 6 ? 0.5 : 1.0;
@@ -82,8 +82,8 @@ export async function fetchWindGrid(
             }
         }
 
-        const multiLats = points.map(p => p.lat).join(',');
-        const multiLons = points.map(p => p.lon).join(',');
+        const multiLats = points.map((p) => p.lat).join(',');
+        const multiLons = points.map((p) => p.lon).join(',');
 
         // Use commercial API (required — no free fallback for App Store compliance)
         const omKey = getOpenMeteoKey();
@@ -96,8 +96,8 @@ export async function fetchWindGrid(
         const data = await response.json();
         const results = Array.isArray(data) ? data : [data];
 
-        const uniqueLats = [...new Set(points.map(p => p.lat))].sort((a, b) => a - b);
-        const uniqueLons = [...new Set(points.map(p => p.lon))].sort((a, b) => a - b);
+        const uniqueLats = [...new Set(points.map((p) => p.lat))].sort((a, b) => a - b);
+        const uniqueLons = [...new Set(points.map((p) => p.lon))].sort((a, b) => a - b);
 
         const rows = uniqueLats.length;
         const cols = uniqueLons.length;
@@ -124,7 +124,7 @@ export async function fetchWindGrid(
 
                     // km/h → m/s
                     const speedMs = speedKmh / 3.6;
-                    const dirRad = dirDeg * Math.PI / 180;
+                    const dirRad = (dirDeg * Math.PI) / 180;
 
                     // Meteorological: direction is where wind comes FROM
                     // U = eastward component, V = northward component (direction wind blows TO)
@@ -199,7 +199,7 @@ export function encodeWindTexture(grid: WindGrid, hour: number): Uint8Array {
 
 // ── Global Wind Grid ──────────────────────────────────────────────
 
-const GLOBAL_GRID_HOURS = 24;  // Fewer hours for global (keeps response small)
+const GLOBAL_GRID_HOURS = 24; // Fewer hours for global (keeps response small)
 const GLOBAL_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 let globalCache: { grid: WindGrid; fetchedAt: number } | null = null;
@@ -232,10 +232,8 @@ export async function fetchGlobalWindField(): Promise<WindGrid | null> {
 async function _doFetchGlobal(): Promise<WindGrid | null> {
     try {
         // Use the NOAA GRIB edge function for dense global coverage (1° grid)
-        const supabaseUrl =
-            (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-        const supabaseKey =
-            (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+        const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+        const supabaseKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
 
         if (!supabaseUrl) {
             return _doFetchGlobalOpenMeteo();
@@ -243,7 +241,6 @@ async function _doFetchGlobal(): Promise<WindGrid | null> {
 
         const url = `${supabaseUrl}/functions/v1/fetch-wind-grid`;
         const body = { north: 90, south: -90, east: 180, west: -180 };
-
 
         const resp = await fetch(url, {
             method: 'POST',
@@ -298,7 +295,6 @@ async function _doFetchGlobalOpenMeteo(): Promise<WindGrid | null> {
             }
         }
 
-
         const BATCH_SIZE = 50;
         const allResults: any[] = new Array(allPoints.length).fill(null);
 
@@ -317,8 +313,8 @@ async function _doFetchGlobalOpenMeteo(): Promise<WindGrid | null> {
             const chunk = batches.slice(b, b + CONCURRENCY);
             const promises = chunk.map(async ({ start, end }) => {
                 const batchPoints = allPoints.slice(start, end);
-                const latParam = batchPoints.map(p => p.lat).join(',');
-                const lonParam = batchPoints.map(p => p.lon).join(',');
+                const latParam = batchPoints.map((p) => p.lat).join(',');
+                const lonParam = batchPoints.map((p) => p.lon).join(',');
 
                 const url = `${baseUrl}?latitude=${latParam}&longitude=${lonParam}&hourly=wind_speed_10m,wind_direction_10m&forecast_hours=${GLOBAL_GRID_HOURS}&timezone=auto${keyParam}`;
 
@@ -338,12 +334,12 @@ async function _doFetchGlobalOpenMeteo(): Promise<WindGrid | null> {
             await Promise.all(promises);
         }
 
-        const validCount = allResults.filter(r => r?.hourly).length;
+        const validCount = allResults.filter((r) => r?.hourly).length;
         if (validCount < allPoints.length * 0.5) {
             return null;
         }
 
-        const firstValid = allResults.find(r => r?.hourly?.wind_speed_10m);
+        const firstValid = allResults.find((r) => r?.hourly?.wind_speed_10m);
         const totalHours = firstValid?.hourly?.wind_speed_10m?.length ?? GLOBAL_GRID_HOURS;
 
         const uGrids: Float32Array[] = [];
@@ -364,7 +360,7 @@ async function _doFetchGlobalOpenMeteo(): Promise<WindGrid | null> {
                     const dirDeg = hourly?.wind_direction_10m?.[h] ?? 0;
 
                     const speedMs = speedKmh / 3.6;
-                    const dirRad = dirDeg * Math.PI / 180;
+                    const dirRad = (dirDeg * Math.PI) / 180;
 
                     const u = -speedMs * Math.sin(dirRad);
                     const v = -speedMs * Math.cos(dirRad);

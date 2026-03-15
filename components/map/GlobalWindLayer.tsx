@@ -1,9 +1,9 @@
 /**
  * Global Wind Layer
- * 
+ *
  * Renders a real-time global wind heat map with isobar contour lines
  * using data from the Open-Meteo free API.
- * 
+ *
  * Features:
  * - Wind speed heat map (Beaufort-scale color gradient)
  * - Wind direction arrows at grid points
@@ -13,11 +13,7 @@
  */
 import React, { useEffect, useRef, useCallback } from 'react';
 import L from 'leaflet';
-import {
-    fetchGlobalWindGrid,
-    interpolateAtPoint,
-    WindGridData,
-} from '../../services/weather/api/globalWind';
+import { fetchGlobalWindGrid, interpolateAtPoint, WindGridData } from '../../services/weather/api/globalWind';
 
 interface GlobalWindLayerProps {
     map: L.Map | null;
@@ -26,17 +22,17 @@ interface GlobalWindLayerProps {
 
 // Beaufort-inspired wind speed color scale (knots)
 const WIND_COLORS: [number, [number, number, number]][] = [
-    [0, [40, 80, 160]],     // Calm: deep blue
-    [5, [30, 140, 200]],    // Light: sky blue
-    [10, [50, 190, 160]],    // Gentle: teal
-    [15, [80, 200, 80]],     // Moderate: green
-    [20, [180, 200, 40]],    // Fresh: yellow-green
-    [25, [240, 200, 0]],     // Strong: yellow
-    [30, [240, 140, 0]],     // Near Gale: orange
-    [35, [220, 60, 20]],     // Gale: red-orange
-    [40, [180, 20, 40]],     // Strong Gale: red
-    [50, [140, 0, 80]],      // Storm: dark magenta
-    [65, [100, 0, 120]],     // Violent Storm: purple
+    [0, [40, 80, 160]], // Calm: deep blue
+    [5, [30, 140, 200]], // Light: sky blue
+    [10, [50, 190, 160]], // Gentle: teal
+    [15, [80, 200, 80]], // Moderate: green
+    [20, [180, 200, 40]], // Fresh: yellow-green
+    [25, [240, 200, 0]], // Strong: yellow
+    [30, [240, 140, 0]], // Near Gale: orange
+    [35, [220, 60, 20]], // Gale: red-orange
+    [40, [180, 20, 40]], // Strong Gale: red
+    [50, [140, 0, 80]], // Storm: dark magenta
+    [65, [100, 0, 120]], // Violent Storm: purple
 ];
 
 function getWindColor(speed: number): [number, number, number] {
@@ -227,7 +223,7 @@ export const GlobalWindLayer: React.FC<GlobalWindLayerProps> = ({ map, visible }
 
                     // Interpolation helper
                     const lerp = (a: number, b: number, va: number, vb: number) =>
-                        a + (pLevel - va) / (vb - va) * (b - a);
+                        a + ((pLevel - va) / (vb - va)) * (b - a);
 
                     // Edge midpoints (interpolated)
                     const top = () => L.latLng(lat0, lerp(lon0, lon1, v00, v10));
@@ -239,13 +235,35 @@ export const GlobalWindLayer: React.FC<GlobalWindLayerProps> = ({ map, visible }
                     const addSeg = (a: L.LatLng, b: L.LatLng) => segments.push([a, b]);
 
                     switch (caseIdx) {
-                        case 1: case 14: addSeg(top(), left()); break;
-                        case 2: case 13: addSeg(top(), right()); break;
-                        case 3: case 12: addSeg(left(), right()); break;
-                        case 4: case 11: addSeg(left(), bot()); break;
-                        case 5: case 10: addSeg(top(), left()); addSeg(bot(), right()); break;
-                        case 6: case 9: addSeg(top(), bot()); break;
-                        case 7: case 8: addSeg(bot(), right()); break;
+                        case 1:
+                        case 14:
+                            addSeg(top(), left());
+                            break;
+                        case 2:
+                        case 13:
+                            addSeg(top(), right());
+                            break;
+                        case 3:
+                        case 12:
+                            addSeg(left(), right());
+                            break;
+                        case 4:
+                        case 11:
+                            addSeg(left(), bot());
+                            break;
+                        case 5:
+                        case 10:
+                            addSeg(top(), left());
+                            addSeg(bot(), right());
+                            break;
+                        case 6:
+                        case 9:
+                            addSeg(top(), bot());
+                            break;
+                        case 7:
+                        case 8:
+                            addSeg(bot(), right());
+                            break;
                     }
                 }
             }
@@ -300,11 +318,13 @@ export const GlobalWindLayer: React.FC<GlobalWindLayerProps> = ({ map, visible }
                 const p = pressureGrid[r][c];
 
                 // Check if it's a local max/min in a 5x5 neighborhood
-                let isMax = true, isMin = true;
+                let isMax = true,
+                    isMin = true;
                 for (let dr = -2; dr <= 2 && (isMax || isMin); dr++) {
                     for (let dc = -2; dc <= 2 && (isMax || isMin); dc++) {
                         if (dr === 0 && dc === 0) continue;
-                        const nr = r + dr, nc = c + dc;
+                        const nr = r + dr,
+                            nc = c + dc;
                         if (nr < 0 || nr > gridRes || nc < 0 || nc > gridRes) continue;
                         const np = pressureGrid[nr]?.[nc];
                         if (np === undefined) continue;
@@ -397,7 +417,7 @@ export const GlobalWindLayer: React.FC<GlobalWindLayerProps> = ({ map, visible }
             bounds.getSouth(),
             bounds.getNorth(),
             bounds.getWest(),
-            bounds.getEast()
+            bounds.getEast(),
         );
 
         if (data) {

@@ -51,7 +51,7 @@ interface MarinaExit {
     centroid_lon: number;
     nearest_channel: string;
     channel_dist_m: number;
-    channel_waypoints?: [number, number][];  // pre-computed [lon, lat]
+    channel_waypoints?: [number, number][]; // pre-computed [lon, lat]
     channel_name?: string;
 }
 
@@ -66,7 +66,7 @@ async function loadZones(): Promise<{ features: WaterwayZone[] }> {
         const resp = await fetch('/data/waterway_zones.geojson');
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         zonesData = await resp.json();
-        const marinas = zonesData!.features.filter(f => f.properties.zone_type === 'marina').length;
+        const marinas = zonesData!.features.filter((f) => f.properties.zone_type === 'marina').length;
         return zonesData!;
     } catch (err) {
         console.error('[Orchestrator] Failed to load zones:', err);
@@ -80,7 +80,10 @@ async function loadMarinaExits(): Promise<Record<string, MarinaExit>> {
         const resp = await fetch('/data/marina_exits.json');
         if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
         marinaExits = await resp.json();
-        const withChannel = Object.values(marinaExits!).filter(e => e.channel_waypoints && e.channel_waypoints.length > 0).length;        return marinaExits!;
+        const withChannel = Object.values(marinaExits!).filter(
+            (e) => e.channel_waypoints && e.channel_waypoints.length > 0,
+        ).length;
+        return marinaExits!;
     } catch (err) {
         console.error('[Orchestrator] Failed to load marina exits:', err);
         return {};
@@ -90,7 +93,7 @@ async function loadMarinaExits(): Promise<Record<string, MarinaExit>> {
 // ── Geometry helpers ───────────────────────────────────────────────
 
 function fastDistM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const dx = (lon2 - lon1) * Math.cos(((lat1 + lat2) / 2) * Math.PI / 180) * 111320;
+    const dx = (lon2 - lon1) * Math.cos((((lat1 + lat2) / 2) * Math.PI) / 180) * 111320;
     const dy = (lat2 - lat1) * 111320;
     return Math.sqrt(dx * dx + dy * dy);
 }
@@ -105,9 +108,7 @@ function totalDistanceNM(coords: [number, number][]): number {
 
 // ── Zone detection ─────────────────────────────────────────────────
 
-function findContainingMarina(
-    lon: number, lat: number, zones: WaterwayZone[]
-): WaterwayZone | null {
+function findContainingMarina(lon: number, lat: number, zones: WaterwayZone[]): WaterwayZone | null {
     const pt = turf.point([lon, lat]);
     for (const zone of zones) {
         if (zone.properties.zone_type === 'marina' && zone.geometry.type === 'Polygon') {
@@ -115,14 +116,19 @@ function findContainingMarina(
                 if (turf.booleanPointInPolygon(pt, zone as any)) {
                     return zone;
                 }
-            } catch (e) { console.warn('[RouteOrchestrator] skip:', e); }
+            } catch (e) {
+                console.warn('[RouteOrchestrator] skip:', e);
+            }
         }
     }
     return null;
 }
 
 function findNearestMarina(
-    lon: number, lat: number, zones: WaterwayZone[], maxDistM: number = 500
+    lon: number,
+    lat: number,
+    zones: WaterwayZone[],
+    maxDistM: number = 500,
 ): WaterwayZone | null {
     let best: { zone: WaterwayZone; dist: number } | null = null;
     for (const zone of zones) {
@@ -184,9 +190,11 @@ export async function orchestrateRoute(
         routeCoords.push([originLon, originLat]);
         for (let i = 1; i < graphResult.coords.length - 1; i++) {
             routeCoords.push(graphResult.coords[i]);
-        }    } else {
+        }
+    } else {
         // A* failed — straight line from origin
-        routeCoords.push([originLon, originLat]);    }
+        routeCoords.push([originLon, originLat]);
+    }
 
     // Phase 2: Exit WP (canal mouth)
     routeCoords.push([exit.exit_lon, exit.exit_lat]);
@@ -206,9 +214,7 @@ export async function orchestrateRoute(
 
     const totalNM = totalDistanceNM(routeCoords);
     const computeMs = performance.now() - t0;
-    const engines = graphResult && graphResult.snapDistM < 500
-        ? ['canal_astar', 'channel_follow']
-        : ['marina_exit'];
+    const engines = graphResult && graphResult.snapDistM < 500 ? ['canal_astar', 'channel_follow'] : ['marina_exit'];
 
     const geojson: GeoJSON.Feature<GeoJSON.LineString> = {
         type: 'Feature',
@@ -229,11 +235,13 @@ export async function orchestrateRoute(
         computeMs: Math.round(computeMs),
         engines,
         waypointCount: routeCoords.length,
-        segments: [{
-            engine: engines.join('+'),
-            coordinates: routeCoords,
-            distanceNM: totalNM,
-        }],
+        segments: [
+            {
+                engine: engines.join('+'),
+                coordinates: routeCoords,
+                distanceNM: totalNM,
+            },
+        ],
         geojson,
     };
 }

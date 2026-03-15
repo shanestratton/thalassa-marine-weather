@@ -52,11 +52,10 @@ interface BathymetricResponse {
 // ── Service ───────────────────────────────────────────────────────
 
 const getSupabaseUrl = (): string =>
-    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL)
-    || 'https://pcisdplnodrphauixcau.supabase.co';
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
+    'https://pcisdplnodrphauixcau.supabase.co';
 
-const getSupabaseKey = (): string =>
-    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+const getSupabaseKey = (): string => (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
 
 /**
  * Fetch bathymetric-safe waypoints using the client-side Route Orchestrator.
@@ -75,12 +74,13 @@ export async function fetchBathymetricRoute(
     region?: string,
 ): Promise<BathymetricResponse | null> {
     try {
-
         const { orchestrateRoute } = await import('./RouteOrchestrator');
 
         const result = await orchestrateRoute(
-            origin.lat, origin.lon,
-            destination.lat, destination.lon,
+            origin.lat,
+            origin.lon,
+            destination.lat,
+            destination.lon,
             vesselDraft,
             region || 'se_queensland',
         );
@@ -109,7 +109,6 @@ export async function fetchBathymetricRoute(
         };
 
         return response;
-
     } catch (err) {
         console.error('[BathyRouter] Orchestrator error:', err);
         return null;
@@ -124,10 +123,7 @@ export async function fetchBathymetricRoute(
  * - Store the full GeoJSON for direct Mapbox rendering
  * - The trafficGeoJSON provides traffic-light colored segments
  */
-export function mergeBathymetricRoute(
-    voyagePlan: VoyagePlan,
-    bathyRoute: BathymetricResponse,
-): VoyagePlan {
+export function mergeBathymetricRoute(voyagePlan: VoyagePlan, bathyRoute: BathymetricResponse): VoyagePlan {
     const merged = { ...voyagePlan };
 
     // ── Build exit route waypoints ──
@@ -142,9 +138,7 @@ export function mergeBathymetricRoute(
     // The exit route gets the boat from marina/canal to open water.
     // AI waypoints that are BEYOND the exit point continue to the destination.
     const aiWaypoints = voyagePlan.waypoints || [];
-    const exitEnd = exitWaypoints.length > 0
-        ? exitWaypoints[exitWaypoints.length - 1].coordinates
-        : null;
+    const exitEnd = exitWaypoints.length > 0 ? exitWaypoints[exitWaypoints.length - 1].coordinates : null;
 
     // Find AI waypoints that are beyond the exit route endpoint
     // (i.e., closer to the destination than the exit end)
@@ -157,16 +151,10 @@ export function mergeBathymetricRoute(
             const destLat = destWP.coordinates.lat;
             const destLon = destWP.coordinates.lon;
 
-            aiAfterExit = aiWaypoints.filter(wp => {
+            aiAfterExit = aiWaypoints.filter((wp) => {
                 if (!wp.coordinates) return false;
-                const distToExit = Math.hypot(
-                    wp.coordinates.lat - exitEnd.lat,
-                    wp.coordinates.lon - exitEnd.lon,
-                );
-                const distToDest = Math.hypot(
-                    wp.coordinates.lat - destLat,
-                    wp.coordinates.lon - destLon,
-                );
+                const distToExit = Math.hypot(wp.coordinates.lat - exitEnd.lat, wp.coordinates.lon - exitEnd.lon);
+                const distToDest = Math.hypot(wp.coordinates.lat - destLat, wp.coordinates.lon - destLon);
                 // Keep waypoints that are closer to destination than to exit point
                 return distToDest < distToExit;
             });
@@ -183,7 +171,6 @@ export function mergeBathymetricRoute(
 
     // Combine: exit route + AI waypoints beyond exit
     merged.waypoints = [...exitWaypoints, ...aiAfterExit];
-
 
     // ── Store the full GeoJSON from the edge function ──
     // This is the key fix: the geojson has ALL graph waypoints

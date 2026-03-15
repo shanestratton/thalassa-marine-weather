@@ -95,7 +95,7 @@ function getMoonPhase(date: Date): { phase: string; emoji: string } {
         { phase: 'Full', emoji: '🌕' },
         { phase: 'Waning Gibbous', emoji: '🌖' },
         { phase: 'Last Quarter', emoji: '🌗' },
-        { phase: 'Waning Crescent', emoji: '🌘' }
+        { phase: 'Waning Crescent', emoji: '🌘' },
     ];
 
     return phases[phaseIndex];

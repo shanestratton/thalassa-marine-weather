@@ -28,12 +28,7 @@ const GRIB_MAGIC = 0x47524942; // "GRIB" in big-endian
 
 // ── Bit extraction helper ─────────────────────────────────────
 
-function extractBits(
-    data: DataView,
-    byteOffset: number,
-    totalBits: number,
-    bitsPerValue: number,
-): number[] {
+function extractBits(data: DataView, byteOffset: number, totalBits: number, bitsPerValue: number): number[] {
     const count = Math.floor(totalBits / bitsPerValue);
     const values: number[] = new Array(count);
     const mask = (1 << bitsPerValue) - 1;
@@ -63,8 +58,7 @@ function extractBits(
             }
             // Read final partial byte
             if (bitsRemaining > 0) {
-                value = (value << bitsRemaining) |
-                    (data.getUint8(nextByte) >> (8 - bitsRemaining));
+                value = (value << bitsRemaining) | (data.getUint8(nextByte) >> (8 - bitsRemaining));
             }
         }
 
@@ -106,7 +100,10 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Mes
 
     let width = 0;
     let height = 0;
-    let lat1 = 0, lat2 = 0, lon1 = 0, lon2 = 0;
+    let lat1 = 0,
+        lat2 = 0,
+        lon1 = 0,
+        lon2 = 0;
     let refValue = 0;
     let binaryScale = 0;
     let decimalScale = 0;
@@ -119,8 +116,10 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Mes
     while (pos < endOfMessage - 4) {
         // Check for "7777" end marker
         if (
-            view.getUint8(pos) === 0x37 && view.getUint8(pos + 1) === 0x37 &&
-            view.getUint8(pos + 2) === 0x37 && view.getUint8(pos + 3) === 0x37
+            view.getUint8(pos) === 0x37 &&
+            view.getUint8(pos + 1) === 0x37 &&
+            view.getUint8(pos + 2) === 0x37 &&
+            view.getUint8(pos + 3) === 0x37
         ) {
             break;
         }
@@ -147,9 +146,9 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Mes
                 // Bit 31 = sign (1 = negative), bits 0-30 = magnitude in microdegrees
                 const readSignMag = (byteOff: number): number => {
                     const raw = view.getUint32(byteOff, false);
-                    const sign = (raw & 0x80000000) ? -1 : 1;
-                    const mag = raw & 0x7FFFFFFF;
-                    return sign * mag / 1e6;
+                    const sign = raw & 0x80000000 ? -1 : 1;
+                    const mag = raw & 0x7fffffff;
+                    return (sign * mag) / 1e6;
                 };
 
                 // Octets 47-50: La1, 51-54: Lo1 (microdegrees)
@@ -175,10 +174,10 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Mes
                     lon2 = lo2Raw;
                 } else {
                     // Infer from grid dimensions: assume symmetric global grid if La1=90°
-                    const dLat = (width > 1 && height > 1) ? 180.0 / (height - 1) : 1.0;
-                    const dLon = (width > 1) ? 360.0 / width : 1.0;
-                    lat2 = la2Valid ? la2Raw : (lat1 - (height - 1) * dLat);
-                    lon2 = lo2Valid ? lo2Raw : (lon1 + (width - 1) * dLon);
+                    const dLat = width > 1 && height > 1 ? 180.0 / (height - 1) : 1.0;
+                    const dLon = width > 1 ? 360.0 / width : 1.0;
+                    lat2 = la2Valid ? la2Raw : lat1 - (height - 1) * dLat;
+                    lon2 = lo2Valid ? lo2Raw : lon1 + (width - 1) * dLon;
                 }
 
                 console.debug(`[GRIB2] Grid ${width}×${height}: La1=${lat1}° Lo1=${lon1}° La2=${lat2}° Lo2=${lon2}°`);
@@ -250,9 +249,7 @@ export function decodeGrib2Wind(buffer: ArrayBuffer): DecodedGrib2Wind {
     const { msg: msgV } = parseGrib2Message(buffer, nextOffset);
 
     if (msgU.width !== msgV.width || msgU.height !== msgV.height) {
-        throw new Error(
-            `Grid dimension mismatch: U=${msgU.width}×${msgU.height} V=${msgV.width}×${msgV.height}`,
-        );
+        throw new Error(`Grid dimension mismatch: U=${msgU.width}×${msgU.height} V=${msgV.width}×${msgV.height}`);
     }
 
     // Convert NOAA 0-360 longitudes back to -180..180
@@ -262,7 +259,7 @@ export function decodeGrib2Wind(buffer: ArrayBuffer): DecodedGrib2Wind {
     const lonSpan = lonMax - lonMin;
     const isFullGlobe = lonSpan >= 359;
 
-    const normLon = (lon: number) => lon > 180 ? lon - 360 : lon;
+    const normLon = (lon: number) => (lon > 180 ? lon - 360 : lon);
 
     let uData = msgU.data;
     let vData = msgV.data;
@@ -370,7 +367,7 @@ export function decodeGrib2WindMultiHour(buffer: ArrayBuffer): WindGrid {
     const lonMax = Math.max(msgU0.lon1, msgU0.lon2);
     const lonSpan = lonMax - lonMin;
     const isFullGlobe = lonSpan >= 359;
-    const normLon = (lon: number) => lon > 180 ? lon - 360 : lon;
+    const normLon = (lon: number) => (lon > 180 ? lon - 360 : lon);
     const needsFlip = msgU0.lat1 > msgU0.lat2;
 
     for (let hr = 0; hr < numHours; hr++) {
@@ -432,7 +429,9 @@ export function decodeGrib2WindMultiHour(buffer: ArrayBuffer): WindGrid {
     for (let r = 0; r < h; r++) lats.push(south + r * dy);
     for (let c = 0; c < w; c++) lons.push(westDeg + c * dx);
 
-    console.info(`[GRIB2-Wind] Decoded ${numHours} forecast hours, ${w}×${h}, bounds=[${south.toFixed(1)},${north.toFixed(1)}]×[${westDeg.toFixed(1)},${eastDeg.toFixed(1)}]`);
+    console.info(
+        `[GRIB2-Wind] Decoded ${numHours} forecast hours, ${w}×${h}, bounds=[${south.toFixed(1)},${north.toFixed(1)}]×[${westDeg.toFixed(1)},${eastDeg.toFixed(1)}]`,
+    );
 
     return {
         u: uArrays,
@@ -449,4 +448,3 @@ export function decodeGrib2WindMultiHour(buffer: ArrayBuffer): WindGrid {
         totalHours: numHours,
     };
 }
-

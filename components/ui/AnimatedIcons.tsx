@@ -12,7 +12,7 @@
  * All animations are triggered via CSS classes with animation-fill-mode: both
  * so they play once on mount and settle.
  */
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 
 // ── All keyframes moved to index.css to prevent CSSOM thrashing ──
 // Classes: .anim-icon, .anim-wind, .anim-rain-1/2/3, .anim-sun-core,
@@ -26,7 +26,15 @@ interface AnimatedIconProps {
 // ANIMATED WIND ICON
 // ═══════════════════════════════════════════
 export const AnimatedWindIcon: React.FC<AnimatedIconProps> = ({ className = 'w-5 h-5' }) => (
-    <svg className={`${className} anim-icon`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+    <svg
+        className={`${className} anim-icon`}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+    >
         <g className="anim-wind">
             <path d="M17.7 7.7A2.5 2.5 0 0 1 17 12H3" />
             <path d="M9.6 4.6A2 2 0 0 1 11 8H3" />
@@ -39,7 +47,14 @@ export const AnimatedWindIcon: React.FC<AnimatedIconProps> = ({ className = 'w-5
 // ANIMATED RAIN ICON
 // ═══════════════════════════════════════════
 export const AnimatedRainIcon: React.FC<AnimatedIconProps> = ({ className = 'w-5 h-5' }) => (
-    <svg className={`${className} anim-icon`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round">
+    <svg
+        className={`${className} anim-icon`}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+    >
         {/* Cloud */}
         <g className="anim-cloud">
             <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242" />
@@ -55,7 +70,14 @@ export const AnimatedRainIcon: React.FC<AnimatedIconProps> = ({ className = 'w-5
 // ANIMATED SUN ICON
 // ═══════════════════════════════════════════
 export const AnimatedSunIcon: React.FC<AnimatedIconProps> = ({ className = 'w-5 h-5' }) => (
-    <svg className={`${className} anim-icon`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round">
+    <svg
+        className={`${className} anim-icon`}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+    >
         {/* Core */}
         <circle cx="12" cy="12" r="4" className="anim-sun-core" />
         {/* Rays */}
@@ -76,7 +98,14 @@ export const AnimatedSunIcon: React.FC<AnimatedIconProps> = ({ className = 'w-5 
 // ANIMATED WAVE ICON
 // ═══════════════════════════════════════════
 export const AnimatedWaveIcon: React.FC<AnimatedIconProps> = ({ className = 'w-5 h-5' }) => (
-    <svg className={`${className} anim-icon`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round">
+    <svg
+        className={`${className} anim-icon`}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+    >
         <g className="anim-wave">
             <path d="M2 12c1.5-2 3.5-2 5 0s3.5 2 5 0 3.5-2 5 0 3.5 2 5 0" />
         </g>
@@ -93,7 +122,14 @@ export const AnimatedWaveIcon: React.FC<AnimatedIconProps> = ({ className = 'w-5
 // ANIMATED CLOUD ICON
 // ═══════════════════════════════════════════
 export const AnimatedCloudIcon: React.FC<AnimatedIconProps> = ({ className = 'w-5 h-5' }) => (
-    <svg className={`${className} anim-icon`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round">
+    <svg
+        className={`${className} anim-icon`}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+    >
         <g className="anim-cloud">
             <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z" />
         </g>
@@ -104,10 +140,23 @@ export const AnimatedCloudIcon: React.FC<AnimatedIconProps> = ({ className = 'w-
 // ANIMATED COMPASS ICON (wobble on mount)
 // ═══════════════════════════════════════════
 export const AnimatedCompassIcon: React.FC<AnimatedIconProps> = ({ className = 'w-5 h-5' }) => (
-    <svg className={`${className} anim-icon`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round">
+    <svg
+        className={`${className} anim-icon`}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+    >
         <circle cx="12" cy="12" r="10" />
         <g className="anim-compass">
-            <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88" fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="1" />
+            <polygon
+                points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88"
+                fill="currentColor"
+                fillOpacity="0.3"
+                stroke="currentColor"
+                strokeWidth="1"
+            />
         </g>
     </svg>
 );
@@ -116,7 +165,14 @@ export const AnimatedCompassIcon: React.FC<AnimatedIconProps> = ({ className = '
 // ANIMATED THERMOMETER ICON
 // ═══════════════════════════════════════════
 export const AnimatedThermometerIcon: React.FC<AnimatedIconProps> = ({ className = 'w-5 h-5' }) => (
-    <svg className={`${className} anim-icon`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round">
+    <svg
+        className={`${className} anim-icon`}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.5}
+        strokeLinecap="round"
+    >
         <path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z" />
         <circle cx="11.5" cy="17.5" r="1.5" className="anim-sun-core" fill="currentColor" fillOpacity="0.4" />
     </svg>

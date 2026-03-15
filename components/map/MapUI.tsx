@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { WindIcon, RainIcon, CompassIcon, BoatIcon, XIcon } from '../Icons';
 import { fetchStopDetails } from '../../services/geminiService';
-import { Waypoint, StopDetails, ObservationStation } from '../../types';
+import { Waypoint, StopDetails } from '../../types';
 
 export type MapLayer = 'wind' | 'rain' | 'global-wind' | 'velocity';
 
@@ -104,11 +103,15 @@ export const MapLegend = ({ layer }: { layer: MapLayer }) => {
                     <div className="border-t border-white/10 my-2"></div>
                     <div className="text-[11px] text-gray-400 mb-1">Pressure</div>
                     <div className="flex items-center gap-3 text-xs text-white font-mono">
-                        <span className="w-4 h-4 rounded-full border-2 border-red-500 flex items-center justify-center text-[11px] font-bold text-red-500">H</span>
+                        <span className="w-4 h-4 rounded-full border-2 border-red-500 flex items-center justify-center text-[11px] font-bold text-red-500">
+                            H
+                        </span>
                         <span className="text-gray-300">High</span>
                     </div>
                     <div className="flex items-center gap-3 text-xs text-white font-mono">
-                        <span className="w-4 h-4 rounded-full border-2 border-sky-500 flex items-center justify-center text-[11px] font-bold text-sky-500">L</span>
+                        <span className="w-4 h-4 rounded-full border-2 border-sky-500 flex items-center justify-center text-[11px] font-bold text-sky-500">
+                            L
+                        </span>
                         <span className="text-gray-300">Low</span>
                     </div>
                 </div>
@@ -118,20 +121,25 @@ export const MapLegend = ({ layer }: { layer: MapLayer }) => {
     return null;
 };
 
-export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint, onClose: () => void }) => {
+export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint; onClose: () => void }) => {
     const [details, setDetails] = useState<StopDetails | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         setLoading(true);
-        fetchStopDetails(waypoint.name).then(res => {
-            setDetails(res);
-            setLoading(false);
-        }).catch(() => setLoading(false));
+        fetchStopDetails(waypoint.name)
+            .then((res) => {
+                setDetails(res);
+                setLoading(false);
+            })
+            .catch(() => setLoading(false));
     }, [waypoint.name]);
 
     return (
-        <div className="absolute inset-0 z-[1100] flex items-center justify-center p-4 bg-black/60 animate-in fade-in duration-300" onClick={onClose}>
+        <div
+            className="absolute inset-0 z-[1100] flex items-center justify-center p-4 bg-black/60 animate-in fade-in duration-300"
+            onClick={onClose}
+        >
             <div
                 className="w-full max-w-md bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden relative flex flex-col max-h-[80vh]"
                 onClick={(e) => e.stopPropagation()}
@@ -140,16 +148,28 @@ export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint, onCl
                     {details && (
                         <div
                             className="absolute inset-0 bg-cover bg-center opacity-60"
-                            style={{ backgroundImage: `url(https://source.unsplash.com/featured/?marina,sea,${encodeURIComponent(details.imageKeyword || waypoint.name)})` }}
+                            style={{
+                                backgroundImage: `url(https://source.unsplash.com/featured/?marina,sea,${encodeURIComponent(details.imageKeyword || waypoint.name)})`,
+                            }}
                         ></div>
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] to-transparent"></div>
-                    <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black/30 hover:bg-black/50 rounded-full text-white transition-colors">
+                    <button
+                        onClick={onClose}
+                        className="absolute top-4 right-4 p-2 bg-black/30 hover:bg-black/50 rounded-full text-white transition-colors"
+                    >
                         <XIcon className="w-5 h-5" />
                     </button>
                     <div className="absolute bottom-4 left-6">
-                        <h2 className="text-2xl font-bold text-white shadow-black drop-shadow-md leading-tight">{waypoint.name}</h2>
-                        {waypoint.coordinates && <p className="text-xs text-sky-300 font-mono drop-shadow-md">{waypoint.coordinates.lat.toFixed(3)}°N, {Math.abs(waypoint.coordinates.lon).toFixed(3)}°W</p>}
+                        <h2 className="text-2xl font-bold text-white shadow-black drop-shadow-md leading-tight">
+                            {waypoint.name}
+                        </h2>
+                        {waypoint.coordinates && (
+                            <p className="text-xs text-sky-300 font-mono drop-shadow-md">
+                                {waypoint.coordinates.lat.toFixed(3)}°N, {Math.abs(waypoint.coordinates.lon).toFixed(3)}
+                                °W
+                            </p>
+                        )}
                     </div>
                 </div>
 
@@ -179,9 +199,18 @@ export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint, onCl
                                     <BoatIcon className="w-4 h-4 text-sky-400" /> Facilities
                                 </h4>
                                 <div className="flex flex-wrap gap-2">
-                                    {details.fuelAvailable && <span className="px-2 py-1 rounded bg-amber-500/10 text-amber-300 text-[11px] font-bold border border-amber-500/20">FUEL DOCK</span>}
+                                    {details.fuelAvailable && (
+                                        <span className="px-2 py-1 rounded bg-amber-500/10 text-amber-300 text-[11px] font-bold border border-amber-500/20">
+                                            FUEL DOCK
+                                        </span>
+                                    )}
                                     {details.marinaFacilities?.slice(0, 6).map((f, i) => (
-                                        <span key={i} className="px-2 py-1 rounded bg-white/5 text-gray-300 text-[11px] font-medium border border-white/10">{f}</span>
+                                        <span
+                                            key={i}
+                                            className="px-2 py-1 rounded bg-white/5 text-gray-300 text-[11px] font-medium border border-white/10"
+                                        >
+                                            {f}
+                                        </span>
                                     ))}
                                 </div>
                             </div>

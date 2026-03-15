@@ -1,6 +1,6 @@
 /**
  * SIMPLIFIED INTEGRATION APPROACH
- * 
+ *
  * Rather than refactoring the entire complex WeatherContext flow,
  * we'll create a lightweight wrapper that:
  * 1. Fetches beacon data when available
@@ -9,7 +9,7 @@
 
 import { MarineWeatherReport, SourcedWeatherMetrics, MetricSource } from '../types';
 import { findAndFetchNearestBeacon } from './weather/api/beaconService';
-import { mergeWeatherData, generateSourceReport } from './weather/api/dataSourceMerger';
+import { mergeWeatherData } from './weather/api/dataSourceMerger';
 
 /** Debug state shape for the THALASSA_DEBUG global */
 interface ThalassaDebug {
@@ -29,7 +29,7 @@ declare global {
 window.THALASSA_DEBUG = {
     beacon: null,
     sources: null,
-    lastUpdate: null
+    lastUpdate: null,
 };
 
 /**
@@ -37,9 +37,8 @@ window.THALASSA_DEBUG = {
  */
 export async function enhanceWithBeaconData(
     report: MarineWeatherReport,
-    coords: { lat: number, lon: number }
+    coords: { lat: number; lon: number },
 ): Promise<MarineWeatherReport> {
-
     const debug = window.THALASSA_DEBUG;
 
     try {
@@ -56,7 +55,7 @@ export async function enhanceWithBeaconData(
         const mergedReport = mergeWeatherData(beacon, report, {
             lat: coords.lat,
             lon: coords.lon,
-            name: report.locationName || 'Unknown'
+            name: report.locationName || 'Unknown',
         });
 
         // Update debug state
@@ -67,7 +66,6 @@ export async function enhanceWithBeaconData(
         }
 
         return mergedReport;
-
     } catch (error) {
         debug.error = String(error);
         return report;

@@ -45,9 +45,9 @@ interface RawAccumulator {
 
 class NmeaListenerServiceClass {
     // ── Transport state ──
-    private ws: WebSocket | null = null;         // WebSocket (browser dev)
-    private tcpClientId: number | null = null;    // Native TCP client ID
-    private tcpReadLoop = false;                  // Whether TCP read loop is active
+    private ws: WebSocket | null = null; // WebSocket (browser dev)
+    private tcpClientId: number | null = null; // Native TCP client ID
+    private tcpReadLoop = false; // Whether TCP read loop is active
 
     private status: NmeaConnectionStatus = 'disconnected';
     private host = DEFAULT_HOST;
@@ -101,22 +101,46 @@ class NmeaListenerServiceClass {
         this.reconnectAttempts = 0;
         this.lastError = null;
         this.stopSampleTimer();
-        if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
         // Disconnect active transport
-        if (this.ws) { this.ws.close(); this.ws = null; }
+        if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+        }
         this.disconnectTcp();
         this.setStatus('disconnected');
     }
 
-    getStatus(): NmeaConnectionStatus { return this.status; }
-    getHasRpmData(): boolean { return this.hasRpmData; }
-    getReconnectAttempts(): number { return this.reconnectAttempts; }
-    isReconnecting(): boolean { return this.enabled && this.reconnectAttempts > 0 && this.status !== 'connected'; }
-    getLastError(): string | null { return this.lastError; }
-    isEnabled(): boolean { return this.enabled; }
+    getStatus(): NmeaConnectionStatus {
+        return this.status;
+    }
+    getHasRpmData(): boolean {
+        return this.hasRpmData;
+    }
+    getReconnectAttempts(): number {
+        return this.reconnectAttempts;
+    }
+    isReconnecting(): boolean {
+        return this.enabled && this.reconnectAttempts > 0 && this.status !== 'connected';
+    }
+    getLastError(): string | null {
+        return this.lastError;
+    }
+    isEnabled(): boolean {
+        return this.enabled;
+    }
 
-    onSample(cb: NmeaSampleCallback) { this.listeners.add(cb); return () => this.listeners.delete(cb); }
-    onStatusChange(cb: (s: NmeaConnectionStatus) => void) { this.statusListeners.add(cb); return () => this.statusListeners.delete(cb); }
+    onSample(cb: NmeaSampleCallback) {
+        this.listeners.add(cb);
+        return () => this.listeners.delete(cb);
+    }
+    onStatusChange(cb: (s: NmeaConnectionStatus) => void) {
+        this.statusListeners.add(cb);
+        return () => this.statusListeners.delete(cb);
+    }
 
     // ── Connection ──
 
@@ -281,7 +305,7 @@ class NmeaListenerServiceClass {
         if (!this.enabled || this.reconnectTimer) return;
 
         // Give up after 5 minutes of continuous failed attempts
-        if (this.firstAttemptTime && (Date.now() - this.firstAttemptTime) > RECONNECT_GIVE_UP_MS) {
+        if (this.firstAttemptTime && Date.now() - this.firstAttemptTime > RECONNECT_GIVE_UP_MS) {
             console.log('[NmeaListener] Giving up after 5 minutes of failed reconnects');
             this.stop();
             return;
@@ -309,18 +333,42 @@ class NmeaListenerServiceClass {
         const type = parts[0]?.slice(3); // Remove $XX prefix
 
         switch (type) {
-            case 'MWV': this.parseMWV(parts); break;  // Wind
-            case 'VHW': this.parseVHW(parts); break;  // Water speed
-            case 'HDT': this.parseHDT(parts); break;  // True heading
-            case 'HDG': this.parseHDG(parts); break;  // Magnetic heading
-            case 'HDM': this.parseHDG(parts); break;  // Magnetic heading (alt)
-            case 'RPM': this.parseRPM(parts); break;  // Engine RPM
-            case 'XDR': this.parseXDR(parts); break;  // Transducers (voltage)
-            case 'DBT': this.parseDBT(parts); break;  // Depth below transducer
-            case 'DPT': this.parseDPT(parts); break;  // Depth
-            case 'RMC': this.parseRMC(parts); break;  // GPS fix (SOG/COG + position)
-            case 'GGA': this.parseGGA(parts); break;  // GPS fix quality + HDOP + satellites
-            case 'MTW': this.parseMTW(parts); break;  // Water temperature
+            case 'MWV':
+                this.parseMWV(parts);
+                break; // Wind
+            case 'VHW':
+                this.parseVHW(parts);
+                break; // Water speed
+            case 'HDT':
+                this.parseHDT(parts);
+                break; // True heading
+            case 'HDG':
+                this.parseHDG(parts);
+                break; // Magnetic heading
+            case 'HDM':
+                this.parseHDG(parts);
+                break; // Magnetic heading (alt)
+            case 'RPM':
+                this.parseRPM(parts);
+                break; // Engine RPM
+            case 'XDR':
+                this.parseXDR(parts);
+                break; // Transducers (voltage)
+            case 'DBT':
+                this.parseDBT(parts);
+                break; // Depth below transducer
+            case 'DPT':
+                this.parseDPT(parts);
+                break; // Depth
+            case 'RMC':
+                this.parseRMC(parts);
+                break; // GPS fix (SOG/COG + position)
+            case 'GGA':
+                this.parseGGA(parts);
+                break; // GPS fix quality + HDOP + satellites
+            case 'MTW':
+                this.parseMTW(parts);
+                break; // Water temperature
         }
     }
 
@@ -385,7 +433,11 @@ class NmeaListenerServiceClass {
             const type = parts[i];
             const value = parseFloat(parts[i + 1]);
             const name = parts[i + 3]?.toLowerCase() || '';
-            if (type === 'V' && !isNaN(value) && (name.includes('batt') || name.includes('volt') || name.includes('alt'))) {
+            if (
+                type === 'V' &&
+                !isNaN(value) &&
+                (name.includes('batt') || name.includes('volt') || name.includes('alt'))
+            ) {
                 this.accumulator.voltage.push(value);
             }
         }
@@ -460,7 +512,10 @@ class NmeaListenerServiceClass {
     }
 
     private stopSampleTimer() {
-        if (this.sampleTimer) { clearInterval(this.sampleTimer); this.sampleTimer = null; }
+        if (this.sampleTimer) {
+            clearInterval(this.sampleTimer);
+            this.sampleTimer = null;
+        }
     }
 
     private emitSample() {
@@ -499,9 +554,21 @@ class NmeaListenerServiceClass {
 
     private freshAccumulator(): RawAccumulator {
         return {
-            tws: [], twa: [], stw: [], heading: [], rpm: [], voltage: [],
-            depth: [], sog: [], cog: [], waterTemp: [],
-            latitude: null, longitude: null, hdop: null, satellites: null, gpsFixQuality: null,
+            tws: [],
+            twa: [],
+            stw: [],
+            heading: [],
+            rpm: [],
+            voltage: [],
+            depth: [],
+            sog: [],
+            cog: [],
+            waterTemp: [],
+            latitude: null,
+            longitude: null,
+            hdop: null,
+            satellites: null,
+            gpsFixQuality: null,
         };
     }
 }

@@ -27,7 +27,12 @@ function drawCompassRose(pdf: JsPDFType, cx: number, cy: number, r: number, opac
         const a = (i * Math.PI * 2) / 8 - Math.PI / 2 + angle;
         const inner = r * 0.25;
         const outer = i % 2 === 0 ? r * 0.9 : r * 0.55;
-        pdf.line(cx + Math.cos(a) * inner, cy + Math.sin(a) * inner, cx + Math.cos(a) * outer, cy + Math.sin(a) * outer);
+        pdf.line(
+            cx + Math.cos(a) * inner,
+            cy + Math.sin(a) * inner,
+            cx + Math.cos(a) * outer,
+            cy + Math.sin(a) * outer,
+        );
         if (i % 2 === 0) {
             const tip = { x: cx + Math.cos(a) * outer, y: cy + Math.sin(a) * outer };
             const al = r * 0.12;
@@ -38,7 +43,12 @@ function drawCompassRose(pdf: JsPDFType, cx: number, cy: number, r: number, opac
 
     for (let i = 0; i < 16; i++) {
         const ta = (i * Math.PI * 2) / 16 - Math.PI / 2 + angle;
-        pdf.line(cx + Math.cos(ta) * r * 0.82, cy + Math.sin(ta) * r * 0.82, cx + Math.cos(ta) * r * 0.74, cy + Math.sin(ta) * r * 0.74);
+        pdf.line(
+            cx + Math.cos(ta) * r * 0.82,
+            cy + Math.sin(ta) * r * 0.82,
+            cx + Math.cos(ta) * r * 0.74,
+            cy + Math.sin(ta) * r * 0.74,
+        );
     }
 
     pdf.setFontSize(9);
@@ -46,10 +56,14 @@ function drawCompassRose(pdf: JsPDFType, cx: number, cy: number, r: number, opac
     pdf.setFont('helvetica', 'bold');
     const d = r + 5;
     const rot = (x: number, y: number) => {
-        const cos = Math.cos(angle), sin = Math.sin(angle);
+        const cos = Math.cos(angle),
+            sin = Math.sin(angle);
         return { x: cx + (x - cx) * cos - (y - cy) * sin, y: cy + (x - cx) * sin + (y - cy) * cos };
     };
-    const n = rot(cx, cy - d), s = rot(cx, cy + d), e = rot(cx + d, cy), w = rot(cx - d, cy);
+    const n = rot(cx, cy - d),
+        s = rot(cx, cy + d),
+        e = rot(cx + d, cy),
+        w = rot(cx - d, cy);
     pdf.text('N', n.x, n.y + 2, { align: 'center' });
     pdf.text('S', s.x, s.y + 2, { align: 'center' });
     pdf.text('E', e.x, e.y + 2, { align: 'center' });
@@ -61,7 +75,14 @@ function drawCompassRose(pdf: JsPDFType, cx: number, cy: number, r: number, opac
 }
 
 // ─── Helper: wrapped text ────────────────────────────────────────────────────
-function drawWrappedText(pdf: JsPDFType, text: string, x: number, y: number, maxWidth: number, lineHeight: number): number {
+function drawWrappedText(
+    pdf: JsPDFType,
+    text: string,
+    x: number,
+    y: number,
+    maxWidth: number,
+    lineHeight: number,
+): number {
     const lines = pdf.splitTextToSize(text, maxWidth);
     lines.forEach((line: string, i: number) => {
         pdf.text(line, x, y + i * lineHeight);
@@ -113,7 +134,9 @@ function checkPage(pdf: JsPDFType, y: number, needed: number, pageHeight: number
 async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions): Promise<JsPDFType> {
     const { jsPDF } = await import('jspdf');
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-    const W = 210, H = 297, M = 15;
+    const W = 210,
+        H = 297,
+        M = 15;
     const CW = W - M * 2;
     const isSail = vessel.type === 'sail';
 
@@ -133,7 +156,9 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
     const crew = vessel.crewCount || 2;
 
     const currentDate = new Date().toLocaleDateString('en-AU', {
-        year: 'numeric', month: 'long', day: 'numeric'
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
     });
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -164,7 +189,9 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
 
     // Vessel + Date
     pdf.setFontSize(10);
-    pdf.text(`${vessel.name} (${vessel.type.toUpperCase()}) | ${crew} crew | ${currentDate}`, W / 2, 44, { align: 'center' });
+    pdf.text(`${vessel.name} (${vessel.type.toUpperCase()}) | ${crew} crew | ${currentDate}`, W / 2, 44, {
+        align: 'center',
+    });
 
     // Compass rose watermark
     drawCompassRose(pdf, 35, H - 40, 28);
@@ -172,7 +199,8 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
     let y = 68;
 
     // ─── VOYAGE SUMMARY BOXES ────────────────────────────────────────────
-    const bH = 18, gap = 3;
+    const bH = 18,
+        gap = 3;
     const bW = (CW - gap * 3) / 4;
 
     drawInfoBox(pdf, 'Distance', voyagePlan.distanceApprox || '--', M, y, bW, bH);
@@ -182,9 +210,13 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
     const suitStatus = voyagePlan.suitability?.status || '--';
     drawInfoBox(pdf, 'Suitability', suitStatus, M + (bW + gap) * 3, y, bW, bH);
     // Color the suitability value
-    if (suitStatus === 'SAFE') { pdf.setTextColor(22, 163, 74); }
-    else if (suitStatus === 'CAUTION') { pdf.setTextColor(217, 119, 6); }
-    else if (suitStatus === 'UNSAFE') { pdf.setTextColor(220, 38, 38); }
+    if (suitStatus === 'SAFE') {
+        pdf.setTextColor(22, 163, 74);
+    } else if (suitStatus === 'CAUTION') {
+        pdf.setTextColor(217, 119, 6);
+    } else if (suitStatus === 'UNSAFE') {
+        pdf.setTextColor(220, 38, 38);
+    }
 
     y += bH + 6;
 
@@ -193,10 +225,26 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
     const halfW = (CW - gap) / 2;
 
     drawInfoBox(pdf, 'Departure', origin, M, y, halfW, bH);
-    drawInfoBox(pdf, 'Position', fmtCoord(voyagePlan.originCoordinates?.lat, voyagePlan.originCoordinates?.lon) || '--', M, y + bH + 2, halfW, bH);
+    drawInfoBox(
+        pdf,
+        'Position',
+        fmtCoord(voyagePlan.originCoordinates?.lat, voyagePlan.originCoordinates?.lon) || '--',
+        M,
+        y + bH + 2,
+        halfW,
+        bH,
+    );
 
     drawInfoBox(pdf, 'Arrival', dest, M + halfW + gap, y, halfW, bH);
-    drawInfoBox(pdf, 'Position', fmtCoord(voyagePlan.destinationCoordinates?.lat, voyagePlan.destinationCoordinates?.lon) || '--', M + halfW + gap, y + bH + 2, halfW, bH);
+    drawInfoBox(
+        pdf,
+        'Position',
+        fmtCoord(voyagePlan.destinationCoordinates?.lat, voyagePlan.destinationCoordinates?.lon) || '--',
+        M + halfW + gap,
+        y + bH + 2,
+        halfW,
+        bH,
+    );
 
     y += bH * 2 + 8;
 
@@ -213,8 +261,24 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
         if (voyagePlan.suitability.maxWindEncountered || voyagePlan.suitability.maxWaveEncountered) {
             const thirdW = (CW - gap * 2) / 3;
             drawInfoBox(pdf, 'Max Wind', `${voyagePlan.suitability.maxWindEncountered ?? '--'} kts`, M, y, thirdW, bH);
-            drawInfoBox(pdf, 'Max Seas', `${voyagePlan.suitability.maxWaveEncountered ?? '--'} ft`, M + thirdW + gap, y, thirdW, bH);
-            drawInfoBox(pdf, 'Vessel Limits', `${vessel.maxWindSpeed || '--'} kts / ${vessel.maxWaveHeight || '--'} ft`, M + (thirdW + gap) * 2, y, thirdW, bH);
+            drawInfoBox(
+                pdf,
+                'Max Seas',
+                `${voyagePlan.suitability.maxWaveEncountered ?? '--'} ft`,
+                M + thirdW + gap,
+                y,
+                thirdW,
+                bH,
+            );
+            drawInfoBox(
+                pdf,
+                'Vessel Limits',
+                `${vessel.maxWindSpeed || '--'} kts / ${vessel.maxWaveHeight || '--'} ft`,
+                M + (thirdW + gap) * 2,
+                y,
+                thirdW,
+                bH,
+            );
             y += bH + 6;
         }
     }
@@ -249,18 +313,37 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
     // ROUTE CHART (Mapbox Static Image — matches logbook PDF style)
     // ═══════════════════════════════════════════════════════════════════════
     const chartWaypoints: { lat: number; lon: number; name: string; depth_m?: number }[] = [];
-    if (voyagePlan.originCoordinates) chartWaypoints.push({ lat: voyagePlan.originCoordinates.lat, lon: voyagePlan.originCoordinates.lon, name: origin });
+    if (voyagePlan.originCoordinates)
+        chartWaypoints.push({
+            lat: voyagePlan.originCoordinates.lat,
+            lon: voyagePlan.originCoordinates.lon,
+            name: origin,
+        });
     voyagePlan.waypoints.forEach((wp, i) => {
-        if (wp.coordinates) chartWaypoints.push({ lat: wp.coordinates.lat, lon: wp.coordinates.lon, name: wp.name || `WP-${String(i + 1).padStart(2, '0')}`, depth_m: wp.depth_m });
+        if (wp.coordinates)
+            chartWaypoints.push({
+                lat: wp.coordinates.lat,
+                lon: wp.coordinates.lon,
+                name: wp.name || `WP-${String(i + 1).padStart(2, '0')}`,
+                depth_m: wp.depth_m,
+            });
     });
-    if (voyagePlan.destinationCoordinates) chartWaypoints.push({ lat: voyagePlan.destinationCoordinates.lat, lon: voyagePlan.destinationCoordinates.lon, name: dest });
+    if (voyagePlan.destinationCoordinates)
+        chartWaypoints.push({
+            lat: voyagePlan.destinationCoordinates.lat,
+            lon: voyagePlan.destinationCoordinates.lon,
+            name: dest,
+        });
 
     if (chartWaypoints.length >= 2) {
         const chartH = 75;
         y = checkPage(pdf, y, chartH + 15, H, M);
         y = drawSectionHeader(pdf, 'Route Chart', y, M, CW);
 
-        const cx = M, cy = y, cw = CW, ch = chartH;
+        const cx = M,
+            cy = y,
+            cw = CW,
+            ch = chartH;
         let mapRendered = false;
 
         // ── Try Mapbox Static Image (same style as logbook) ──
@@ -270,15 +353,17 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
                 // Polyline encode function (Google Polyline Algorithm — same as logbook)
                 const encodePolyline = (coords: number[][]): string => {
                     let result = '';
-                    let prevLat = 0, prevLng = 0;
+                    let prevLat = 0,
+                        prevLng = 0;
                     for (const [lat, lng] of coords) {
                         const latE5 = Math.round(lat * 1e5);
                         const lngE5 = Math.round(lng * 1e5);
                         const dLat = latE5 - prevLat;
                         const dLng = lngE5 - prevLng;
-                        prevLat = latE5; prevLng = lngE5;
+                        prevLat = latE5;
+                        prevLng = lngE5;
                         for (const delta of [dLat, dLng]) {
-                            let value = delta < 0 ? ~(delta << 1) : (delta << 1);
+                            let value = delta < 0 ? ~(delta << 1) : delta << 1;
                             while (value >= 0x20) {
                                 result += String.fromCharCode((0x20 | (value & 0x1f)) + 63);
                                 value >>= 5;
@@ -289,16 +374,29 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
                     return result;
                 };
 
-                const coordsForPolyline = chartWaypoints.map(wp => [wp.lat, wp.lon]);
+                const coordsForPolyline = chartWaypoints.map((wp) => [wp.lat, wp.lon]);
                 const encodedPath = encodePolyline(coordsForPolyline);
 
                 // Calculate bounds
-                const lats = chartWaypoints.map(wp => wp.lat);
-                const lons = chartWaypoints.map(wp => wp.lon);
+                const lats = chartWaypoints.map((wp) => wp.lat);
+                const lons = chartWaypoints.map((wp) => wp.lon);
                 const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
                 const centerLon = (Math.min(...lons) + Math.max(...lons)) / 2;
                 const maxSpan = Math.max(Math.max(...lats) - Math.min(...lats), Math.max(...lons) - Math.min(...lons));
-                const zoom = maxSpan > 20 ? 3 : maxSpan > 10 ? 4 : maxSpan > 5 ? 5 : maxSpan > 2 ? 6 : maxSpan > 1 ? 7 : maxSpan > 0.5 ? 8 : 9;
+                const zoom =
+                    maxSpan > 20
+                        ? 3
+                        : maxSpan > 10
+                          ? 4
+                          : maxSpan > 5
+                            ? 5
+                            : maxSpan > 2
+                              ? 6
+                              : maxSpan > 1
+                                ? 7
+                                : maxSpan > 0.5
+                                  ? 8
+                                  : 9;
 
                 // Build overlays — navy route line + green start pin + red end pin
                 const pathOverlay = `path-3+1e3a5f(${encodeURIComponent(encodedPath)})`;
@@ -340,57 +438,85 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
             pdf.setFillColor(15, 23, 42);
             pdf.roundedRect(cx, cy, cw, ch, 2, 2, 'F');
 
-            let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+            let minLat = Infinity,
+                maxLat = -Infinity,
+                minLon = Infinity,
+                maxLon = -Infinity;
             for (const wp of chartWaypoints) {
-                minLat = Math.min(minLat, wp.lat); maxLat = Math.max(maxLat, wp.lat);
-                minLon = Math.min(minLon, wp.lon); maxLon = Math.max(maxLon, wp.lon);
+                minLat = Math.min(minLat, wp.lat);
+                maxLat = Math.max(maxLat, wp.lat);
+                minLon = Math.min(minLon, wp.lon);
+                maxLon = Math.max(maxLon, wp.lon);
             }
             const padLat = Math.max(0.5, (maxLat - minLat) * 0.15);
             const padLon = Math.max(0.5, (maxLon - minLon) * 0.15);
-            minLat -= padLat; maxLat += padLat; minLon -= padLon; maxLon += padLon;
+            minLat -= padLat;
+            maxLat += padLat;
+            minLon -= padLon;
+            maxLon += padLon;
 
             const chartPad = 4;
-            const toX = (lon: number) => cx + chartPad + (lon - minLon) / (maxLon - minLon) * (cw - chartPad * 2);
-            const toY = (lat: number) => cy + chartPad + (maxLat - lat) / (maxLat - minLat) * (ch - chartPad * 2);
+            const toX = (lon: number) => cx + chartPad + ((lon - minLon) / (maxLon - minLon)) * (cw - chartPad * 2);
+            const toY = (lat: number) => cy + chartPad + ((maxLat - lat) / (maxLat - minLat)) * (ch - chartPad * 2);
 
             // Grid
-            pdf.setDrawColor(30, 50, 70); pdf.setLineWidth(0.15);
+            pdf.setDrawColor(30, 50, 70);
+            pdf.setLineWidth(0.15);
             const latStep = Math.ceil((maxLat - minLat) / 5);
             const lonStep = Math.ceil((maxLon - minLon) / 5);
             for (let lat = Math.ceil(minLat); lat <= maxLat; lat += Math.max(1, latStep)) {
-                const gy = toY(lat); pdf.line(cx + 1, gy, cx + cw - 1, gy);
-                pdf.setFontSize(5); pdf.setTextColor(60, 90, 120);
+                const gy = toY(lat);
+                pdf.line(cx + 1, gy, cx + cw - 1, gy);
+                pdf.setFontSize(5);
+                pdf.setTextColor(60, 90, 120);
                 pdf.text(`${Math.abs(lat)}°${lat >= 0 ? 'N' : 'S'}`, cx + 2, gy - 0.5);
             }
             for (let lon = Math.ceil(minLon); lon <= maxLon; lon += Math.max(1, lonStep)) {
-                const gx = toX(lon); pdf.line(gx, cy + 1, gx, cy + ch - 1);
-                pdf.setFontSize(5); pdf.setTextColor(60, 90, 120);
+                const gx = toX(lon);
+                pdf.line(gx, cy + 1, gx, cy + ch - 1);
+                pdf.setFontSize(5);
+                pdf.setTextColor(60, 90, 120);
                 pdf.text(`${Math.abs(lon)}°${lon >= 0 ? 'E' : 'W'}`, gx + 0.5, cy + ch - 1);
             }
 
             // Route line
-            pdf.setDrawColor(56, 189, 248); pdf.setLineWidth(0.6);
+            pdf.setDrawColor(56, 189, 248);
+            pdf.setLineWidth(0.6);
             for (let i = 1; i < chartWaypoints.length; i++) {
-                pdf.line(toX(chartWaypoints[i - 1].lon), toY(chartWaypoints[i - 1].lat), toX(chartWaypoints[i].lon), toY(chartWaypoints[i].lat));
+                pdf.line(
+                    toX(chartWaypoints[i - 1].lon),
+                    toY(chartWaypoints[i - 1].lat),
+                    toX(chartWaypoints[i].lon),
+                    toY(chartWaypoints[i].lat),
+                );
             }
 
             // Waypoint markers
             chartWaypoints.forEach((wp, i) => {
-                const px = toX(wp.lon), py = toY(wp.lat);
+                const px = toX(wp.lon),
+                    py = toY(wp.lat);
                 if (i === 0 || i === chartWaypoints.length - 1) {
-                    pdf.setFillColor(56, 189, 248); pdf.circle(px, py, 1.5, 'F');
-                    pdf.setFontSize(6); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(255, 255, 255);
+                    pdf.setFillColor(56, 189, 248);
+                    pdf.circle(px, py, 1.5, 'F');
+                    pdf.setFontSize(6);
+                    pdf.setFont('helvetica', 'bold');
+                    pdf.setTextColor(255, 255, 255);
                     pdf.text(wp.name.split(',')[0].substring(0, 15), px + 2.5, py + 1.5);
                 } else {
-                    pdf.setFillColor(100, 200, 255); pdf.circle(px, py, 0.7, 'F');
+                    pdf.setFillColor(100, 200, 255);
+                    pdf.circle(px, py, 0.7, 'F');
                     if (wp.depth_m !== undefined) {
-                        pdf.setFontSize(4.5); pdf.setFont('helvetica', 'normal'); pdf.setTextColor(100, 200, 255);
+                        pdf.setFontSize(4.5);
+                        pdf.setFont('helvetica', 'normal');
+                        pdf.setTextColor(100, 200, 255);
                         pdf.text(`${wp.depth_m}m`, px + 1.5, py + 0.5);
                     }
                 }
             });
 
-            pdf.setFontSize(6); pdf.setFont('helvetica', 'bold'); pdf.setTextColor(255, 255, 255);
+            pdf.setFontSize(6);
+            pdf.setFont('helvetica', 'bold');
+            pdf.setTextColor(255, 255, 255);
             pdf.text(`${voyagePlan.distanceApprox}`, cx + cw - 3, cy + 5, { align: 'right' });
         }
 
@@ -419,8 +545,20 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
     // Departure row
     pdf.setFontSize(8);
     pdf.setFont('helvetica', 'normal');
-    const drawRow = (wp: string, name: string, coords: string, depth: string, wind: string, seas: string, y: number, fill: boolean) => {
-        if (fill) { pdf.setFillColor(245, 247, 250); pdf.rect(M, y, CW, 6.5, 'F'); }
+    const drawRow = (
+        wp: string,
+        name: string,
+        coords: string,
+        depth: string,
+        wind: string,
+        seas: string,
+        y: number,
+        fill: boolean,
+    ) => {
+        if (fill) {
+            pdf.setFillColor(245, 247, 250);
+            pdf.rect(M, y, CW, 6.5, 'F');
+        }
         pdf.setTextColor(40, 40, 40);
         pdf.text(wp, colX[0] + 2, y + 4.5);
         pdf.text(name.substring(0, 25), colX[1] + 2, y + 4.5);
@@ -430,7 +568,16 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
         pdf.text(seas, colX[5] + 2, y + 4.5);
     };
 
-    drawRow('DEP', origin, fmtCoord(voyagePlan.originCoordinates?.lat, voyagePlan.originCoordinates?.lon) || '', '--', '--', '--', y, true);
+    drawRow(
+        'DEP',
+        origin,
+        fmtCoord(voyagePlan.originCoordinates?.lat, voyagePlan.originCoordinates?.lon) || '',
+        '--',
+        '--',
+        '--',
+        y,
+        true,
+    );
     y += 6.5;
 
     voyagePlan.waypoints.forEach((wp, i) => {
@@ -442,12 +589,22 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
             wp.depth_m !== undefined ? `${wp.depth_m}m` : '--',
             wp.windSpeed ? `${wp.windSpeed} kts` : '--',
             wp.waveHeight ? `${wp.waveHeight} ft` : '--',
-            y, i % 2 === 1
+            y,
+            i % 2 === 1,
         );
         y += 6.5;
     });
 
-    drawRow('ARR', dest, fmtCoord(voyagePlan.destinationCoordinates?.lat, voyagePlan.destinationCoordinates?.lon) || '', '--', '--', '--', y, voyagePlan.waypoints.length % 2 === 0);
+    drawRow(
+        'ARR',
+        dest,
+        fmtCoord(voyagePlan.destinationCoordinates?.lat, voyagePlan.destinationCoordinates?.lon) || '',
+        '--',
+        '--',
+        '--',
+        y,
+        voyagePlan.waypoints.length % 2 === 0,
+    );
     y += 10;
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -457,11 +614,18 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
         y = checkPage(pdf, y, 20, H, M);
         y = drawSectionHeader(pdf, 'Identified Hazards', y, M, CW);
 
-        voyagePlan.hazards.forEach(h => {
+        voyagePlan.hazards.forEach((h) => {
             y = checkPage(pdf, y, 15, H, M);
 
             // Severity bar
-            const sevColor = h.severity === 'CRITICAL' ? [220, 38, 38] : h.severity === 'HIGH' ? [234, 88, 12] : h.severity === 'MEDIUM' ? [217, 119, 6] : [34, 197, 94];
+            const sevColor =
+                h.severity === 'CRITICAL'
+                    ? [220, 38, 38]
+                    : h.severity === 'HIGH'
+                      ? [234, 88, 12]
+                      : h.severity === 'MEDIUM'
+                        ? [217, 119, 6]
+                        : [34, 197, 94];
             pdf.setFillColor(sevColor[0], sevColor[1], sevColor[2]);
             pdf.rect(M, y, 3, 12, 'F');
 
@@ -531,9 +695,33 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
     y = drawSectionHeader(pdf, 'Resource Planning', y, M, CW);
 
     const thirdW = (CW - gap * 2) / 3;
-    drawInfoBox(pdf, isSail ? 'Motor Reserve (+30%)' : 'Fuel (+30% reserve)', `${fuelRes.toFixed(0)} L`, M, y, thirdW, bH);
-    drawInfoBox(pdf, 'Water (3L/crew/day)', `${(crew * (durationHours / 24) * 3).toFixed(0)} L`, M + thirdW + gap, y, thirdW, bH);
-    drawInfoBox(pdf, 'Meals Required', `${Math.ceil((durationHours / 24) * crew * 3)}`, M + (thirdW + gap) * 2, y, thirdW, bH);
+    drawInfoBox(
+        pdf,
+        isSail ? 'Motor Reserve (+30%)' : 'Fuel (+30% reserve)',
+        `${fuelRes.toFixed(0)} L`,
+        M,
+        y,
+        thirdW,
+        bH,
+    );
+    drawInfoBox(
+        pdf,
+        'Water (3L/crew/day)',
+        `${(crew * (durationHours / 24) * 3).toFixed(0)} L`,
+        M + thirdW + gap,
+        y,
+        thirdW,
+        bH,
+    );
+    drawInfoBox(
+        pdf,
+        'Meals Required',
+        `${Math.ceil((durationHours / 24) * crew * 3)}`,
+        M + (thirdW + gap) * 2,
+        y,
+        thirdW,
+        bH,
+    );
     y += bH + 4;
 
     // Fuel capacity check
@@ -543,7 +731,11 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
         pdf.setFontSize(8);
         pdf.setFont('helvetica', 'bold');
         pdf.setTextColor(sufficient ? 22 : 220, sufficient ? 163 : 38, sufficient ? 74 : 38);
-        pdf.text(`${sufficient ? '✓' : '⚠'} Fuel Capacity: ${cap}L — ${sufficient ? 'Sufficient' : isSail ? 'Motor reserve exceeds tank' : 'Insufficient — Plan Refuelling'}`, M, y);
+        pdf.text(
+            `${sufficient ? '✓' : '⚠'} Fuel Capacity: ${cap}L — ${sufficient ? 'Sufficient' : isSail ? 'Motor reserve exceeds tank' : 'Insufficient — Plan Refuelling'}`,
+            M,
+            y,
+        );
         y += 6;
     }
 
@@ -575,7 +767,7 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
         '4. Nature of distress: [DESCRIBE]',
         '5. Assistance required: [SPECIFY]',
         '6. Souls on board: ___',
-        '7. OVER'
+        '7. OVER',
     ];
     mayday.forEach((line, i) => pdf.text(line, M + 5, y + 13 + i * 3.5));
     y += 42;
@@ -586,7 +778,7 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
         { label: 'EPIRB Activation', detail: 'Deploy & switch to CH16 — await rescue' },
         { label: 'NOAA Weather', detail: '162.55 MHz' },
     ];
-    contacts.forEach(c => {
+    contacts.forEach((c) => {
         y = checkPage(pdf, y, 8, H, M);
         pdf.setFontSize(8);
         pdf.setFont('helvetica', 'bold');
@@ -618,7 +810,8 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(6.5);
     pdf.setTextColor(100, 80, 60);
-    const disclaimer = 'This passage brief is AI-generated for planning purposes only. The captain must verify all information, check current weather forecasts, NOTAMs, and navigational warnings before departure. The captain is solely responsible for the safety of crew and vessel. Weather conditions can change rapidly — maintain continuous monitoring throughout the passage.';
+    const disclaimer =
+        'This passage brief is AI-generated for planning purposes only. The captain must verify all information, check current weather forecasts, NOTAMs, and navigational warnings before departure. The captain is solely responsible for the safety of crew and vessel. Weather conditions can change rapidly — maintain continuous monitoring throughout the passage.';
     drawWrappedText(pdf, disclaimer, M + 4, y + 9, CW - 8, 3.2);
 
     // Footer
@@ -642,8 +835,16 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
 export const printPassageBrief = async ({ voyagePlan, vessel }: PDFExportOptions): Promise<void> => {
     const pdf = await generatePassageBriefPDF({ voyagePlan, vessel });
 
-    const origin = (voyagePlan.origin || 'Origin').split(',')[0].replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_');
-    const dest = (voyagePlan.destination || 'Dest').split(',')[0].replace(/[^a-zA-Z0-9 ]/g, '').trim().replace(/\s+/g, '_');
+    const origin = (voyagePlan.origin || 'Origin')
+        .split(',')[0]
+        .replace(/[^a-zA-Z0-9 ]/g, '')
+        .trim()
+        .replace(/\s+/g, '_');
+    const dest = (voyagePlan.destination || 'Dest')
+        .split(',')[0]
+        .replace(/[^a-zA-Z0-9 ]/g, '')
+        .trim()
+        .replace(/\s+/g, '_');
     const date = voyagePlan.departureDate || new Date().toISOString().split('T')[0];
     const filename = `PassageBrief_${origin}_to_${dest}_${date}.pdf`;
 
@@ -656,7 +857,7 @@ export const printPassageBrief = async ({ voyagePlan, vessel }: PDFExportOptions
             await navigator.share({
                 title: `Passage Brief: ${origin} to ${dest}`,
                 text: `Passage plan from ${voyagePlan.origin} to ${voyagePlan.destination}`,
-                files: [pdfFile]
+                files: [pdfFile],
             });
             return;
         } catch (err) {

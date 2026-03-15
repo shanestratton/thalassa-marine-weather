@@ -1,14 +1,14 @@
 /**
  * Nav Mesh X-Ray Overlay
- * 
+ *
  * Developer tool to visualize the navigation graph on the Leaflet map.
  * Renders nodes as dots and edges as faint lines, color-coded by type:
  *   - Blue dots: regular nav nodes
- *   - Cyan dots: virtual_water grid nodes  
+ *   - Cyan dots: virtual_water grid nodes
  *   - Green dots: port/starboard markers
  *   - Red edges: heavily penalized (danger zone)
  *   - Faint white edges: normal connections
- * 
+ *
  * For performance with 197K+ nodes, only renders what's visible in the viewport.
  * Uses Leaflet Canvas renderer for fast drawing.
  */
@@ -23,18 +23,18 @@ import L from 'leaflet';
 
 interface NavGraphData {
     meta: { nodes: number; edges: number; total_nm: number; region: string };
-    nodes: number[][];          // [[lon, lat], ...]
-    edges: number[][];          // [[from, to, weight], ...]
-    markers?: (number | string)[][];  // [[nodeIdx, type], ...]
+    nodes: number[][]; // [[lon, lat], ...]
+    edges: number[][]; // [[from, to, weight], ...]
+    markers?: (number | string)[][]; // [[nodeIdx, type], ...]
 }
 
 // ── Constants ──────────────────────────────────────────────────────
 
-const MIN_ZOOM_TO_RENDER = 10;      // Only render mesh at zoom 10+
-const EDGE_WEIGHT_DANGER = 5.0;     // Edges with weight > this are danger-penalized
-const NODE_RADIUS = 2;              // Dot radius in pixels
-const EDGE_OPACITY = 0.15;          // Normal edge opacity
-const DANGER_OPACITY = 0.6;         // Danger edge opacity
+const MIN_ZOOM_TO_RENDER = 10; // Only render mesh at zoom 10+
+const EDGE_WEIGHT_DANGER = 5.0; // Edges with weight > this are danger-penalized
+const NODE_RADIUS = 2; // Dot radius in pixels
+const EDGE_OPACITY = 0.15; // Normal edge opacity
+const DANGER_OPACITY = 0.6; // Danger edge opacity
 
 // ── Hook ───────────────────────────────────────────────────────────
 
@@ -42,7 +42,7 @@ export function useNavMeshOverlay(
     mapInstance: MutableRefObject<L.Map | null>,
     visible: boolean,
     supabaseUrl: string,
-    region = 'thalassa_graph_australia_se_qld'
+    region = 'thalassa_graph_australia_se_qld',
 ) {
     const graphDataRef = useRef<NavGraphData | null>(null);
     const layerGroupRef = useRef<L.LayerGroup | null>(null);
@@ -58,14 +58,15 @@ export function useNavMeshOverlay(
         const url = `${supabaseUrl}/storage/v1/object/public/nav-graphs/${region}.json`;
 
         fetch(url)
-            .then(r => {
+            .then((r) => {
                 if (!r.ok) throw new Error(`HTTP ${r.status}`);
                 return r.json();
             })
             .then((data: NavGraphData) => {
-                graphDataRef.current = data;                loadingRef.current = false;
+                graphDataRef.current = data;
+                loadingRef.current = false;
             })
-            .catch(err => {
+            .catch((err) => {
                 log.error('[NavMesh] Failed to load:', err);
                 loadingRef.current = false;
             });
@@ -162,14 +163,17 @@ export function useNavMeshOverlay(
                 const isDanger = weight > EDGE_WEIGHT_DANGER;
 
                 L.polyline(
-                    [[from[1], from[0]], [to[1], to[0]]],
+                    [
+                        [from[1], from[0]],
+                        [to[1], to[0]],
+                    ],
                     {
                         color: isDanger ? '#ef4444' : '#94a3b8',
                         weight: isDanger ? 1.5 : 0.5,
                         opacity: isDanger ? DANGER_OPACITY : EDGE_OPACITY,
                         renderer: canvasRenderer,
                         interactive: false,
-                    }
+                    },
                 ).addTo(group);
 
                 edgeCount++;
@@ -182,43 +186,41 @@ export function useNavMeshOverlay(
                 const [lon, lat] = data.nodes[idx];
                 const mType = markerTypes.get(idx);
 
-                let color = '#60a5fa';  // default: blue
+                let color = '#60a5fa'; // default: blue
                 let radius = NODE_RADIUS;
 
                 if (mType === 'virtual_water') {
-                    color = '#22d3ee';  // cyan
+                    color = '#22d3ee'; // cyan
                     radius = 1.5;
                 } else if (mType === 'port') {
-                    color = '#ef4444';  // red
+                    color = '#ef4444'; // red
                     radius = 3;
                 } else if (mType === 'starboard') {
-                    color = '#22c55e';  // green
+                    color = '#22c55e'; // green
                     radius = 3;
                 } else if (mType?.startsWith('cardinal')) {
-                    color = '#fbbf24';  // yellow
+                    color = '#fbbf24'; // yellow
                     radius = 3;
                 } else if (mType === 'fairway') {
-                    color = '#a855f7';  // purple
+                    color = '#a855f7'; // purple
                     radius = 3;
                 }
 
-                L.circleMarker(
-                    [lat, lon],
-                    {
-                        radius,
-                        color: 'transparent',
-                        fillColor: color,
-                        fillOpacity: 0.7,
-                        renderer: canvasRenderer,
-                        interactive: false,
-                    }
-                ).addTo(group);
+                L.circleMarker([lat, lon], {
+                    radius,
+                    color: 'transparent',
+                    fillColor: color,
+                    fillOpacity: 0.7,
+                    renderer: canvasRenderer,
+                    interactive: false,
+                }).addTo(group);
 
                 nodeCount++;
             }
 
             group.addTo(map);
-            layerGroupRef.current = group;        };
+            layerGroupRef.current = group;
+        };
 
         // Initial render
         renderViewport();

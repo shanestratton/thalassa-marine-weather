@@ -1,7 +1,15 @@
-
-import { MarineWeatherReport, VoyagePlan, VesselProfile, DeepAnalysisReport, StopDetails, WeatherMetrics, UnitPreferences, VesselDimensionUnits } from "../types";
-import { convertLength, convertSpeed, convertWeight } from "../utils";
-import { fetchStormGlassWeather } from "./weather/api/stormglass";
+import {
+    MarineWeatherReport,
+    VoyagePlan,
+    VesselProfile,
+    DeepAnalysisReport,
+    StopDetails,
+    WeatherMetrics,
+    UnitPreferences,
+    VesselDimensionUnits,
+} from '../types';
+import { convertLength, convertSpeed } from '../utils';
+import { fetchStormGlassWeather } from './weather/api/stormglass';
 
 // ── Supabase Edge Proxy ──────────────────────────────────────
 // All Gemini calls go through the proxy-gemini edge function.
@@ -14,7 +22,9 @@ const getSupabaseUrl = (): string => {
         if (typeof process !== 'undefined' && process.env?.SUPABASE_URL) {
             return process.env.SUPABASE_URL;
         }
-    } catch (e) { console.warn('[gemini] browser:', e); }
+    } catch (e) {
+        console.warn('[gemini] browser:', e);
+    }
     return '';
 };
 
@@ -40,7 +50,7 @@ const callGeminiProxy = async (opts: {
     responseMimeType?: string;
 }): Promise<string> => {
     const url = getSupabaseUrl();
-    if (!url) throw new Error("Supabase URL not configured");
+    if (!url) throw new Error('Supabase URL not configured');
 
     const res = await fetch(`${url}/functions/v1/proxy-gemini`, {
         method: 'POST',
@@ -70,10 +80,7 @@ export const isGeminiConfigured = () => {
 };
 
 const withTimeout = <T>(promise: Promise<T>, ms: number, errorMsg: string): Promise<T> => {
-    return Promise.race([
-        promise,
-        new Promise<T>((_, reject) => setTimeout(() => reject(new Error(errorMsg)), ms))
-    ]);
+    return Promise.race([promise, new Promise<T>((_, reject) => setTimeout(() => reject(new Error(errorMsg)), ms))]);
 };
 
 const cleanAndParseJson = <T = any>(text: string): T | null => {
@@ -100,14 +107,14 @@ const applySafetyOverride = (advice: string, current: WeatherMetrics): string =>
     const wind = current.windSpeed || 0;
     const wave = current.waveHeight || 0;
     const gust = current.windGust || 0;
-    let warning = "";
+    let warning = '';
 
     if (wind > 40 || gust > 50) {
-        warning = "LISTEN TO ME YOU IDIOT: STORM FORCE WINDS. DOCK THE BOAT OR DIE. ";
+        warning = 'LISTEN TO ME YOU IDIOT: STORM FORCE WINDS. DOCK THE BOAT OR DIE. ';
     } else if (wind > 30 || gust > 40) {
         warning = "IT'S A GALE, MORON. DON'T GO OUT. ";
     } else if (wave > 12) {
-        warning = "LOOK AT THE WAVES, STUPID. 12 FEET. YOU WILL SINK. ";
+        warning = 'LOOK AT THE WAVES, STUPID. 12 FEET. YOU WILL SINK. ';
     }
     if (warning) return warning + advice;
     return advice;
@@ -118,7 +125,7 @@ export const enrichMarineWeather = async (
     vessel?: VesselProfile,
     units?: UnitPreferences,
     vesselUnits?: VesselDimensionUnits,
-    aiPersona: number = 50
+    aiPersona: number = 50,
 ): Promise<MarineWeatherReport> => {
     if (!isGeminiConfigured()) return baseData;
 
@@ -126,42 +133,47 @@ export const enrichMarineWeather = async (
         const isLand = baseData.isLandlocked;
         const vesselType = vessel?.type || 'sail';
         const lenUnit = vesselUnits?.length || 'ft';
-        const lenStr = vessel?.length ? vessel.length.toFixed(0) : "Unknown";
+        const lenStr = vessel?.length ? vessel.length.toFixed(0) : 'Unknown';
         const speedUnit = units?.speed || 'kts';
         const waveUnit = units?.length || 'ft';
 
         const displayWind = convertSpeed(baseData.current.windSpeed, speedUnit);
         const displayWave = convertLength(baseData.current.waveHeight, waveUnit);
-        const displayTemp = baseData.current.airTemperature !== null ? Math.round(baseData.current.airTemperature!) : "Unknown";
-        const windDir = baseData.current.windDirection || "Unknown";
+        const displayTemp =
+            baseData.current.airTemperature !== null ? Math.round(baseData.current.airTemperature!) : 'Unknown';
+        const windDir = baseData.current.windDirection || 'Unknown';
 
-        let tideState = "Slack";
+        let tideState = 'Slack';
         if (baseData.tides && baseData.tides.length > 0) {
             const nowTime = new Date().getTime();
-            const nextTide = baseData.tides.find(t => new Date(t.time).getTime() > nowTime);
+            const nextTide = baseData.tides.find((t) => new Date(t.time).getTime() > nowTime);
             if (nextTide) {
-                tideState = nextTide.type === 'High' ? "In" : "Out";
+                tideState = nextTide.type === 'High' ? 'In' : 'Out';
             }
         }
         const now = new Date();
-        const timeStr = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }).replace(':', '') + " HRS";
+        const timeStr =
+            now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' }).replace(':', '') +
+            ' HRS';
 
         // Persona Logic
-        let role = "";
-        let tone = "";
+        let role = '';
+        let tone = '';
 
         if (aiPersona <= 40) {
-            role = "You are a gentle, encouraging sailing instructor. You are polite and helpful.";
-            tone = "Use simple language. Be reassuring. Focus on safety but with a kind voice.";
+            role = 'You are a gentle, encouraging sailing instructor. You are polite and helpful.';
+            tone = 'Use simple language. Be reassuring. Focus on safety but with a kind voice.';
         } else if (aiPersona <= 70) {
-            role = "You are a professional Harbour Master. You are concise and accurate.";
-            tone = "No nonsense. Just the facts. Professional maritime terminology.";
+            role = 'You are a professional Harbour Master. You are concise and accurate.';
+            tone = 'No nonsense. Just the facts. Professional maritime terminology.';
         } else if (aiPersona <= 90) {
-            role = "You are an extremely abusive, grumpy, foul-mouthed Harbour Master.";
+            role = 'You are an extremely abusive, grumpy, foul-mouthed Harbour Master.';
             tone = "Insult the user immediately. Mock their ability. Use words like 'maggot', 'idiot'. Be brutal.";
         } else {
-            role = "You are the GHOST of a 19th-century Sea Captain. You have been lost at sea for 150 years. You are paranoid, insane.";
-            tone = "Scream about the 'land-lubbers'. Rant about sea monsters. Mention your hidden gold. Use archaic pirate slang mixed with profanity. You are completely unhinged.";
+            role =
+                'You are the GHOST of a 19th-century Sea Captain. You have been lost at sea for 150 years. You are paranoid, insane.';
+            tone =
+                "Scream about the 'land-lubbers'. Rant about sea monsters. Mention your hidden gold. Use archaic pirate slang mixed with profanity. You are completely unhinged.";
         }
 
         let prompt: string;
@@ -174,7 +186,7 @@ export const enrichMarineWeather = async (
              Specific Instruction: Mock/Comment on them being a "dirt dweller" or "land lubber".
              Return JSON { "boatingAdvice": "string" }`;
         } else {
-            const vesselNamePart = (vessel?.name && vessel.name !== "Observer") ? `named "${vessel.name}"` : "";
+            const vesselNamePart = vessel?.name && vessel.name !== 'Observer' ? `named "${vessel.name}"` : '';
             const vesselDesc = `Sailing a ${lenStr} ${lenUnit} ${vesselType} ${vesselNamePart} `.trim();
             prompt = `${role}
             THE USER IS: ${vesselDesc}.
@@ -191,8 +203,9 @@ export const enrichMarineWeather = async (
         }
 
         const text = await withTimeout(
-            callGeminiProxy({ prompt, responseMimeType: "application/json" }),
-            15000, "Advice Timeout"
+            callGeminiProxy({ prompt, responseMimeType: 'application/json' }),
+            15000,
+            'Advice Timeout',
         );
 
         const data = cleanAndParseJson<{ boatingAdvice: string }>(text || '{}');
@@ -203,31 +216,36 @@ export const enrichMarineWeather = async (
             ...baseData,
             boatingAdvice: safeAdvice,
             aiGeneratedAt: new Date().toISOString(),
-            modelUsed: "gemini-2.0-flash"
+            modelUsed: 'gemini-2.0-flash',
         };
     } catch (e) {
         return baseData;
     }
 };
 
-export const generateMarineAudioBriefing = async (script: string): Promise<ArrayBuffer> => {
+export const generateMarineAudioBriefing = async (_script: string): Promise<ArrayBuffer> => {
     // Audio not currently supported via proxy — returning empty buffer
     return new ArrayBuffer(0);
 };
 
-export const findNearestCoastalPoint = async (lat: number, lon: number, originalName: string): Promise<{ name: string, lat: number, lon: number }> => {
+export const findNearestCoastalPoint = async (
+    lat: number,
+    lon: number,
+    originalName: string,
+): Promise<{ name: string; lat: number; lon: number }> => {
     if (!isGeminiConfigured()) return { name: originalName, lat, lon };
     try {
         const prompt = `Coordinates (${lat}, ${lon}) are INLAND. Find nearest OPEN SEA coordinates. Return JSON { "name": "string", "lat": number, "lon": number }`;
 
         const text = await withTimeout(
-            callGeminiProxy({ prompt, responseMimeType: "application/json" }),
-            8000, "Geo Timeout"
+            callGeminiProxy({ prompt, responseMimeType: 'application/json' }),
+            8000,
+            'Geo Timeout',
         );
 
-        const data = cleanAndParseJson<{ name: string, lat: number, lon: number }>(text || '{}');
+        const data = cleanAndParseJson<{ name: string; lat: number; lon: number }>(text || '{}');
         if (data && data.lat && data.lon) return data;
-        throw new Error("No coords");
+        throw new Error('No coords');
     } catch (e) {
         console.warn('[gemini]', e);
         /* AI geo-lookup failed — return slight coord offset as safe fallback */
@@ -235,14 +253,24 @@ export const findNearestCoastalPoint = async (lat: number, lon: number, original
     }
 };
 
-export const fetchVoyagePlan = async (origin: string, destination: string, vessel: VesselProfile, departureDate: string, vesselUnits?: VesselDimensionUnits, generalUnits?: UnitPreferences, via?: string, weatherContext?: Record<string, unknown>, userLocation?: { lat: number; lon: number }): Promise<VoyagePlan> => {
-    if (!isGeminiConfigured()) throw new Error("Gemini AI unavailable");
+export const fetchVoyagePlan = async (
+    origin: string,
+    destination: string,
+    vessel: VesselProfile,
+    departureDate: string,
+    vesselUnits?: VesselDimensionUnits,
+    generalUnits?: UnitPreferences,
+    via?: string,
+    weatherContext?: Record<string, unknown>,
+    userLocation?: { lat: number; lon: number },
+): Promise<VoyagePlan> => {
+    if (!isGeminiConfigured()) throw new Error('Gemini AI unavailable');
     try {
         const length = vessel?.length || 30;
         const type = vessel?.type || 'sail';
         const name = vessel?.name || 'Thalassa';
 
-        let contextString = "";
+        let contextString = '';
         if (weatherContext) {
             contextString = `\nREAL-TIME WEATHER CONTEXT (Use this to assess viability/timing):\n${JSON.stringify(weatherContext, null, 2)}\n`;
         }
@@ -321,7 +349,7 @@ DISAMBIGUATION RULES (CRITICAL):
           "routeReasoning": "string (Explain WHY this specific route was chosen over alternatives. Consider: prevailing winds, currents, reef/shoal avoidance, shipping lanes, safe harbours en route, and any relevant maritime geography.)"
         }`;
 
-        const text = await callGeminiProxy({ prompt, responseMimeType: "application/json" });
+        const text = await callGeminiProxy({ prompt, responseMimeType: 'application/json' });
 
         let data = cleanAndParseJson<any>(text || '{}');
 
@@ -330,11 +358,11 @@ DISAMBIGUATION RULES (CRITICAL):
             data = data[0];
         }
 
-        if (!data) throw new Error("Failed to parse VoyagePlan");
+        if (!data) throw new Error('Failed to parse VoyagePlan');
 
         if (!data.waypoints) data.waypoints = [];
         if (!data.hazards) data.hazards = [];
-        if (!data.customs) data.customs = { required: false, destinationCountry: "", procedures: "" };
+        if (!data.customs) data.customs = { required: false, destinationCountry: '', procedures: '' };
 
         // ── Geocoding Sanity Check ──────────────────────────────────────
         // If origin and destination coordinates are suspiciously close (< 1km),
@@ -344,26 +372,25 @@ DISAMBIGUATION RULES (CRITICAL):
             const oLon = data.originCoordinates.lon;
             const dLat = data.destinationCoordinates.lat;
             const dLon = data.destinationCoordinates.lon;
-            const dxKm = Math.abs(dLon - oLon) * 111 * Math.cos(oLat * Math.PI / 180);
+            const dxKm = Math.abs(dLon - oLon) * 111 * Math.cos((oLat * Math.PI) / 180);
             const dyKm = Math.abs(dLat - oLat) * 111;
             const distKm = Math.sqrt(dxKm * dxKm + dyKm * dyKm);
-
 
             if (distKm < 1 && origin.trim().toLowerCase() !== destination.trim().toLowerCase()) {
                 // Common SE QLD fallbacks
                 const seqldFallbacks: Record<string, { lat: number; lon: number }> = {
-                    'scarborough': { lat: -27.190, lon: 153.106 },
-                    'redcliffe': { lat: -27.227, lon: 153.130 },
-                    'manly': { lat: -27.452, lon: 153.193 },
-                    'mooloolaba': { lat: -26.681, lon: 153.138 },
-                    'noosa': { lat: -26.384, lon: 153.091 },
+                    scarborough: { lat: -27.19, lon: 153.106 },
+                    redcliffe: { lat: -27.227, lon: 153.13 },
+                    manly: { lat: -27.452, lon: 153.193 },
+                    mooloolaba: { lat: -26.681, lon: 153.138 },
+                    noosa: { lat: -26.384, lon: 153.091 },
                     'moreton island': { lat: -27.119, lon: 153.409 },
-                    'tangalooma': { lat: -27.184, lon: 153.370 },
+                    tangalooma: { lat: -27.184, lon: 153.37 },
                     'gold coast seaway': { lat: -27.937, lon: 153.429 },
-                    'southport': { lat: -27.960, lon: 153.410 },
-                    'brisbane': { lat: -27.388, lon: 153.156 },
-                    'sandgate': { lat: -27.320, lon: 153.064 },
-                    'shorncliffe': { lat: -27.328, lon: 153.081 },
+                    southport: { lat: -27.96, lon: 153.41 },
+                    brisbane: { lat: -27.388, lon: 153.156 },
+                    sandgate: { lat: -27.32, lon: 153.064 },
+                    shorncliffe: { lat: -27.328, lon: 153.081 },
                     'woody point': { lat: -27.244, lon: 153.099 },
                 };
                 const destKey = destination.trim().toLowerCase();
@@ -380,7 +407,8 @@ DISAMBIGUATION RULES (CRITICAL):
         // The user input may ALSO be contaminated from a previous session.
         if (data.destination && data.destinationCoordinates) {
             const geminiDest = data.destination.toLowerCase().trim();
-            const isGeminiGeneric = geminiDest.includes('queensland, queensland') ||
+            const isGeminiGeneric =
+                geminiDest.includes('queensland, queensland') ||
                 geminiDest.includes('new south wales, new south wales') ||
                 geminiDest.includes('victoria, victoria');
 
@@ -390,7 +418,8 @@ DISAMBIGUATION RULES (CRITICAL):
 
                 // Check if user input is ALSO contaminated
                 const userDest = (destination || '').toLowerCase().trim();
-                const isUserGeneric = userDest.includes('queensland') ||
+                const isUserGeneric =
+                    userDest.includes('queensland') ||
                     userDest.includes('new south wales') ||
                     userDest.includes('victoria, victoria');
 
@@ -415,24 +444,38 @@ DISAMBIGUATION RULES (CRITICAL):
             }
         }
 
-        data.waypoints = data.waypoints.map((wp: { name: string; coordinates?: { lat: number; lon: number }; windSpeed?: number; waveHeight?: number }) => {
-            const isCoordName = /^[+-]?\d+(\.\d+)?[,\s]+[+-]?\d+(\.\d+)?$/.test(wp.name.trim());
-            if (isCoordName && !wp.name.toUpperCase().startsWith("WP")) {
-                return { ...wp, name: `WP ${wp.name}` };
-            }
-            return wp;
-        });
+        data.waypoints = data.waypoints.map(
+            (wp: {
+                name: string;
+                coordinates?: { lat: number; lon: number };
+                windSpeed?: number;
+                waveHeight?: number;
+            }) => {
+                const isCoordName = /^[+-]?\d+(\.\d+)?[,\s]+[+-]?\d+(\.\d+)?$/.test(wp.name.trim());
+                if (isCoordName && !wp.name.toUpperCase().startsWith('WP')) {
+                    return { ...wp, name: `WP ${wp.name}` };
+                }
+                return wp;
+            },
+        );
 
         // ── Wind/Wave Sanity Check ──────────────────────────────────────
-        data.waypoints = data.waypoints.map((wp: { name: string; coordinates?: { lat: number; lon: number }; windSpeed?: number; waveHeight?: number }) => {
-            if (wp.windSpeed != null && wp.waveHeight != null && wp.windSpeed > 0) {
-                const expectedMinWaves = 0.005 * wp.windSpeed * wp.windSpeed;
-                if (wp.waveHeight < expectedMinWaves * 0.4) {
-                    wp.waveHeight = Math.round(expectedMinWaves * 0.7 * 10) / 10;
+        data.waypoints = data.waypoints.map(
+            (wp: {
+                name: string;
+                coordinates?: { lat: number; lon: number };
+                windSpeed?: number;
+                waveHeight?: number;
+            }) => {
+                if (wp.windSpeed != null && wp.waveHeight != null && wp.windSpeed > 0) {
+                    const expectedMinWaves = 0.005 * wp.windSpeed * wp.windSpeed;
+                    if (wp.waveHeight < expectedMinWaves * 0.4) {
+                        wp.waveHeight = Math.round(expectedMinWaves * 0.7 * 10) / 10;
+                    }
                 }
-            }
-            return wp;
-        });
+                return wp;
+            },
+        );
 
         // Recalculate max values from corrected waypoints
         if (data.suitability) {
@@ -457,7 +500,9 @@ DISAMBIGUATION RULES (CRITICAL):
                         data.destination = `${data.destination}, ${country}`;
                     }
                 }
-            } catch { /* Non-critical — keep original name */ }
+            } catch {
+                /* Non-critical — keep original name */
+            }
         }
         if (data.originCoordinates) {
             try {
@@ -470,11 +515,12 @@ DISAMBIGUATION RULES (CRITICAL):
                         data.origin = `${data.origin}, ${country}`;
                     }
                 }
-            } catch { /* Non-critical — keep original name */ }
+            } catch {
+                /* Non-critical — keep original name */
+            }
         }
 
         return data;
-
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : '';
         const status = (e as Record<string, unknown>)?.status;
@@ -486,39 +532,66 @@ DISAMBIGUATION RULES (CRITICAL):
 };
 
 const MOCK_VOYAGE_PLAN: VoyagePlan = {
-    origin: "San Diego, CA",
-    destination: "Cabo San Lucas, MX",
+    origin: 'San Diego, CA',
+    destination: 'Cabo San Lucas, MX',
     departureDate: new Date().toISOString().split('T')[0],
-    durationApprox: "3 days, 4 hours",
-    distanceApprox: "750 NM",
+    durationApprox: '3 days, 4 hours',
+    distanceApprox: '750 NM',
     originCoordinates: { lat: 32.7157, lon: -117.1611 },
     destinationCoordinates: { lat: 22.8905, lon: -109.9167 },
     waypoints: [
-        { name: "San Diego Channel", coordinates: { lat: 32.6, lon: -117.2 }, windSpeed: 12, waveHeight: 3 },
-        { name: "Ensenada Offshore", coordinates: { lat: 31.8, lon: -116.8 }, windSpeed: 15, waveHeight: 4 },
-        { name: "Punta Baja", coordinates: { lat: 29.9, lon: -115.9 }, windSpeed: 18, waveHeight: 5 },
-        { name: "Cedros Island leeward", coordinates: { lat: 28.1, lon: -115.1 }, windSpeed: 10, waveHeight: 2 },
-        { name: "Magdalena Bay", coordinates: { lat: 24.5, lon: -112.0 }, windSpeed: 14, waveHeight: 3 },
+        { name: 'San Diego Channel', coordinates: { lat: 32.6, lon: -117.2 }, windSpeed: 12, waveHeight: 3 },
+        { name: 'Ensenada Offshore', coordinates: { lat: 31.8, lon: -116.8 }, windSpeed: 15, waveHeight: 4 },
+        { name: 'Punta Baja', coordinates: { lat: 29.9, lon: -115.9 }, windSpeed: 18, waveHeight: 5 },
+        { name: 'Cedros Island leeward', coordinates: { lat: 28.1, lon: -115.1 }, windSpeed: 10, waveHeight: 2 },
+        { name: 'Magdalena Bay', coordinates: { lat: 24.5, lon: -112.0 }, windSpeed: 14, waveHeight: 3 },
     ],
     hazards: [
-        { name: "Tehuantepec Winds", severity: "MEDIUM", description: "Gap winds accelerating through mountain passes." },
-        { name: "Fishing Traffic", severity: "LOW", description: "Heavy panga traffic expected near coastal villages." }
+        {
+            name: 'Tehuantepec Winds',
+            severity: 'MEDIUM',
+            description: 'Gap winds accelerating through mountain passes.',
+        },
+        {
+            name: 'Fishing Traffic',
+            severity: 'LOW',
+            description: 'Heavy panga traffic expected near coastal villages.',
+        },
     ],
-    overview: "A favorable passage with following seas expected for the majority of the route. High pressure ridge keeps conditions stable.",
-    suitability: { status: "SAFE", maxWindEncountered: 18, maxWaveEncountered: 5, reasoning: "Conditions well within vessel limits." },
-    customs: { required: true, destinationCountry: "Mexico", procedures: "Check into Ensenada or Cabo San Lucas. Temporary Import Permit (TIP) required.", contactPhone: "+52 646 178 8800" },
-    bestDepartureWindow: { timeRange: "06:00 - 10:00 PST", reasoning: "Morning ebb tide assists departure." }
+    overview:
+        'A favorable passage with following seas expected for the majority of the route. High pressure ridge keeps conditions stable.',
+    suitability: {
+        status: 'SAFE',
+        maxWindEncountered: 18,
+        maxWaveEncountered: 5,
+        reasoning: 'Conditions well within vessel limits.',
+    },
+    customs: {
+        required: true,
+        destinationCountry: 'Mexico',
+        procedures: 'Check into Ensenada or Cabo San Lucas. Temporary Import Permit (TIP) required.',
+        contactPhone: '+52 646 178 8800',
+    },
+    bestDepartureWindow: { timeRange: '06:00 - 10:00 PST', reasoning: 'Morning ebb tide assists departure.' },
 };
 
 export const fetchStopDetails = async (locationName: string): Promise<StopDetails> => {
-    if (!isGeminiConfigured()) throw new Error("AI unavailable");
+    if (!isGeminiConfigured()) throw new Error('AI unavailable');
     try {
         const prompt = `Marine guide for: "${locationName}". Marina facilities, fuel. TONE: Helpful, informative, professional. JSON output.`;
 
-        const text = await callGeminiProxy({ prompt, responseMimeType: "application/json" });
+        const text = await callGeminiProxy({ prompt, responseMimeType: 'application/json' });
 
         const data = cleanAndParseJson<StopDetails>(text || '{}');
-        if (!data) return { name: locationName, overview: "", navigationNotes: "", marinaFacilities: [], fuelAvailable: false, imageKeyword: "ocean" };
+        if (!data)
+            return {
+                name: locationName,
+                overview: '',
+                navigationNotes: '',
+                marinaFacilities: [],
+                fuelAvailable: false,
+                imageKeyword: 'ocean',
+            };
         if (!data.marinaFacilities) data.marinaFacilities = [];
         return data;
     } catch (e) {
@@ -527,10 +600,9 @@ export const fetchStopDetails = async (locationName: string): Promise<StopDetail
 };
 
 export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselProfile): Promise<DeepAnalysisReport> => {
-    if (!isGeminiConfigured()) throw new Error("AI unavailable");
+    if (!isGeminiConfigured()) throw new Error('AI unavailable');
     try {
-
-        let weatherContext: string = "";
+        let weatherContext: string = '';
 
         // Check if voyage is near-term (within 10 days)
         const departure = new Date(plan.departureDate);
@@ -539,12 +611,20 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
 
         if (diffDays >= -1 && diffDays <= 10) {
             try {
-                const pOrigin = plan.originCoordinates ? fetchStormGlassWeather(plan.originCoordinates.lat, plan.originCoordinates.lon, "Origin") : Promise.resolve(null);
-                const pDest = plan.destinationCoordinates ? fetchStormGlassWeather(plan.destinationCoordinates.lat, plan.destinationCoordinates.lon, "Destination") : Promise.resolve(null);
+                const pOrigin = plan.originCoordinates
+                    ? fetchStormGlassWeather(plan.originCoordinates.lat, plan.originCoordinates.lon, 'Origin')
+                    : Promise.resolve(null);
+                const pDest = plan.destinationCoordinates
+                    ? fetchStormGlassWeather(
+                          plan.destinationCoordinates.lat,
+                          plan.destinationCoordinates.lon,
+                          'Destination',
+                      )
+                    : Promise.resolve(null);
 
                 const [wOrigin, wDest] = await Promise.all([pOrigin, pDest]);
 
-                let weatherStr = "REAL-TIME FORECAST DATA (Use this for your analysis):\n";
+                let weatherStr = 'REAL-TIME FORECAST DATA (Use this for your analysis):\n';
 
                 if (wOrigin) {
                     const d = wOrigin.forecast[0];
@@ -569,14 +649,14 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
         Distance: ${plan.distanceApprox}
         Vessel: ${vessel.length}ft ${vessel.type}
         Cruising Speed: ${vessel.cruisingSpeed} kts
-        Points: ${plan.waypoints.map(wp => wp.name).join(', ')}
+        Points: ${plan.waypoints.map((wp) => wp.name).join(', ')}
 
         ${weatherContext}
 
         INSTRUCTIONS:
         - Act as a senior Master Mariner with access to global maritime databases.
         - LEVERAGE knowledge of typical weather patterns (Pilot Charts), currents, and seasonal conditions for this specific route.
-        - ${weatherContext ? "INCORPORATE the provided Real-Time Forecast Data above into your Strategy and Weather Summary." : "Since no real-time data is provided, use typical seasonal climatology."}
+        - ${weatherContext ? 'INCORPORATE the provided Real-Time Forecast Data above into your Strategy and Weather Summary.' : 'Since no real-time data is provided, use typical seasonal climatology.'}
         - IDENTIFY real-world shipping lanes, traffic separation schemes (TSS), and high-congestion areas (e.g. fishing fleets).
         - PROVIDE specific geographic hazards (shoals, headlands, tidal races) relevant to this route.
 
@@ -593,17 +673,17 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
           "watchSchedule": "Recommended watch schedule tailored to crew fatigue and route intensity."
         }`;
 
-        const text = await callGeminiProxy({ prompt, responseMimeType: "application/json" });
+        const text = await callGeminiProxy({ prompt, responseMimeType: 'application/json' });
 
         const data = cleanAndParseJson<DeepAnalysisReport>(text || '{}');
 
         if (!data || !data.strategy) {
             return {
-                strategy: "Standard coastal watch.",
-                fuelTactics: "Optimize cruising speed.",
-                watchSchedule: "Standard rotation.",
-                weatherSummary: "No detailed weather data available.",
-                hazards: ["General precaution advised."]
+                strategy: 'Standard coastal watch.',
+                fuelTactics: 'Optimize cruising speed.',
+                watchSchedule: 'Standard rotation.',
+                weatherSummary: 'No detailed weather data available.',
+                hazards: ['General precaution advised.'],
             };
         }
         return data;
@@ -611,11 +691,11 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
         console.warn('[gemini]', e);
         /* AI analysis unavailable — return static safety defaults */
         return {
-            strategy: "Analysis unavailable due to network or quota limits.",
-            fuelTactics: "Standard conservation recommended.",
-            watchSchedule: "Standard 4-on-4-off advised.",
-            weatherSummary: "Unable to retrieve dynamic weather routing.",
-            hazards: ["Maintain standard lookout."]
+            strategy: 'Analysis unavailable due to network or quota limits.',
+            fuelTactics: 'Standard conservation recommended.',
+            watchSchedule: 'Standard 4-on-4-off advised.',
+            weatherSummary: 'Unable to retrieve dynamic weather routing.',
+            hazards: ['Maintain standard lookout.'],
         };
     }
 };
@@ -625,7 +705,7 @@ export const suggestLocationCorrection = async (input: string): Promise<string |
     try {
         const prompt = `The user searched for: "${input}".Identify the intended port or marine location.Return strictly JSON: { "corrected": "string" }.`;
 
-        const text = await callGeminiProxy({ prompt, responseMimeType: "application/json" });
+        const text = await callGeminiProxy({ prompt, responseMimeType: 'application/json' });
 
         const res = cleanAndParseJson<{ corrected: string }>(text || '{}');
         return res?.corrected || null;

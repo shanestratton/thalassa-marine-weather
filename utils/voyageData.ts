@@ -37,7 +37,7 @@ export function groupEntriesByDate(entries: ShipLogEntry[]): GroupedEntries[] {
     const grouped = new Map<string, ShipLogEntry[]>();
 
     // Group by LOCAL date (not UTC)
-    entries.forEach(entry => {
+    entries.forEach((entry) => {
         const date = getLocalDateString(entry.timestamp);
         if (!grouped.has(date)) {
             grouped.set(date, []);
@@ -49,30 +49,28 @@ export function groupEntriesByDate(entries: ShipLogEntry[]): GroupedEntries[] {
     return Array.from(grouped.entries())
         .map(([date, dateEntries]) => {
             const speeds = dateEntries
-                .filter(e => e.speedKts && e.speedKts > 0 && e.speedKts <= 80)
-                .map(e => e.speedKts!);
+                .filter((e) => e.speedKts && e.speedKts > 0 && e.speedKts <= 80)
+                .map((e) => e.speedKts!);
 
             // Parse date parts for display (local)
             const [year, month, day] = date.split('-').map(Number);
             const displayDate = new Date(year, month - 1, day).toLocaleDateString('en-US', {
                 year: 'numeric',
                 month: 'long',
-                day: 'numeric'
+                day: 'numeric',
             });
 
             return {
                 date,
                 displayDate,
                 // Sort entries within date newest first
-                entries: dateEntries.sort((a, b) =>
-                    new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-                ),
+                entries: dateEntries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
                 stats: {
                     totalDistance: dateEntries.reduce((sum, e) => sum + (e.distanceNM || 0), 0),
                     avgSpeed: speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0,
                     maxSpeed: speeds.length > 0 ? Math.max(...speeds) : 0,
-                    entryCount: dateEntries.length
-                }
+                    entryCount: dateEntries.length,
+                },
             };
         })
         .sort((a, b) => b.date.localeCompare(a.date)); // Newest date first
@@ -101,10 +99,10 @@ export interface VoyageStats {
 export function calculateVoyageStats(entries: ShipLogEntry[]): VoyageStats | null {
     if (entries.length === 0) return null;
 
-    const speeds = entries.filter(e => e.speedKts && e.speedKts > 0 && e.speedKts <= 80).map(e => e.speedKts!);
-    const windSpeeds = entries.filter(e => e.windSpeed).map(e => e.windSpeed!);
-    const waveHeights = entries.filter(e => e.waveHeight).map(e => e.waveHeight!);
-    const airTemps = entries.filter(e => e.airTemp).map(e => e.airTemp!);
+    const speeds = entries.filter((e) => e.speedKts && e.speedKts > 0 && e.speedKts <= 80).map((e) => e.speedKts!);
+    const windSpeeds = entries.filter((e) => e.windSpeed).map((e) => e.windSpeed!);
+    const waveHeights = entries.filter((e) => e.waveHeight).map((e) => e.waveHeight!);
+    const airTemps = entries.filter((e) => e.airTemp).map((e) => e.airTemp!);
 
     // Calculate total time
     const startTime = new Date(entries[entries.length - 1].timestamp);
@@ -127,20 +125,20 @@ export function calculateVoyageStats(entries: ShipLogEntry[]): VoyageStats | nul
     }
 
     return {
-        totalDistance: Math.max(...entries.map(e => e.cumulativeDistanceNM || 0), 0),
+        totalDistance: Math.max(...entries.map((e) => e.cumulativeDistanceNM || 0), 0),
         totalTime,
         durationMinutes,
         avgSpeed: speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0,
         maxSpeed: speeds.length > 0 ? Math.max(...speeds) : 0,
         minSpeed: speeds.length > 0 ? Math.min(...speeds) : 0,
         totalEntries: entries.length,
-        waypointCount: entries.filter(e => e.entryType === 'waypoint').length,
-        manualEntryCount: entries.filter(e => e.entryType === 'manual').length,
+        waypointCount: entries.filter((e) => e.entryType === 'waypoint').length,
+        manualEntryCount: entries.filter((e) => e.entryType === 'manual').length,
         weather: {
             avgWindSpeed: windSpeeds.length > 0 ? windSpeeds.reduce((a, b) => a + b, 0) / windSpeeds.length : 0,
             avgWaveHeight: waveHeights.length > 0 ? waveHeights.reduce((a, b) => a + b, 0) / waveHeights.length : 0,
-            avgAirTemp: airTemps.length > 0 ? airTemps.reduce((a, b) => a + b, 0) / airTemps.length : 0
-        }
+            avgAirTemp: airTemps.length > 0 ? airTemps.reduce((a, b) => a + b, 0) / airTemps.length : 0,
+        },
     };
 }
 
@@ -149,10 +147,10 @@ export function calculateVoyageStats(entries: ShipLogEntry[]): VoyageStats | nul
  */
 export function filterEntriesByType(
     entries: ShipLogEntry[],
-    types: ('auto' | 'manual' | 'waypoint')[]
+    types: ('auto' | 'manual' | 'waypoint')[],
 ): ShipLogEntry[] {
     if (types.length === 0) return entries;
-    return entries.filter(e => types.includes(e.entryType));
+    return entries.filter((e) => types.includes(e.entryType));
 }
 
 /**
@@ -162,21 +160,16 @@ export function searchEntries(entries: ShipLogEntry[], query: string): ShipLogEn
     if (!query.trim()) return entries;
 
     const lowerQuery = query.toLowerCase();
-    return entries.filter(e =>
-        (e.notes?.toLowerCase().includes(lowerQuery)) ||
-        (e.waypointName?.toLowerCase().includes(lowerQuery))
+    return entries.filter(
+        (e) => e.notes?.toLowerCase().includes(lowerQuery) || e.waypointName?.toLowerCase().includes(lowerQuery),
     );
 }
 
 /**
  * Filter entries by date range
  */
-export function filterEntriesByDateRange(
-    entries: ShipLogEntry[],
-    startDate?: Date,
-    endDate?: Date
-): ShipLogEntry[] {
-    return entries.filter(e => {
+export function filterEntriesByDateRange(entries: ShipLogEntry[], startDate?: Date, endDate?: Date): ShipLogEntry[] {
+    return entries.filter((e) => {
         const entryDate = new Date(e.timestamp);
         if (startDate && entryDate < startDate) return false;
         if (endDate && entryDate > endDate) return false;

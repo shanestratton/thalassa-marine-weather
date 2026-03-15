@@ -10,10 +10,18 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const store: Record<string, string> = {};
 const localStorageMock = {
     getItem: vi.fn((key: string) => store[key] ?? null),
-    setItem: vi.fn((key: string, val: string) => { store[key] = val; }),
-    removeItem: vi.fn((key: string) => { delete store[key]; }),
-    clear: vi.fn(() => { Object.keys(store).forEach(k => delete store[k]); }),
-    get length() { return Object.keys(store).length; },
+    setItem: vi.fn((key: string, val: string) => {
+        store[key] = val;
+    }),
+    removeItem: vi.fn((key: string) => {
+        delete store[key];
+    }),
+    clear: vi.fn(() => {
+        Object.keys(store).forEach((k) => delete store[k]);
+    }),
+    get length() {
+        return Object.keys(store).length;
+    },
     key: vi.fn((i: number) => Object.keys(store)[i] ?? null),
 };
 Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock });
@@ -66,7 +74,7 @@ describe('DiaryService — Pending Queue', () => {
         localStorageMock.setItem(PENDING_KEY, JSON.stringify(entries));
 
         // Simulate removing one synced entry
-        const remaining = entries.filter(e => e.id !== 'offline-2');
+        const remaining = entries.filter((e) => e.id !== 'offline-2');
         localStorageMock.setItem(PENDING_KEY, JSON.stringify(remaining));
 
         const stored = JSON.parse(localStorageMock.getItem(PENDING_KEY)!);

@@ -4,20 +4,12 @@
  * All reads/writes go to local database (vessel_ship_documents.json).
  * Mutations are queued for background sync to Supabase.
  */
-import {
-    getAll,
-    query,
-    insertLocal,
-    updateLocal,
-    deleteLocal,
-    generateUUID,
-} from './LocalDatabase';
+import { getAll, query, insertLocal, updateLocal, deleteLocal, generateUUID } from './LocalDatabase';
 import type { ShipDocument, DocumentCategory } from '../../types';
 
 const TABLE = 'ship_documents';
 
 export class LocalDocumentService {
-
     // ── READ ──
 
     static getAll(): ShipDocument[] {
@@ -25,22 +17,22 @@ export class LocalDocumentService {
     }
 
     static getByCategory(category: DocumentCategory): ShipDocument[] {
-        return query<ShipDocument>(TABLE, item => item.category === category);
+        return query<ShipDocument>(TABLE, (item) => item.category === category);
     }
 
     static search(q: string): ShipDocument[] {
         const lower = q.toLowerCase().trim();
         if (!lower) return LocalDocumentService.getAll();
-        return query<ShipDocument>(TABLE, item =>
-            item.document_name.toLowerCase().includes(lower) ||
-            item.category.toLowerCase().includes(lower)
+        return query<ShipDocument>(
+            TABLE,
+            (item) => item.document_name.toLowerCase().includes(lower) || item.category.toLowerCase().includes(lower),
         );
     }
 
     // ── WRITE ──
 
     static async create(
-        item: Omit<ShipDocument, 'id' | 'user_id' | 'created_at' | 'updated_at'>
+        item: Omit<ShipDocument, 'id' | 'user_id' | 'created_at' | 'updated_at'>,
     ): Promise<ShipDocument> {
         const now = new Date().toISOString();
         const record: ShipDocument = {
@@ -53,10 +45,7 @@ export class LocalDocumentService {
         return await insertLocal<ShipDocument>(TABLE, record);
     }
 
-    static async update(
-        id: string,
-        updates: Partial<ShipDocument>
-    ): Promise<ShipDocument | null> {
+    static async update(id: string, updates: Partial<ShipDocument>): Promise<ShipDocument | null> {
         return await updateLocal<ShipDocument>(TABLE, id, updates);
     }
 

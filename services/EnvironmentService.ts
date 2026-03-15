@@ -45,7 +45,7 @@ interface PersistedEnvironment {
 // ── Constants ───────────────────────────────────────────────────
 
 const STORAGE_KEY = 'thalassa_environment';
-const DEBOUNCE_CONFIRMATIONS = 2;  // Require N consecutive same-detections before switching
+const DEBOUNCE_CONFIRMATIONS = 2; // Require N consecutive same-detections before switching
 const MAX_AGE_MS = 48 * 60 * 60 * 1000; // 48h — environment data stays relevant longer than sync
 
 // ── Service ─────────────────────────────────────────────────────
@@ -200,11 +200,7 @@ class EnvironmentServiceClass {
      * Requires DEBOUNCE_CONFIRMATIONS consecutive same-detections
      * before actually switching, to prevent flickering near shore.
      */
-    private applyDetection(
-        newDetected: Environment,
-        confidence: number,
-        source: EnvironmentState['source']
-    ): void {
+    private applyDetection(newDetected: Environment, confidence: number, source: EnvironmentState['source']): void {
         // If same as pending, increment confirmation count
         if (this.pendingDetection === newDetected) {
             this.confirmationCount++;
@@ -215,10 +211,7 @@ class EnvironmentServiceClass {
         }
 
         // Only switch after enough confirmations (or if it matches current)
-        if (
-            this.confirmationCount >= DEBOUNCE_CONFIRMATIONS ||
-            newDetected === this.state.detected
-        ) {
+        if (this.confirmationCount >= DEBOUNCE_CONFIRMATIONS || newDetected === this.state.detected) {
             const changed = this.state.detected !== newDetected;
             this.state.detected = newDetected;
             this.state.confidence = confidence;
@@ -291,8 +284,12 @@ class EnvironmentServiceClass {
     /** Notify all subscribers */
     private notifyListeners(): void {
         const snapshot = this.getState();
-        this.listeners.forEach(cb => {
-            try { cb(snapshot); } catch (e) { console.warn('[Environment] Isolated listener error:', e); }
+        this.listeners.forEach((cb) => {
+            try {
+                cb(snapshot);
+            } catch (e) {
+                console.warn('[Environment] Isolated listener error:', e);
+            }
         });
     }
 }

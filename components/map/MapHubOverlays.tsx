@@ -19,21 +19,26 @@ export const PointInput: React.FC<{
     onSet: () => void;
     onUseCurrent: () => void;
 }> = ({ label, point, color, isActive, onSet, onUseCurrent }) => (
-    <div className={`flex items-center gap-2 p-2.5 rounded-xl border transition-all ${isActive
-        ? `bg-${color}-500/10 border-${color}-500/30`
-        : 'bg-white/[0.03] border-white/[0.06]'
-        }`}>
+    <div
+        className={`flex items-center gap-2 p-2.5 rounded-xl border transition-all ${
+            isActive ? `bg-${color}-500/10 border-${color}-500/30` : 'bg-white/[0.03] border-white/[0.06]'
+        }`}
+    >
         <div className={`w-3 h-3 rounded-full shrink-0 ${color === 'emerald' ? 'bg-emerald-400' : 'bg-red-400'}`} />
         <div className="flex-1 min-w-0">
             <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">{label}</p>
-            <p className="text-xs text-white font-bold truncate">
-                {point ? point.name : 'Not set'}
-            </p>
+            <p className="text-xs text-white font-bold truncate">{point ? point.name : 'Not set'}</p>
         </div>
-        <button onClick={onUseCurrent} className="text-[11px] text-sky-400 font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg hover:bg-sky-500/10">
+        <button
+            onClick={onUseCurrent}
+            className="text-[11px] text-sky-400 font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg hover:bg-sky-500/10"
+        >
             📍 Here
         </button>
-        <button onClick={onSet} className={`text-[11px] font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg ${isActive ? 'text-amber-400 bg-amber-500/10' : 'text-gray-500 hover:bg-white/5'}`}>
+        <button
+            onClick={onSet}
+            className={`text-[11px] font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg ${isActive ? 'text-amber-400 bg-amber-500/10' : 'text-gray-500 hover:bg-white/5'}`}
+        >
             🗺️ Map
         </button>
     </div>
@@ -57,63 +62,99 @@ export const WindSpeedLegend: React.FC = () => (
         <div
             className="rounded-full border border-white/15 shadow-lg"
             style={{
-                width: 10, height: 140,
+                width: 10,
+                height: 140,
                 background: 'linear-gradient(to bottom, #e05a50, #cc6650, #d9a060, #d9bf80, #a8b08c, #8ca5c7)',
             }}
         />
-        <div className="flex flex-col items-end gap-0 mt-0.5" style={{ position: 'absolute', right: 16, top: 14, height: 140, justifyContent: 'space-between' }}>
+        <div
+            className="flex flex-col items-end gap-0 mt-0.5"
+            style={{ position: 'absolute', right: 16, top: 14, height: 140, justifyContent: 'space-between' }}
+        >
             {['35+', '25', '20', '15', '10', '5'].map((label) => (
-                <span key={label} className="text-[8px] font-semibold text-white/50 leading-none">{label}</span>
+                <span key={label} className="text-[8px] font-semibold text-white/50 leading-none">
+                    {label}
+                </span>
             ))}
         </div>
     </div>
 );
 
 // ── Layer Legend Strip ──
-export const LayerLegendStrip: React.FC<{ activeLayer: WeatherLayer; windMaxSpeed: number }> = ({ activeLayer, windMaxSpeed }) => {
-    if (activeLayer === 'none' || activeLayer === 'rain' || activeLayer === 'sea' || activeLayer === 'satellite' || activeLayer === 'velocity' || activeLayer === 'wind' || activeLayer === 'temperature') return null;
+export const LayerLegendStrip: React.FC<{ activeLayer: WeatherLayer; windMaxSpeed: number }> = ({
+    activeLayer,
+    windMaxSpeed,
+}) => {
+    if (
+        activeLayer === 'none' ||
+        activeLayer === 'rain' ||
+        activeLayer === 'sea' ||
+        activeLayer === 'satellite' ||
+        activeLayer === 'velocity' ||
+        activeLayer === 'wind' ||
+        activeLayer === 'temperature'
+    )
+        return null;
 
     const legends: Record<string, { gradient: string; labels: { text: string; pos: string }[] }> = {
         rain: {
             gradient: 'linear-gradient(to bottom, #1a1a2e, #ff00ff, #ff0000, #ff8c00, #ffff00, #00ff00, transparent)',
             labels: [
-                { text: '50+', pos: '2%' }, { text: '25', pos: '18%' }, { text: '12', pos: '34%' },
-                { text: '4', pos: '50%' }, { text: '1', pos: '66%' }, { text: '0.5', pos: '82%' },
+                { text: '50+', pos: '2%' },
+                { text: '25', pos: '18%' },
+                { text: '12', pos: '34%' },
+                { text: '4', pos: '50%' },
+                { text: '1', pos: '66%' },
+                { text: '0.5', pos: '82%' },
             ],
         },
         wind: (() => {
             const maxKt = Math.max(5, Math.ceil(windMaxSpeed / 5) * 5);
             const allStops = [
-                { kt: 0, color: '#66b3ff' }, { kt: 5, color: '#00d9d9' }, { kt: 15, color: '#33e633' },
-                { kt: 25, color: '#ffff00' }, { kt: 40, color: '#ff8000' }, { kt: 60, color: '#ff0000' },
+                { kt: 0, color: '#66b3ff' },
+                { kt: 5, color: '#00d9d9' },
+                { kt: 15, color: '#33e633' },
+                { kt: 25, color: '#ffff00' },
+                { kt: 40, color: '#ff8000' },
+                { kt: 60, color: '#ff0000' },
             ];
-            const stops = allStops.filter(s => s.kt <= maxKt);
-            const gradStops = stops.map(s => `${s.color} ${100 - (s.kt / maxKt) * 100}%`);
-            const labels = stops.map(s => ({
+            const stops = allStops.filter((s) => s.kt <= maxKt);
+            const gradStops = stops.map((s) => `${s.color} ${100 - (s.kt / maxKt) * 100}%`);
+            const labels = stops.map((s) => ({
                 text: s.kt === 0 ? '0' : s.kt === stops[stops.length - 1].kt ? `${s.kt}kt` : `${s.kt}`,
                 pos: `${Math.max(2, Math.min(95, 100 - (s.kt / maxKt) * 100))}%`,
             }));
             return { gradient: `linear-gradient(to bottom, ${gradStops.join(', ')})`, labels };
         })(),
         temperature: {
-            gradient: 'linear-gradient(to bottom, #4a0000, #ff0000, #ff8c00, #ffff00, #90ee90, #00bfff, #0000cd, #1a0033)',
+            gradient:
+                'linear-gradient(to bottom, #4a0000, #ff0000, #ff8c00, #ffff00, #90ee90, #00bfff, #0000cd, #1a0033)',
             labels: [
-                { text: '40°', pos: '5%' }, { text: '30°', pos: '22%' }, { text: '20°', pos: '40%' },
-                { text: '10°', pos: '55%' }, { text: '0°', pos: '72%' }, { text: '-10°', pos: '88%' },
+                { text: '40°', pos: '5%' },
+                { text: '30°', pos: '22%' },
+                { text: '20°', pos: '40%' },
+                { text: '10°', pos: '55%' },
+                { text: '0°', pos: '72%' },
+                { text: '-10°', pos: '88%' },
             ],
         },
         clouds: {
             gradient: 'linear-gradient(to bottom, #e0e0e0, #a0a0a0, #606060, #303030, transparent)',
             labels: [
-                { text: '100%', pos: '5%' }, { text: '75%', pos: '28%' },
-                { text: '50%', pos: '52%' }, { text: '25%', pos: '76%' },
+                { text: '100%', pos: '5%' },
+                { text: '75%', pos: '28%' },
+                { text: '50%', pos: '52%' },
+                { text: '25%', pos: '76%' },
             ],
         },
         pressure: {
             gradient: 'linear-gradient(to bottom, #ef4444, #f87171, #ffffff, #93c5fd, #3b82f6)',
             labels: [
-                { text: 'H', pos: '5%' }, { text: '1030', pos: '20%' },
-                { text: '1013', pos: '48%' }, { text: '996', pos: '76%' }, { text: 'L', pos: '92%' },
+                { text: 'H', pos: '5%' },
+                { text: '1030', pos: '20%' },
+                { text: '1013', pos: '48%' },
+                { text: '996', pos: '76%' },
+                { text: 'L', pos: '92%' },
             ],
         },
     };
@@ -129,7 +170,11 @@ export const LayerLegendStrip: React.FC<{ activeLayer: WeatherLayer; windMaxSpee
             />
             <div className="relative" style={{ height: '45%', minHeight: 120 }}>
                 {legend.labels.map((l, i) => (
-                    <span key={i} className="absolute left-0 text-[7px] font-bold text-white/70 leading-none" style={{ top: l.pos, textShadow: '0 1px 3px rgba(0,0,0,0.9)' }}>
+                    <span
+                        key={i}
+                        className="absolute left-0 text-[7px] font-bold text-white/70 leading-none"
+                        style={{ top: l.pos, textShadow: '0 1px 3px rgba(0,0,0,0.9)' }}
+                    >
                         {l.text}
                     </span>
                 ))}
@@ -149,7 +194,17 @@ export const LayerFABMenu: React.FC<{
     mapRef: React.MutableRefObject<any>;
     toggleLayer: (layer: WeatherLayer) => void;
     setShowLayerMenu: (v: boolean) => void;
-}> = ({ activeLayers, showLayerMenu, embedded, location, initialZoom, center, mapRef, toggleLayer, setShowLayerMenu }) => {
+}> = ({
+    activeLayers,
+    showLayerMenu,
+    embedded,
+    location,
+    initialZoom,
+    center,
+    mapRef,
+    toggleLayer,
+    setShowLayerMenu,
+}) => {
     const activeCount = activeLayers.size;
     const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -157,79 +212,104 @@ export const LayerFABMenu: React.FC<{
     useEffect(() => {
         if (!showLayerMenu) return;
         dismissTimer.current = setTimeout(() => setShowLayerMenu(false), 5000);
-        return () => { if (dismissTimer.current) clearTimeout(dismissTimer.current); };
+        return () => {
+            if (dismissTimer.current) clearTimeout(dismissTimer.current);
+        };
     }, [showLayerMenu, activeCount]); // reset on every toggle (activeCount changes)
 
     return (
-    <div className={`absolute z-[500] flex flex-col gap-2 top-14 right-4`}>
-        <button
-            onClick={() => { setShowLayerMenu(!showLayerMenu); triggerHaptic('light'); }}
-            className={`relative border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 bg-slate-900/90 ${embedded ? 'w-8 h-8 rounded-xl' : 'w-12 h-12'}`}
-        >
-            <svg className={`text-white ${embedded ? 'w-3.5 h-3.5' : 'w-5 h-5'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3" />
-            </svg>
-            {activeCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-sky-500 rounded-full flex items-center justify-center text-[9px] font-black text-white shadow-lg shadow-sky-500/50">
-                    {activeCount}
-                </span>
-            )}
-        </button>
-
-        {embedded && (
+        <div className={`absolute z-[500] flex flex-col gap-2 top-14 right-4`}>
             <button
                 onClick={() => {
-                    const lat = center?.lat ?? location.lat;
-                    const lon = center?.lon ?? location.lon;
-                    mapRef.current?.flyTo({ center: [lon, lat], zoom: initialZoom, duration: 800 });
+                    setShowLayerMenu(!showLayerMenu);
+                    triggerHaptic('light');
                 }}
-                className="w-8 h-8 rounded-xl border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 bg-slate-900/90"
-                aria-label="Recenter map"
+                className={`relative border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 bg-slate-900/90 ${embedded ? 'w-8 h-8 rounded-xl' : 'w-12 h-12'}`}
             >
-                <svg className="w-3.5 h-3.5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <circle cx="12" cy="12" r="3" />
-                    <path strokeLinecap="round" d="M12 2v4m0 12v4M2 12h4m12 0h4" />
+                <svg
+                    className={`text-white ${embedded ? 'w-3.5 h-3.5' : 'w-5 h-5'}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                >
+                    <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3"
+                    />
                 </svg>
+                {activeCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-sky-500 rounded-full flex items-center justify-center text-[9px] font-black text-white shadow-lg shadow-sky-500/50">
+                        {activeCount}
+                    </span>
+                )}
             </button>
-        )}
 
-        {showLayerMenu && (
-            <div className="bg-slate-900/95 border border-white/[0.08] rounded-2xl overflow-hidden shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
-                {([
-                    { key: 'none', label: 'Clear All', icon: '🗺️' },
-                    { key: 'rain', label: 'Rain', icon: '🌧️' },
-                    { key: 'velocity', label: 'Wind', icon: '💨' },
-                    { key: 'temperature', label: 'Temp', icon: '🌡️' },
-                    { key: 'clouds', label: 'Clouds', icon: '☁️' },
-                    { key: 'pressure', label: 'Synoptic', icon: '🌀' },
-                    { key: 'sea', label: 'Sea Marks', icon: '⚓' },
-                    { key: 'satellite', label: 'Satellite', icon: '🛰️' },
-                ] as const).map(layer => {
-                    const isActive = layer.key === 'none' ? false : activeLayers.has(layer.key);
-                    return (
-                        <button
-                            key={layer.key}
-                            onClick={() => {
-                                toggleLayer(layer.key);
-                                triggerHaptic('light');
-                                // Close menu only when clearing all layers
-                                if (layer.key === 'none') setShowLayerMenu(false);
-                            }}
-                            className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${isActive ? 'bg-sky-500/20 text-sky-400 border-l-2 border-sky-400' : layer.key === 'none' && activeCount > 0 ? 'text-red-400 hover:bg-red-500/10 border-l-2 border-transparent' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
-                        >
-                            <span className="text-xl">{layer.icon}</span>
-                            <span className="text-sm font-bold flex-1">{layer.label}</span>
-                            {isActive && (
-                                <span className="flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
-                                    <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-wider">Active</span>
-                                </span>
-                            )}
-                        </button>
-                    );
-                })}
-            </div>
-        )}
-    </div>
-);
+            {embedded && (
+                <button
+                    onClick={() => {
+                        const lat = center?.lat ?? location.lat;
+                        const lon = center?.lon ?? location.lon;
+                        mapRef.current?.flyTo({ center: [lon, lat], zoom: initialZoom, duration: 800 });
+                    }}
+                    className="w-8 h-8 rounded-xl border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 bg-slate-900/90"
+                    aria-label="Recenter map"
+                >
+                    <svg
+                        className="w-3.5 h-3.5 text-sky-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                    >
+                        <circle cx="12" cy="12" r="3" />
+                        <path strokeLinecap="round" d="M12 2v4m0 12v4M2 12h4m12 0h4" />
+                    </svg>
+                </button>
+            )}
+
+            {showLayerMenu && (
+                <div className="bg-slate-900/95 border border-white/[0.08] rounded-2xl overflow-hidden shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
+                    {(
+                        [
+                            { key: 'none', label: 'Clear All', icon: '🗺️' },
+                            { key: 'rain', label: 'Rain', icon: '🌧️' },
+                            { key: 'velocity', label: 'Wind', icon: '💨' },
+                            { key: 'temperature', label: 'Temp', icon: '🌡️' },
+                            { key: 'clouds', label: 'Clouds', icon: '☁️' },
+                            { key: 'pressure', label: 'Synoptic', icon: '🌀' },
+                            { key: 'sea', label: 'Sea Marks', icon: '⚓' },
+                            { key: 'satellite', label: 'Satellite', icon: '🛰️' },
+                        ] as const
+                    ).map((layer) => {
+                        const isActive = layer.key === 'none' ? false : activeLayers.has(layer.key);
+                        return (
+                            <button
+                                key={layer.key}
+                                onClick={() => {
+                                    toggleLayer(layer.key);
+                                    triggerHaptic('light');
+                                    // Close menu only when clearing all layers
+                                    if (layer.key === 'none') setShowLayerMenu(false);
+                                }}
+                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${isActive ? 'bg-sky-500/20 text-sky-400 border-l-2 border-sky-400' : layer.key === 'none' && activeCount > 0 ? 'text-red-400 hover:bg-red-500/10 border-l-2 border-transparent' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                            >
+                                <span className="text-xl">{layer.icon}</span>
+                                <span className="text-sm font-bold flex-1">{layer.label}</span>
+                                {isActive && (
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
+                                        <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-wider">
+                                            Active
+                                        </span>
+                                    </span>
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
 };

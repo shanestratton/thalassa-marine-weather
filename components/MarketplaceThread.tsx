@@ -26,19 +26,15 @@ interface ThreadMessage {
     sender_id: string;
     content: string;
     created_at: string;
-    is_system?: boolean;        // System messages (escrow events)
+    is_system?: boolean; // System messages (escrow events)
     escrow_type?: 'funds_held' | 'pin_reveal' | 'pin_verified' | 'released';
-    pin_code?: string;          // 4-digit PIN (visible only to buyer)
+    pin_code?: string; // 4-digit PIN (visible only to buyer)
 }
 
 // ── Escrow states ──
 type EscrowState = 'none' | 'holding' | 'released';
 
-export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
-    listing,
-    otherPartyId,
-    onBack,
-}) => {
+export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, otherPartyId, onBack }) => {
     const [messages, setMessages] = useState<ThreadMessage[]>([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(true);
@@ -61,7 +57,9 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
         if (!supabase) return;
 
         (async () => {
-            const { data: { user } } = await supabase.auth.getUser();
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
             if (user) setUserId(user.id);
 
             // Load messages
@@ -96,20 +94,26 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
         // Realtime subscription for new messages
         const channel = supabase
             .channel(`mp_thread_${listing.id}`)
-            .on('postgres_changes', {
-                event: 'INSERT',
-                schema: 'public',
-                table: 'marketplace_messages',
-                filter: `listing_id=eq.${listing.id}`,
-            }, (payload: { new: ThreadMessage }) => {
-                setMessages(prev => [...prev, payload.new]);
-                setTimeout(() => {
-                    scrollRef.current?.scrollTo({ top: scrollRef.current?.scrollHeight, behavior: 'smooth' });
-                }, 50);
-            })
+            .on(
+                'postgres_changes',
+                {
+                    event: 'INSERT',
+                    schema: 'public',
+                    table: 'marketplace_messages',
+                    filter: `listing_id=eq.${listing.id}`,
+                },
+                (payload: { new: ThreadMessage }) => {
+                    setMessages((prev) => [...prev, payload.new]);
+                    setTimeout(() => {
+                        scrollRef.current?.scrollTo({ top: scrollRef.current?.scrollHeight, behavior: 'smooth' });
+                    }, 50);
+                },
+            )
             .subscribe();
 
-        return () => { supabase?.removeChannel(channel); };
+        return () => {
+            supabase?.removeChannel(channel);
+        };
     }, [listing.id, listing.seller_id]);
 
     // ── Send message ──
@@ -118,14 +122,12 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
         setSending(true);
 
         try {
-            await supabase
-                .from('marketplace_messages')
-                .insert({
-                    listing_id: listing.id,
-                    sender_id: userId,
-                    recipient_id: otherPartyId,
-                    content: input.trim(),
-                });
+            await supabase.from('marketplace_messages').insert({
+                listing_id: listing.id,
+                sender_id: userId,
+                recipient_id: otherPartyId,
+                content: input.trim(),
+            });
             setInput('');
         } catch (e) {
             log.error('Failed to send:', e);
@@ -207,11 +209,20 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
     // ── Render ──
     return (
         <div className="flex flex-col h-full w-full bg-slate-900">
-
             {/* ═══ NAV BAR ═══ */}
             <div className="px-4 pt-4 pb-2 flex items-center gap-3 shrink-0">
-                <button onClick={onBack} aria-label="Go back" className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center">
-                    <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <button
+                    onClick={onBack}
+                    aria-label="Go back"
+                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                >
+                    <svg
+                        className="w-5 h-5 text-gray-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                    >
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                     </svg>
                 </button>
@@ -275,7 +286,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                         <p className="text-gray-500 text-xs">Start the negotiation...</p>
                     </div>
                 ) : (
-                    messages.map(msg => {
+                    messages.map((msg) => {
                         const isOwn = msg.sender_id === userId;
 
                         // ── SYSTEM MESSAGE (Escrow events) ──
@@ -285,10 +296,15 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                                     {msg.escrow_type === 'pin_reveal' && isOwn ? (
                                         // ── BUYER'S PIN BUBBLE ──
                                         <div className="w-full max-w-xs bg-gradient-to-br from-sky-500/20 to-sky-500/20 border-2 border-sky-500/30 rounded-2xl p-5 text-center">
-                                            <p className="text-[11px] text-sky-400/70 font-bold uppercase tracking-widest mb-2">Your Handoff PIN</p>
+                                            <p className="text-[11px] text-sky-400/70 font-bold uppercase tracking-widest mb-2">
+                                                Your Handoff PIN
+                                            </p>
                                             <div className="flex items-center justify-center gap-3">
                                                 {(msg.pin_code || buyerPin || '????').split('').map((digit, i) => (
-                                                    <div key={i} className="w-12 h-14 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center">
+                                                    <div
+                                                        key={i}
+                                                        className="w-12 h-14 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center"
+                                                    >
                                                         <span className="text-2xl font-black text-white">{digit}</span>
                                                     </div>
                                                 ))}
@@ -297,21 +313,26 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                                                 Share this PIN with the seller at handoff
                                             </p>
                                         </div>
-                                    ) : msg.escrow_type === 'pin_reveal' && !isOwn ? (
-                                        // Seller sees "funds held" message only
-                                        null
-                                    ) : (
+                                    ) : msg.escrow_type === 'pin_reveal' && !isOwn ? null : ( // Seller sees "funds held" message only
                                         // ── GENERIC SYSTEM BUBBLE ──
-                                        <div className={`px-4 py-2 rounded-2xl text-center max-w-xs ${msg.escrow_type === 'released'
-                                            ? 'bg-emerald-500/15 border border-emerald-500/20'
-                                            : msg.escrow_type === 'funds_held'
-                                                ? 'bg-amber-500/15 border border-amber-500/20'
-                                                : 'bg-white/[0.04] border border-white/[0.06]'
-                                            }`}>
-                                            <p className={`text-xs font-bold ${msg.escrow_type === 'released' ? 'text-emerald-400'
-                                                : msg.escrow_type === 'funds_held' ? 'text-amber-400'
-                                                    : 'text-gray-500'
-                                                }`}>
+                                        <div
+                                            className={`px-4 py-2 rounded-2xl text-center max-w-xs ${
+                                                msg.escrow_type === 'released'
+                                                    ? 'bg-emerald-500/15 border border-emerald-500/20'
+                                                    : msg.escrow_type === 'funds_held'
+                                                      ? 'bg-amber-500/15 border border-amber-500/20'
+                                                      : 'bg-white/[0.04] border border-white/[0.06]'
+                                            }`}
+                                        >
+                                            <p
+                                                className={`text-xs font-bold ${
+                                                    msg.escrow_type === 'released'
+                                                        ? 'text-emerald-400'
+                                                        : msg.escrow_type === 'funds_held'
+                                                          ? 'text-amber-400'
+                                                          : 'text-gray-500'
+                                                }`}
+                                            >
                                                 {msg.content}
                                             </p>
                                         </div>
@@ -323,13 +344,19 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                         // ── REGULAR MESSAGE ──
                         return (
                             <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
-                                <div className={`max-w-[80%] px-4 py-2.5 rounded-2xl ${isOwn
-                                    ? 'bg-sky-600/30 border border-sky-500/20 rounded-br-md'
-                                    : 'bg-white/[0.06] border border-white/[0.06] rounded-bl-md'
-                                    }`}>
+                                <div
+                                    className={`max-w-[80%] px-4 py-2.5 rounded-2xl ${
+                                        isOwn
+                                            ? 'bg-sky-600/30 border border-sky-500/20 rounded-br-md'
+                                            : 'bg-white/[0.06] border border-white/[0.06] rounded-bl-md'
+                                    }`}
+                                >
                                     <p className="text-sm text-white leading-relaxed">{msg.content}</p>
                                     <p className="text-[11px] text-gray-500 text-right mt-1">
-                                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        {new Date(msg.created_at).toLocaleTimeString([], {
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                        })}
                                     </p>
                                 </div>
                             </div>
@@ -347,30 +374,34 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                                 Enter Buyer's PIN
                             </p>
                             <div className="flex items-center justify-center gap-3 mb-4">
-                                {[0, 1, 2, 3].map(i => (
-                                    <div key={i} className={`w-12 h-14 rounded-xl border-2 flex items-center justify-center transition-all ${pinError
-                                        ? 'border-red-500/50 bg-red-500/10 animate-[shake_0.3s_ease-in-out]'
-                                        : pinInput[i]
-                                            ? 'border-amber-400/40 bg-amber-500/15'
-                                            : 'border-white/10 bg-white/[0.04]'
-                                        }`}>
-                                        <span className="text-2xl font-black text-white">
-                                            {pinInput[i] || ''}
-                                        </span>
+                                {[0, 1, 2, 3].map((i) => (
+                                    <div
+                                        key={i}
+                                        className={`w-12 h-14 rounded-xl border-2 flex items-center justify-center transition-all ${
+                                            pinError
+                                                ? 'border-red-500/50 bg-red-500/10 animate-[shake_0.3s_ease-in-out]'
+                                                : pinInput[i]
+                                                  ? 'border-amber-400/40 bg-amber-500/15'
+                                                  : 'border-white/10 bg-white/[0.04]'
+                                        }`}
+                                    >
+                                        <span className="text-2xl font-black text-white">{pinInput[i] || ''}</span>
                                     </div>
                                 ))}
                             </div>
 
                             {/* Number pad */}
                             <div className="grid grid-cols-3 gap-2 max-w-[240px] mx-auto">
-                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, null, 0, 'del'].map((key, i) => (
-                                    key === null ? <div key={i} /> : (
+                                {[1, 2, 3, 4, 5, 6, 7, 8, 9, null, 0, 'del'].map((key, i) =>
+                                    key === null ? (
+                                        <div key={i} />
+                                    ) : (
                                         <button
                                             key={i}
                                             onClick={() => {
                                                 triggerHaptic('light');
                                                 if (key === 'del') {
-                                                    setPinInput(prev => prev.slice(0, -1));
+                                                    setPinInput((prev) => prev.slice(0, -1));
                                                 } else if (pinInput.length < 4) {
                                                     const next = pinInput + key;
                                                     setPinInput(next);
@@ -383,12 +414,14 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                                         >
                                             {key === 'del' ? '⌫' : key}
                                         </button>
-                                    )
-                                ))}
+                                    ),
+                                )}
                             </div>
 
                             {pinError && (
-                                <p className="text-xs text-red-400 font-bold text-center mt-3">Incorrect PIN — try again</p>
+                                <p className="text-xs text-red-400 font-bold text-center mt-3">
+                                    Incorrect PIN — try again
+                                </p>
                             )}
                         </div>
                     ) : (
@@ -426,8 +459,10 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                 <input
                     type="text"
                     value={input}
-                    onChange={e => setInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') sendMessage(); }}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') sendMessage();
+                    }}
                     placeholder={escrowState === 'released' ? 'Transaction complete ✅' : 'Type a message...'}
                     className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500/30"
                     disabled={escrowState === 'released'}
@@ -439,8 +474,18 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({
                     disabled={!input.trim() || sending}
                     className="p-2.5 bg-sky-600/30 rounded-xl hover:bg-sky-600/50 transition-colors disabled:opacity-30 active:scale-95"
                 >
-                    <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                    <svg
+                        className="w-5 h-5 text-sky-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                    >
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"
+                        />
                     </svg>
                 </button>
             </div>

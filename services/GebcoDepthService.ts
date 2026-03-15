@@ -38,8 +38,8 @@ export interface DepthQueryResponse {
 // ── Helpers ───────────────────────────────────────────────────────
 
 const getSupabaseUrl = (): string =>
-    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL)
-    || 'https://pcisdplnodrphauixcau.supabase.co';
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL) ||
+    'https://pcisdplnodrphauixcau.supabase.co';
 
 const getSupabaseKey = (): string =>
     (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_KEY) || '';
@@ -56,7 +56,6 @@ const depthCache = new Map<string, number | null>();
 // ── Service ──────────────────────────────────────────────────────
 
 class GebcoDepthServiceClass {
-
     /**
      * Query depths for an array of points.
      * Returns cached results where available, only fetches missing points.
@@ -112,10 +111,7 @@ class GebcoDepthServiceClass {
      * Query depths along a route (array of lat/lon pairs).
      * Automatically decimates if there are too many points.
      */
-    async queryRouteDepths(
-        routePoints: DepthPoint[],
-        maxPoints: number = 200,
-    ): Promise<DepthResult[]> {
+    async queryRouteDepths(routePoints: DepthPoint[], maxPoints: number = 200): Promise<DepthResult[]> {
         let points = routePoints;
 
         // Decimate if too many points
@@ -140,10 +136,7 @@ class GebcoDepthServiceClass {
      *   'land'    — depth ≥ 0 (land / above sea level)
      *   null      — no depth data
      */
-    classifyDepth(
-        depth_m: number | null,
-        vesselDraft_m: number,
-    ): 'safe' | 'caution' | 'danger' | 'land' | null {
+    classifyDepth(depth_m: number | null, vesselDraft_m: number): 'safe' | 'caution' | 'danger' | 'land' | null {
         if (depth_m === null) return null;
         if (depth_m >= 0) return 'land';
 
@@ -167,20 +160,17 @@ class GebcoDepthServiceClass {
      *   - land → Infinity (impassable)
      *   - null → 1.2 (slight penalty for unknown depth)
      */
-    depthCostPenalty(
-        depth_m: number | null,
-        vesselDraft_m: number,
-    ): number {
+    depthCostPenalty(depth_m: number | null, vesselDraft_m: number): number {
         if (depth_m === null) return 1.2; // Unknown depth — slight caution
         if (depth_m >= 0) return Infinity; // Land — impassable
 
         const absDepth = Math.abs(depth_m);
         const ratio = absDepth / vesselDraft_m;
 
-        if (ratio > 3) return 1.0;       // Deep water — no penalty
-        if (ratio > 2) return 1.5;       // Getting shallow — mild avoidance
-        if (ratio > 1.5) return 3.0;     // Tight — strong avoidance
-        return 10.0;                      // Very tight — near-impassable
+        if (ratio > 3) return 1.0; // Deep water — no penalty
+        if (ratio > 2) return 1.5; // Getting shallow — mild avoidance
+        if (ratio > 1.5) return 3.0; // Tight — strong avoidance
+        return 10.0; // Very tight — near-impassable
     }
 
     /**

@@ -31,6 +31,6 @@ export const useScrollSync = () => {
         handleScrollStart,
         handleScrollEnd,
         syncScroll,
-        isScrolling: isScrollingRef.current
+        isScrolling: isScrollingRef.current,
     };
 };

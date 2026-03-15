@@ -48,12 +48,7 @@ const GRIB_MAGIC = 0x47524942; // "GRIB"
 
 // ── Bit extraction helper ─────────────────────────────────────
 
-function extractBits(
-    data: DataView,
-    byteOffset: number,
-    totalBits: number,
-    bitsPerValue: number,
-): number[] {
+function extractBits(data: DataView, byteOffset: number, totalBits: number, bitsPerValue: number): number[] {
     const values: number[] = [];
     const count = Math.floor(totalBits / bitsPerValue);
     let bitPos = 0;
@@ -112,18 +107,28 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Pre
 
     let pos = offset + 16;
 
-    let width = 0, height = 0;
-    let lat1 = 0, lat2 = 0, lon1 = 0, lon2 = 0;
-    let dx = 0, dy = 0;
-    let refValue = 0, binaryScale = 0, decimalScale = 0, bitsPerValue = 0;
+    let width = 0,
+        height = 0;
+    let lat1 = 0,
+        lat2 = 0,
+        lon1 = 0,
+        lon2 = 0;
+    let dx = 0,
+        dy = 0;
+    let refValue = 0,
+        binaryScale = 0,
+        decimalScale = 0,
+        bitsPerValue = 0;
     let packedData: number[] = [];
 
     const endOfMessage = offset + totalLength;
 
     while (pos < endOfMessage - 4) {
         if (
-            view.getUint8(pos) === 0x37 && view.getUint8(pos + 1) === 0x37 &&
-            view.getUint8(pos + 2) === 0x37 && view.getUint8(pos + 3) === 0x37
+            view.getUint8(pos) === 0x37 &&
+            view.getUint8(pos + 1) === 0x37 &&
+            view.getUint8(pos + 2) === 0x37 &&
+            view.getUint8(pos + 3) === 0x37
         ) {
             break;
         }
@@ -142,9 +147,9 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Pre
                 // Bit 31 = sign (1 = negative), bits 0-30 = magnitude in microdegrees
                 const readSignMag = (byteOff: number): number => {
                     const raw = view.getUint32(byteOff, false);
-                    const sign = (raw & 0x80000000) ? -1 : 1;
-                    const mag = raw & 0x7FFFFFFF;
-                    return sign * mag / 1e6;
+                    const sign = raw & 0x80000000 ? -1 : 1;
+                    const mag = raw & 0x7fffffff;
+                    return (sign * mag) / 1e6;
                 };
 
                 lat1 = readSignMag(pos + 46);
@@ -167,10 +172,10 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Pre
                     lat2 = la2Raw;
                     lon2 = lo2Raw;
                 } else {
-                    const dLat = (width > 1 && height > 1) ? 180.0 / (height - 1) : 1.0;
-                    const dLon = (width > 1) ? 360.0 / width : 1.0;
-                    lat2 = la2Valid ? la2Raw : (lat1 - (height - 1) * dLat);
-                    lon2 = lo2Valid ? lo2Raw : (lon1 + (width - 1) * dLon);
+                    const dLat = width > 1 && height > 1 ? 180.0 / (height - 1) : 1.0;
+                    const dLon = width > 1 ? 360.0 / width : 1.0;
+                    lat2 = la2Valid ? la2Raw : lat1 - (height - 1) * dLat;
+                    lon2 = lo2Valid ? lo2Raw : lon1 + (width - 1) * dLon;
                 }
 
                 dx = width > 1 ? Math.abs(lon2 - lon1) / (width - 1) : 1;
@@ -228,7 +233,7 @@ const PRECIP_DEAD_ZONE = 0.1;
  */
 export function decodeGrib2Precip(buffer: ArrayBuffer): DecodedPrecipGrid {
     const length = buffer.byteLength;
-    if (length < 16) throw new Error("Buffer too short");
+    if (length < 16) throw new Error('Buffer too short');
 
     const frames: PrecipFrame[] = [];
     let offset = 0;
@@ -238,7 +243,7 @@ export function decodeGrib2Precip(buffer: ArrayBuffer): DecodedPrecipGrid {
             const { msg, nextOffset } = parseGrib2Message(buffer, offset);
 
             // Normalize longitude: GFS uses 0-360, we want -180 to 180
-            const normLon = (lon: number) => lon > 180 ? lon - 360 : lon;
+            const normLon = (lon: number) => (lon > 180 ? lon - 360 : lon);
 
             // Clamp trace/noise values to zero to prevent bilinear bleed into clear areas.
             // GFS PRATE packing already yields usable magnitudes via binary/decimal scale factors.
@@ -247,7 +252,9 @@ export function decodeGrib2Precip(buffer: ArrayBuffer): DecodedPrecipGrid {
                 rateClean[i] = msg.data[i] < PRECIP_DEAD_ZONE ? 0 : msg.data[i];
             }
 
-            console.info(`[GRIB2-Precip] lat1=${msg.lat1.toFixed(2)}, lat2=${msg.lat2.toFixed(2)}, w=${msg.width}, h=${msg.height}`);
+            console.info(
+                `[GRIB2-Precip] lat1=${msg.lat1.toFixed(2)}, lat2=${msg.lat2.toFixed(2)}, w=${msg.width}, h=${msg.height}`,
+            );
 
             frames.push({
                 rate: rateClean,

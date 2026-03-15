@@ -6,7 +6,7 @@
  * together (e.g. openCompose sets 11 fields → 1 dispatch).
  */
 
-import { useReducer, useCallback } from 'react';
+import { useReducer } from 'react';
 import { DiaryEntry, DiaryMood } from '../services/DiaryService';
 
 // ── State Shape ────────────────────────────────────────────────
@@ -164,16 +164,14 @@ function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState {
         case 'UPDATE_ENTRY':
             return {
                 ...state,
-                entries: state.entries.map(e =>
-                    e.id === action.id ? { ...e, ...action.updates } : e
-                ),
+                entries: state.entries.map((e) => (e.id === action.id ? { ...e, ...action.updates } : e)),
                 showCompose: false,
                 editingId: null,
             };
         case 'REMOVE_ENTRY':
             return {
                 ...state,
-                entries: state.entries.filter(e => e.id !== action.id),
+                entries: state.entries.filter((e) => e.id !== action.id),
                 selectedEntry: state.selectedEntry?.id === action.id ? null : state.selectedEntry,
             };
         case 'RESTORE_ENTRY':
@@ -282,10 +280,10 @@ function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState {
         case 'SET_DELETED_ITEM':
             return { ...state, deletedItem: action.item };
         case 'SOFT_DELETE': {
-            const item = state.entries.find(e => e.id === action.id);
+            const item = state.entries.find((e) => e.id === action.id);
             return {
                 ...state,
-                entries: state.entries.filter(e => e.id !== action.id),
+                entries: state.entries.filter((e) => e.id !== action.id),
                 selectedEntry: state.selectedEntry?.id === action.id ? null : state.selectedEntry,
                 deletedItem: item || null,
             };

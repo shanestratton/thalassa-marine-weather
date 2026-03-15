@@ -22,8 +22,8 @@ interface NetworkModeContextValue {
 const NetworkModeCtx = createContext<NetworkModeContextValue>({
     mode: 'standard',
     isSatelliteMode: false,
-    setMode: () => { },
-    toggleMode: () => { },
+    setMode: () => {},
+    toggleMode: () => {},
     maxSatelliteAreaDeg2: 400,
 });
 
@@ -31,7 +31,7 @@ export const NetworkModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
     const [mode, setMode] = useState<NetworkMode>('standard');
 
     const toggleMode = useCallback(() => {
-        setMode(prev => (prev === 'standard' ? 'satellite' : 'standard'));
+        setMode((prev) => (prev === 'standard' ? 'satellite' : 'standard'));
     }, []);
 
     const value: NetworkModeContextValue = {

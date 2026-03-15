@@ -19,14 +19,14 @@ describe('createLogger', () => {
     });
 
     it('should prefix messages with [Tag]', () => {
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => { });
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const log = createLogger('MyComponent');
         log.warn('something broke');
         expect(warnSpy).toHaveBeenCalledWith('[MyComponent]', 'something broke');
     });
 
     it('should pass multiple arguments through', () => {
-        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const log = createLogger('Svc');
         const err = new Error('test');
         log.error('failed:', err, { retries: 3 });
@@ -34,21 +34,21 @@ describe('createLogger', () => {
     });
 
     it('warn should always emit (even in prod concept)', () => {
-        const spy = vi.spyOn(console, 'warn').mockImplementation(() => { });
+        const spy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const log = createLogger('Tag');
         log.warn('alert');
         expect(spy).toHaveBeenCalledTimes(1);
     });
 
     it('error should always emit', () => {
-        const spy = vi.spyOn(console, 'error').mockImplementation(() => { });
+        const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
         const log = createLogger('Tag');
         log.error('critical');
         expect(spy).toHaveBeenCalledTimes(1);
     });
 
     it('should use different tags for different loggers', () => {
-        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => { });
+        const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const log1 = createLogger('Alpha');
         const log2 = createLogger('Beta');
         log1.warn('a');

@@ -1,10 +1,10 @@
 /**
  * Wind Heat Map Hook
- * 
+ *
  * Renders a semi-transparent wind speed heat map on a canvas layer.
  * Uses the same noise-based sampling as the particle engine to create
  * a spatially varying wind intensity visualization.
- * 
+ *
  * The heat map is transparent enough to let coastline outlines from
  * the base map tiles show through.
  */
@@ -14,17 +14,17 @@ import { WeatherMetrics } from '../types';
 // Beaufort-inspired wind speed color scale (knots)
 // Calm → Light → Moderate → Fresh → Strong → Gale → Storm
 const WIND_COLORS: [number, [number, number, number]][] = [
-    [0, [40, 80, 160]],     // Calm: deep blue
-    [5, [30, 140, 200]],    // Light: sky blue
-    [10, [50, 190, 160]],    // Gentle: teal
-    [15, [80, 200, 80]],     // Moderate: green
-    [20, [180, 200, 40]],    // Fresh: yellow-green
-    [25, [240, 200, 0]],     // Strong: yellow
-    [30, [240, 140, 0]],     // Near Gale: orange
-    [35, [220, 60, 20]],     // Gale: red-orange
-    [40, [180, 20, 40]],     // Strong Gale: red
-    [50, [140, 0, 80]],      // Storm: dark magenta
-    [65, [100, 0, 120]],     // Violent Storm: purple
+    [0, [40, 80, 160]], // Calm: deep blue
+    [5, [30, 140, 200]], // Light: sky blue
+    [10, [50, 190, 160]], // Gentle: teal
+    [15, [80, 200, 80]], // Moderate: green
+    [20, [180, 200, 40]], // Fresh: yellow-green
+    [25, [240, 200, 0]], // Strong: yellow
+    [30, [240, 140, 0]], // Near Gale: orange
+    [35, [220, 60, 20]], // Gale: red-orange
+    [40, [180, 20, 40]], // Strong Gale: red
+    [50, [140, 0, 80]], // Storm: dark magenta
+    [65, [100, 0, 120]], // Violent Storm: purple
 ];
 
 function getWindColor(speed: number): [number, number, number] {
@@ -51,7 +51,7 @@ function sampleWindSpeed(lat: number, lon: number, baseSpeed: number): number {
     const noise = Math.sin(lat * 3) * Math.cos(lon * 3);
     // Add finer noise for more natural-looking variation
     const fineNoise = Math.sin(lat * 8 + lon * 5) * Math.cos(lat * 5 - lon * 8) * 0.5;
-    return Math.max(0, baseSpeed + (noise * 4) + (fineNoise * 2));
+    return Math.max(0, baseSpeed + noise * 4 + fineNoise * 2);
 }
 
 export const useWindHeatMap = (
@@ -59,7 +59,7 @@ export const useWindHeatMap = (
     mapInstance: MutableRefObject<any>,
     activeLayer: string,
     metrics: WeatherMetrics,
-    visible: boolean
+    visible: boolean,
 ) => {
     const rafRef = useRef<number>(0);
 

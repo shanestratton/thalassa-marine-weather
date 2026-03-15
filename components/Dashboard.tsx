@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createLogger } from '../utils/createLogger';
 
@@ -12,14 +11,13 @@ import { CompactHeaderRow } from './dashboard/CompactHeaderRow';
 import { StatusBadges } from './dashboard/StatusBadges';
 import { getMoonPhase } from './dashboard/WeatherHelpers';
 
-const LogPage = React.lazy(() => import('../pages/LogPage').then(m => ({ default: m.LogPage })));
+const LogPage = React.lazy(() => import('../pages/LogPage').then((m) => ({ default: m.LogPage })));
 import { HeroHeader } from './dashboard/HeroHeader';
 import { HeroWidgets } from './dashboard/HeroWidgets';
 import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
 import { RainForecastCard } from './dashboard/RainForecastCard';
 import { useSettings } from '../context/SettingsContext';
 import { GestureTutorial, useTutorial } from './ui/GestureTutorial';
-import { DashboardSkeleton, HeroWidgetsSkeleton } from './ui/Skeleton';
 import { OnboardingTooltips, useOnboardingTooltips } from './ui/OnboardingTooltips';
 
 import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
@@ -45,7 +43,6 @@ interface DashboardProps {
 
 // Main Component
 export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
-
     // 1. Controller Hook (Encapsulated Logic)
     const {
         data,
@@ -62,14 +59,15 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         shareReport,
         staleRefresh,
         refreshInterval,
-        settings
+        settings,
     } = useDashboardController(props.viewMode);
 
     // Settings
     const { settings: userSettings, updateSettings } = useSettings();
     const isInland = data?.locationType === 'inland' || isLandlocked;
     const isOffshore = data?.locationType === 'offshore';
-    const isExpanded = (isInland || isOffshore) ? (isOffshore ? true : false) : userSettings.dashboardMode !== 'essential';
+    const isExpanded =
+        isInland || isOffshore ? (isOffshore ? true : false) : userSettings.dashboardMode !== 'essential';
 
     // Onboarding tutorial for first-time users
     const { showTutorial, dismissTutorial, neverShowAgain } = useTutorial();
@@ -115,58 +113,51 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         const cached = localStorage.getItem(cacheKey);
         if (cached) {
             try {
-                const { ts, data: cachedData, summary: cachedSummary } = JSON.parse(cached) as { ts: number; data: MinutelyRain[]; summary?: string };
+                const {
+                    ts,
+                    data: cachedData,
+                    summary: cachedSummary,
+                } = JSON.parse(cached) as { ts: number; data: MinutelyRain[]; summary?: string };
                 if (Date.now() - ts < 5 * 60 * 1000 && cachedData.length > 0) {
                     setMinutelyRain(cachedData);
                     if (cachedSummary) setRainSummary(cachedSummary);
                     setRainStatus('loaded');
                     // Still set up the refresh timer below, but skip initial fetch
-                    const rainTimer = setInterval(() => {
-                        if (document.hidden) return; // Battery: skip when backgrounded
-                        if (!navigator.onLine || cancelled) return;
-                        fetchMinutelyRainWithSummary(lat, lon).then(({ rain, summary }) => {
-                            if (!cancelled && rain.length > 0) {
-                                setMinutelyRain(rain);
-                                setRainSummary(summary);
-                                setRainStatus('loaded');
-                                localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary }));
-                            }
-                        }).catch(() => { /* keep cached data */ });
-                    }, 5 * 60 * 1000);
-                    return () => { cancelled = true; clearInterval(rainTimer); };
+                    const rainTimer = setInterval(
+                        () => {
+                            if (document.hidden) return; // Battery: skip when backgrounded
+                            if (!navigator.onLine || cancelled) return;
+                            fetchMinutelyRainWithSummary(lat, lon)
+                                .then(({ rain, summary }) => {
+                                    if (!cancelled && rain.length > 0) {
+                                        setMinutelyRain(rain);
+                                        setRainSummary(summary);
+                                        setRainStatus('loaded');
+                                        localStorage.setItem(
+                                            cacheKey,
+                                            JSON.stringify({ ts: Date.now(), data: rain, summary }),
+                                        );
+                                    }
+                                })
+                                .catch(() => {
+                                    /* keep cached data */
+                                });
+                        },
+                        5 * 60 * 1000,
+                    );
+                    return () => {
+                        cancelled = true;
+                        clearInterval(rainTimer);
+                    };
                 }
-            } catch (e) { log.warn('corrupted cache, continue with fresh fetch:', e); }
+            } catch (e) {
+                log.warn('corrupted cache, continue with fresh fetch:', e);
+            }
         }
 
         // Initial fetch
-        fetchMinutelyRainWithSummary(lat, lon).then(({ rain, summary }) => {
-            if (!cancelled) {
-                if (rain.length > 0) {
-                    setMinutelyRain(rain);
-                    setRainSummary(summary);
-                    setRainStatus('loaded');
-                    localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary }));
-                } else {
-                    // Fallback: synthesize from hourly precipitation
-                    const fallback = synthesizeFromHourly();
-                    setMinutelyRain(fallback);
-                    setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
-                }
-            }
-        }).catch(() => {
-            if (!cancelled) {
-                // Fallback: synthesize from hourly precipitation
-                const fallback = synthesizeFromHourly();
-                setMinutelyRain(fallback);
-                setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
-            }
-        });
-
-        // Live refresh every 5 minutes (WeatherKit has internal caching)
-        const rainTimer = setInterval(() => {
-            if (document.hidden) return; // Battery: skip when backgrounded
-            if (!navigator.onLine) return;
-            fetchMinutelyRainWithSummary(lat, lon).then(({ rain, summary }) => {
+        fetchMinutelyRainWithSummary(lat, lon)
+            .then(({ rain, summary }) => {
                 if (!cancelled) {
                     if (rain.length > 0) {
                         setMinutelyRain(rain);
@@ -174,21 +165,57 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                         setRainStatus('loaded');
                         localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary }));
                     } else {
+                        // Fallback: synthesize from hourly precipitation
                         const fallback = synthesizeFromHourly();
                         setMinutelyRain(fallback);
                         setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
                     }
                 }
-            }).catch(() => {
+            })
+            .catch(() => {
                 if (!cancelled) {
+                    // Fallback: synthesize from hourly precipitation
                     const fallback = synthesizeFromHourly();
                     setMinutelyRain(fallback);
                     setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
                 }
             });
-        }, 5 * 60 * 1000);
 
-        return () => { cancelled = true; clearInterval(rainTimer); };
+        // Live refresh every 5 minutes (WeatherKit has internal caching)
+        const rainTimer = setInterval(
+            () => {
+                if (document.hidden) return; // Battery: skip when backgrounded
+                if (!navigator.onLine) return;
+                fetchMinutelyRainWithSummary(lat, lon)
+                    .then(({ rain, summary }) => {
+                        if (!cancelled) {
+                            if (rain.length > 0) {
+                                setMinutelyRain(rain);
+                                setRainSummary(summary);
+                                setRainStatus('loaded');
+                                localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary }));
+                            } else {
+                                const fallback = synthesizeFromHourly();
+                                setMinutelyRain(fallback);
+                                setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
+                            }
+                        }
+                    })
+                    .catch(() => {
+                        if (!cancelled) {
+                            const fallback = synthesizeFromHourly();
+                            setMinutelyRain(fallback);
+                            setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
+                        }
+                    });
+            },
+            5 * 60 * 1000,
+        );
+
+        return () => {
+            cancelled = true;
+            clearInterval(rainTimer);
+        };
 
         // Synthesize 60 minutely entries from the current hour's precipitation
         // Uses ref to avoid stale closure over current?.precipitation
@@ -262,7 +289,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     const safeActive = activeDayData || current;
 
     const widgetSources = useMemo(() => {
-        return (activeDay === 0 && activeHour === 0) ? current?.sources : safeActive?.sources;
+        return activeDay === 0 && activeHour === 0 ? current?.sources : safeActive?.sources;
     }, [activeDay, activeHour, current, safeActive]);
 
     // Compute day/night for the active card time (fixes "Sunny" at midnight)
@@ -279,15 +306,23 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             return h >= 6 && h < 18;
         }
         try {
-            const [rH, rM] = sRise.replace(/[^0-9:]/g, '').split(':').map(Number);
-            const [sH, sM] = sSet.replace(/[^0-9:]/g, '').split(':').map(Number);
+            const [rH, rM] = sRise
+                .replace(/[^0-9:]/g, '')
+                .split(':')
+                .map(Number);
+            const [sH, sM] = sSet
+                .replace(/[^0-9:]/g, '')
+                .split(':')
+                .map(Number);
             if (isNaN(rH) || isNaN(sH)) {
                 const h = new Date(widgetCardTime).getHours();
                 return h >= 6 && h < 18;
             }
             const d = new Date(widgetCardTime);
-            const rise = new Date(d); rise.setHours(rH, rM, 0, 0);
-            const set = new Date(d); set.setHours(sH, sM, 0, 0);
+            const rise = new Date(d);
+            rise.setHours(rH, rM, 0, 0);
+            const set = new Date(d);
+            set.setHours(sH, sM, 0, 0);
             return d >= rise && d < set;
         } catch (e) {
             log.warn('Data fetch error:', e);
@@ -359,7 +394,11 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         const nextHour = hourly[1];
         const trends: Record<string, 'up' | 'down' | 'stable'> = {};
 
-        const compare = (currentVal: number | null | undefined, next: number | null | undefined, threshold = 0.5): 'up' | 'down' | 'stable' => {
+        const compare = (
+            currentVal: number | null | undefined,
+            next: number | null | undefined,
+            threshold = 0.5,
+        ): 'up' | 'down' | 'stable' => {
             if (currentVal == null || next == null) return 'stable';
             const diff = next - currentVal;
             if (Math.abs(diff) < threshold) return 'stable';
@@ -378,7 +417,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
     // Helper to generate proper date labels
     const getDateLabel = (dayIndex: number): string => {
-        if (dayIndex === 0) return "TODAY";
+        if (dayIndex === 0) return 'TODAY';
 
         const forecast = data?.forecast?.[dayIndex];
         if (forecast?.isoDate) {
@@ -418,56 +457,77 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         }
     };
 
-
     // Use Global Settings for Units
     // Fallback to defaults only if settings are missing (rare)
-    const units: UnitPreferences = settings?.units || { speed: 'kts', length: 'ft', waveHeight: 'ft', temp: 'C', distance: 'nm', tideHeight: 'm' };
+    const units: UnitPreferences = settings?.units || {
+        speed: 'kts',
+        length: 'ft',
+        waveHeight: 'ft',
+        temp: 'C',
+        distance: 'nm',
+        tideHeight: 'm',
+    };
 
-    const contextValue = React.useMemo(() => ({
-        current,
-        forecast: data?.forecast,
-        hourly,
-        tides: data?.tides || [],
-        tideHourly: data?.tideHourly || [],
-        boatingAdvice: boatingAdvice || "",
-        lockerItems: lockerItems,
-        locationName: data?.locationName,
-        timeZone: data?.timeZone,
-        modelUsed: data?.modelUsed,
-        isLandlocked: isLandlocked,
-        locationType: data?.locationType,
-        isPro: isPro,
+    const contextValue = React.useMemo(
+        () => ({
+            current,
+            forecast: data?.forecast,
+            hourly,
+            tides: data?.tides || [],
+            tideHourly: data?.tideHourly || [],
+            boatingAdvice: boatingAdvice || '',
+            lockerItems: lockerItems,
+            locationName: data?.locationName,
+            timeZone: data?.timeZone,
+            modelUsed: data?.modelUsed,
+            isLandlocked: isLandlocked,
+            locationType: data?.locationType,
+            isPro: isPro,
 
-        units: units,
+            units: units,
 
-        // UI State
-        isSpeaking: isPlaying,
-        isBuffering: false,
-        isAudioPreloading: false,
-        isNightMode: props.isNightMode,
-        backgroundUpdating: props.isRefreshing || false,
-        handleAudioBroadcast: handleAudioBroadcast,
-        shareReport: shareReport,
-        onTriggerUpgrade: props.onTriggerUpgrade,
-        onOpenMap: props.onOpenMap,
+            // UI State
+            isSpeaking: isPlaying,
+            isBuffering: false,
+            isAudioPreloading: false,
+            isNightMode: props.isNightMode,
+            backgroundUpdating: props.isRefreshing || false,
+            handleAudioBroadcast: handleAudioBroadcast,
+            shareReport: shareReport,
+            onTriggerUpgrade: props.onTriggerUpgrade,
+            onOpenMap: props.onOpenMap,
 
-        settings: {},
-        weatherData: data,
-        tideGUIDetails: data?.tideGUIDetails,
-    }), [
-        current, data, hourly, boatingAdvice, lockerItems,
-        isLandlocked, isPro, units,
-        props.isNightMode, props.isRefreshing, isPlaying, handleAudioBroadcast, shareReport,
-        props.onTriggerUpgrade, props.onOpenMap
-    ]);
+            settings: {},
+            weatherData: data,
+            tideGUIDetails: data?.tideGUIDetails,
+        }),
+        [
+            current,
+            data,
+            hourly,
+            boatingAdvice,
+            lockerItems,
+            isLandlocked,
+            isPro,
+            units,
+            props.isNightMode,
+            props.isRefreshing,
+            isPlaying,
+            handleAudioBroadcast,
+            shareReport,
+            props.onTriggerUpgrade,
+            props.onOpenMap,
+        ],
+    );
 
     // GUARD: All hooks above, early return here is safe
     if (!data || !current || !safeActive) return null;
 
     return (
         <DashboardWidgetContext.Provider value={contextValue as DashboardWidgetContextType}>
-            <div className="h-[100dvh] w-full flex flex-col overflow-hidden relative bg-black"> {/* Flex Root */}
-
+            <div className="h-[100dvh] w-full flex flex-col overflow-hidden relative bg-black">
+                {' '}
+                {/* Flex Root */}
                 {/* ── STALE DATA BLUR OVERLAY ── */}
                 {/* Triggers when data is >1hr stale (e.g. waking from overnight sleep).
                     Blurs the entire dashboard so the punter doesn't act on outdated info. */}
@@ -483,16 +543,17 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                         </div>
                     </div>
                 )}
-
                 {/* 2. Main Content Area */}
                 <div className="flex-1 relative w-full min-h-0">
-
                     {/* MAIN CAROUSEL / GRID */}
                     {!isDetailMode && (
                         <div className="absolute inset-0">
                             {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall */}
                             {/* App Header height is ~108px. With 18px gap (was 10px + 8px extra), top should be 126px */}
-                            <div className="flex-shrink-0 z-[120] w-full max-w-4xl mx-auto bg-gradient-to-b from-black/80 to-transparent px-4 pb-0 fixed left-0 right-0 pointer-events-none" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 126px)' }}>
+                            <div
+                                className="flex-shrink-0 z-[120] w-full max-w-4xl mx-auto bg-gradient-to-b from-black/80 to-transparent px-4 pb-0 fixed left-0 right-0 pointer-events-none"
+                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 126px)' }}
+                            >
                                 <div className="pointer-events-auto">
                                     <CompactHeaderRow
                                         alerts={data.alerts}
@@ -509,7 +570,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                                 setActiveHour(0);
                                                 setActiveDayData(null);
                                                 // Reset horizontal scroll to live position
-                                                setTimeout(() => window.dispatchEvent(new Event('hero-reset-scroll')), 10);
+                                                setTimeout(
+                                                    () => window.dispatchEvent(new Event('hero-reset-scroll')),
+                                                    10,
+                                                );
                                             }
                                         }}
                                     />
@@ -517,10 +581,20 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             </div>
 
                             {/* MAXIMUM BLOCKER - Covers entire gap up to carousel */}
-                            <div className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300 max-w-4xl mx-auto" style={{ height: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)' : 'calc(max(8px, env(safe-area-inset-top)) + 340px)' }}></div>
+                            <div
+                                className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300 max-w-4xl mx-auto"
+                                style={{
+                                    height: isExpanded
+                                        ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)'
+                                        : 'calc(max(8px, env(safe-area-inset-top)) + 340px)',
+                                }}
+                            ></div>
 
                             {/* FIXED HEADER - Positioned 7px below CompactHeaderRow (126 + 40 + 7 = 173) */}
-                            <div className="fixed left-0 right-0 z-[110] px-4 max-w-4xl mx-auto" style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 173px)' }}>
+                            <div
+                                className="fixed left-0 right-0 z-[110] px-4 max-w-4xl mx-auto"
+                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 173px)' }}
+                            >
                                 <HeroHeader
                                     data={safeActive}
                                     units={units}
@@ -531,21 +605,28 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     timeZone={data.timeZone}
                                     sources={safeActive.sources}
                                     isExpanded={isExpanded}
-                                    onToggleExpand={(isInland || isOffshore) ? undefined : () => {
-                                        const goingEssential = isExpanded; // isExpanded means currently full, so toggling goes to essential
-                                        updateSettings({ dashboardMode: goingEssential ? 'essential' : 'full' });
-                                        if (goingEssential) {
-                                            setActiveDay(0);
-                                            setActiveHour(0);
-                                            setActiveDayData(null);
-                                            // Reset horizontal scroll to live position
-                                            setTimeout(() => window.dispatchEvent(new Event('hero-reset-scroll')), 10);
-                                        }
-                                    }}
+                                    onToggleExpand={
+                                        isInland || isOffshore
+                                            ? undefined
+                                            : () => {
+                                                  const goingEssential = isExpanded; // isExpanded means currently full, so toggling goes to essential
+                                                  updateSettings({
+                                                      dashboardMode: goingEssential ? 'essential' : 'full',
+                                                  });
+                                                  if (goingEssential) {
+                                                      setActiveDay(0);
+                                                      setActiveHour(0);
+                                                      setActiveDayData(null);
+                                                      // Reset horizontal scroll to live position
+                                                      setTimeout(
+                                                          () => window.dispatchEvent(new Event('hero-reset-scroll')),
+                                                          10,
+                                                      );
+                                                  }
+                                              }
+                                    }
                                 />
                             </div>
-
-
 
                             {/* CURRENT CONDITIONS CARD - Collapsed mode only (165 + 70 + 8 = 243) */}
                             <div
@@ -558,11 +639,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     visibility: !isExpanded ? 'visible' : 'hidden',
                                 }}
                             >
-                                <CurrentConditionsCard
-                                    data={current}
-                                    units={units}
-                                    timeZone={data.timeZone}
-                                />
+                                <CurrentConditionsCard data={current} units={units} timeZone={data.timeZone} />
                             </div>
 
                             {/* FIXED WIDGETS - Slide down when expanded (165 + 70 + 8 = 243) */}
@@ -588,13 +665,20 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 />
                             </div>
 
-
                             {/* HERO CONTAINER - Shifts up when collapsed to reclaim dead space */}
                             {/* MATH: 
                                 Expanded Top: 243 (widgets) + 160 (height) + 9 (gap) = 412px
                                 Collapsed Top: 243 (conditions card) + 80 (height) + 9 (gap) = 332px
                             */}
-                            <div className="fixed left-0 right-0 z-[120] overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-[7px] pt-0 max-w-4xl mx-auto" style={{ top: isExpanded ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)' : 'calc(max(8px, env(safe-area-inset-top)) + 340px)', bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}>
+                            <div
+                                className="fixed left-0 right-0 z-[120] overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-[7px] pt-0 max-w-4xl mx-auto"
+                                style={{
+                                    top: isExpanded
+                                        ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)'
+                                        : 'calc(max(8px, env(safe-area-inset-top)) + 340px)',
+                                    bottom: 'calc(env(safe-area-inset-bottom) + 124px)',
+                                }}
+                            >
                                 {/* STATIC RAIN FORECAST — always visible */}
                                 <div className="shrink-0 px-4">
                                     <RainForecastCard
@@ -631,15 +715,19 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                             {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll (full mode only) */}
                             {isExpanded && (
-                                <div className="fixed left-0 right-0 z-[125] flex justify-center max-w-4xl mx-auto" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}>
+                                <div
+                                    className="fixed left-0 right-0 z-[125] flex justify-center max-w-4xl mx-auto"
+                                    style={{ bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}
+                                >
                                     <div className="flex gap-[3px] px-4 py-1">
                                         {Array.from({ length: 24 }).map((_, i) => (
                                             <div
                                                 key={i}
-                                                className={`w-1 h-1 rounded-full transition-all duration-150 ${i === activeHour
-                                                    ? 'bg-sky-400 shadow-[0_0_3px_rgba(56,189,248,0.6)]'
-                                                    : 'bg-white/20'
-                                                    }`}
+                                                className={`w-1 h-1 rounded-full transition-all duration-150 ${
+                                                    i === activeHour
+                                                        ? 'bg-sky-400 shadow-[0_0_3px_rgba(56,189,248,0.6)]'
+                                                        : 'bg-white/20'
+                                                }`}
                                             />
                                         ))}
                                     </div>
@@ -651,7 +739,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 Hero container bottom is 120px. 
                                 Gap = 120 - 116 = 4px. (Adjusted per user request to be 4px tighter)
                             */}
-                            <div className="fixed left-0 right-0 z-[125] px-4 max-w-4xl mx-auto" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}>
+                            <div
+                                className="fixed left-0 right-0 z-[125] px-4 max-w-4xl mx-auto"
+                                style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}
+                            >
                                 <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
                                     <StatusBadges
                                         isLandlocked={isLandlocked}
@@ -691,40 +782,42 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     {/* DETAILED GRIDS / LOG PAGE - Full height container for proper internal scrolling */}
                     {isDetailMode && (
                         <div className="absolute inset-0 overflow-hidden">
-                            <React.Suspense fallback={<div className="flex items-center justify-center h-full bg-black"><div className="text-white/60 text-sm">Loading Log...</div></div>}>
+                            <React.Suspense
+                                fallback={
+                                    <div className="flex items-center justify-center h-full bg-black">
+                                        <div className="text-white/60 text-sm">Loading Log...</div>
+                                    </div>
+                                }
+                            >
                                 <LogPage />
                             </React.Suspense>
                         </div>
                     )}
                 </div>
-
                 {data && (
                     <div className="mt-8 text-center pb-8 opacity-40 hover:opacity-100 transition-opacity">
-
                         <div className="mt-4 flex items-center justify-center gap-2 text-sm font-mono text-sky-500/50">
                             <ClockIcon className="w-3 h-3" />
-                            <span>UPDATED: {new Date(data.generatedAt).toLocaleTimeString('en-US', { timeZone: data.timeZone, hour: 'numeric', minute: '2-digit' })}</span>
+                            <span>
+                                UPDATED:{' '}
+                                {new Date(data.generatedAt).toLocaleTimeString('en-US', {
+                                    timeZone: data.timeZone,
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                })}
+                            </span>
                             <span>•</span>
-                            <span>NEXT: {((refreshInterval / 60000)).toFixed(0)}m</span>
+                            <span>NEXT: {(refreshInterval / 60000).toFixed(0)}m</span>
                         </div>
                     </div>
                 )}
-
-
             </div>
 
             {/* Gesture Tutorial Overlay - First-time users */}
-            {showTutorial && (
-                <GestureTutorial
-                    onDismiss={dismissTutorial}
-                    onNeverShow={neverShowAgain}
-                />
-            )}
+            {showTutorial && <GestureTutorial onDismiss={dismissTutorial} onNeverShow={neverShowAgain} />}
 
             {/* Contextual Onboarding Tooltips — shown after gesture tutorial */}
-            {!showTutorial && showTooltips && (
-                <OnboardingTooltips onComplete={dismissTooltips} />
-            )}
-        </DashboardWidgetContext.Provider >
+            {!showTutorial && showTooltips && <OnboardingTooltips onComplete={dismissTooltips} />}
+        </DashboardWidgetContext.Provider>
     );
 });

@@ -4,12 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import {
-    groupEntriesByDate,
-    calculateVoyageStats,
-    filterEntriesByType,
-    searchEntries
-} from '../utils/voyageData';
+import { groupEntriesByDate, calculateVoyageStats, filterEntriesByType, searchEntries } from '../utils/voyageData';
 import { ShipLogEntry } from '../types';
 
 // Mock data helper
@@ -26,7 +21,7 @@ const createMockEntry = (overrides: Partial<ShipLogEntry> = {}): ShipLogEntry =>
     speedKts: 6.0,
     courseDeg: 85,
     entryType: 'auto',
-    ...overrides
+    ...overrides,
 });
 
 describe('Voyage Data Utilities', () => {
@@ -38,7 +33,7 @@ describe('Voyage Data Utilities', () => {
                 createMockEntry({ timestamp: '2026-02-01T01:00:00.000Z' }),
                 createMockEntry({ timestamp: '2026-02-02T00:00:00.000Z' }),
                 createMockEntry({ timestamp: '2026-02-02T01:00:00.000Z' }),
-                createMockEntry({ timestamp: '2026-02-03T00:00:00.000Z' })
+                createMockEntry({ timestamp: '2026-02-03T00:00:00.000Z' }),
             ];
 
             const grouped = groupEntriesByDate(entries);
@@ -67,7 +62,7 @@ describe('Voyage Data Utilities', () => {
             const entries: ShipLogEntry[] = [
                 createMockEntry({ speedKts: 6.0, distanceNM: 1.5 }),
                 createMockEntry({ speedKts: 8.0, distanceNM: 2.0 }),
-                createMockEntry({ speedKts: 7.0, distanceNM: 1.75 })
+                createMockEntry({ speedKts: 7.0, distanceNM: 1.75 }),
             ];
 
             const grouped = groupEntriesByDate(entries);
@@ -79,9 +74,7 @@ describe('Voyage Data Utilities', () => {
         });
 
         it('should format display date correctly', () => {
-            const entries: ShipLogEntry[] = [
-                createMockEntry({ timestamp: '2026-02-15T12:00:00Z' })
-            ];
+            const entries: ShipLogEntry[] = [createMockEntry({ timestamp: '2026-02-15T12:00:00Z' })];
 
             const grouped = groupEntriesByDate(entries);
 
@@ -105,7 +98,7 @@ describe('Voyage Data Utilities', () => {
         it('should calculate total distance correctly', () => {
             const entries: ShipLogEntry[] = [
                 createMockEntry({ cumulativeDistanceNM: 100.5 }), // Most recent (first in array)
-                createMockEntry({ cumulativeDistanceNM: 50.2 })
+                createMockEntry({ cumulativeDistanceNM: 50.2 }),
             ];
 
             const stats = calculateVoyageStats(entries);
@@ -118,7 +111,7 @@ describe('Voyage Data Utilities', () => {
                 createMockEntry({ speedKts: 6.0 }),
                 createMockEntry({ speedKts: 8.0 }),
                 createMockEntry({ speedKts: 4.0 }),
-                createMockEntry({ speedKts: 7.0 })
+                createMockEntry({ speedKts: 7.0 }),
             ];
 
             const stats = calculateVoyageStats(entries);
@@ -133,7 +126,7 @@ describe('Voyage Data Utilities', () => {
                 createMockEntry({ entryType: 'auto' }),
                 createMockEntry({ entryType: 'auto' }),
                 createMockEntry({ entryType: 'waypoint' }),
-                createMockEntry({ entryType: 'manual' })
+                createMockEntry({ entryType: 'manual' }),
             ];
 
             const stats = calculateVoyageStats(entries);
@@ -147,7 +140,7 @@ describe('Voyage Data Utilities', () => {
             const entries: ShipLogEntry[] = [
                 createMockEntry({ windSpeed: 10, waveHeight: 1.5, airTemp: 25 }),
                 createMockEntry({ windSpeed: 15, waveHeight: 2.0, airTemp: 27 }),
-                createMockEntry({ windSpeed: 12, waveHeight: 1.8, airTemp: 26 })
+                createMockEntry({ windSpeed: 12, waveHeight: 1.8, airTemp: 26 }),
             ];
 
             const stats = calculateVoyageStats(entries);
@@ -160,7 +153,7 @@ describe('Voyage Data Utilities', () => {
         it('should calculate duration correctly', () => {
             const entries: ShipLogEntry[] = [
                 createMockEntry({ timestamp: '2026-02-03T12:00:00Z' }), // End (newest)
-                createMockEntry({ timestamp: '2026-02-01T06:00:00Z' })  // Start (oldest)
+                createMockEntry({ timestamp: '2026-02-01T06:00:00Z' }), // Start (oldest)
             ];
 
             const stats = calculateVoyageStats(entries);
@@ -174,13 +167,13 @@ describe('Voyage Data Utilities', () => {
             createMockEntry({ entryType: 'auto', id: 'auto1' }),
             createMockEntry({ entryType: 'manual', id: 'manual1' }),
             createMockEntry({ entryType: 'waypoint', id: 'waypoint1' }),
-            createMockEntry({ entryType: 'auto', id: 'auto2' })
+            createMockEntry({ entryType: 'auto', id: 'auto2' }),
         ];
 
         it('should filter by single type', () => {
             const filtered = filterEntriesByType(mixedEntries, ['auto']);
             expect(filtered).toHaveLength(2);
-            expect(filtered.every(e => e.entryType === 'auto')).toBe(true);
+            expect(filtered.every((e) => e.entryType === 'auto')).toBe(true);
         });
 
         it('should filter by multiple types', () => {
@@ -194,10 +187,7 @@ describe('Voyage Data Utilities', () => {
         });
 
         it('should return empty for no matches', () => {
-            const filtered = filterEntriesByType(
-                [createMockEntry({ entryType: 'auto' })],
-                ['manual']
-            );
+            const filtered = filterEntriesByType([createMockEntry({ entryType: 'auto' })], ['manual']);
             expect(filtered).toHaveLength(0);
         });
     });
@@ -206,20 +196,20 @@ describe('Voyage Data Utilities', () => {
         const entriesWithNotes: ShipLogEntry[] = [
             createMockEntry({
                 notes: 'Spotted dolphins off starboard',
-                id: 'dolphin'
+                id: 'dolphin',
             }),
             createMockEntry({
                 waypointName: 'North Stradbroke Clear',
-                id: 'stradbroke'
+                id: 'stradbroke',
             }),
             createMockEntry({
                 notes: 'Reduced sail due to squall',
-                id: 'squall'
+                id: 'squall',
             }),
             createMockEntry({
                 notes: 'Beautiful sunset',
-                id: 'sunset'
-            })
+                id: 'sunset',
+            }),
         ];
 
         it('should find entries by note content', () => {
@@ -262,8 +252,8 @@ describe('Voyage Data Utilities', () => {
                 createMockEntry({
                     speedKts: undefined,
                     windSpeed: undefined,
-                    waveHeight: undefined
-                })
+                    waveHeight: undefined,
+                }),
             ];
 
             const stats = calculateVoyageStats(entries);
@@ -278,7 +268,7 @@ describe('Voyage Data Utilities', () => {
             const entries: ShipLogEntry[] = [
                 createMockEntry({ timestamp: '2026-02-15T02:00:00Z', id: 'entry1' }),
                 createMockEntry({ timestamp: '2026-02-15T03:00:00Z', id: 'entry2' }),
-                createMockEntry({ timestamp: '2026-02-15T04:00:00Z', id: 'entry3' })
+                createMockEntry({ timestamp: '2026-02-15T04:00:00Z', id: 'entry3' }),
             ];
 
             const grouped = groupEntriesByDate(entries);

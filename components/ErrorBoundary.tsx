@@ -1,10 +1,10 @@
 /**
  * ErrorBoundary Component
- * 
+ *
  * React error boundary that catches JavaScript errors anywhere in the child
  * component tree, logs those errors, and displays a fallback UI instead of
  * the component tree that crashed.
- * 
+ *
  * @example
  * <ErrorBoundary fallback={<ErrorFallback />}>
  *   <MyComponent />
@@ -46,22 +46,19 @@ const DefaultErrorFallback: React.FC<{
         <div className="p-4 bg-red-500/20 rounded-full mb-4" aria-live="assertive">
             <AlertTriangleIcon className="w-8 h-8 text-red-400" />
         </div>
-        <h3 className="text-lg font-bold text-white mb-2">
-            Something went wrong
-        </h3>
+        <h3 className="text-lg font-bold text-white mb-2">Something went wrong</h3>
         <p className="text-sm text-gray-400 mb-4 max-w-md">
             {boundaryName ? `Error in ${boundaryName}` : 'An unexpected error occurred'}
             {error?.message && (
-                <span className="block mt-2 text-sm text-red-400/70 font-mono">
-                    {error.message.slice(0, 100)}
-                </span>
+                <span className="block mt-2 text-sm text-red-400/70 font-mono">{error.message.slice(0, 100)}</span>
             )}
         </p>
         {onRetry && (
             <button
                 onClick={onRetry}
                 className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white text-sm font-bold rounded-lg transition-colors shadow-lg shadow-sky-500/30"
-                aria-label="Retry">
+                aria-label="Retry"
+            >
                 Try Again
             </button>
         )}
@@ -72,7 +69,10 @@ const DefaultErrorFallback: React.FC<{
  * Compact fallback for widgets and small components
  */
 export const CompactErrorFallback: React.FC<{ message?: string }> = ({ message }) => (
-    <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm" aria-live="assertive">
+    <div
+        className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm"
+        aria-live="assertive"
+    >
         <AlertTriangleIcon className="w-4 h-4 flex-shrink-0" />
         <span>{message || 'Error loading widget'}</span>
     </div>
@@ -80,7 +80,7 @@ export const CompactErrorFallback: React.FC<{ message?: string }> = ({ message }
 
 /**
  * Error Boundary class component
- * 
+ *
  * Note: Error boundaries must be class components as of React 18.
  * There is no functional component equivalent for componentDidCatch.
  */
@@ -90,7 +90,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         this.state = {
             hasError: false,
             error: null,
-            errorInfo: null
+            errorInfo: null,
         };
     }
 
@@ -139,7 +139,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         this.setState({
             hasError: false,
             error: null,
-            errorInfo: null
+            errorInfo: null,
         });
     };
 
@@ -165,13 +165,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
 /**
  * HOC to wrap a component with an error boundary
- * 
+ *
  * @example
  * const SafeWidget = withErrorBoundary(Widget, { boundaryName: 'Widget' });
  */
 export function withErrorBoundary<P extends object>(
     WrappedComponent: React.ComponentType<P>,
-    boundaryProps?: Omit<ErrorBoundaryProps, 'children'>
+    boundaryProps?: Omit<ErrorBoundaryProps, 'children'>,
 ): React.FC<P> {
     const displayName = WrappedComponent.displayName || WrappedComponent.name || 'Component';
 

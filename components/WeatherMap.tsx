@@ -2,9 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import L from 'leaflet';
 import 'leaflet.markercluster';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
-import {
-    WindIcon, CrosshairIcon, MapIcon, RadioTowerIcon, MapPinIcon, CompassIcon
-} from './Icons';
+import { WindIcon, CrosshairIcon, MapIcon, RadioTowerIcon, MapPinIcon, CompassIcon } from './Icons';
 import { toast } from './Toast';
 import { WeatherMetrics, GridPoint, Waypoint, BuoyStation } from '../types';
 import { MapLegend, StopDetailView, MapLayer } from './map/MapUI';
@@ -19,8 +17,6 @@ import { OfflineTileControl } from './map/OfflineTileControl';
 import { useNavMeshOverlay } from '../hooks/useNavMeshOverlay';
 import { GpsService } from '../services/GpsService';
 
-
-
 interface WeatherMapProps {
     lat?: number;
     lon?: number;
@@ -28,7 +24,7 @@ interface WeatherMapProps {
     currentWeather?: WeatherMetrics;
     synopticMap?: GridPoint[];
     onLocationSelect?: (lat: number, lon: number, name?: string) => void;
-    routeCoordinates?: { lat: number, lon: number }[];
+    routeCoordinates?: { lat: number; lon: number }[];
     waypoints?: Waypoint[];
     onWaypointSelect?: (index: number | null) => void;
     highlightedWaypointIndex?: number | null;
@@ -61,7 +57,7 @@ const EMPTY_WEATHER: WeatherMetrics = {
     visibility: null,
     day: '',
     date: '',
-    isEstimated: true
+    isEstimated: true,
 };
 
 export const WeatherMap: React.FC<WeatherMapProps> = ({
@@ -81,22 +77,24 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
     restrictBounds = true,
     isConfirmMode = false,
     showZoomControl = false,
-    confirmLabel
+    confirmLabel,
 }) => {
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const weatherCanvasRef = useRef<HTMLCanvasElement>(null);
     const heatMapCanvasRef = useRef<HTMLCanvasElement>(null);
 
     // Add 'buoys' to the activeLayer state
-    const [activeLayer, setActiveLayer] = useState<MapLayer | 'buoys' | 'velocity'>(initialLayer as MapLayer | 'buoys' | 'velocity');
+    const [activeLayer, setActiveLayer] = useState<MapLayer | 'buoys' | 'velocity'>(
+        initialLayer as MapLayer | 'buoys' | 'velocity',
+    );
     const tileLayerRef = useRef<L.TileLayer | null>(null);
     const [selectedStop, setSelectedStop] = useState<Waypoint | null>(null);
-    const [rawTargetPos, setRawTargetPos] = useState<{ lat: number, lon: number } | null>(null);
+    const [rawTargetPos, setRawTargetPos] = useState<{ lat: number; lon: number } | null>(null);
     const [buoys, setBuoys] = useState<BuoyStation[]>([]);
     const [showNavMesh, setShowNavMesh] = useState(false);
 
     // Pending selection for Confirm Mode
-    const [pendingSelection, setPendingSelection] = useState<{ lat: number, lon: number, name: string } | null>(null);
+    const [pendingSelection, setPendingSelection] = useState<{ lat: number; lon: number; name: string } | null>(null);
 
     // Ref to track markers so we can remove them when layer changes
     // Optimization: Use MarkerClusterGroup for automatic clustering of buoy stations
@@ -108,19 +106,33 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 
     // --- HOOKS ---
     // Enable wrapping ONLY if on Buoys layer (and not specifically restricted for another reason)
-    const enableWrapping = activeLayer === 'buoys' || activeLayer === 'global-wind' || activeLayer === 'velocity' || !restrictBounds;
-    const { mapInstance, mapReady } = useLeafletMap(mapContainerRef, centerLat, centerLon, enableZoom, mapboxToken, showZoomControl, enableWrapping);
+    const enableWrapping =
+        activeLayer === 'buoys' || activeLayer === 'global-wind' || activeLayer === 'velocity' || !restrictBounds;
+    const { mapInstance, mapReady } = useLeafletMap(
+        mapContainerRef,
+        centerLat,
+        centerLon,
+        enableZoom,
+        mapboxToken,
+        showZoomControl,
+        enableWrapping,
+    );
 
     // DEBUG LOGGING
-    useEffect(() => {
-
-    }, [isConfirmMode, activeLayer, showWeather, minimal, enableWrapping]);
+    useEffect(() => {}, [isConfirmMode, activeLayer, showWeather, minimal, enableWrapping]);
 
     // Only enable weather overlay if NOT on Buoys or Global Wind layer
-    const isWeatherVisible = showWeather && activeLayer !== 'buoys' && activeLayer !== 'global-wind' && activeLayer !== 'velocity';
+    const isWeatherVisible =
+        showWeather && activeLayer !== 'buoys' && activeLayer !== 'global-wind' && activeLayer !== 'velocity';
 
     // Weather Overlay (particles)
-    useWeatherOverlay(weatherCanvasRef, mapInstance, activeLayer as 'wind' | 'waves' | 'rain' | 'global-wind', activeMetrics, isWeatherVisible);
+    useWeatherOverlay(
+        weatherCanvasRef,
+        mapInstance,
+        activeLayer as 'wind' | 'waves' | 'rain' | 'global-wind',
+        activeMetrics,
+        isWeatherVisible,
+    );
 
     // Global Wind Layer (streamlines)
     const isGlobalWindVisible = activeLayer === 'global-wind';
@@ -134,7 +146,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
         centerLon,
         rawTargetPos,
         routeCoordinates,
-        waypoints
+        waypoints,
     );
 
     // Nav Mesh X-Ray Overlay (developer tool)
@@ -210,13 +222,12 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
 
             // Create markers array for bulk add
             const markers: L.Marker[] = [];
-            buoys.forEach(buoy => {
-                const marker = L.marker([buoy.lat, buoy.lon], { icon: buoyIcon })
-                    .bindTooltip(buoy.name, {
-                        direction: 'top',
-                        offset: [0, -25],
-                        className: 'bg-black/80 text-white border border-white/20 px-2 py-1 rounded text-xs font-bold'
-                    });
+            buoys.forEach((buoy) => {
+                const marker = L.marker([buoy.lat, buoy.lon], { icon: buoyIcon }).bindTooltip(buoy.name, {
+                    direction: 'top',
+                    offset: [0, -25],
+                    className: 'bg-black/80 text-white border border-white/20 px-2 py-1 rounded text-xs font-bold',
+                });
 
                 // Click to Select
                 marker.on('click', () => {
@@ -237,7 +248,6 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
             buoyLayerGroupRef.current.addLayers(markers);
             buoyLayerGroupRef.current.addTo(map);
         }
-
     }, [activeLayer, buoys, mapReady, onLocationSelect, isConfirmMode]);
 
     // Landscape Orientation Logic for Map View
@@ -248,16 +258,20 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
             if (so && typeof so.unlock === 'function') {
                 so.unlock();
             }
-        } catch (e) { /* Ignore */ }
+        } catch (e) {
+            /* Ignore */
+        }
 
         return () => {
             // Re-lock to Portrait when leaving Map
             try {
                 const so = screen.orientation as ScreenOrientation & { lock?: (orientation: string) => Promise<void> };
                 if (so && typeof so.lock === 'function') {
-                    so.lock('portrait').catch(() => { });
+                    so.lock('portrait').catch(() => {});
                 }
-            } catch (e) { /* Ignore */ }
+            } catch (e) {
+                /* Ignore */
+            }
         };
     }, []);
 
@@ -269,7 +283,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
         // 1. Calculate Data Bounds (Always needed for 'wind'/'rain' locking)
         let bounds;
         if (routeCoordinates && routeCoordinates.length > 1) {
-            const latLngs = routeCoordinates.map(c => [c.lat, c.lon]);
+            const latLngs = routeCoordinates.map((c) => [c.lat, c.lon]);
             bounds = L.latLngBounds(latLngs as L.LatLngExpression[]);
         } else if (lat !== undefined && lon !== undefined) {
             const span = 0.5;
@@ -307,7 +321,6 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                 // Velocity Wind: Start at synoptic zoom centered on user
                 map.setView([centerLat, centerLon], 5, { animate: true });
             }
-
         } else {
             // --- LOCKED MODE (Weather Data) ---
             // Prevent zooming interactions as requested
@@ -367,7 +380,9 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
         };
 
         map.on('click', handleClick);
-        return () => { map.off('click', handleClick); };
+        return () => {
+            map.off('click', handleClick);
+        };
     }, [mapInstance.current, minimal, onLocationSelect, activeLayer, isConfirmMode]);
 
     const handleConfirm = () => {
@@ -379,7 +394,10 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
     };
 
     return (
-        <div className="w-full h-full flex flex-col bg-slate-950 overflow-hidden relative touch-none overscroll-none" style={{ touchAction: 'none' }}>
+        <div
+            className="w-full h-full flex flex-col bg-slate-950 overflow-hidden relative touch-none overscroll-none"
+            style={{ touchAction: 'none' }}
+        >
             {/* Vessel pin animation styles moved to index.css */}
 
             <div className="absolute top-0 left-0 right-0 z-[800] px-4 pb-4 pt-[calc(3.5rem+env(safe-area-inset-top))] bg-gradient-to-b from-slate-900/90 to-transparent pointer-events-none">
@@ -390,10 +408,16 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                                 <MapIcon className="w-5 h-5" />
                             </div>
                             <div>
-                                <h2 className="text-white font-bold text-lg leading-none shadow-black drop-shadow-md">{locationName}</h2>
+                                <h2 className="text-white font-bold text-lg leading-none shadow-black drop-shadow-md">
+                                    {locationName}
+                                </h2>
                                 <div className="flex gap-3 text-[11px] font-mono text-gray-400 mt-1">
-                                    <span>{Math.abs(centerLat).toFixed(4)}° {centerLat > 0 ? 'N' : 'S'}</span>
-                                    <span>{Math.abs(centerLon).toFixed(4)}° {centerLon > 0 ? 'E' : 'W'}</span>
+                                    <span>
+                                        {Math.abs(centerLat).toFixed(4)}° {centerLat > 0 ? 'N' : 'S'}
+                                    </span>
+                                    <span>
+                                        {Math.abs(centerLon).toFixed(4)}° {centerLon > 0 ? 'E' : 'W'}
+                                    </span>
                                 </div>
                             </div>
                         </div>
@@ -402,19 +426,28 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                     {!minimal && !hideLayerControls && (
                         <div className="pointer-events-auto bg-slate-900/80 border border-white/10 rounded-full p-1 flex shadow-xl self-start">
                             <button
-                                onClick={() => { setActiveLayer('wind'); setPendingSelection(null); }}
+                                onClick={() => {
+                                    setActiveLayer('wind');
+                                    setPendingSelection(null);
+                                }}
                                 className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${activeLayer === 'wind' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                             >
                                 Wind
                             </button>
                             <button
-                                onClick={() => { setActiveLayer('rain'); setPendingSelection(null); }}
+                                onClick={() => {
+                                    setActiveLayer('rain');
+                                    setPendingSelection(null);
+                                }}
                                 className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${activeLayer === 'rain' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                             >
                                 Rain
                             </button>
                             <button
-                                onClick={() => { setActiveLayer('global-wind'); setPendingSelection(null); }}
+                                onClick={() => {
+                                    setActiveLayer('global-wind');
+                                    setPendingSelection(null);
+                                }}
                                 className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'global-wind' ? 'bg-emerald-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                             >
                                 <CompassIcon rotation={0} className="w-3 h-3" /> Global
@@ -426,13 +459,16 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                                 <RadioTowerIcon className="w-3 h-3" /> Stations
                             </button>
                             <button
-                                onClick={() => { setActiveLayer('velocity'); setPendingSelection(null); }}
+                                onClick={() => {
+                                    setActiveLayer('velocity');
+                                    setPendingSelection(null);
+                                }}
                                 className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'velocity' ? 'bg-sky-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                             >
                                 <WindIcon className="w-3 h-3" /> Velocity
                             </button>
                             <button
-                                onClick={() => setShowNavMesh(v => !v)}
+                                onClick={() => setShowNavMesh((v) => !v)}
                                 className={`px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${showNavMesh ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
                                 title="Toggle Nav Mesh X-Ray"
                             >
@@ -444,13 +480,14 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
             </div>
 
             <div className="flex-grow relative w-full h-full bg-[#f8fafc]">
-                <div ref={mapContainerRef} className="absolute inset-0 z-0" style={{ width: '100%', height: '100%', filter: 'brightness(1.05) contrast(1.08)' }}></div>
+                <div
+                    ref={mapContainerRef}
+                    className="absolute inset-0 z-0"
+                    style={{ width: '100%', height: '100%', filter: 'brightness(1.05) contrast(1.08)' }}
+                ></div>
 
                 {/* Wind Heat Map Canvas — behind particles */}
-                <canvas
-                    ref={heatMapCanvasRef}
-                    className="absolute inset-0 z-[5] pointer-events-none"
-                />
+                <canvas ref={heatMapCanvasRef} className="absolute inset-0 z-[5] pointer-events-none" />
 
                 <canvas
                     ref={weatherCanvasRef}
@@ -474,7 +511,15 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                     {/* Route Line */}
                     {routePath && (
                         <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ zIndex: 1 }}>
-                            <path d={routePath} fill="none" stroke="#fbbf24" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" className="drop-shadow-md opacity-90" />
+                            <path
+                                d={routePath}
+                                fill="none"
+                                stroke="#fbbf24"
+                                strokeWidth="4"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="drop-shadow-md opacity-90"
+                            />
                         </svg>
                     )}
 
@@ -516,7 +561,9 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                                 <div className="flex items-center justify-center w-6 h-6 rounded-full bg-slate-900 border-2 border-amber-500 shadow-lg text-[11px] font-bold text-amber-500 hover:bg-amber-500 hover:text-white transition-colors cursor-pointer">
                                     {wpObj.idx + 1}
                                 </div>
-                                <div className={`mt-1 bg-black/70 px-2 py-1 rounded text-[11px] text-white whitespace-nowrap border border-white/10 ${enableZoom ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}>
+                                <div
+                                    className={`mt-1 bg-black/70 px-2 py-1 rounded text-[11px] text-white whitespace-nowrap border border-white/10 ${enableZoom ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'} transition-opacity`}
+                                >
                                     {wpObj.name}
                                 </div>
                             </div>
@@ -524,14 +571,15 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                     ))}
                 </div>
 
-                {!minimal && activeLayer !== 'buoys' && activeLayer !== 'velocity' && <MapLegend layer={activeLayer as 'wind' | 'rain' | 'global-wind'} />}
+                {!minimal && activeLayer !== 'buoys' && activeLayer !== 'velocity' && (
+                    <MapLegend layer={activeLayer as 'wind' | 'rain' | 'global-wind'} />
+                )}
 
-                {selectedStop && (<StopDetailView waypoint={selectedStop} onClose={() => setSelectedStop(null)} />)}
+                {selectedStop && <StopDetailView waypoint={selectedStop} onClose={() => setSelectedStop(null)} />}
 
                 {/* Reset View Button - Always visible or at least when map is interactive/unlocked */}
 
                 <div className="absolute bottom-0 left-0 right-0 z-[9000] p-4 pb-24 pointer-events-none">
-
                     {/* Container for GPS/Reset (Right Aligned) */}
                     <div className="flex flex-col items-end gap-3 mb-4 pointer-events-auto">
                         {/* 1. RESET / GPS STACK - Only show on Station Map or Confirm Mode */}
@@ -540,21 +588,30 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                                 {/* GPS Snap Button */}
                                 <button
                                     onClick={() => {
-                                        GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then((pos) => {
-                                            if (!pos) { toast.error("GPS Error: Unable to get position"); return; }
-                                            if (mapInstance.current) {
-                                                const { latitude, longitude } = pos;
-                                                mapInstance.current.flyTo([latitude, longitude], 12);
+                                        GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then(
+                                            (pos) => {
+                                                if (!pos) {
+                                                    toast.error('GPS Error: Unable to get position');
+                                                    return;
+                                                }
+                                                if (mapInstance.current) {
+                                                    const { latitude, longitude } = pos;
+                                                    mapInstance.current.flyTo([latitude, longitude], 12);
 
-                                                if (isConfirmMode || onLocationSelect) {
-                                                    if (isConfirmMode) {
-                                                        setActiveLayer('buoys');
-                                                        setPendingSelection({ lat: latitude, lon: longitude, name: 'Current Location' });
-                                                        setRawTargetPos({ lat: latitude, lon: longitude });
+                                                    if (isConfirmMode || onLocationSelect) {
+                                                        if (isConfirmMode) {
+                                                            setActiveLayer('buoys');
+                                                            setPendingSelection({
+                                                                lat: latitude,
+                                                                lon: longitude,
+                                                                name: 'Current Location',
+                                                            });
+                                                            setRawTargetPos({ lat: latitude, lon: longitude });
+                                                        }
                                                     }
                                                 }
-                                            }
-                                        });
+                                            },
+                                        );
                                     }}
                                     className="bg-slate-800 hover:bg-slate-700 text-white p-3 rounded-full border border-white/10 shadow-xl transition-all active:scale-95 mb-2"
                                     title="Snap to GPS"
@@ -579,15 +636,17 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                     </div>
 
                     {/* 2. CONFIRM BUTTON (Center Aligned, Full Width) - Only on Station Map */}
-                    {(isConfirmMode && activeLayer === 'buoys') && (
+                    {isConfirmMode && activeLayer === 'buoys' && (
                         <div className="w-full max-w-sm mx-auto pointer-events-auto flex justify-center">
                             <button
                                 onClick={handleConfirm}
                                 disabled={!pendingSelection}
                                 className={`w-full font-bold py-4 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 border transition-all ${pendingSelection ? 'bg-sky-500 hover:bg-sky-400 text-white border-transparent scale-105' : 'bg-slate-800/90 text-gray-500 border-white/10 cursor-not-allowed'}`}
                             >
-                                <MapPinIcon className={`w-5 h-5 ${pendingSelection ? 'text-white' : 'text-gray-500'}`} />
-                                {pendingSelection ? (confirmLabel || "Confirm Location") : "Tap Map to Select Point"}
+                                <MapPinIcon
+                                    className={`w-5 h-5 ${pendingSelection ? 'text-white' : 'text-gray-500'}`}
+                                />
+                                {pendingSelection ? confirmLabel || 'Confirm Location' : 'Tap Map to Select Point'}
                             </button>
                         </div>
                     )}

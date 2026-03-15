@@ -10,21 +10,20 @@
  */
 
 const getSupabaseUrl = (): string =>
-    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL)
-    || '';
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL) || '';
 const getSupabaseKey = (): string =>
     (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_KEY) || '';
 
-const GRID_STRIDE = 6;  // 6 arcminutes = 0.1° per cell (catches narrow islands like Fraser)
-const BASE_PADDING_DEG = 3;  // Minimum padding around route bbox
+const GRID_STRIDE = 6; // 6 arcminutes = 0.1° per cell (catches narrow islands like Fraser)
+const BASE_PADDING_DEG = 3; // Minimum padding around route bbox
 
 export interface BathymetryGrid {
     south: number;
     north: number;
     west: number;
     east: number;
-    latStep: number;   // degrees per row
-    lonStep: number;   // degrees per col
+    latStep: number; // degrees per row
+    lonStep: number; // degrees per col
     rows: number;
     cols: number;
     data: Float32Array; // depth values (negative = underwater)
@@ -49,7 +48,9 @@ export async function preloadBathymetry(
     const west = Math.min(origin.lon, destination.lon) - paddingDeg;
     const east = Math.max(origin.lon, destination.lon) + paddingDeg;
 
-    console.info(`[BathyCache] Preloading ${south.toFixed(1)}–${north.toFixed(1)}°N, ${west.toFixed(1)}–${east.toFixed(1)}°E`);
+    console.info(
+        `[BathyCache] Preloading ${south.toFixed(1)}–${north.toFixed(1)}°N, ${west.toFixed(1)}–${east.toFixed(1)}°E`,
+    );
     const t0 = performance.now();
 
     try {

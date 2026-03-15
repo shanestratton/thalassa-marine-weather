@@ -33,7 +33,7 @@ function toHHMM(mins: number): string {
 
 export interface GoldenHourWindow {
     start: string; // "HH:MM"
-    end: string;   // "HH:MM"
+    end: string; // "HH:MM"
 }
 
 export interface GoldenHourWindows {
@@ -83,8 +83,7 @@ export function isGoldenHour(sunrise: string, sunset: string, now?: Date): boole
     const eStart = parseHHMM(windows.evening.start);
     const eEnd = parseHHMM(windows.evening.end);
 
-    return (nowMins >= mStart && nowMins < mEnd) ||
-        (nowMins >= eStart && nowMins < eEnd);
+    return (nowMins >= mStart && nowMins < mEnd) || (nowMins >= eStart && nowMins < eEnd);
 }
 
 /**

@@ -60,11 +60,19 @@ const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mode, onD
             {/* Delete/Leave zone (revealed on swipe) */}
             <div
                 className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-xl transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                onClick={() => { resetSwipe(); onDelete(); }}
+                onClick={() => {
+                    resetSwipe();
+                    onDelete();
+                }}
             >
                 <div className="text-center text-white">
                     <svg className="w-5 h-5 mx-auto mb-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                        />
                     </svg>
                     <span className="text-[10px] font-bold">{deleteLabel}</span>
                 </div>
@@ -88,8 +96,14 @@ const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mode, onD
                                 {isCaptain ? member.crew_email : member.owner_email}
                             </p>
                             {isCaptain ? (
-                                <p className={`text-[11px] font-bold mt-0.5 ${member.status === 'accepted' ? 'text-emerald-400' : member.status === 'pending' ? 'text-amber-400' : 'text-gray-500'}`}>
-                                    {member.status === 'accepted' ? '✓ Active' : member.status === 'pending' ? '⏳ Waiting for them to accept' : 'Declined'}
+                                <p
+                                    className={`text-[11px] font-bold mt-0.5 ${member.status === 'accepted' ? 'text-emerald-400' : member.status === 'pending' ? 'text-amber-400' : 'text-gray-500'}`}
+                                >
+                                    {member.status === 'accepted'
+                                        ? '✓ Active'
+                                        : member.status === 'pending'
+                                          ? '⏳ Waiting for them to accept'
+                                          : 'Declined'}
                                 </p>
                             ) : (
                                 <p className="text-[11px] text-emerald-400 font-bold mt-0.5">Captain's Registers</p>
@@ -110,13 +124,18 @@ const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mode, onD
 
                 {/* Explanation for crew */}
                 {!isCaptain && (
-                    <p className="text-[11px] text-gray-400 mb-2.5">You have access to the following registers. Any changes you make will update the captain's data.</p>
+                    <p className="text-[11px] text-gray-400 mb-2.5">
+                        You have access to the following registers. Any changes you make will update the captain's data.
+                    </p>
                 )}
 
                 {/* Shared register badges */}
                 <div className="flex flex-wrap gap-1.5">
-                    {member.shared_registers.map(reg => (
-                        <span key={reg} className={`px-2 py-1 ${isCaptain ? 'bg-white/5 border border-white/10 text-gray-300' : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-300'} rounded-lg text-[11px] font-bold`}>
+                    {member.shared_registers.map((reg) => (
+                        <span
+                            key={reg}
+                            className={`px-2 py-1 ${isCaptain ? 'bg-white/5 border border-white/10 text-gray-300' : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-300'} rounded-lg text-[11px] font-bold`}
+                        >
                             {REGISTER_ICONS[reg]} {REGISTER_LABELS[reg]}
                         </span>
                     ))}
@@ -170,11 +189,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
     // Load data
     const loadData = useCallback(async () => {
         setLoading(true);
-        const [crew, invites, ships] = await Promise.all([
-            getMyCrew(),
-            getMyInvites(),
-            getMyMemberships(),
-        ]);
+        const [crew, invites, ships] = await Promise.all([getMyCrew(), getMyInvites(), getMyMemberships()]);
         setMyCrew(crew);
         setPendingInvites(invites);
         setMemberships(ships);
@@ -218,9 +233,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
 
         // Remove from UI optimistically
         if (mode === 'captain') {
-            setMyCrew(prev => prev.filter(m => m.id !== member.id));
+            setMyCrew((prev) => prev.filter((m) => m.id !== member.id));
         } else {
-            setMemberships(prev => prev.filter(m => m.id !== member.id));
+            setMemberships((prev) => prev.filter((m) => m.id !== member.id));
         }
 
         setDeletedMember({ member, mode });
@@ -241,9 +256,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
             toast.error(mode === 'captain' ? 'Failed to remove crew' : 'Failed to leave vessel');
             // Restore on failure
             if (mode === 'captain') {
-                setMyCrew(prev => [...prev, member]);
+                setMyCrew((prev) => [...prev, member]);
             } else {
-                setMemberships(prev => [...prev, member]);
+                setMemberships((prev) => [...prev, member]);
             }
         }
     };
@@ -251,9 +266,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
     const handleUndoDelete = () => {
         if (deletedMember) {
             if (deletedMember.mode === 'captain') {
-                setMyCrew(prev => [...prev, deletedMember.member]);
+                setMyCrew((prev) => [...prev, deletedMember.member]);
             } else {
-                setMemberships(prev => [...prev, deletedMember.member]);
+                setMemberships((prev) => [...prev, deletedMember.member]);
             }
             toast.success('Restored');
         }
@@ -285,16 +300,20 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
         }
     };
 
-    const toggleRegister = (register: SharedRegister, list: SharedRegister[], setList: (v: SharedRegister[]) => void) => {
+    const toggleRegister = (
+        register: SharedRegister,
+        list: SharedRegister[],
+        setList: (v: SharedRegister[]) => void,
+    ) => {
         if (list.includes(register)) {
-            setList(list.filter(r => r !== register));
+            setList(list.filter((r) => r !== register));
         } else {
             setList([...list, register]);
         }
     };
 
     // Filter out declined invites older than 7 days
-    const visibleCrew = myCrew.filter(m => {
+    const visibleCrew = myCrew.filter((m) => {
         if (m.status !== 'declined') return true;
         const declinedAge = Date.now() - new Date(m.updated_at).getTime();
         return declinedAge < 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -305,7 +324,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
         return (
             <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
                 <div className="shrink-0 px-4 pt-4 pb-3 flex items-center gap-2">
-                    <button onClick={onBack} className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
+                    <button
+                        onClick={onBack}
+                        className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                    >
                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                         </svg>
@@ -316,7 +338,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                     <div className="text-center">
                         <div className="text-4xl mb-4">👥</div>
                         <h2 className="text-lg font-bold text-white mb-2">Sign In Required</h2>
-                        <p className="text-sm text-gray-400 max-w-xs">Sign in to share your vessel registers with crew members.</p>
+                        <p className="text-sm text-gray-400 max-w-xs">
+                            Sign in to share your vessel registers with crew members.
+                        </p>
                     </div>
                 </div>
             </div>
@@ -331,8 +355,17 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
             <div className="shrink-0 px-4 pt-4 pb-3">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                        <button onClick={onBack} className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors">
-                            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <button
+                            onClick={onBack}
+                            className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
+                        >
+                            <svg
+                                className="w-5 h-5"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                             </svg>
                         </button>
@@ -353,20 +386,24 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
 
             {/* Content */}
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-24" style={{ WebkitOverflowScrolling: 'touch' }}>
-
                 {/* User's email — for sharing with potential crew */}
                 {userEmail && (
                     <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 mb-4 flex items-center justify-between">
                         <div>
-                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Your Email (share for invites)</p>
+                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                                Your Email (share for invites)
+                            </p>
                             <p className="text-sm font-bold text-white mt-0.5">{userEmail}</p>
                         </div>
                         <button
                             onClick={() => {
-                                navigator.clipboard?.writeText(userEmail).then(() => {
-                                    toast.success('Email copied!');
-                                    triggerHaptic('light');
-                                }).catch(() => toast.error('Could not copy'));
+                                navigator.clipboard
+                                    ?.writeText(userEmail)
+                                    .then(() => {
+                                        toast.success('Email copied!');
+                                        triggerHaptic('light');
+                                    })
+                                    .catch(() => toast.error('Could not copy'));
                             }}
                             className="px-3 py-1.5 bg-sky-500/10 border border-sky-500/20 rounded-lg text-[11px] font-bold text-sky-300 active:scale-95 transition-transform"
                         >
@@ -384,12 +421,20 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                         {/* ── How It Works — shown at TOP when empty ── */}
                         {isEmpty && (
                             <div className="bg-white/[0.02] border border-white/[0.04] rounded-xl p-4 mb-6">
-                                <h3 className="text-[11px] font-black text-gray-500 uppercase tracking-[0.15em] mb-3">How Crew Sharing Works</h3>
+                                <h3 className="text-[11px] font-black text-gray-500 uppercase tracking-[0.15em] mb-3">
+                                    How Crew Sharing Works
+                                </h3>
                                 <div className="space-y-2.5">
                                     {[
-                                        { icon: '📧', text: 'Tap + Invite and enter your crew\'s email address' },
-                                        { icon: '🔐', text: 'Choose which registers to share (Inventory, Equipment, R&M, Documents)' },
-                                        { icon: '✅', text: 'They\'ll see the invite in their Thalassa app and accept it' },
+                                        { icon: '📧', text: "Tap + Invite and enter your crew's email address" },
+                                        {
+                                            icon: '🔐',
+                                            text: 'Choose which registers to share (Inventory, Equipment, R&M, Documents)',
+                                        },
+                                        {
+                                            icon: '✅',
+                                            text: "They'll see the invite in their Thalassa app and accept it",
+                                        },
                                         { icon: '✏️', text: 'Once accepted, their edits go directly to your data' },
                                         { icon: '👈', text: 'Swipe left on any crew card to remove access' },
                                     ].map((step, i) => (
@@ -407,24 +452,36 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                             <div className="mb-6">
                                 <div className="flex items-center gap-2 mb-3">
                                     <div className="w-1 h-4 rounded-full bg-amber-500" />
-                                    <span className="text-[11px] font-black text-amber-400 uppercase tracking-[0.2em]">Pending Invites</span>
-                                    <span className="ml-auto px-2 py-0.5 bg-amber-500/20 text-amber-400 text-[10px] font-bold rounded-full">{pendingInvites.length}</span>
+                                    <span className="text-[11px] font-black text-amber-400 uppercase tracking-[0.2em]">
+                                        Pending Invites
+                                    </span>
+                                    <span className="ml-auto px-2 py-0.5 bg-amber-500/20 text-amber-400 text-[10px] font-bold rounded-full">
+                                        {pendingInvites.length}
+                                    </span>
                                 </div>
 
                                 <div className="space-y-2">
-                                    {pendingInvites.map(invite => (
-                                        <div key={invite.id} className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4">
+                                    {pendingInvites.map((invite) => (
+                                        <div
+                                            key={invite.id}
+                                            className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4"
+                                        >
                                             <div className="flex items-start justify-between mb-3">
                                                 <div>
                                                     <p className="text-sm font-bold text-white">{invite.owner_email}</p>
-                                                    <p className="text-[11px] text-gray-400 mt-0.5">wants to share registers with you</p>
+                                                    <p className="text-[11px] text-gray-400 mt-0.5">
+                                                        wants to share registers with you
+                                                    </p>
                                                 </div>
                                             </div>
 
                                             {/* Shared registers */}
                                             <div className="flex flex-wrap gap-1.5 mb-3">
-                                                {invite.shared_registers.map(reg => (
-                                                    <span key={reg} className="px-2 py-1 bg-white/5 border border-white/10 rounded-lg text-[11px] font-bold text-gray-300">
+                                                {invite.shared_registers.map((reg) => (
+                                                    <span
+                                                        key={reg}
+                                                        className="px-2 py-1 bg-white/5 border border-white/10 rounded-lg text-[11px] font-bold text-gray-300"
+                                                    >
                                                         {REGISTER_ICONS[reg]} {REGISTER_LABELS[reg]}
                                                     </span>
                                                 ))}
@@ -456,11 +513,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                             <div className="mb-6">
                                 <div className="flex items-center gap-2 mb-3">
                                     <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                                    <span className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.2em]">Shared with Me</span>
+                                    <span className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.2em]">
+                                        Shared with Me
+                                    </span>
                                 </div>
 
                                 <div className="space-y-2">
-                                    {memberships.map(membership => (
+                                    {memberships.map((membership) => (
                                         <SwipeableCrewCard
                                             key={membership.id}
                                             member={membership}
@@ -476,9 +535,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                         <div className="mb-6">
                             <div className="flex items-center gap-2 mb-3">
                                 <div className="w-1 h-4 rounded-full bg-sky-500" />
-                                <span className="text-[11px] font-black text-sky-400 uppercase tracking-[0.2em]">My Crew</span>
+                                <span className="text-[11px] font-black text-sky-400 uppercase tracking-[0.2em]">
+                                    My Crew
+                                </span>
                                 {visibleCrew.length > 0 && (
-                                    <span className="ml-auto px-2 py-0.5 bg-sky-500/20 text-sky-400 text-[10px] font-bold rounded-full">{visibleCrew.length}</span>
+                                    <span className="ml-auto px-2 py-0.5 bg-sky-500/20 text-sky-400 text-[10px] font-bold rounded-full">
+                                        {visibleCrew.length}
+                                    </span>
                                 )}
                             </div>
 
@@ -492,16 +555,20 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                                 </div>
                             ) : (
                                 <div className="space-y-2">
-                                    {visibleCrew.map(member => (
+                                    {visibleCrew.map((member) => (
                                         <SwipeableCrewCard
                                             key={member.id}
                                             member={member}
                                             mode="captain"
                                             onDelete={() => handleSoftDelete(member, 'captain')}
-                                            onEdit={member.status !== 'declined' ? () => {
-                                                setEditTarget(member);
-                                                setEditRegisters([...member.shared_registers]);
-                                            } : undefined}
+                                            onEdit={
+                                                member.status !== 'declined'
+                                                    ? () => {
+                                                          setEditTarget(member);
+                                                          setEditRegisters([...member.shared_registers]);
+                                                      }
+                                                    : undefined
+                                            }
                                         />
                                     ))}
                                 </div>
@@ -511,7 +578,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                         {/* ── How It Works — shown at bottom when NOT empty ── */}
                         {!isEmpty && (
                             <div className="bg-white/[0.02] border border-white/[0.04] rounded-xl p-4 mb-6">
-                                <h3 className="text-[11px] font-black text-gray-500 uppercase tracking-[0.15em] mb-3">How Crew Sharing Works</h3>
+                                <h3 className="text-[11px] font-black text-gray-500 uppercase tracking-[0.15em] mb-3">
+                                    How Crew Sharing Works
+                                </h3>
                                 <div className="space-y-2">
                                     {[
                                         { icon: '📧', text: 'Invite crew by their email address' },
@@ -548,7 +617,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                     {inviteSuccess ? (
                         <div className="text-center py-6">
                             <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-500/30">
-                                <svg className="w-8 h-8 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <svg
+                                    className="w-8 h-8 text-emerald-400"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                >
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                                 </svg>
                             </div>
@@ -559,7 +634,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                         <>
                             {/* Email input */}
                             <div>
-                                <label className="text-[11px] uppercase font-bold text-gray-500 mb-1.5 ml-1 block tracking-wide">Crew Email Address</label>
+                                <label className="text-[11px] uppercase font-bold text-gray-500 mb-1.5 ml-1 block tracking-wide">
+                                    Crew Email Address
+                                </label>
                                 <input
                                     type="email"
                                     value={inviteEmail}
@@ -573,33 +650,50 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
 
                             {/* Register selection */}
                             <div>
-                                <label className="text-[11px] uppercase font-bold text-gray-500 mb-2 ml-1 block tracking-wide">Share These Registers</label>
+                                <label className="text-[11px] uppercase font-bold text-gray-500 mb-2 ml-1 block tracking-wide">
+                                    Share These Registers
+                                </label>
                                 <div className="grid grid-cols-2 gap-2">
-                                    {ALL_REGISTERS.map(reg => {
+                                    {ALL_REGISTERS.map((reg) => {
                                         const selected = inviteRegisters.includes(reg);
                                         return (
                                             <button
                                                 key={reg}
                                                 type="button"
                                                 onClick={() => toggleRegister(reg, inviteRegisters, setInviteRegisters)}
-                                                className={`p-3 rounded-xl border text-left transition-all active:scale-95 ${selected
-                                                    ? 'bg-sky-500/15 border-sky-500/40 shadow-lg shadow-sky-500/5'
-                                                    : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]'
-                                                    }`}
+                                                className={`p-3 rounded-xl border text-left transition-all active:scale-95 ${
+                                                    selected
+                                                        ? 'bg-sky-500/15 border-sky-500/40 shadow-lg shadow-sky-500/5'
+                                                        : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]'
+                                                }`}
                                             >
                                                 <div className="flex items-center gap-2">
                                                     <span className="text-lg">{REGISTER_ICONS[reg]}</span>
                                                     <div>
-                                                        <p className={`text-xs font-bold ${selected ? 'text-sky-300' : 'text-white'}`}>
+                                                        <p
+                                                            className={`text-xs font-bold ${selected ? 'text-sky-300' : 'text-white'}`}
+                                                        >
                                                             {REGISTER_LABELS[reg]}
                                                         </p>
                                                     </div>
                                                 </div>
                                                 {/* Checkbox indicator */}
-                                                <div className={`mt-2 w-4 h-4 rounded-md border-2 flex items-center justify-center ${selected ? 'bg-sky-500 border-sky-500' : 'border-white/20'}`}>
+                                                <div
+                                                    className={`mt-2 w-4 h-4 rounded-md border-2 flex items-center justify-center ${selected ? 'bg-sky-500 border-sky-500' : 'border-white/20'}`}
+                                                >
                                                     {selected && (
-                                                        <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                                        <svg
+                                                            className="w-2.5 h-2.5 text-white"
+                                                            fill="none"
+                                                            viewBox="0 0 24 24"
+                                                            stroke="currentColor"
+                                                            strokeWidth={3}
+                                                        >
+                                                            <path
+                                                                strokeLinecap="round"
+                                                                strokeLinejoin="round"
+                                                                d="M4.5 12.75l6 6 9-13.5"
+                                                            />
                                                         </svg>
                                                     )}
                                                 </div>
@@ -620,7 +714,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                             <button
                                 onClick={handleInvite}
                                 disabled={inviteLoading || !inviteEmail.trim() || inviteRegisters.length === 0}
-                                className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${(!inviteEmail.trim() || inviteRegisters.length === 0) ? 'opacity-50' : 'hover:bg-gray-100'}`}
+                                className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${!inviteEmail.trim() || inviteRegisters.length === 0 ? 'opacity-50' : 'hover:bg-gray-100'}`}
                             >
                                 {inviteLoading ? (
                                     <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
@@ -641,30 +735,47 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
             >
                 <div className="p-6 space-y-5">
                     <div>
-                        <label className="text-[11px] uppercase font-bold text-gray-500 mb-2 ml-1 block tracking-wide">Shared Registers</label>
+                        <label className="text-[11px] uppercase font-bold text-gray-500 mb-2 ml-1 block tracking-wide">
+                            Shared Registers
+                        </label>
                         <div className="grid grid-cols-2 gap-2">
-                            {ALL_REGISTERS.map(reg => {
+                            {ALL_REGISTERS.map((reg) => {
                                 const selected = editRegisters.includes(reg);
                                 return (
                                     <button
                                         key={reg}
                                         type="button"
                                         onClick={() => toggleRegister(reg, editRegisters, setEditRegisters)}
-                                        className={`p-3 rounded-xl border text-left transition-all active:scale-95 ${selected
-                                            ? 'bg-sky-500/15 border-sky-500/40'
-                                            : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]'
-                                            }`}
+                                        className={`p-3 rounded-xl border text-left transition-all active:scale-95 ${
+                                            selected
+                                                ? 'bg-sky-500/15 border-sky-500/40'
+                                                : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]'
+                                        }`}
                                     >
                                         <div className="flex items-center gap-2">
                                             <span className="text-lg">{REGISTER_ICONS[reg]}</span>
-                                            <p className={`text-xs font-bold ${selected ? 'text-sky-300' : 'text-white'}`}>
+                                            <p
+                                                className={`text-xs font-bold ${selected ? 'text-sky-300' : 'text-white'}`}
+                                            >
                                                 {REGISTER_LABELS[reg]}
                                             </p>
                                         </div>
-                                        <div className={`mt-2 w-4 h-4 rounded-md border-2 flex items-center justify-center ${selected ? 'bg-sky-500 border-sky-500' : 'border-white/20'}`}>
+                                        <div
+                                            className={`mt-2 w-4 h-4 rounded-md border-2 flex items-center justify-center ${selected ? 'bg-sky-500 border-sky-500' : 'border-white/20'}`}
+                                        >
                                             {selected && (
-                                                <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                                <svg
+                                                    className="w-2.5 h-2.5 text-white"
+                                                    fill="none"
+                                                    viewBox="0 0 24 24"
+                                                    stroke="currentColor"
+                                                    strokeWidth={3}
+                                                >
+                                                    <path
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        d="M4.5 12.75l6 6 9-13.5"
+                                                    />
                                                 </svg>
                                             )}
                                         </div>
@@ -687,9 +798,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
             {/* ── UNDO TOAST ── */}
             <UndoToast
                 isOpen={!!deletedMember}
-                message={deletedMember?.mode === 'captain'
-                    ? `"${deletedMember?.member.crew_email}" removed`
-                    : `Left "${deletedMember?.member.owner_email}"`
+                message={
+                    deletedMember?.mode === 'captain'
+                        ? `"${deletedMember?.member.crew_email}" removed`
+                        : `Left "${deletedMember?.member.owner_email}"`
                 }
                 onUndo={handleUndoDelete}
                 onDismiss={handleDismissDelete}

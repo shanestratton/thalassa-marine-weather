@@ -9,22 +9,20 @@ import { ChannelProposalModal } from './ChannelProposalModal';
 
 // --- Client-side display overrides ---
 const ICON_OVERRIDES: Record<string, string> = {
-    'SOLAS': '🛟',
-    'Safety': '🛟',
+    SOLAS: '🛟',
+    Safety: '🛟',
     'Find Crew': '👥',
 };
 const NAME_OVERRIDES: Record<string, string> = {
     'Find Crew': 'Crew Finder',
 };
-const getChannelIcon = (ch: { name: string; icon: string }) =>
-    ICON_OVERRIDES[ch.name] ?? ch.icon;
-const getChannelName = (ch: { name: string }) =>
-    NAME_OVERRIDES[ch.name] ?? ch.name;
+const getChannelIcon = (ch: { name: string; icon: string }) => ICON_OVERRIDES[ch.name] ?? ch.icon;
+const getChannelName = (ch: { name: string }) => NAME_OVERRIDES[ch.name] ?? ch.name;
 
 const CHANNEL_PRIORITY: Record<string, number> = {
-    'Marketplace': 0,
+    Marketplace: 0,
     'Find Crew': 1,
-    'General': 2,
+    General: 2,
 };
 
 interface ChannelListProps {
@@ -77,11 +75,9 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
 }) => {
     const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
 
-
-
     const toggleExpand = (parentId: string, e: React.MouseEvent) => {
         e.stopPropagation();
-        setExpandedParents(prev => {
+        setExpandedParents((prev) => {
             const next = new Set(prev);
             if (next.has(parentId)) next.delete(parentId);
             else next.add(parentId);
@@ -99,18 +95,20 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
 
     // Separate top-level and sub-channels
     const topLevel = channels
-        .filter(ch => ch.name !== 'Lonely Hearts' && !ch.parent_id)
+        .filter((ch) => ch.name !== 'Lonely Hearts' && !ch.parent_id)
         .sort((a, b) => (CHANNEL_PRIORITY[a.name] ?? 99) - (CHANNEL_PRIORITY[b.name] ?? 99));
 
     const subChannelMap = new Map<string, ChatChannel[]>();
-    channels.filter(ch => ch.parent_id).forEach(ch => {
-        const subs = subChannelMap.get(ch.parent_id!) || [];
-        subs.push(ch);
-        subChannelMap.set(ch.parent_id!, subs);
-    });
+    channels
+        .filter((ch) => ch.parent_id)
+        .forEach((ch) => {
+            const subs = subChannelMap.get(ch.parent_id!) || [];
+            subs.push(ch);
+            subChannelMap.set(ch.parent_id!, subs);
+        });
 
     // Top-level channels that can be parents (for proposal dropdown)
-    const parentOptions = topLevel.filter(ch => ch.name !== 'Marketplace' && ch.name !== 'Find Crew');
+    const parentOptions = topLevel.filter((ch) => ch.name !== 'Marketplace' && ch.name !== 'Find Crew');
 
     const renderChannelCard = (ch: ChatChannel, isSub: boolean, index: number) => {
         const isPrivateLocked = ch.is_private && !memberChannelIds.has(ch.id) && !isAdmin;
@@ -122,37 +120,47 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
             <div key={ch.id}>
                 <div className={`flex items-center ${isSub ? 'pl-6' : ''}`}>
                     {/* Sub-channel connector line */}
-                    {isSub && (
-                        <div className="absolute left-[2.4rem] w-3 h-[1px] bg-white/[0.06]" />
-                    )}
+                    {isSub && <div className="absolute left-[2.4rem] w-3 h-[1px] bg-white/[0.06]" />}
                     <button
                         onClick={() => handleChannelClick(ch)}
                         aria-label={`${getChannelName(ch)}${ch.is_private ? ' — Private channel' : ''}${isPrivateLocked ? ' — Request access' : ''}`}
-                        className={`w-full group flex items-center gap-3 ${isSub ? 'p-3' : 'p-3.5'} rounded-2xl transition-all duration-200 card-press stagger-item min-h-[${isSub ? '48' : '56'}px] ${isPrivateLocked
-                            ? 'bg-white/[0.01] border border-white/[0.04] opacity-70'
-                            : isSub
-                                ? 'bg-white/[0.015] hover:bg-white/[0.04] border border-white/[0.02] hover:border-white/[0.06]'
-                                : 'bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.03] hover:border-white/[0.08]'
-                            }`}
+                        className={`w-full group flex items-center gap-3 ${isSub ? 'p-3' : 'p-3.5'} rounded-2xl transition-all duration-200 card-press stagger-item min-h-[${isSub ? '48' : '56'}px] ${
+                            isPrivateLocked
+                                ? 'bg-white/[0.01] border border-white/[0.04] opacity-70'
+                                : isSub
+                                  ? 'bg-white/[0.015] hover:bg-white/[0.04] border border-white/[0.02] hover:border-white/[0.06]'
+                                  : 'bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.03] hover:border-white/[0.08]'
+                        }`}
                         style={!isSub ? { animationDelay: `${index * 40}ms` } : undefined}
                     >
                         {/* Icon */}
-                        <div className={`${isSub ? 'w-8 h-8 text-base' : 'w-11 h-11 text-xl'} rounded-xl bg-gradient-to-br border flex items-center justify-center group-hover:scale-110 transition-transform duration-200 ${ch.is_private
-                            ? 'from-purple-500/[0.12] to-indigo-500/[0.05] border-purple-500/20'
-                            : 'from-white/[0.06] to-white/[0.02] border-white/[0.05]'
-                            }`}>
+                        <div
+                            className={`${isSub ? 'w-8 h-8 text-base' : 'w-11 h-11 text-xl'} rounded-xl bg-gradient-to-br border flex items-center justify-center group-hover:scale-110 transition-transform duration-200 ${
+                                ch.is_private
+                                    ? 'from-purple-500/[0.12] to-indigo-500/[0.05] border-purple-500/20'
+                                    : 'from-white/[0.06] to-white/[0.02] border-white/[0.05]'
+                            }`}
+                        >
                             {ch.is_private ? '🔒' : getChannelIcon(ch)}
                         </div>
 
                         {/* Name + description */}
                         <div className="text-left flex-1 min-w-0">
                             <div className="flex items-center gap-1.5">
-                                <p className={`${isSub ? 'text-sm' : 'text-lg'} font-semibold text-white/85 group-hover:text-white transition-colors`}>{getChannelName(ch)}</p>
+                                <p
+                                    className={`${isSub ? 'text-sm' : 'text-lg'} font-semibold text-white/85 group-hover:text-white transition-colors`}
+                                >
+                                    {getChannelName(ch)}
+                                </p>
                                 {ch.is_private && (
-                                    <span className="text-[11px] font-bold text-purple-400/70 bg-purple-500/10 px-1.5 py-0.5 rounded-full">PRIVATE</span>
+                                    <span className="text-[11px] font-bold text-purple-400/70 bg-purple-500/10 px-1.5 py-0.5 rounded-full">
+                                        PRIVATE
+                                    </span>
                                 )}
                             </div>
-                            <p className={`${isSub ? 'text-[11px]' : 'text-sm'} text-white/60 truncate ${isSub ? '' : 'mt-0.5'}`}>
+                            <p
+                                className={`${isSub ? 'text-[11px]' : 'text-sm'} text-white/60 truncate ${isSub ? '' : 'mt-0.5'}`}
+                            >
                                 {isPrivateLocked ? '🔒 Request access to join' : ch.description}
                             </p>
                         </div>
@@ -166,7 +174,11 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                                     aria-expanded={isExpanded}
                                     className="w-8 h-8 rounded-full bg-white/[0.04] hover:bg-white/[0.08] flex items-center justify-center transition-all min-h-[44px] min-w-[44px]"
                                 >
-                                    <span className={`text-white/40 text-[11px] transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}>▼</span>
+                                    <span
+                                        className={`text-white/40 text-[11px] transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+                                    >
+                                        ▼
+                                    </span>
                                 </button>
                             )}
                             <div className="w-6 h-6 rounded-full bg-white/[0.03] group-hover:bg-white/[0.06] flex items-center justify-center transition-all group-hover:translate-x-0.5">
@@ -200,11 +212,15 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                         👑
                     </div>
                     <div className="text-left flex-1 min-w-0">
-                        <p className="text-lg font-semibold text-amber-400/90 group-hover:text-amber-300 transition-colors">Admin Panel</p>
+                        <p className="text-lg font-semibold text-amber-400/90 group-hover:text-amber-300 transition-colors">
+                            Admin Panel
+                        </p>
                         <p className="text-sm text-amber-400/40 truncate mt-0.5">Manage roles, mute & block users</p>
                     </div>
                     <div className="w-6 h-6 rounded-full bg-amber-500/10 group-hover:bg-amber-500/20 flex items-center justify-center transition-all group-hover:translate-x-0.5">
-                        <span className="text-amber-400/30 group-hover:text-amber-400/70 text-xs transition-colors">›</span>
+                        <span className="text-amber-400/30 group-hover:text-amber-400/70 text-xs transition-colors">
+                            ›
+                        </span>
                     </div>
                 </button>
             )}
@@ -214,12 +230,13 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
             {/* Channel list with sub-channel grouping */}
             {topLevel.map((ch, i) => renderChannelCard(ch, false, i))}
 
-
-
             {/* Proposal Modal */}
             {showProposalForm && (
                 <ChannelProposalModal
-                    onClose={() => { setShowProposalForm(false); setProposalParentId(null); }}
+                    onClose={() => {
+                        setShowProposalForm(false);
+                        setProposalParentId(null);
+                    }}
                     proposalIcon={proposalIcon}
                     setProposalIcon={setProposalIcon}
                     proposalName={proposalName}

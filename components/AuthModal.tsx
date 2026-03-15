@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { t } from '../theme';
 import { supabase } from '../services/supabase';
@@ -16,7 +15,10 @@ type AuthStep = 'input' | 'otp' | 'success';
 
 /** Strip invisible Unicode characters and trim whitespace that iOS autocomplete can inject */
 const sanitizeEmail = (raw: string): string =>
-    raw.replace(/[\u200B-\u200D\uFEFF\u00A0\u2060]/g, '').trim().toLowerCase();
+    raw
+        .replace(/[\u200B-\u200D\uFEFF\u00A0\u2060]/g, '')
+        .trim()
+        .toLowerCase();
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     const [step, setStep] = useState<AuthStep>('input');
@@ -45,7 +47,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     useEffect(() => {
         if (resendCooldown <= 0) return;
         const timer = setInterval(() => {
-            setResendCooldown(prev => Math.max(0, prev - 1));
+            setResendCooldown((prev) => Math.max(0, prev - 1));
         }, 1000);
         return () => clearInterval(timer);
     }, [resendCooldown]);
@@ -64,25 +66,29 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         let cleanup: (() => void) | undefined;
 
         if (Capacitor.isNativePlatform()) {
-            import('@capacitor/keyboard').then(({ Keyboard }) => {
-                const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
-                    setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
-                    // Scroll focused input into view immediately
-                    setTimeout(() => {
-                        const focused = document.activeElement as HTMLElement;
-                        if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) {
-                            focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        }
-                    }, 50);
+            import('@capacitor/keyboard')
+                .then(({ Keyboard }) => {
+                    const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
+                        setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
+                        // Scroll focused input into view immediately
+                        setTimeout(() => {
+                            const focused = document.activeElement as HTMLElement;
+                            if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) {
+                                focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                        }, 50);
+                    });
+                    const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                        setKeyboardHeight(0);
+                    });
+                    cleanup = () => {
+                        showHandle.then((h) => h.remove());
+                        hideHandle.then((h) => h.remove());
+                    };
+                })
+                .catch(() => {
+                    /* Keyboard plugin not available */
                 });
-                const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                    setKeyboardHeight(0);
-                });
-                cleanup = () => {
-                    showHandle.then(h => h.remove());
-                    hideHandle.then(h => h.remove());
-                };
-            }).catch(() => { /* Keyboard plugin not available */ });
         } else {
             // Web fallback: visualViewport
             const vp = window.visualViewport;
@@ -126,7 +132,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     const handleSendCode = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!supabase) {
-            setError("Database connection not established. Check API Keys.");
+            setError('Database connection not established. Check API Keys.');
             return;
         }
 
@@ -153,10 +159,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         } catch (err: unknown) {
             logAuthError('handleSendCode', err);
             if (isRateLimited(err)) {
-                setError("Too many sign-in attempts. Please wait a few minutes and try again.");
+                setError('Too many sign-in attempts. Please wait a few minutes and try again.');
                 setResendCooldown(120);
             } else {
-                setError(getErrorMessage(err) || "Failed to send code. Please try again.");
+                setError(getErrorMessage(err) || 'Failed to send code. Please try again.');
             }
         } finally {
             setLoading(false);
@@ -167,12 +173,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     const handleVerifyOtp = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!supabase) {
-            setError("Database connection not established.");
+            setError('Database connection not established.');
             return;
         }
 
         if (otp.length !== 8) {
-            setError("Please enter the 8-digit code.");
+            setError('Please enter the 8-digit code.');
             return;
         }
 
@@ -193,7 +199,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 setTimeout(() => onClose(), 1500);
             }
         } catch (err: unknown) {
-            setError(getErrorMessage(err) || "Invalid or expired code. Please try again.");
+            setError(getErrorMessage(err) || 'Invalid or expired code. Please try again.');
             setOtp('');
         } finally {
             setLoading(false);
@@ -219,10 +225,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         } catch (err: unknown) {
             logAuthError('handleResendCode', err);
             if (isRateLimited(err)) {
-                setError("Too many sign-in attempts. Please wait a few minutes and try again.");
+                setError('Too many sign-in attempts. Please wait a few minutes and try again.');
                 setResendCooldown(120);
             } else {
-                setError(getErrorMessage(err) || "Failed to resend code.");
+                setError(getErrorMessage(err) || 'Failed to resend code.');
             }
         } finally {
             setLoading(false);
@@ -252,16 +258,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 paddingBottom: keyboardHeight > 0 ? keyboardHeight : undefined,
                 transition: 'padding-bottom 0.25s ease-out',
             }}
-            role="dialog" aria-modal="true" aria-labelledby="auth-title" ref={focusTrapRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="auth-title"
+            ref={focusTrapRef}
         >
             <div className="absolute inset-0 bg-black/90 transition-opacity" onClick={onClose} />
 
-            <div ref={panelRef} className={`relative modal-panel-enter bg-slate-900 w-full max-w-md tablet-modal rounded-2xl overflow-y-auto ${t.border.default} shadow-2xl flex flex-col animate-in fade-in zoom-in-95`}>
-                <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 rounded-full text-white/70 hover:text-white transition-colors z-20" aria-label="Close">
+            <div
+                ref={panelRef}
+                className={`relative modal-panel-enter bg-slate-900 w-full max-w-md tablet-modal rounded-2xl overflow-y-auto ${t.border.default} shadow-2xl flex flex-col animate-in fade-in zoom-in-95`}
+            >
+                <button
+                    onClick={onClose}
+                    className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 rounded-full text-white/70 hover:text-white transition-colors z-20"
+                    aria-label="Close"
+                >
                     <XIcon className="w-5 h-5" />
                 </button>
 
-                <div className={`${keyboardHeight > 0 ? 'p-4 pt-10' : 'p-8'} flex flex-col items-center text-center transition-all duration-200`}>
+                <div
+                    className={`${keyboardHeight > 0 ? 'p-4 pt-10' : 'p-8'} flex flex-col items-center text-center transition-all duration-200`}
+                >
                     {/* Hero section — collapses when keyboard is open */}
                     <div
                         style={{
@@ -279,7 +297,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                             {step === 'success' ? 'Welcome Aboard!' : 'Sync Your Logs'}
                         </h2>
                         <p className="text-sm text-gray-400 mb-6 max-w-xs leading-relaxed">
-                            {step === 'input' && "Sign in to synchronize your vessel profile, saved routes, and preferences across all your devices."}
+                            {step === 'input' &&
+                                'Sign in to synchronize your vessel profile, saved routes, and preferences across all your devices.'}
                             {step === 'otp' && `We sent an 8-digit code to ${email}`}
                             {step === 'success' && "You're now signed in and your data will sync automatically."}
                         </p>
@@ -307,7 +326,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     {step === 'input' && (
                         <form onSubmit={handleSendCode} className="w-full space-y-4">
                             <div className="text-left">
-                                <label className="text-sm uppercase font-bold text-gray-500 mb-1.5 ml-1 block">Email Address</label>
+                                <label className="text-sm uppercase font-bold text-gray-500 mb-1.5 ml-1 block">
+                                    Email Address
+                                </label>
                                 <input
                                     type="email"
                                     value={email}
@@ -320,7 +341,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                             </div>
 
                             {error && (
-                                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-200" aria-live="assertive">
+                                <div
+                                    className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-200"
+                                    aria-live="assertive"
+                                >
                                     {error}
                                 </div>
                             )}
@@ -328,9 +352,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                             <button
                                 type="submit"
                                 disabled={loading || !supabase || resendCooldown > 0}
-                                className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${(!supabase || resendCooldown > 0) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
+                                className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${!supabase || resendCooldown > 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
                             >
-                                {loading ? <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" /> : resendCooldown > 0 ? `Try again in ${resendCooldown}s` : "Send Code"}
+                                {loading ? (
+                                    <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                                ) : resendCooldown > 0 ? (
+                                    `Try again in ${resendCooldown}s`
+                                ) : (
+                                    'Send Code'
+                                )}
                             </button>
 
                             {!supabase && (
@@ -343,7 +373,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     {step === 'otp' && (
                         <form onSubmit={handleVerifyOtp} className="w-full space-y-4">
                             <div className="text-left">
-                                <label className="text-sm uppercase font-bold text-gray-500 mb-1.5 ml-1 block">8-Digit Code</label>
+                                <label className="text-sm uppercase font-bold text-gray-500 mb-1.5 ml-1 block">
+                                    8-Digit Code
+                                </label>
                                 <input
                                     ref={otpInputRef}
                                     type="text"
@@ -358,7 +390,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                             </div>
 
                             {error && (
-                                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-200" aria-live="assertive">
+                                <div
+                                    className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-200"
+                                    aria-live="assertive"
+                                >
                                     {error}
                                 </div>
                             )}
@@ -368,7 +403,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                 disabled={loading || otp.length !== 8}
                                 className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${otp.length !== 8 ? 'opacity-50' : 'hover:bg-gray-100'}`}
                             >
-                                {loading ? <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" /> : "Verify Code"}
+                                {loading ? (
+                                    <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                    'Verify Code'
+                                )}
                             </button>
 
                             <div className="flex items-center justify-between text-sm">
@@ -376,7 +415,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                     type="button"
                                     onClick={handleChangeInput}
                                     className="text-gray-400 hover:text-white transition-colors"
-                                    aria-label="Change Email">
+                                    aria-label="Change Email"
+                                >
                                     ← Change email
                                 </button>
                                 <button

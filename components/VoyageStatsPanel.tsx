@@ -48,7 +48,11 @@ export const VoyageStatsPanel: React.FC<VoyageStatsPanelProps> = ({ entries }) =
                             <MiniStat label="Wind" value={(stats.weather.avgWindSpeed ?? 0).toFixed(0)} unit="kts" />
                         )}
                         {stats.weather.avgWaveHeight > 0 && (
-                            <MiniStat label="Waves" value={((stats.weather.avgWaveHeight ?? 0) * 0.3048).toFixed(1)} unit="m" />
+                            <MiniStat
+                                label="Waves"
+                                value={((stats.weather.avgWaveHeight ?? 0) * 0.3048).toFixed(1)}
+                                unit="m"
+                            />
                         )}
                         {stats.weather.avgAirTemp > 0 && (
                             <MiniStat label="Temp" value={Math.round(stats.weather.avgAirTemp)} unit="°" />

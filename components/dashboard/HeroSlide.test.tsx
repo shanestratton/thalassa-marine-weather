@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 
 // Mock heavy sub-components to isolate HeroSlide logic
@@ -91,7 +91,7 @@ describe('HeroSlide', () => {
                 updateSettings={vi.fn()}
                 addDebugLog={undefined}
                 displaySource="StormGlass"
-            />
+            />,
         );
         expect(container).toBeDefined();
     });
@@ -107,7 +107,7 @@ describe('HeroSlide', () => {
                 addDebugLog={undefined}
                 displaySource="StormGlass"
                 isVisible={true}
-            />
+            />,
         );
         // The rendered output should contain wind speed value from props
         expect(container.textContent).toContain('15');

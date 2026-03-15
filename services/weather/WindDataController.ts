@@ -13,7 +13,7 @@
  */
 
 import type mapboxgl from 'mapbox-gl';
-import { fetchWindGrid, fetchGlobalWindField, type WindGrid } from './windField';
+import { fetchWindGrid, fetchGlobalWindField } from './windField';
 import { loadLocalWindFile } from './GribWindParser';
 import { WindStore } from '../../stores/WindStore';
 
@@ -37,7 +37,7 @@ function boundsChangedSignificantly(a: CachedBounds, b: CachedBounds): boolean {
     const lonShift = Math.abs(a.east - b.east) + Math.abs(a.west - b.west);
     const zoomDiff = Math.abs(a.zoom - b.zoom);
 
-    return (latShift / latSpan > 0.4) || (lonShift / lonSpan > 0.4) || (zoomDiff > 1);
+    return latShift / latSpan > 0.4 || lonShift / lonSpan > 0.4 || zoomDiff > 1;
 }
 
 // ── Moveend listener management ──
@@ -101,7 +101,10 @@ export const WindDataController = {
         let north: number, south: number, west: number, east: number;
 
         if (isGlobalMode) {
-            north = 90; south = -90; west = -180; east = 180;
+            north = 90;
+            south = -90;
+            west = -180;
+            east = 180;
         } else {
             // Passage mode: visible viewport with padding
             const currentBounds: CachedBounds = {
@@ -130,19 +133,23 @@ export const WindDataController = {
 
         try {
             // Primary: Supabase GFS GRIB2 edge function (reliable)
-            const supabaseUrl = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL)
-                || 'https://pcisdplnodrphauixcau.supabase.co';
-            const supabaseKey = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_KEY) || '';
+            const supabaseUrl =
+                (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL) ||
+                'https://pcisdplnodrphauixcau.supabase.co';
+            const supabaseKey =
+                (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_KEY) || '';
             const edgeUrl = `${supabaseUrl}/functions/v1/fetch-wind-grid`;
 
             const res = await fetch(edgeUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    ...(supabaseKey ? {
-                        'apikey': supabaseKey,
-                        'Authorization': `Bearer ${supabaseKey}`,
-                    } : {}),
+                    ...(supabaseKey
+                        ? {
+                              apikey: supabaseKey,
+                              Authorization: `Bearer ${supabaseKey}`,
+                          }
+                        : {}),
                 },
                 body: JSON.stringify({ north, south, east, west }),
             });
@@ -154,10 +161,16 @@ export const WindDataController = {
                     const grid = decodeGrib2WindMultiHour(buffer);
 
                     lastFetchedBounds = {
-                        north, south, west, east, zoom: currentZoom,
+                        north,
+                        south,
+                        west,
+                        east,
+                        zoom: currentZoom,
                     };
                     WindStore.setGrid(grid);
-                    console.info(`[WindController] GFS GRIB loaded: ${grid.width}×${grid.height}, ${grid.totalHours} forecast hours`);
+                    console.info(
+                        `[WindController] GFS GRIB loaded: ${grid.width}×${grid.height}, ${grid.totalHours} forecast hours`,
+                    );
                     return;
                 }
             }

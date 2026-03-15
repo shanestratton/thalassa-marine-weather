@@ -28,11 +28,11 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
     onFiltersChange,
     totalEntries,
     filteredCount,
-    entryCounts
+    entryCounts,
 }) => {
     const toggleType = (type: 'auto' | 'manual' | 'waypoint') => {
         const newTypes = filters.types.includes(type)
-            ? filters.types.filter(t => t !== type)
+            ? filters.types.filter((t) => t !== type)
             : [...filters.types, type];
         onFiltersChange({ ...filters, types: newTypes });
     };
@@ -42,7 +42,11 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
     };
 
     return (
-        <div className="bg-slate-900/30 border border-white/5 rounded-xl p-2 mb-2" role="toolbar" aria-label="Log entry filters">
+        <div
+            className="bg-slate-900/30 border border-white/5 rounded-xl p-2 mb-2"
+            role="toolbar"
+            aria-label="Log entry filters"
+        >
             {/* Compact Row: Search + Filters */}
             <div className="flex gap-2 items-center">
                 {/* Search */}
@@ -61,7 +65,12 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
                         viewBox="0 0 24 24"
                         stroke="currentColor"
                     >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                        />
                     </svg>
                     {filters.searchQuery && (
                         <button
@@ -118,9 +127,7 @@ const FilterPill: React.FC<FilterPillProps> = ({ label, count, active, onClick, 
         purple: active
             ? 'bg-purple-500/30 border-purple-500/60 text-purple-400'
             : 'bg-slate-800/60 border-white/5 text-slate-500',
-        blue: active
-            ? 'bg-sky-500/30 border-sky-500/60 text-sky-400'
-            : 'bg-slate-800/60 border-white/5 text-slate-500'
+        blue: active ? 'bg-sky-500/30 border-sky-500/60 text-sky-400' : 'bg-slate-800/60 border-white/5 text-slate-500',
     };
 
     return (
@@ -131,9 +138,7 @@ const FilterPill: React.FC<FilterPillProps> = ({ label, count, active, onClick, 
             className={`min-w-[56px] min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${colorClasses[color]}`}
         >
             {label}
-            {count !== undefined && count > 0 && (
-                <span className="ml-0.5 opacity-70">{count}</span>
-            )}
+            {count !== undefined && count > 0 && <span className="ml-0.5 opacity-70">{count}</span>}
         </button>
     );
 };

@@ -27,11 +27,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
  * @param onSync - Callback to reload data (e.g., loadItems)
  * @param enabled - Optional flag to enable/disable the subscription
  */
-export function useRealtimeSync(
-    table: string,
-    onSync: () => void,
-    enabled: boolean = true,
-): void {
+export function useRealtimeSync(table: string, onSync: () => void, enabled: boolean = true): void {
     const onSyncRef = useRef(onSync);
     onSyncRef.current = onSync;
 
@@ -77,11 +73,7 @@ export function useRealtimeSync(
  * Subscribe to realtime changes on multiple tables.
  * Useful for Maintenance which spans tasks + history.
  */
-export function useRealtimeSyncMulti(
-    tables: string[],
-    onSync: () => void,
-    enabled: boolean = true,
-): void {
+export function useRealtimeSyncMulti(tables: string[], onSync: () => void, enabled: boolean = true): void {
     const onSyncRef = useRef(onSync);
     onSyncRef.current = onSync;
 

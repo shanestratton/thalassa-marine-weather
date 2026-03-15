@@ -42,12 +42,7 @@ const GRIB_MAGIC = 0x47524942; // "GRIB"
 
 // ── Bit extraction helper ─────────────────────────────────────
 
-function extractBits(
-    data: DataView,
-    byteOffset: number,
-    totalBits: number,
-    bitsPerValue: number,
-): number[] {
+function extractBits(data: DataView, byteOffset: number, totalBits: number, bitsPerValue: number): number[] {
     const values: number[] = [];
     const count = Math.floor(totalBits / bitsPerValue);
     let bitPos = 0;
@@ -106,18 +101,28 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Pre
 
     let pos = offset + 16;
 
-    let width = 0, height = 0;
-    let lat1 = 0, lat2 = 0, lon1 = 0, lon2 = 0;
-    let dx = 0, dy = 0;
-    let refValue = 0, binaryScale = 0, decimalScale = 0, bitsPerValue = 0;
+    let width = 0,
+        height = 0;
+    let lat1 = 0,
+        lat2 = 0,
+        lon1 = 0,
+        lon2 = 0;
+    let dx = 0,
+        dy = 0;
+    let refValue = 0,
+        binaryScale = 0,
+        decimalScale = 0,
+        bitsPerValue = 0;
     let packedData: number[] = [];
 
     const endOfMessage = offset + totalLength;
 
     while (pos < endOfMessage - 4) {
         if (
-            view.getUint8(pos) === 0x37 && view.getUint8(pos + 1) === 0x37 &&
-            view.getUint8(pos + 2) === 0x37 && view.getUint8(pos + 3) === 0x37
+            view.getUint8(pos) === 0x37 &&
+            view.getUint8(pos + 1) === 0x37 &&
+            view.getUint8(pos + 2) === 0x37 &&
+            view.getUint8(pos + 3) === 0x37
         ) {
             break;
         }
@@ -149,10 +154,10 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Pre
                     lat2 = la2Raw;
                     lon2 = lo2Raw;
                 } else {
-                    const dLat = (width > 1 && height > 1) ? 180.0 / (height - 1) : 1.0;
-                    const dLon = (width > 1) ? 360.0 / width : 1.0;
-                    lat2 = la2Valid ? la2Raw : (lat1 - (height - 1) * dLat);
-                    lon2 = lo2Valid ? lo2Raw : (lon1 + (width - 1) * dLon);
+                    const dLat = width > 1 && height > 1 ? 180.0 / (height - 1) : 1.0;
+                    const dLon = width > 1 ? 360.0 / width : 1.0;
+                    lat2 = la2Valid ? la2Raw : lat1 - (height - 1) * dLat;
+                    lon2 = lo2Valid ? lo2Raw : lon1 + (width - 1) * dLon;
                 }
 
                 // Grid spacing
@@ -214,7 +219,7 @@ export function decodeGrib2Pressure(buffer: ArrayBuffer): DecodedPressureGrid {
             const { msg, nextOffset } = parseGrib2Message(buffer, offset);
 
             // Normalize longitude: GFS uses 0-360, we want -180 to 180
-            const normLon = (lon: number) => lon > 180 ? lon - 360 : lon;
+            const normLon = (lon: number) => (lon > 180 ? lon - 360 : lon);
 
             frames.push({
                 pressure: msg.data,
@@ -243,7 +248,6 @@ export function decodeGrib2Pressure(buffer: ArrayBuffer): DecodedPressureGrid {
     if (frames.length === 0) {
         throw new Error('[GRIB2-Pressure] No valid messages found');
     }
-
 
     const f0 = frames[0];
 

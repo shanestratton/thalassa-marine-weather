@@ -20,7 +20,9 @@ export const NmeaConnectionBadge: React.FC = () => {
         const unsub = NmeaListenerService.onStatusChange((s) => setStatus(s));
         // Sync on mount in case we missed the initial
         setStatus(NmeaListenerService.getStatus());
-        return () => { unsub(); };
+        return () => {
+            unsub();
+        };
     }, []);
 
     // Only show when fully connected — no confusing amber badge with no dismiss
@@ -32,8 +34,18 @@ export const NmeaConnectionBadge: React.FC = () => {
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
 
                 {/* Network icon (tiny antenna) */}
-                <svg className="w-3 h-3 text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0" />
+                <svg
+                    className="w-3 h-3 text-white/90"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                >
+                    <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0"
+                    />
                 </svg>
 
                 <span className="text-white font-bold text-[11px] tracking-wide leading-none whitespace-nowrap">

@@ -4,12 +4,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-    getLogEntries,
-    deleteVoyage,
-    deleteEntry,
-    importGPXVoyage,
-} from '../services/shiplog/EntryCrud';
+import { getLogEntries, deleteVoyage, deleteEntry, importGPXVoyage } from '../services/shiplog/EntryCrud';
 
 // ---- Mock Supabase ----
 const mockSelect = vi.fn();
@@ -88,7 +83,14 @@ describe('getLogEntries', () => {
     it('returns mapped entries when authenticated', async () => {
         mockAuthUser('user-1');
         const chain = setupChainedQuery([
-            { id: 'e1', user_id: 'user-1', voyage_id: 'v1', timestamp: '2025-01-01T00:00:00Z', entry_type: 'auto', source: 'device' },
+            {
+                id: 'e1',
+                user_id: 'user-1',
+                voyage_id: 'v1',
+                timestamp: '2025-01-01T00:00:00Z',
+                entry_type: 'auto',
+                source: 'device',
+            },
         ]);
 
         const entries = await getLogEntries(10);

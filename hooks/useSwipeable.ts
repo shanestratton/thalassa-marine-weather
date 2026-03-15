@@ -64,42 +64,45 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
         directionLocked.current = null;
     }, []);
 
-    const handleTouchMove = useCallback((e: TouchEvent) => {
-        if (!isDraggingRef.current) return;
+    const handleTouchMove = useCallback(
+        (e: TouchEvent) => {
+            if (!isDraggingRef.current) return;
 
-        const touch = e.touches[0];
-        const dx = startX.current - touch.clientX;
-        const dy = touch.clientY - startY.current;
+            const touch = e.touches[0];
+            const dx = startX.current - touch.clientX;
+            const dy = touch.clientY - startY.current;
 
-        // Direction lock: decide on first significant movement
-        if (!directionLocked.current) {
-            const absDx = Math.abs(dx);
-            const absDy = Math.abs(dy);
+            // Direction lock: decide on first significant movement
+            if (!directionLocked.current) {
+                const absDx = Math.abs(dx);
+                const absDy = Math.abs(dy);
 
-            if (absDx < LOCK_THRESHOLD && absDy < LOCK_THRESHOLD) return;
+                if (absDx < LOCK_THRESHOLD && absDy < LOCK_THRESHOLD) return;
 
-            if (absDx > absDy * 1.2) {
-                // Horizontal — we own this gesture
-                directionLocked.current = 'horizontal';
-                setIsSwiping(true);
-            } else {
-                // Vertical — let the browser scroll
-                directionLocked.current = 'vertical';
-                isDraggingRef.current = false;
-                return;
+                if (absDx > absDy * 1.2) {
+                    // Horizontal — we own this gesture
+                    directionLocked.current = 'horizontal';
+                    setIsSwiping(true);
+                } else {
+                    // Vertical — let the browser scroll
+                    directionLocked.current = 'vertical';
+                    isDraggingRef.current = false;
+                    return;
+                }
             }
-        }
 
-        if (directionLocked.current === 'vertical') return;
+            if (directionLocked.current === 'vertical') return;
 
-        // ★ KEY FIX: This works because we register with { passive: false }
-        e.preventDefault();
-        e.stopPropagation();
+            // ★ KEY FIX: This works because we register with { passive: false }
+            e.preventDefault();
+            e.stopPropagation();
 
-        const clamped = Math.max(0, Math.min(dx, max));
-        offsetRef.current = clamped;
-        setSwipeOffset(clamped);
-    }, [max]);
+            const clamped = Math.max(0, Math.min(dx, max));
+            offsetRef.current = clamped;
+            setSwipeOffset(clamped);
+        },
+        [max],
+    );
 
     const handleTouchEnd = useCallback(() => {
         if (!isDraggingRef.current && directionLocked.current !== 'horizontal') {
@@ -124,24 +127,27 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
 
     // ── Attach native listeners via ref callback ──
 
-    const refCallback = useCallback((node: HTMLElement | null) => {
-        // Clean up old element
-        if (elementRef.current) {
-            elementRef.current.removeEventListener('touchstart', handleTouchStart);
-            elementRef.current.removeEventListener('touchmove', handleTouchMove as any);
-            elementRef.current.removeEventListener('touchend', handleTouchEnd);
-        }
+    const refCallback = useCallback(
+        (node: HTMLElement | null) => {
+            // Clean up old element
+            if (elementRef.current) {
+                elementRef.current.removeEventListener('touchstart', handleTouchStart);
+                elementRef.current.removeEventListener('touchmove', handleTouchMove as any);
+                elementRef.current.removeEventListener('touchend', handleTouchEnd);
+            }
 
-        elementRef.current = node;
+            elementRef.current = node;
 
-        // Attach to new element
-        if (node) {
-            node.addEventListener('touchstart', handleTouchStart, { passive: true });
-            // ★ passive: false is the critical fix for iOS
-            node.addEventListener('touchmove', handleTouchMove as any, { passive: false });
-            node.addEventListener('touchend', handleTouchEnd, { passive: true });
-        }
-    }, [handleTouchStart, handleTouchMove, handleTouchEnd]);
+            // Attach to new element
+            if (node) {
+                node.addEventListener('touchstart', handleTouchStart, { passive: true });
+                // ★ passive: false is the critical fix for iOS
+                node.addEventListener('touchmove', handleTouchMove as any, { passive: false });
+                node.addEventListener('touchend', handleTouchEnd, { passive: true });
+            }
+        },
+        [handleTouchStart, handleTouchMove, handleTouchEnd],
+    );
 
     // Cleanup on unmount
     useEffect(() => {
@@ -161,9 +167,9 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
     }, []);
 
     // Legacy React handlers (no-ops if ref is used, fallback if not)
-    const noopStart = useCallback((_e: React.TouchEvent) => { }, []);
-    const noopMove = useCallback((_e: React.TouchEvent) => { }, []);
-    const noopEnd = useCallback(() => { }, []);
+    const noopStart = useCallback((_e: React.TouchEvent) => {}, []);
+    const noopMove = useCallback((_e: React.TouchEvent) => {}, []);
+    const noopEnd = useCallback(() => {}, []);
 
     return {
         swipeOffset,

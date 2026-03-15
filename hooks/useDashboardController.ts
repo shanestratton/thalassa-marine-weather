@@ -1,15 +1,11 @@
-
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useWeather } from '../context/WeatherContext';
 import { useSettings } from '../context/SettingsContext';
 import { useUI } from '../context/UIContext';
 import { generateTacticalAdvice, getSkipperLockerItems } from '../utils/advisory';
-import { MarineWeatherReport } from '../types';
 import { toast } from '../components/Toast';
 
-export const useDashboardController = (
-    viewMode: 'overview' | 'details' = 'overview'
-) => {
+export const useDashboardController = (viewMode: 'overview' | 'details' = 'overview') => {
     const { weatherData: data, refreshData, loading, staleRefresh } = useWeather();
     const { settings } = useSettings();
     const { setPage } = useUI();
@@ -50,7 +46,7 @@ export const useDashboardController = (
             data.locationName,
             vessel,
             data.tides || [],
-            current.sunset
+            current.sunset,
         );
     }, [current, isLandlocked, data, vessel]);
 
@@ -80,7 +76,11 @@ export const useDashboardController = (
 
     const playAudio = useCallback(async (buffer: ArrayBuffer) => {
         if (!audioContextRef.current) {
-            const AudioCtx = window.AudioContext || ('webkitAudioContext' in window ? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext : AudioContext);
+            const AudioCtx =
+                window.AudioContext ||
+                ('webkitAudioContext' in window
+                    ? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+                    : AudioContext);
             audioContextRef.current = new AudioCtx();
         }
         const ctx = audioContextRef.current;
@@ -140,11 +140,11 @@ export const useDashboardController = (
         }
     }, [isPlaying, preloadedAudio, boatingAdvice, playAudio, stopAudio, speakNativeFallback]);
 
-
     // SHARING
     const shareReport = async () => {
         if (!data || !current) return;
-        const text = `🌊 Marine Weather Report for ${data.locationName}\n` +
+        const text =
+            `🌊 Marine Weather Report for ${data.locationName}\n` +
             `💨 Wind: ${(current.windSpeed || 0).toFixed(1)} kts\n` +
             `🌊 Swell: ${current.waveHeight?.toFixed(1) || '--'}m\n` +
             `🌡 Temp: ${(current.airTemperature || 0).toFixed(1)}°\n` +
@@ -155,11 +155,12 @@ export const useDashboardController = (
                 await navigator.share({ title: 'Thalassa Report', text });
             } else {
                 await navigator.clipboard.writeText(text);
-                toast.success("Report copied to clipboard!");
+                toast.success('Report copied to clipboard!');
             }
-        } catch (e) { /* Share cancelled or unsupported */ }
+        } catch (e) {
+            /* Share cancelled or unsupported */
+        }
     };
-
 
     return {
         // Data
@@ -174,8 +175,10 @@ export const useDashboardController = (
         vessel,
 
         // UI State
-        chartView, setChartView,
-        view, setView,
+        chartView,
+        setChartView,
+        view,
+        setView,
 
         // Audio State
         isPlaying,
@@ -192,19 +195,23 @@ export const useDashboardController = (
         // Calculated — dynamic refresh interval based on location type & weather severity
         refreshInterval: (() => {
             // Bad weather detection: high winds, large waves, or poor visibility
-            const isBadWeather = current && (
-                (current.windSpeed != null && current.windSpeed > 30) ||
-                (current.windGust != null && current.windGust > 40) ||
-                (current.waveHeight != null && current.waveHeight > 3) ||
-                (current.visibility != null && current.visibility < 2)
-            );
+            const isBadWeather =
+                current &&
+                ((current.windSpeed != null && current.windSpeed > 30) ||
+                    (current.windGust != null && current.windGust > 40) ||
+                    (current.waveHeight != null && current.waveHeight > 3) ||
+                    (current.visibility != null && current.visibility < 2));
             if (isBadWeather) return 10 * 60 * 1000; // 10 minutes
             switch (data?.locationType) {
-                case 'coastal': return 30 * 60 * 1000;  // 30 min (on the half hour)
-                case 'offshore': return 60 * 60 * 1000; // 60 min (on the hour)
-                case 'inland': return 60 * 60 * 1000;   // 60 min (on the hour)
-                default: return 30 * 60 * 1000;          // 30 min fallback
+                case 'coastal':
+                    return 30 * 60 * 1000; // 30 min (on the half hour)
+                case 'offshore':
+                    return 60 * 60 * 1000; // 60 min (on the hour)
+                case 'inland':
+                    return 60 * 60 * 1000; // 60 min (on the hour)
+                default:
+                    return 30 * 60 * 1000; // 30 min fallback
             }
-        })()
+        })(),
     };
 };

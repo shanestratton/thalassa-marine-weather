@@ -1,5 +1,4 @@
 import React, { useMemo, useCallback } from 'react';
-import { useEnvironment } from '../../context/ThemeContext';
 import { ArrowUpIcon, ArrowDownIcon } from '../Icons';
 import { WeatherMetrics, UnitPreferences } from '../../types';
 import { convertTemp } from '../../utils';
@@ -10,22 +9,31 @@ import { convertTemp } from '../../utils';
  * Same size for live + forecast so carousel swipes don't jank.
  */
 const ConditionText: React.FC<{ text: string; live?: boolean }> = ({ text, live }) => {
-    const sizeClass = text.length <= 8
-        ? (live ? 'text-xl' : 'text-lg')   // "Clear", "Cloudy", "Sunny"
-        : text.length <= 14
-            ? (live ? 'text-lg' : 'text-base') // "Mostly Clear", "Partly Cloudy"
-            : 'text-sm';                        // "Thunderstorms"
+    const sizeClass =
+        text.length <= 8
+            ? live
+                ? 'text-xl'
+                : 'text-lg' // "Clear", "Cloudy", "Sunny"
+            : text.length <= 14
+              ? live
+                  ? 'text-lg'
+                  : 'text-base' // "Mostly Clear", "Partly Cloudy"
+              : 'text-sm'; // "Thunderstorms"
 
-    return (
-        <span className={`${sizeClass} text-ivory font-mono font-bold tracking-tight leading-none`}>
-            {text}
-        </span>
-    );
+    return <span className={`${sizeClass} text-ivory font-mono font-bold tracking-tight leading-none`}>{text}</span>;
 };
 
 /** Chevron-down SVG icon */
 const ChevronIcon: React.FC<{ className?: string }> = ({ className }) => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={className}
+    >
         <polyline points="6 9 12 15 18 9" />
     </svg>
 );
@@ -33,19 +41,32 @@ const ChevronIcon: React.FC<{ className?: string }> = ({ className }) => (
 /** Condition-to-icon emoji (lightweight, no extra SVG assets needed) */
 const getConditionIcon = (condition: string): string => {
     switch (condition) {
-        case 'Sunny': return '☀️';
-        case 'Clear': return '🌙';
-        case 'Cloudy': return '☁️';
-        case 'Partly': return '⛅';
-        case 'Overcast': return '🌥️';
-        case 'Rain': return '🌧️';
-        case 'Pouring': return '🌊';
-        case 'Storm': return '⛈️';
-        case 'Snow': return '❄️';
-        case 'Fog': return '🌫️';
-        case 'Haze': return '🌫️';
-        case 'Windy': return '💨';
-        default: return '☁️';
+        case 'Sunny':
+            return '☀️';
+        case 'Clear':
+            return '🌙';
+        case 'Cloudy':
+            return '☁️';
+        case 'Partly':
+            return '⛅';
+        case 'Overcast':
+            return '🌥️';
+        case 'Rain':
+            return '🌧️';
+        case 'Pouring':
+            return '🌊';
+        case 'Storm':
+            return '⛈️';
+        case 'Snow':
+            return '❄️';
+        case 'Fog':
+            return '🌫️';
+        case 'Haze':
+            return '🌫️';
+        case 'Windy':
+            return '💨';
+        default:
+            return '☁️';
     }
 };
 
@@ -57,7 +78,10 @@ interface HeroHeaderProps {
     dateLabel: string;
     timeLabel: string;
     timeZone?: string;
-    sources?: Record<string, { source: string; sourceColor?: 'emerald' | 'amber' | 'sky' | 'white'; sourceName?: string }>;
+    sources?: Record<
+        string,
+        { source: string; sourceColor?: 'emerald' | 'amber' | 'sky' | 'white'; sourceName?: string }
+    >;
     isExpanded?: boolean;
     onToggleExpand?: () => void;
 }
@@ -72,7 +96,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     timeZone,
     sources,
     isExpanded = true,
-    onToggleExpand
+    onToggleExpand,
 }) => {
     // PERF: Memoize helper to get source text color for temperature
     const getTempColor = useCallback((): string => {
@@ -80,9 +104,12 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
         if (!sources || !sources['airTemperature']) return 'text-white';
         const sourceColor = sources['airTemperature']?.sourceColor;
         switch (sourceColor) {
-            case 'emerald': return 'text-emerald-400';
-            case 'amber': return 'text-amber-400';
-            default: return 'text-white';
+            case 'emerald':
+                return 'text-emerald-400';
+            case 'amber':
+                return 'text-amber-400';
+            default:
+                return 'text-white';
         }
     }, [isLive, sources]);
 
@@ -109,16 +136,16 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     const conditionIcon = getConditionIcon(conditionCategory);
 
     return (
-        <div
-            className="relative w-full rounded-2xl overflow-hidden border bg-white/[0.08] shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] border-white/[0.15]"
-        >
+        <div className="relative w-full rounded-2xl overflow-hidden border bg-white/[0.08] shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] border-white/[0.15]">
             {/* Keyframes moved to index.css */}
 
             <div className="flex flex-row w-full items-center min-h-[70px]">
                 {/* LEFT: Temperature only */}
                 <div className="flex-[1] px-3 py-2 flex flex-col justify-center items-start min-w-0">
                     {(() => {
-                        const tempStr = (data.airTemperature !== null ? convertTemp(data.airTemperature, units.temp) : '--').toString();
+                        const tempStr = (
+                            data.airTemperature !== null ? convertTemp(data.airTemperature, units.temp) : '--'
+                        ).toString();
                         const len = tempStr.length;
                         const sizeClass = len > 3 ? 'text-3xl' : len > 2 ? 'text-4xl' : 'text-3xl';
                         return (
@@ -134,7 +161,10 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
 
                 {/* CENTER: Status dot + icon + condition */}
                 {/* key ensures React swaps the whole block atomically — no two-step size→text jank */}
-                <div key={`${isLive ? 'live' : dateLabel}-${displayCondition}`} className="flex-[2] flex items-center justify-center min-w-0 py-2 px-1">
+                <div
+                    key={`${isLive ? 'live' : dateLabel}-${displayCondition}`}
+                    className="flex-[2] flex items-center justify-center min-w-0 py-2 px-1"
+                >
                     {isLive ? (
                         <div className="flex items-center justify-center gap-2 max-w-full -ml-2">
                             {/* Pulsing green live dot */}
@@ -146,7 +176,10 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                         </div>
                     ) : (
                         <div className="flex flex-col items-center">
-                            <span className="text-sky-400 font-extrabold text-[11px] tracking-[0.2em] uppercase leading-none mb-1" style={{ paddingLeft: '0.2em' }}>
+                            <span
+                                className="text-sky-400 font-extrabold text-[11px] tracking-[0.2em] uppercase leading-none mb-1"
+                                style={{ paddingLeft: '0.2em' }}
+                            >
                                 {dateLabel}
                             </span>
                             <div className="flex items-center justify-center gap-2 max-w-full">
@@ -167,7 +200,13 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     className={`flex-[1] flex items-center justify-end gap-2 pr-3 touch-none select-none ${onToggleExpand ? 'cursor-pointer' : ''}`}
                     style={{ WebkitTapHighlightColor: 'transparent' }}
                     role={onToggleExpand ? 'button' : undefined}
-                    aria-label={onToggleExpand ? (isExpanded ? 'Collapse instrument grid' : 'Expand instrument grid') : undefined}
+                    aria-label={
+                        onToggleExpand
+                            ? isExpanded
+                                ? 'Collapse instrument grid'
+                                : 'Expand instrument grid'
+                            : undefined
+                    }
                 >
                     {/* Hi/Lo temps stacked */}
                     <div className="flex flex-col items-end gap-0.5">

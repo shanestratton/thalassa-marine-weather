@@ -13,7 +13,7 @@ import {
     formatCourseTrue,
     getBeaufortDescription,
     getSeaStateDescription,
-    getWatchPeriodName
+    getWatchPeriodName,
 } from '../utils/marineFormatters';
 
 interface DateGroupedTimelineProps {
@@ -40,17 +40,17 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
     onDeleteEntry,
     onEditEntry,
     voyageFirstEntryId,
-    voyageLastEntryId
+    voyageLastEntryId,
 }) => {
     const todayStr = useMemo(() => getTodayDateString(), []);
 
     // Track expanded dates
     const [expandedDates, setExpandedDates] = useState<Set<string>>(() => {
         if (expandToday) {
-            const hasToday = groupedEntries.some(g => g.date === todayStr);
+            const hasToday = groupedEntries.some((g) => g.date === todayStr);
             return hasToday ? new Set([todayStr]) : new Set();
         }
-        return new Set(groupedEntries.map(g => g.date));
+        return new Set(groupedEntries.map((g) => g.date));
     });
 
     // Track expanded individual entries
@@ -58,7 +58,7 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
 
     // PERF: Stable callbacks prevent child re-renders (used by React.memo'd CompactLogEntry)
     const toggleDate = useCallback((date: string) => {
-        setExpandedDates(prev => {
+        setExpandedDates((prev) => {
             const next = new Set(prev);
             if (next.has(date)) next.delete(date);
             else next.add(date);
@@ -67,7 +67,7 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
     }, []);
 
     const toggleEntry = useCallback((entryId: string) => {
-        setExpandedEntries(prev => {
+        setExpandedEntries((prev) => {
             const next = new Set(prev);
             if (next.has(entryId)) next.delete(entryId);
             else next.add(entryId);
@@ -75,18 +75,29 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
         });
     }, []);
 
-    const handleDeleteEntry = useCallback((entryId: string) => {
-        onDeleteEntry?.(entryId);
-    }, [onDeleteEntry]);
+    const handleDeleteEntry = useCallback(
+        (entryId: string) => {
+            onDeleteEntry?.(entryId);
+        },
+        [onDeleteEntry],
+    );
 
-    const handleEditEntry = useCallback((entry: ShipLogEntry) => {
-        onEditEntry?.(entry);
-    }, [onEditEntry]);
+    const handleEditEntry = useCallback(
+        (entry: ShipLogEntry) => {
+            onEditEntry?.(entry);
+        },
+        [onEditEntry],
+    );
 
     if (groupedEntries.length === 0) {
         return (
             <div className="text-center py-12 text-slate-400">
-                <svg className="w-12 h-12 mx-auto mb-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg
+                    className="w-12 h-12 mx-auto mb-3 opacity-30"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                >
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
                 <p className="font-bold mb-1">No Entries Match Filters</p>
@@ -106,8 +117,9 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
                         {/* Date Header - Sticky */}
                         <button
                             onClick={() => toggleDate(group.date)}
-                            className={`w-full px-3 py-2 flex items-center justify-between transition-all duration-150 ${isToday ? 'bg-sky-900/30 hover:bg-sky-900/40' : 'bg-slate-800/50 hover:bg-slate-800/70'
-                                }`}
+                            className={`w-full px-3 py-2 flex items-center justify-between transition-all duration-150 ${
+                                isToday ? 'bg-sky-900/30 hover:bg-sky-900/40' : 'bg-slate-800/50 hover:bg-slate-800/70'
+                            }`}
                         >
                             <div className="flex items-center gap-2">
                                 <svg
@@ -116,7 +128,12 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
                                     viewBox="0 0 24 24"
                                     stroke="currentColor"
                                 >
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M9 5l7 7-7 7"
+                                    />
                                 </svg>
                                 <div className="text-left">
                                     <div className="flex items-center gap-2">
@@ -130,20 +147,33 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
                                         )}
                                     </div>
                                     <div className="text-[11px] text-slate-400">
-                                        {group.stats.entryCount} entries · {(group.stats.totalDistance ?? 0).toFixed(1)} NM
+                                        {group.stats.entryCount} entries · {(group.stats.totalDistance ?? 0).toFixed(1)}{' '}
+                                        NM
                                     </div>
                                 </div>
                             </div>
 
                             {/* Day Stats - Compact */}
                             <div className="flex gap-3 text-[11px] text-slate-400">
-                                <span><span className="text-white font-bold">{(group.stats.avgSpeed ?? 0).toFixed(1)}</span> avg</span>
-                                <span><span className="text-white font-bold">{(group.stats.maxSpeed ?? 0).toFixed(1)}</span> max</span>
+                                <span>
+                                    <span className="text-white font-bold">
+                                        {(group.stats.avgSpeed ?? 0).toFixed(1)}
+                                    </span>{' '}
+                                    avg
+                                </span>
+                                <span>
+                                    <span className="text-white font-bold">
+                                        {(group.stats.maxSpeed ?? 0).toFixed(1)}
+                                    </span>{' '}
+                                    max
+                                </span>
                             </div>
                         </button>
 
                         {/* Entries - Animated */}
-                        <div className={`transition-all duration-200 ease-out overflow-hidden ${isExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                        <div
+                            className={`transition-all duration-200 ease-out overflow-hidden ${isExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}
+                        >
                             <div className="p-1.5 space-y-1">
                                 {group.entries.map((entry) => (
                                     <CompactLogEntry
@@ -172,7 +202,7 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
 const TYPE_INDICATOR = {
     auto: { color: 'bg-emerald-500', label: 'A' },
     manual: { color: 'bg-purple-500', label: 'M' },
-    waypoint: { color: 'bg-sky-500', label: 'W' }
+    waypoint: { color: 'bg-sky-500', label: 'W' },
 } as const;
 
 const getBfColor = (bf: number) => {
@@ -197,271 +227,354 @@ interface CompactLogEntryProps {
 // System-generated waypoint names that should not be shown when badge already covers them
 const SYSTEM_WAYPOINT_NAMES = ['Voyage Start', 'Voyage End', 'Latest Position'];
 
-const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(({ entry, isExpanded, onToggle, onDelete, onEdit, isVoyageStart, isVoyageEnd }) => {
-    const timestamp = new Date(entry.timestamp);
-    const timeStr = formatTime24Colon(timestamp);
+const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
+    ({ entry, isExpanded, onToggle, onDelete, onEdit, isVoyageStart, isVoyageEnd }) => {
+        const timestamp = new Date(entry.timestamp);
+        const timeStr = formatTime24Colon(timestamp);
 
-    const type = TYPE_INDICATOR[entry.entryType];
-    const isSystemEntry = isVoyageStart || isVoyageEnd;
-    const showWaypointName = entry.waypointName && !SYSTEM_WAYPOINT_NAMES.includes(entry.waypointName);
+        const type = TYPE_INDICATOR[entry.entryType];
+        const isSystemEntry = isVoyageStart || isVoyageEnd;
+        const showWaypointName = entry.waypointName && !SYSTEM_WAYPOINT_NAMES.includes(entry.waypointName);
 
-    // Swipe-to-reveal delete (matches VoyageCard / MaintenanceHub)
-    const canSwipe = !isSystemEntry && entry.entryType !== 'auto' && (onDelete || onEdit);
-    const [swipeOffset, setSwipeOffset] = useState(0);
-    const touchStartX = useRef(0);
-    const swipeThreshold = onEdit && onDelete ? 140 : 80;
-    const handleSwipeStart = (e: React.TouchEvent) => { if (canSwipe) touchStartX.current = e.touches[0].clientX; };
-    const handleSwipeMove = (e: React.TouchEvent) => {
-        if (!canSwipe) return;
-        const diff = touchStartX.current - e.touches[0].clientX;
-        setSwipeOffset(Math.max(0, Math.min(diff, swipeThreshold + 20)));
-    };
-    const handleSwipeEnd = () => { setSwipeOffset(s => s >= swipeThreshold ? swipeThreshold : 0); };
+        // Swipe-to-reveal delete (matches VoyageCard / MaintenanceHub)
+        const canSwipe = !isSystemEntry && entry.entryType !== 'auto' && (onDelete || onEdit);
+        const [swipeOffset, setSwipeOffset] = useState(0);
+        const touchStartX = useRef(0);
+        const swipeThreshold = onEdit && onDelete ? 140 : 80;
+        const handleSwipeStart = (e: React.TouchEvent) => {
+            if (canSwipe) touchStartX.current = e.touches[0].clientX;
+        };
+        const handleSwipeMove = (e: React.TouchEvent) => {
+            if (!canSwipe) return;
+            const diff = touchStartX.current - e.touches[0].clientX;
+            setSwipeOffset(Math.max(0, Math.min(diff, swipeThreshold + 20)));
+        };
+        const handleSwipeEnd = () => {
+            setSwipeOffset((s) => (s >= swipeThreshold ? swipeThreshold : 0));
+        };
 
-    return (
-        <div className="relative overflow-hidden rounded-lg">
-            {/* Swipe-revealed actions */}
-            {canSwipe && (
-                <div className={`absolute right-0 top-0 bottom-0 flex transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
-                    {onEdit && (
-                        <button
-                            onClick={() => { setSwipeOffset(0); onEdit!(entry); }}
-                            className="w-[60px] bg-sky-600 flex items-center justify-center"
-                        >
-                            <div className="flex flex-col items-center gap-0.5">
-                                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                </svg>
-                                <span className="text-[9px] font-bold text-white uppercase">Edit</span>
-                            </div>
-                        </button>
-                    )}
-                    {onDelete && (
-                        <button
-                            onClick={() => { setSwipeOffset(0); onDelete!(entry.id); }}
-                            className="w-20 bg-red-600 flex items-center justify-center rounded-r-lg"
-                        >
-                            <div className="flex flex-col items-center gap-0.5">
-                                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                                <span className="text-[9px] font-bold text-white uppercase">Delete</span>
-                            </div>
-                        </button>
-                    )}
-                </div>
-            )}
-            <div
-                className={`transition-all duration-150 ${isExpanded ? 'bg-slate-800/80' : 'bg-slate-800/40 hover:bg-slate-800/60'}`}
-                style={canSwipe ? { transform: `translateX(-${swipeOffset}px)`, transition: swipeOffset === 0 || swipeOffset === swipeThreshold ? 'transform 0.2s ease-out' : 'none' } : undefined}
-                onTouchStart={handleSwipeStart}
-                onTouchMove={handleSwipeMove}
-                onTouchEnd={handleSwipeEnd}
-            >
-                {/* Compact Row - Always Visible */}
-                <button
-                    onClick={() => onToggle(entry.id)}
-                    className="w-full px-2.5 py-2 flex items-center gap-2 text-left active:scale-[0.99] transition-transform"
-                >
-                    {/* Type Indicator */}
-                    <div className={`w-1.5 h-8 rounded-full ${type.color} opacity-70`} />
-
-                    {/* Time */}
-                    <div className="w-12 font-mono font-bold text-white text-sm">{timeStr}</div>
-
-                    {/* Voyage Start/End Labels */}
-                    {isVoyageStart && (
-                        <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 text-[11px] font-bold rounded-full">
-                            Start
-                        </span>
-                    )}
-                    {isVoyageEnd && (
-                        <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[11px] font-bold rounded-full">
-                            End
-                        </span>
-                    )}
-
-                    {/* Core Info - Responsive */}
-                    <div className="flex-1 flex items-center gap-3 overflow-hidden">
-                        {/* Speed */}
-                        {entry.speedKts != null && (
-                            <span className="text-xs">
-                                <span className="text-white font-bold">{(entry.speedKts ?? 0).toFixed(1)}</span>
-                                <span className="text-slate-400">kts</span>
-                            </span>
+        return (
+            <div className="relative overflow-hidden rounded-lg">
+                {/* Swipe-revealed actions */}
+                {canSwipe && (
+                    <div
+                        className={`absolute right-0 top-0 bottom-0 flex transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                    >
+                        {onEdit && (
+                            <button
+                                onClick={() => {
+                                    setSwipeOffset(0);
+                                    onEdit!(entry);
+                                }}
+                                className="w-[60px] bg-sky-600 flex items-center justify-center"
+                            >
+                                <div className="flex flex-col items-center gap-0.5">
+                                    <svg
+                                        className="w-4 h-4 text-white"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                        />
+                                    </svg>
+                                    <span className="text-[9px] font-bold text-white uppercase">Edit</span>
+                                </div>
+                            </button>
                         )}
-
-                        {/* Course */}
-                        {entry.courseDeg != null && (
-                            <span className="text-xs flex items-center gap-0.5">
-                                <CompassIcon className="w-3 h-3 text-sky-400" rotation={entry.courseDeg} />
-                                <span className="text-white font-bold">{formatCourseTrue(entry.courseDeg)}</span>
-                            </span>
-                        )}
-
-                        {/* Wind */}
-                        {entry.windSpeed != null && (
-                            <span className="text-xs flex items-center gap-0.5">
-                                <WindIcon className="w-3 h-3 text-slate-400" />
-                                <span className="text-white font-bold">{entry.windSpeed}</span>
-                                {entry.beaufortScale != null && (
-                                    <span className={`${getBfColor(entry.beaufortScale)}`}>F{entry.beaufortScale}</span>
-                                )}
-                            </span>
-                        )}
-
-                        {/* Waypoint indicator — hide system names when Start/End badge is shown */}
-                        {showWaypointName && (
-                            <span className="text-sky-400 text-xs font-bold truncate max-w-[100px]">
-                                📍 {entry.waypointName}
-                            </span>
-                        )}
-
-                        {/* Notes indicator */}
-                        {entry.notes && !entry.waypointName && (
-                            <span className="text-slate-400 text-xs truncate max-w-[120px] italic">
-                                "{entry.notes}"
-                            </span>
+                        {onDelete && (
+                            <button
+                                onClick={() => {
+                                    setSwipeOffset(0);
+                                    onDelete!(entry.id);
+                                }}
+                                className="w-20 bg-red-600 flex items-center justify-center rounded-r-lg"
+                            >
+                                <div className="flex flex-col items-center gap-0.5">
+                                    <svg
+                                        className="w-4 h-4 text-white"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            strokeWidth={2}
+                                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                        />
+                                    </svg>
+                                    <span className="text-[9px] font-bold text-white uppercase">Delete</span>
+                                </div>
+                            </button>
                         )}
                     </div>
-
-                    {/* Expand indicator */}
-                    <svg
-                        className={`w-4 h-4 text-slate-500 transition-transform duration-150 ${isExpanded ? 'rotate-180' : ''}`}
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
+                )}
+                <div
+                    className={`transition-all duration-150 ${isExpanded ? 'bg-slate-800/80' : 'bg-slate-800/40 hover:bg-slate-800/60'}`}
+                    style={
+                        canSwipe
+                            ? {
+                                  transform: `translateX(-${swipeOffset}px)`,
+                                  transition:
+                                      swipeOffset === 0 || swipeOffset === swipeThreshold
+                                          ? 'transform 0.2s ease-out'
+                                          : 'none',
+                              }
+                            : undefined
+                    }
+                    onTouchStart={handleSwipeStart}
+                    onTouchMove={handleSwipeMove}
+                    onTouchEnd={handleSwipeEnd}
+                >
+                    {/* Compact Row - Always Visible */}
+                    <button
+                        onClick={() => onToggle(entry.id)}
+                        className="w-full px-2.5 py-2 flex items-center gap-2 text-left active:scale-[0.99] transition-transform"
                     >
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
-                </button>
+                        {/* Type Indicator */}
+                        <div className={`w-1.5 h-8 rounded-full ${type.color} opacity-70`} />
 
-                {/* Expanded Details */}
-                <div className={`transition-all duration-200 ease-out overflow-hidden ${isExpanded ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
-                    <div className="px-3 pb-3 pt-1 border-t border-white/5">
-                        {/* Position */}
-                        <div className="mb-2">
-                            <div className="text-[11px] text-slate-500 uppercase">Position</div>
-                            <div className="text-emerald-400 font-mono font-bold text-sm">
-                                {entry.positionFormatted}
-                            </div>
-                        </div>
+                        {/* Time */}
+                        <div className="w-12 font-mono font-bold text-white text-sm">{timeStr}</div>
 
-                        {/* Nav Stats Grid */}
-                        <div className="grid grid-cols-3 gap-2 mb-2">
-                            {entry.distanceNM != null && (
-                                <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
-                                    <div className="text-[11px] text-slate-500 uppercase">Dist</div>
-                                    <div className="text-xs font-bold text-white">{(entry.distanceNM ?? 0).toFixed(1)} NM</div>
-                                </div>
-                            )}
+                        {/* Voyage Start/End Labels */}
+                        {isVoyageStart && (
+                            <span className="px-1.5 py-0.5 bg-emerald-500/20 text-emerald-400 text-[11px] font-bold rounded-full">
+                                Start
+                            </span>
+                        )}
+                        {isVoyageEnd && (
+                            <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[11px] font-bold rounded-full">
+                                End
+                            </span>
+                        )}
+
+                        {/* Core Info - Responsive */}
+                        <div className="flex-1 flex items-center gap-3 overflow-hidden">
+                            {/* Speed */}
                             {entry.speedKts != null && (
-                                <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
-                                    <div className="text-[11px] text-slate-500 uppercase">Speed</div>
-                                    <div className="text-xs font-bold text-white">{(entry.speedKts ?? 0).toFixed(1)} kts</div>
-                                </div>
+                                <span className="text-xs">
+                                    <span className="text-white font-bold">{(entry.speedKts ?? 0).toFixed(1)}</span>
+                                    <span className="text-slate-400">kts</span>
+                                </span>
                             )}
+
+                            {/* Course */}
                             {entry.courseDeg != null && (
-                                <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
-                                    <div className="text-[11px] text-slate-500 uppercase">Course</div>
-                                    <div className="text-xs font-bold text-white">{formatCourseTrue(entry.courseDeg)}</div>
-                                </div>
+                                <span className="text-xs flex items-center gap-0.5">
+                                    <CompassIcon className="w-3 h-3 text-sky-400" rotation={entry.courseDeg} />
+                                    <span className="text-white font-bold">{formatCourseTrue(entry.courseDeg)}</span>
+                                </span>
+                            )}
+
+                            {/* Wind */}
+                            {entry.windSpeed != null && (
+                                <span className="text-xs flex items-center gap-0.5">
+                                    <WindIcon className="w-3 h-3 text-slate-400" />
+                                    <span className="text-white font-bold">{entry.windSpeed}</span>
+                                    {entry.beaufortScale != null && (
+                                        <span className={`${getBfColor(entry.beaufortScale)}`}>
+                                            F{entry.beaufortScale}
+                                        </span>
+                                    )}
+                                </span>
+                            )}
+
+                            {/* Waypoint indicator — hide system names when Start/End badge is shown */}
+                            {showWaypointName && (
+                                <span className="text-sky-400 text-xs font-bold truncate max-w-[100px]">
+                                    📍 {entry.waypointName}
+                                </span>
+                            )}
+
+                            {/* Notes indicator */}
+                            {entry.notes && !entry.waypointName && (
+                                <span className="text-slate-400 text-xs truncate max-w-[120px] italic">
+                                    "{entry.notes}"
+                                </span>
                             )}
                         </div>
 
-                        {/* Weather Details */}
-                        {(entry.windSpeed || entry.waveHeight || entry.pressure) && (
-                            <div className="flex flex-wrap gap-2 text-[11px] text-slate-400 mb-2">
-                                {entry.windSpeed != null && (
-                                    <span className="flex items-center gap-1">
-                                        <WindIcon className="w-3 h-3" />
-                                        <span className="text-white font-bold">{entry.windSpeed}kts</span>
-                                        {entry.windDirection}
-                                        {entry.beaufortScale != null && (
-                                            <span className={getBfColor(entry.beaufortScale)}>
-                                                ({getBeaufortDescription(entry.beaufortScale)})
+                        {/* Expand indicator */}
+                        <svg
+                            className={`w-4 h-4 text-slate-500 transition-transform duration-150 ${isExpanded ? 'rotate-180' : ''}`}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                    </button>
+
+                    {/* Expanded Details */}
+                    <div
+                        className={`transition-all duration-200 ease-out overflow-hidden ${isExpanded ? 'max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}
+                    >
+                        <div className="px-3 pb-3 pt-1 border-t border-white/5">
+                            {/* Position */}
+                            <div className="mb-2">
+                                <div className="text-[11px] text-slate-500 uppercase">Position</div>
+                                <div className="text-emerald-400 font-mono font-bold text-sm">
+                                    {entry.positionFormatted}
+                                </div>
+                            </div>
+
+                            {/* Nav Stats Grid */}
+                            <div className="grid grid-cols-3 gap-2 mb-2">
+                                {entry.distanceNM != null && (
+                                    <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
+                                        <div className="text-[11px] text-slate-500 uppercase">Dist</div>
+                                        <div className="text-xs font-bold text-white">
+                                            {(entry.distanceNM ?? 0).toFixed(1)} NM
+                                        </div>
+                                    </div>
+                                )}
+                                {entry.speedKts != null && (
+                                    <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
+                                        <div className="text-[11px] text-slate-500 uppercase">Speed</div>
+                                        <div className="text-xs font-bold text-white">
+                                            {(entry.speedKts ?? 0).toFixed(1)} kts
+                                        </div>
+                                    </div>
+                                )}
+                                {entry.courseDeg != null && (
+                                    <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
+                                        <div className="text-[11px] text-slate-500 uppercase">Course</div>
+                                        <div className="text-xs font-bold text-white">
+                                            {formatCourseTrue(entry.courseDeg)}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Weather Details */}
+                            {(entry.windSpeed || entry.waveHeight || entry.pressure) && (
+                                <div className="flex flex-wrap gap-2 text-[11px] text-slate-400 mb-2">
+                                    {entry.windSpeed != null && (
+                                        <span className="flex items-center gap-1">
+                                            <WindIcon className="w-3 h-3" />
+                                            <span className="text-white font-bold">{entry.windSpeed}kts</span>
+                                            {entry.windDirection}
+                                            {entry.beaufortScale != null && (
+                                                <span className={getBfColor(entry.beaufortScale)}>
+                                                    ({getBeaufortDescription(entry.beaufortScale)})
+                                                </span>
+                                            )}
+                                        </span>
+                                    )}
+                                    {entry.waveHeight != null && (
+                                        <span>
+                                            Seas{' '}
+                                            <span className="text-white font-bold">
+                                                {((entry.waveHeight ?? 0) / 3.28084).toFixed(1)}m
                                             </span>
-                                        )}
+                                            {entry.seaState !== undefined &&
+                                                ` (${getSeaStateDescription(entry.seaState)})`}
+                                        </span>
+                                    )}
+                                    {entry.pressure != null && (
+                                        <span>
+                                            <span className="text-white font-bold">
+                                                {(entry.pressure ?? 0).toFixed(0)}
+                                            </span>
+                                            hPa
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Notes */}
+                            {entry.notes && (
+                                <div className="bg-slate-900/30 rounded-lg p-2 text-sm text-white italic">
+                                    "{entry.notes}"
+                                </div>
+                            )}
+
+                            {/* Waypoint — hide system names */}
+                            {showWaypointName && (
+                                <div className="mt-2 px-2 py-1 bg-sky-500/10 border border-sky-500/20 rounded text-sky-400 text-xs font-bold">
+                                    📍 {entry.waypointName}
+                                </div>
+                            )}
+
+                            {/* Event Category */}
+                            {entry.eventCategory && (
+                                <div className="mt-2">
+                                    <span className="px-2 py-0.5 bg-slate-700/50 rounded text-[11px] text-slate-300 uppercase tracking-wider">
+                                        {entry.eventCategory === 'equipment' ? 'repair' : entry.eventCategory}
                                     </span>
-                                )}
-                                {entry.waveHeight != null && (
-                                    <span>
-                                        Seas <span className="text-white font-bold">{((entry.waveHeight ?? 0) / 3.28084).toFixed(1)}m</span>
-                                        {entry.seaState !== undefined && ` (${getSeaStateDescription(entry.seaState)})`}
-                                    </span>
-                                )}
-                                {entry.pressure != null && (
-                                    <span><span className="text-white font-bold">{(entry.pressure ?? 0).toFixed(0)}</span>hPa</span>
-                                )}
-                            </div>
-                        )}
+                                </div>
+                            )}
 
-                        {/* Notes */}
-                        {entry.notes && (
-                            <div className="bg-slate-900/30 rounded-lg p-2 text-sm text-white italic">
-                                "{entry.notes}"
-                            </div>
-                        )}
+                            {/* Watch Period */}
+                            {entry.watchPeriod && (
+                                <div className="mt-2 text-[11px] text-slate-500">
+                                    {getWatchPeriodName(entry.watchPeriod)}
+                                </div>
+                            )}
 
-                        {/* Waypoint — hide system names */}
-                        {showWaypointName && (
-                            <div className="mt-2 px-2 py-1 bg-sky-500/10 border border-sky-500/20 rounded text-sky-400 text-xs font-bold">
-                                📍 {entry.waypointName}
-                            </div>
-                        )}
-
-                        {/* Event Category */}
-                        {entry.eventCategory && (
-                            <div className="mt-2">
-                                <span className="px-2 py-0.5 bg-slate-700/50 rounded text-[11px] text-slate-300 uppercase tracking-wider">
-                                    {entry.eventCategory === 'equipment' ? 'repair' : entry.eventCategory}
-                                </span>
-                            </div>
-                        )}
-
-                        {/* Watch Period */}
-                        {entry.watchPeriod && (
-                            <div className="mt-2 text-[11px] text-slate-500">
-                                {getWatchPeriodName(entry.watchPeriod)}
-                            </div>
-                        )}
-
-                        {/* Action Buttons — hidden for auto GPS entries and system start/end entries */}
-                        {!isSystemEntry && (onEdit || (onDelete && entry.entryType !== 'auto')) && (
-                            <div className="mt-3 flex gap-2">
-                                {onEdit && (
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onEdit!(entry);
-                                        }}
-                                        className="flex-1 px-3 py-2 bg-sky-600/20 hover:bg-sky-600/40 border border-sky-500/30 rounded-lg text-sky-400 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
-                                    >
-                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                                        </svg>
-                                        Edit
-                                    </button>
-                                )}
-                                {onDelete && entry.entryType !== 'auto' && (
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onDelete!(entry.id);
-                                        }}
-                                        className="flex-1 px-3 py-2 bg-red-600/20 hover:bg-red-600/40 border border-red-500/30 rounded-lg text-red-400 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
-                                    >
-                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
-                                        Delete
-                                    </button>
-                                )}
-                            </div>
-                        )}
+                            {/* Action Buttons — hidden for auto GPS entries and system start/end entries */}
+                            {!isSystemEntry && (onEdit || (onDelete && entry.entryType !== 'auto')) && (
+                                <div className="mt-3 flex gap-2">
+                                    {onEdit && (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onEdit!(entry);
+                                            }}
+                                            className="flex-1 px-3 py-2 bg-sky-600/20 hover:bg-sky-600/40 border border-sky-500/30 rounded-lg text-sky-400 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                                        >
+                                            <svg
+                                                className="w-3.5 h-3.5"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                                stroke="currentColor"
+                                            >
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={2}
+                                                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                                                />
+                                            </svg>
+                                            Edit
+                                        </button>
+                                    )}
+                                    {onDelete && entry.entryType !== 'auto' && (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onDelete!(entry.id);
+                                            }}
+                                            className="flex-1 px-3 py-2 bg-red-600/20 hover:bg-red-600/40 border border-red-500/30 rounded-lg text-red-400 text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                                        >
+                                            <svg
+                                                className="w-3.5 h-3.5"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                                stroke="currentColor"
+                                            >
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    strokeWidth={2}
+                                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                                />
+                                            </svg>
+                                            Delete
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
-    );
-});
+        );
+    },
+);

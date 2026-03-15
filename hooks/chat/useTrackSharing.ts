@@ -61,7 +61,9 @@ export function useTrackSharing(options: UseTrackSharingOptions) {
             }
             const list = Array.from(grouped.entries())
                 .map(([voyageId, entries]) => {
-                    const sorted = entries.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+                    const sorted = entries.sort(
+                        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+                    );
                     const last = sorted[sorted.length - 1];
                     let dist = last.cumulativeDistanceNM || 0;
                     if (dist === 0) {
@@ -76,7 +78,7 @@ export function useTrackSharing(options: UseTrackSharingOptions) {
                         entries: sorted,
                     };
                 })
-                .filter(v => v.entryCount >= 2)
+                .filter((v) => v.entryCount >= 2)
                 .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
             setVoyageList(list);
         } catch (e) {
@@ -87,47 +89,53 @@ export function useTrackSharing(options: UseTrackSharingOptions) {
         }
     }, [setShowAttachMenu]);
 
-    const sendTrack = useCallback(async (voyage: VoyageSummary) => {
-        if (!activeChannel || trackSharing) return;
-        setTrackSharing(true);
-        try {
-            const startDate = new Date(voyage.startTime).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' });
-            const title = `Voyage ${startDate} — ${voyage.distance}nm`;
+    const sendTrack = useCallback(
+        async (voyage: VoyageSummary) => {
+            if (!activeChannel || trackSharing) return;
+            setTrackSharing(true);
+            try {
+                const startDate = new Date(voyage.startTime).toLocaleDateString('en-AU', {
+                    day: 'numeric',
+                    month: 'short',
+                });
+                const title = `Voyage ${startDate} — ${voyage.distance}nm`;
 
-            const shared = await TrackSharingService.shareTrack(voyage.entries, {
-                title,
-                description: `${voyage.entryCount} waypoints, ${voyage.distance}nm`,
-                tags: [],
-                category: 'coastal',
-                region: '',
-            });
+                const shared = await TrackSharingService.shareTrack(voyage.entries, {
+                    title,
+                    description: `${voyage.entryCount} waypoints, ${voyage.distance}nm`,
+                    tags: [],
+                    category: 'coastal',
+                    region: '',
+                });
 
-            if (shared) {
-                const text = `${TRACK_PREFIX}${shared.id}|${title}`;
-                setShowTrackPicker(false);
+                if (shared) {
+                    const text = `${TRACK_PREFIX}${shared.id}|${title}`;
+                    setShowTrackPicker(false);
 
-                const optimistic: ChatMessage = {
-                    id: `opt-${crypto.randomUUID()}`,
-                    channel_id: activeChannel.id,
-                    user_id: 'self',
-                    display_name: 'You',
-                    message: text,
-                    is_question: false,
-                    helpful_count: 0,
-                    is_pinned: false,
-                    deleted_at: null,
-                    created_at: new Date().toISOString(),
-                };
-                setMessages(prev => [...prev, optimistic]);
-                await ChatService.sendMessage(activeChannel.id, text, false);
-                setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+                    const optimistic: ChatMessage = {
+                        id: `opt-${crypto.randomUUID()}`,
+                        channel_id: activeChannel.id,
+                        user_id: 'self',
+                        display_name: 'You',
+                        message: text,
+                        is_question: false,
+                        helpful_count: 0,
+                        is_pinned: false,
+                        deleted_at: null,
+                        created_at: new Date().toISOString(),
+                    };
+                    setMessages((prev) => [...prev, optimistic]);
+                    await ChatService.sendMessage(activeChannel.id, text, false);
+                    setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
+                }
+            } catch (err) {
+                log.error('Failed to share track:', err);
+            } finally {
+                setTrackSharing(false);
             }
-        } catch (err) {
-            log.error('Failed to share track:', err);
-        } finally {
-            setTrackSharing(false);
-        }
-    }, [activeChannel, trackSharing, setMessages, messageEndRef]);
+        },
+        [activeChannel, trackSharing, setMessages, messageEndRef],
+    );
 
     const handleImportTrack = useCallback(async (trackId: string, title: string) => {
         setShowTrackDisclaimer(null);
@@ -153,7 +161,9 @@ export function useTrackSharing(options: UseTrackSharingOptions) {
                 setTrackImportStatus('❌ No valid entries in track');
                 return;
             }
-            entries.forEach((e: Record<string, unknown>) => { e.source = 'community_download'; });
+            entries.forEach((e: Record<string, unknown>) => {
+                e.source = 'community_download';
+            });
             setTrackImportStatus(`⏳ Saving ${entries.length} entries…`);
             const { savedCount } = await ShipLogService.importGPXVoyage(entries);
             setTrackImportStatus(`✅ Imported "${title}" — ${savedCount} entries`);
@@ -169,13 +179,15 @@ export function useTrackSharing(options: UseTrackSharingOptions) {
 
     return {
         // State
-        showTrackPicker, setShowTrackPicker,
+        showTrackPicker,
+        setShowTrackPicker,
         voyageList,
         trackSharing,
         trackLoadingVoyages,
         importingTrackId,
         trackImportStatus,
-        showTrackDisclaimer, setShowTrackDisclaimer,
+        showTrackDisclaimer,
+        setShowTrackDisclaimer,
 
         // Actions
         openTrackPicker,

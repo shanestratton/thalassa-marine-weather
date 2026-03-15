@@ -16,8 +16,8 @@ import { NmeaGpsProvider } from './NmeaGpsProvider';
 // ── Freshness tiers ──
 export type DataFreshness = 'live' | 'stale' | 'dead';
 
-const STALE_THRESHOLD_MS = 3000;   // 3 seconds
-const DEAD_THRESHOLD_MS = 10000;   // 10 seconds
+const STALE_THRESHOLD_MS = 3000; // 3 seconds
+const DEAD_THRESHOLD_MS = 10000; // 10 seconds
 const WATCHDOG_INTERVAL_MS = 1000; // 1 second tick
 
 // ── Timestamped metric ──
@@ -30,29 +30,29 @@ export interface TimestampedMetric<T = number> {
 // ── Full store state ──
 export interface NmeaStoreState {
     // Navigation
-    tws: TimestampedMetric;         // True Wind Speed (kts)
-    twa: TimestampedMetric;         // True Wind Angle (°)
-    stw: TimestampedMetric;         // Speed Through Water (kts)
-    heading: TimestampedMetric;     // Heading (°)
-    depth: TimestampedMetric;       // Depth Below Transducer (m)
-    sog: TimestampedMetric;         // Speed Over Ground (kts)
-    cog: TimestampedMetric;         // Course Over Ground (°)
-    waterTemp: TimestampedMetric;   // Water Temperature (°C)
+    tws: TimestampedMetric; // True Wind Speed (kts)
+    twa: TimestampedMetric; // True Wind Angle (°)
+    stw: TimestampedMetric; // Speed Through Water (kts)
+    heading: TimestampedMetric; // Heading (°)
+    depth: TimestampedMetric; // Depth Below Transducer (m)
+    sog: TimestampedMetric; // Speed Over Ground (kts)
+    cog: TimestampedMetric; // Course Over Ground (°)
+    waterTemp: TimestampedMetric; // Water Temperature (°C)
 
     // Engine / Systems
-    rpm: TimestampedMetric;         // Engine RPM
-    voltage: TimestampedMetric;     // Battery voltage (V)
+    rpm: TimestampedMetric; // Engine RPM
+    voltage: TimestampedMetric; // Battery voltage (V)
 
     // GPS Position (from external NMEA receiver / chartplotter)
-    latitude: TimestampedMetric;    // Decimal degrees
-    longitude: TimestampedMetric;   // Decimal degrees
-    hdop: TimestampedMetric;        // Horizontal dilution (lower = better)
-    satellites: TimestampedMetric;  // Satellites in use
-    gpsFixQuality: number | null;   // GGA fix quality (1=GPS, 2=DGPS, 4=RTK)
+    latitude: TimestampedMetric; // Decimal degrees
+    longitude: TimestampedMetric; // Decimal degrees
+    hdop: TimestampedMetric; // Horizontal dilution (lower = better)
+    satellites: TimestampedMetric; // Satellites in use
+    gpsFixQuality: number | null; // GGA fix quality (1=GPS, 2=DGPS, 4=RTK)
 
     // Connection
     connectionStatus: NmeaConnectionStatus;
-    lastAnyUpdate: number;          // Epoch ms — last time ANY metric was updated
+    lastAnyUpdate: number; // Epoch ms — last time ANY metric was updated
 }
 
 export type NmeaStoreListener = (state: NmeaStoreState) => void;
@@ -73,8 +73,8 @@ class NmeaStoreClass {
         this.running = true;
 
         // Subscribe to raw NMEA data
-        this.unsubSample = NmeaListenerService.onSample(sample => this.ingestSample(sample));
-        this.unsubStatus = NmeaListenerService.onStatusChange(status => {
+        this.unsubSample = NmeaListenerService.onSample((sample) => this.ingestSample(sample));
+        this.unsubStatus = NmeaListenerService.onStatusChange((status) => {
             this.state.connectionStatus = status;
             this.notify();
         });
@@ -93,14 +93,25 @@ class NmeaStoreClass {
         // Reset connection status and notify UI before unsubscribing
         this.state.connectionStatus = 'disconnected';
         this.notify();
-        if (this.unsubSample) { this.unsubSample(); this.unsubSample = null; }
-        if (this.unsubStatus) { this.unsubStatus(); this.unsubStatus = null; }
-        if (this.watchdogTimer) { clearInterval(this.watchdogTimer); this.watchdogTimer = null; }
+        if (this.unsubSample) {
+            this.unsubSample();
+            this.unsubSample = null;
+        }
+        if (this.unsubStatus) {
+            this.unsubStatus();
+            this.unsubStatus = null;
+        }
+        if (this.watchdogTimer) {
+            clearInterval(this.watchdogTimer);
+            this.watchdogTimer = null;
+        }
         NmeaGpsProvider.stop();
     }
 
     /** Get current snapshot */
-    getState(): NmeaStoreState { return this.state; }
+    getState(): NmeaStoreState {
+        return this.state;
+    }
 
     /** Subscribe to state changes. Returns unsubscribe function. */
     subscribe(cb: NmeaStoreListener): () => void {
@@ -110,9 +121,11 @@ class NmeaStoreClass {
 
     /** Whether external GPS has a live fix (lat/lon updated within 3s) */
     hasGpsFix(): boolean {
-        return this.state.latitude.freshness === 'live' &&
+        return (
+            this.state.latitude.freshness === 'live' &&
             this.state.longitude.freshness === 'live' &&
-            this.state.latitude.value !== null;
+            this.state.latitude.value !== null
+        );
     }
 
     /** Get freshness tier for a given timestamp */
@@ -163,10 +176,20 @@ class NmeaStoreClass {
         let changed = false;
 
         const metrics: TimestampedMetric[] = [
-            this.state.tws, this.state.twa, this.state.stw, this.state.heading,
-            this.state.depth, this.state.sog, this.state.cog, this.state.waterTemp,
-            this.state.rpm, this.state.voltage,
-            this.state.latitude, this.state.longitude, this.state.hdop, this.state.satellites,
+            this.state.tws,
+            this.state.twa,
+            this.state.stw,
+            this.state.heading,
+            this.state.depth,
+            this.state.sog,
+            this.state.cog,
+            this.state.waterTemp,
+            this.state.rpm,
+            this.state.voltage,
+            this.state.latitude,
+            this.state.longitude,
+            this.state.hdop,
+            this.state.satellites,
         ];
 
         for (const m of metrics) {

@@ -30,7 +30,7 @@ import {
     readCacheVersion,
     writeCacheVersion,
     DATA_CACHE_KEY,
-    VOYAGE_CACHE_KEY
+    VOYAGE_CACHE_KEY,
 } from '../services/nativeStorage';
 
 describe('nativeStorage constants', () => {
@@ -62,7 +62,7 @@ describe('saveLargeData', () => {
             expect.objectContaining({
                 path: 'test_key.json',
                 data: JSON.stringify({ value: 42 }),
-            })
+            }),
         );
 
         vi.useRealTimers();
@@ -93,7 +93,7 @@ describe('saveLargeDataImmediate', () => {
             expect.objectContaining({
                 path: 'urgent_key.json',
                 data: JSON.stringify({ temp: 28 }),
-            })
+            }),
         );
     });
 
@@ -112,7 +112,7 @@ describe('saveLargeDataImmediate', () => {
         expect(mockWriteFile).toHaveBeenCalledWith(
             expect.objectContaining({
                 data: JSON.stringify({ new: true }),
-            })
+            }),
         );
     });
 
@@ -163,7 +163,7 @@ describe('loadLargeData', () => {
 
     it('rejects corrupted future data (poison pill)', async () => {
         const corrupted = {
-            hourly: [{ time: '2030-01-01T00:00:00Z' }]
+            hourly: [{ time: '2030-01-01T00:00:00Z' }],
         };
         mockReaddir.mockResolvedValue({ files: [{ name: 'poison.json' }] });
         mockReadFile.mockResolvedValue({ data: JSON.stringify(corrupted) });
@@ -206,7 +206,7 @@ describe('readCacheVersion / writeCacheVersion', () => {
             expect.objectContaining({
                 path: 'thalassa_cache_version.txt',
                 data: 'v18-OLD',
-            })
+            }),
         );
     });
 
@@ -225,7 +225,7 @@ describe('readCacheVersion / writeCacheVersion', () => {
             expect.objectContaining({
                 path: 'thalassa_cache_version.txt',
                 data: 'v20-NEW',
-            })
+            }),
         );
         expect(localStorage.getItem('thalassa_cache_version')).toBe('v20-NEW');
     });
@@ -236,9 +236,7 @@ describe('deleteLargeData', () => {
 
     it('calls Filesystem.deleteFile with correct path', async () => {
         await deleteLargeData('old_data');
-        expect(mockDeleteFile).toHaveBeenCalledWith(
-            expect.objectContaining({ path: 'old_data.json' })
-        );
+        expect(mockDeleteFile).toHaveBeenCalledWith(expect.objectContaining({ path: 'old_data.json' }));
     });
 
     it('does not throw if file does not exist', async () => {

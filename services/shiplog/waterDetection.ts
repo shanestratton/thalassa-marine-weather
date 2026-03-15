@@ -19,8 +19,8 @@ export interface WaterCheckResult {
     feature: 'LAND' | 'RIVER' | 'OCEAN' | 'LAKE' | 'UNKNOWN';
     lat: number;
     lon: number;
-    failedOpen?: boolean;   // True if we defaulted to true on error
-    error?: string;         // Error message if the API failed
+    failedOpen?: boolean; // True if we defaulted to true on error
+    error?: string; // Error message if the API failed
 }
 
 /**
@@ -44,8 +44,12 @@ export async function checkIsOnWater(lat: number, lng: number): Promise<boolean>
     if (lat === 0 && lng === 0) {
         log.warn('checkIsOnWater: skipping (0,0) placeholder coordinates');
         _lastWaterCheck = {
-            isWater: true, feature: 'UNKNOWN', lat, lon: lng,
-            failedOpen: true, error: 'Placeholder (0,0) coordinates'
+            isWater: true,
+            feature: 'UNKNOWN',
+            lat,
+            lon: lng,
+            failedOpen: true,
+            error: 'Placeholder (0,0) coordinates',
         };
         return true; // Fail open
     }
@@ -54,31 +58,38 @@ export async function checkIsOnWater(lat: number, lng: number): Promise<boolean>
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
-        const response = await fetch(
-            `${API_BASE}/${lat.toFixed(4)}/${lng.toFixed(4)}`,
-            { signal: controller.signal }
-        );
+        const response = await fetch(`${API_BASE}/${lat.toFixed(4)}/${lng.toFixed(4)}`, { signal: controller.signal });
         clearTimeout(timeout);
 
         if (!response.ok) {
             log.warn(`checkIsOnWater: API returned ${response.status}`);
             _lastWaterCheck = {
-                isWater: true, feature: 'UNKNOWN', lat, lon: lng,
-                failedOpen: true, error: `HTTP ${response.status}`
+                isWater: true,
+                feature: 'UNKNOWN',
+                lat,
+                lon: lng,
+                failedOpen: true,
+                error: `HTTP ${response.status}`,
             };
             return true; // Fail open
         }
 
         const data: WaterCheckResult = await response.json();
-        log.info(`checkIsOnWater: (${lat.toFixed(4)}, ${lng.toFixed(4)}) → isWater=${data.isWater}, feature=${data.feature}`);
+        log.info(
+            `checkIsOnWater: (${lat.toFixed(4)}, ${lng.toFixed(4)}) → isWater=${data.isWater}, feature=${data.feature}`,
+        );
         _lastWaterCheck = { ...data, lat, lon: lng, failedOpen: false };
         return data.isWater;
     } catch (error) {
         const errMsg = error instanceof Error ? error.message : String(error);
         log.warn('checkIsOnWater: API call failed, defaulting to true (fail-open)', error);
         _lastWaterCheck = {
-            isWater: true, feature: 'UNKNOWN', lat, lon: lng,
-            failedOpen: true, error: errMsg
+            isWater: true,
+            feature: 'UNKNOWN',
+            lat,
+            lon: lng,
+            failedOpen: true,
+            error: errMsg,
         };
         return true; // Fail open — never block logging for sailors
     }

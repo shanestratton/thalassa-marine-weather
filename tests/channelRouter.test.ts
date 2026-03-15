@@ -36,14 +36,14 @@ describe('distNM (equirectangular)', () => {
     });
 
     it('is symmetric', () => {
-        const d1 = distNM(-33.868, 151.209, -33.900, 151.250);
-        const d2 = distNM(-33.900, 151.250, -33.868, 151.209);
+        const d1 = distNM(-33.868, 151.209, -33.9, 151.25);
+        const d2 = distNM(-33.9, 151.25, -33.868, 151.209);
         expect(d1).toBeCloseTo(d2, 6);
     });
 
     it('short harbor distance ≈ correct (Moreton Bay ~5 NM)', () => {
         // Redcliffe to Deception Bay: ~5 NM
-        const d = distNM(-27.2277, 153.1044, -27.1600, 153.1000);
+        const d = distNM(-27.2277, 153.1044, -27.16, 153.1);
         expect(d).toBeGreaterThan(3);
         expect(d).toBeLessThan(7);
     });
@@ -129,7 +129,7 @@ describe('routeChannel', () => {
     });
 
     it('returns direct route when no seamarks available', async () => {
-        const result = await routeChannel(-27.23, 153.10, -27.15, 153.10, 2.0, emptySeamarks);
+        const result = await routeChannel(-27.23, 153.1, -27.15, 153.1, 2.0, emptySeamarks);
 
         expect(result.seamarkAssisted).toBe(false);
         expect(result.waypoints.length).toBe(2);
@@ -138,7 +138,7 @@ describe('routeChannel', () => {
     });
 
     it('total distance is positive and reasonable', async () => {
-        const result = await routeChannel(-27.23, 153.10, -27.15, 153.10, 2.0, emptySeamarks);
+        const result = await routeChannel(-27.23, 153.1, -27.15, 153.1, 2.0, emptySeamarks);
         expect(result.totalDistanceNM).toBeGreaterThan(0);
         expect(result.totalDistanceNM).toBeLessThan(50);
     });
@@ -147,14 +147,14 @@ describe('routeChannel', () => {
         const seamarks: SeamarkCollection = {
             ...emptySeamarks,
             features: [
-                makeMark(-27.22, 153.10, 'Mark 1', 'port'),
-                makeMark(-27.20, 153.10, 'Mark 2', 'starboard'),
-                makeMark(-27.18, 153.10, 'Channel Exit', 'safe_water'),
+                makeMark(-27.22, 153.1, 'Mark 1', 'port'),
+                makeMark(-27.2, 153.1, 'Mark 2', 'starboard'),
+                makeMark(-27.18, 153.1, 'Channel Exit', 'safe_water'),
             ],
             metadata: { ...emptySeamarks.metadata, count: 3 },
         };
 
-        const result = await routeChannel(-27.23, 153.10, -27.15, 153.10, 2.0, seamarks);
+        const result = await routeChannel(-27.23, 153.1, -27.15, 153.1, 2.0, seamarks);
 
         expect(result.seamarkAssisted).toBe(true);
         expect(result.waypoints.length).toBeGreaterThan(2);
@@ -162,21 +162,18 @@ describe('routeChannel', () => {
     });
 
     it('returns IALA region from seamarks metadata', async () => {
-        const result = await routeChannel(-27.23, 153.10, -27.15, 153.10, 2.0, emptySeamarks);
+        const result = await routeChannel(-27.23, 153.1, -27.15, 153.1, 2.0, emptySeamarks);
         expect(result.ialaRegion).toBe('A');
     });
 
     it('ignores marks outside NAV_CLASSES', async () => {
         const seamarks: SeamarkCollection = {
             ...emptySeamarks,
-            features: [
-                makeMark(-27.22, 153.10, 'Mooring', 'mooring'),
-                makeMark(-27.20, 153.10, 'Anchorage', 'anchorage'),
-            ],
+            features: [makeMark(-27.22, 153.1, 'Mooring', 'mooring'), makeMark(-27.2, 153.1, 'Anchorage', 'anchorage')],
             metadata: { ...emptySeamarks.metadata, count: 2 },
         };
 
-        const result = await routeChannel(-27.23, 153.10, -27.15, 153.10, 2.0, seamarks);
+        const result = await routeChannel(-27.23, 153.1, -27.15, 153.1, 2.0, seamarks);
 
         // Non-NAV marks should result in direct route
         expect(result.seamarkAssisted).toBe(false);
@@ -188,12 +185,12 @@ describe('routeChannel', () => {
             ...emptySeamarks,
             features: [
                 // Mark 50 NM away — should be out of SEARCH_RADIUS_NM (5.0)
-                makeMark(-26.0, 153.10, 'Far Mark', 'port'),
+                makeMark(-26.0, 153.1, 'Far Mark', 'port'),
             ],
             metadata: { ...emptySeamarks.metadata, count: 1 },
         };
 
-        const result = await routeChannel(-27.23, 153.10, -27.15, 153.10, 2.0, farMark);
+        const result = await routeChannel(-27.23, 153.1, -27.15, 153.1, 2.0, farMark);
         expect(result.seamarkAssisted).toBe(false);
     });
 });

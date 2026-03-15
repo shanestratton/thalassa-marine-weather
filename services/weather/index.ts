@@ -1,12 +1,10 @@
-
-import { MarineWeatherReport, WeatherModel, BuoyStation } from '../../types';
+import { MarineWeatherReport, WeatherModel } from '../../types';
 import { parseLocation, reverseGeocode } from './api/geocoding';
 import { fetchOpenMeteo } from './api/openmeteo';
 import { fetchStormGlassWeather } from './api/stormglass';
-import { fetchWeatherKitFull, WeatherKitFullResponse, buildReportFromWeatherKit } from './api/weatherkit';
+import { fetchWeatherKitFull, buildReportFromWeatherKit } from './api/weatherkit';
 import { fetchRealTides } from './api/tides';
 import { saveToCache, getFromCache, getFromCacheOffline } from './cache';
-import { degreesToCardinal } from '../../utils';
 
 // --- RE-EXPORTS (Maintain API Compatibility) ---
 export { MAJOR_BUOYS } from './config';
@@ -45,7 +43,7 @@ export const fetchWeatherByStrategy = async (
     lat: number,
     lon: number,
     name: string,
-    locationType?: 'coastal' | 'offshore' | 'inland'
+    locationType?: 'coastal' | 'offshore' | 'inland',
 ): Promise<MarineWeatherReport> => {
     const dedupKey = `${lat.toFixed(2)},${lon.toFixed(2)}`;
     const existing = _inflight.get(dedupKey);
@@ -61,9 +59,8 @@ const _fetchWeatherByStrategyImpl = async (
     lat: number,
     lon: number,
     name: string,
-    locationType?: 'coastal' | 'offshore' | 'inland'
+    locationType?: 'coastal' | 'offshore' | 'inland',
 ): Promise<MarineWeatherReport> => {
-
     const isOffshore = locationType === 'offshore';
     const needsStormGlass = locationType !== 'inland';
 
@@ -77,8 +74,8 @@ const _fetchWeatherByStrategyImpl = async (
         // 2. StormGlass: Marine data (waves, swell, water temp, currents)
         needsStormGlass
             ? fetchStormGlassWeather(lat, lon, name, locationType).catch((e) => {
-                return null;
-            })
+                  return null;
+              })
             : Promise.resolve(null),
 
         // 3. OpenMeteo: Fallback atmospheric + CAPE for wind field map
@@ -149,7 +146,8 @@ const _fetchWeatherByStrategyImpl = async (
     }
 
     // --- DETERMINE LOCATION TYPE ---
-    const computedLocationType = stormGlassReport?.locationType || locationType || openMeteoReport?.locationType || 'coastal';
+    const computedLocationType =
+        stormGlassReport?.locationType || locationType || openMeteoReport?.locationType || 'coastal';
     report.locationType = computedLocationType as 'coastal' | 'offshore' | 'inland';
 
     // --- ENRICH WITH STORMGLASS MARINE DATA ---
@@ -206,8 +204,8 @@ const _fetchWeatherByStrategyImpl = async (
         // Exact string match fails — normalize to epoch-hour for robust matching
         if (stormGlassReport.hourly?.length) {
             const toHourKey = (t: string) => Math.floor(new Date(t).getTime() / 3600000);
-            const sgHourlyMap = new Map(stormGlassReport.hourly.map(h => [toHourKey(h.time), h]));
-            report.hourly = report.hourly.map(h => {
+            const sgHourlyMap = new Map(stormGlassReport.hourly.map((h) => [toHourKey(h.time), h]));
+            report.hourly = report.hourly.map((h) => {
                 const sgH = sgHourlyMap.get(toHourKey(h.time));
                 if (!sgH) return h;
                 return {
@@ -226,8 +224,8 @@ const _fetchWeatherByStrategyImpl = async (
 
         // Merge StormGlass marine data into daily forecasts
         if (stormGlassReport.forecast?.length) {
-            const sgDailyMap = new Map(stormGlassReport.forecast.map(d => [d.isoDate || d.date, d]));
-            report.forecast = report.forecast.map(d => {
+            const sgDailyMap = new Map(stormGlassReport.forecast.map((d) => [d.isoDate || d.date, d]));
+            report.forecast = report.forecast.map((d) => {
                 const sgD = sgDailyMap.get(d.isoDate || d.date);
                 if (!sgD) return d;
                 return {
@@ -259,9 +257,7 @@ const _fetchWeatherByStrategyImpl = async (
         if (tideData.guiDetails) report.tideGUIDetails = tideData.guiDetails;
 
         // Generate dense hourly tide data for the graph (cosine interpolation)
-        const sorted = [...tideData.tides].sort((a, b) =>
-            new Date(a.time).getTime() - new Date(b.time).getTime()
-        );
+        const sorted = [...tideData.tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
         const interpolated: { time: string; height: number }[] = [];
         for (let i = 0; i < sorted.length - 1; i++) {
             const tStart = new Date(sorted[i].time).getTime();
@@ -270,12 +266,12 @@ const _fetchWeatherByStrategyImpl = async (
             const hEnd = sorted[i + 1].height;
             for (let t = tStart; t < tEnd; t += 30 * 60 * 1000) {
                 const ratio = (t - tStart) / (tEnd - tStart);
-                const height = (hStart + hEnd) / 2 + (hStart - hEnd) / 2 * Math.cos(ratio * Math.PI);
+                const height = (hStart + hEnd) / 2 + ((hStart - hEnd) / 2) * Math.cos(ratio * Math.PI);
                 interpolated.push({ time: new Date(t).toISOString(), height });
             }
         }
         if (interpolated.length > 0) {
-            report.tideHourly = interpolated.map(p => ({ time: p.time, height: p.height }));
+            report.tideHourly = interpolated.map((p) => ({ time: p.time, height: p.height }));
         }
     } else if (stormGlassReport?.tides?.length) {
         // Fallback: StormGlass may have tides if WorldTides failed
@@ -319,7 +315,6 @@ const _fetchWeatherByStrategyImpl = async (
     return report;
 };
 
-
 // ═══════════════════════════════════════════════════════════════
 // LEGACY CONVENIENCE FUNCTIONS
 // Used by RoutePlanner + VoyageForm (non-dashboard contexts)
@@ -332,10 +327,9 @@ const _fetchWeatherByStrategyImpl = async (
  */
 export const fetchFastWeather = async (
     location: string,
-    coords?: { lat: number, lon: number },
-    model: WeatherModel = 'best_match'
+    coords?: { lat: number; lon: number },
+    model: WeatherModel = 'best_match',
 ): Promise<MarineWeatherReport> => {
-
     // 1. Resolve Location
     let lat: number, lon: number, name: string;
 
@@ -345,7 +339,7 @@ export const fetchFastWeather = async (
         name = location;
 
         // Auto-resolve name if generic
-        if (!name || name === "Current Location" || name.includes("Lat:")) {
+        if (!name || name === 'Current Location' || name.includes('Lat:')) {
             try {
                 const resolved = await reverseGeocode(lat, lon);
                 if (resolved) name = resolved;
@@ -368,14 +362,11 @@ export const fetchFastWeather = async (
 
     // 2. Timeout Wrapper (15s)
     const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Fast Fetch Timeout")), 15000)
+        setTimeout(() => reject(new Error('Fast Fetch Timeout')), 15000),
     );
 
     try {
-        const data = await Promise.race([
-            fetchOpenMeteo(lat, lon, name, true, model),
-            timeoutPromise
-        ]);
+        const data = await Promise.race([fetchOpenMeteo(lat, lon, name, true, model), timeoutPromise]);
         saveToCache(name, data);
         return data;
     } catch (e: unknown) {
@@ -389,11 +380,10 @@ export const fetchFastWeather = async (
  */
 export const fetchPrecisionWeather = async (
     location: string,
-    coords?: { lat: number, lon: number },
+    coords?: { lat: number; lon: number },
     forceRefresh = false,
-    existingLocationType?: 'coastal' | 'offshore' | 'inland'
+    existingLocationType?: 'coastal' | 'offshore' | 'inland',
 ): Promise<MarineWeatherReport> => {
-
     let lat: number, lon: number, name: string;
 
     if (coords) {
@@ -401,7 +391,13 @@ export const fetchPrecisionWeather = async (
         lon = coords.lon;
         name = location;
 
-        if (!name || name === 'Current Location' || name.startsWith('WP ') || /^-?\d/.test(name) || /^\d+\.\d+°[NSEW]/.test(name)) {
+        if (
+            !name ||
+            name === 'Current Location' ||
+            name.startsWith('WP ') ||
+            /^-?\d/.test(name) ||
+            /^\d+\.\d+°[NSEW]/.test(name)
+        ) {
             const r = await reverseGeocode(lat, lon);
             if (r) name = r;
         }

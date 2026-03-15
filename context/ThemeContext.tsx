@@ -36,9 +36,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
         return getThemeForEnvironment(state.current);
     });
 
-    const [environment, setEnvironment] = useState<Environment>(() =>
-        EnvironmentService.getState().current
-    );
+    const [environment, setEnvironment] = useState<Environment>(() => EnvironmentService.getState().current);
 
     useEffect(() => {
         const unsub = EnvironmentService.onStateChange((state) => {
@@ -51,10 +49,7 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
     return (
         <ThemeContext.Provider value={theme}>
             {/* Root CSS class for CSS-level theming */}
-            <div
-                className={`theme-${environment} contents`}
-                data-theme={environment}
-            >
+            <div className={`theme-${environment} contents`} data-theme={environment}>
                 {children}
             </div>
         </ThemeContext.Provider>

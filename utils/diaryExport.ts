@@ -23,7 +23,9 @@ function drawCompassRoseWatermark(pdf: JsPDFType, pageWidth: number, pageHeight:
     const radius = 28;
     const angle = -15 * (Math.PI / 180);
 
-    const gState = new (pdf as unknown as { GState: new (opts: { opacity: number }) => string }).GState({ opacity: 0.15 });
+    const gState = new (pdf as unknown as { GState: new (opts: { opacity: number }) => string }).GState({
+        opacity: 0.15,
+    });
     pdf.setGState(gState);
 
     pdf.setDrawColor(180, 185, 190);
@@ -93,7 +95,9 @@ function drawCompassRoseWatermark(pdf: JsPDFType, pageWidth: number, pageHeight:
     pdf.text('E', ePos.x, ePos.y + 2, { align: 'center' });
     pdf.text('W', wPos.x, wPos.y + 2, { align: 'center' });
 
-    const resetState = new (pdf as unknown as { GState: new (opts: { opacity: number }) => string }).GState({ opacity: 1.0 });
+    const resetState = new (pdf as unknown as { GState: new (opts: { opacity: number }) => string }).GState({
+        opacity: 1.0,
+    });
     pdf.setGState(resetState);
 }
 
@@ -111,14 +115,17 @@ function formatCoord(lat: number, lon: number): string {
  */
 function groupByDate(entries: DiaryEntry[]): Map<string, DiaryEntry[]> {
     const map = new Map<string, DiaryEntry[]>();
-    const sorted = [...entries].sort((a, b) =>
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-    );
-    sorted.forEach(entry => {
+    const sorted = [...entries].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    sorted.forEach((entry) => {
         const d = new Date(entry.created_at);
-        const dateKey = d.toLocaleDateString('en-AU', {
-            weekday: 'short', day: 'numeric', month: 'short', year: 'numeric'
-        }).toUpperCase();
+        const dateKey = d
+            .toLocaleDateString('en-AU', {
+                weekday: 'short',
+                day: 'numeric',
+                month: 'short',
+                year: 'numeric',
+            })
+            .toUpperCase();
         if (!map.has(dateKey)) map.set(dateKey, []);
         map.get(dateKey)!.push(entry);
     });
@@ -133,7 +140,7 @@ async function loadImageAsBase64(url: string): Promise<string | null> {
         const response = await fetch(url);
         if (!response.ok) return null;
         const blob = await response.blob();
-        return new Promise(resolve => {
+        return new Promise((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => resolve(reader.result as string);
             reader.onerror = () => resolve(null);
@@ -155,7 +162,7 @@ export async function generateDiaryPDF(
         onProgress?: (message: string) => void;
         onSuccess?: () => void;
         onError?: (error: string) => void;
-    }
+    },
 ): Promise<void> {
     try {
         if (entries.length === 0) {
@@ -172,9 +179,7 @@ export async function generateDiaryPDF(
         const margin = 15;
         const contentWidth = pageWidth - margin * 2;
 
-        const sorted = [...entries].sort((a, b) =>
-            new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-        );
+        const sorted = [...entries].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
         const grouped = groupByDate(sorted);
 
         // Compute stats
@@ -182,8 +187,10 @@ export async function generateDiaryPDF(
         const endDate = new Date(sorted[sorted.length - 1].created_at);
         const totalPhotos = sorted.reduce((sum, e) => sum + e.photos.length, 0);
         const moodCounts: Record<string, number> = {};
-        sorted.forEach(e => { moodCounts[e.mood] = (moodCounts[e.mood] || 0) + 1; });
-        const topMood = Object.entries(moodCounts).sort((a, b) => b[1] - a[1])[0]?.[0] as DiaryMood || 'neutral';
+        sorted.forEach((e) => {
+            moodCounts[e.mood] = (moodCounts[e.mood] || 0) + 1;
+        });
+        const topMood = (Object.entries(moodCounts).sort((a, b) => b[1] - a[1])[0]?.[0] as DiaryMood) || 'neutral';
         const topMoodCfg = MOOD_CONFIG[topMood];
 
         const formatDateStr = (d: Date) => {
@@ -295,10 +302,10 @@ export async function generateDiaryPDF(
 
                 // Estimate entry height
                 const bodyLines = entry.body ? pdf.splitTextToSize(entry.body, contentWidth - 10) : [];
-                const hasPhotos = entry.photos.length > 0 && entry.photos.some(p => photoCache.has(p));
+                const hasPhotos = entry.photos.length > 0 && entry.photos.some((p) => photoCache.has(p));
                 const photoRowHeight = hasPhotos ? 30 : 0;
                 const bodyHeight = Math.min(bodyLines.length * 4.5, 80); // cap body height
-                const metaHeight = (entry.location_name || entry.weather_summary) ? 8 : 0;
+                const metaHeight = entry.location_name || entry.weather_summary ? 8 : 0;
                 const entryHeight = 14 + bodyHeight + photoRowHeight + metaHeight + 6;
 
                 // Page break if needed
@@ -419,7 +426,11 @@ export async function generateDiaryPDF(
         // ===== PAGE NUMBERS, HEADERS, FOOTERS, WATERMARK =====
 
         const totalPages = pdf.getNumberOfPages();
-        const generatedDate = new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'numeric', year: 'numeric' });
+        const generatedDate = new Date().toLocaleDateString('en-AU', {
+            day: 'numeric',
+            month: 'numeric',
+            year: 'numeric',
+        });
 
         for (let i = 1; i <= totalPages; i++) {
             pdf.setPage(i);
@@ -460,7 +471,7 @@ export async function generateDiaryPDF(
                 await navigator.share({
                     title: "Captain's Diary",
                     text: `${sorted.length} diary entries from ${formatDateStr(startDate)} to ${formatDateStr(endDate)}`,
-                    files: [pdfFile]
+                    files: [pdfFile],
                 });
                 callbacks?.onSuccess?.();
             } catch (shareError) {

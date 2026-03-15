@@ -10,7 +10,10 @@ import { calculateDistance, calculateBearing, formatDMS } from './navigationCalc
 // Dramatic manual entries for an unforgettable voyage
 const VOYAGE_EVENTS = [
     // Day 1 - Departure
-    { progress: 0.00, note: '⚓ Slipped mooring at Rivergate Marina. Crew excited, weather perfect. Brisbane skyline fading astern.' },
+    {
+        progress: 0.0,
+        note: '⚓ Slipped mooring at Rivergate Marina. Crew excited, weather perfect. Brisbane skyline fading astern.',
+    },
     { progress: 0.02, note: '🐬 Pod of 20+ dolphins escort us through Moreton Bay! Incredible send-off.' },
     { progress: 0.05, note: '🌊 Cleared North Stradbroke. Set course 065°. Full main + genoa, making 7.2 kts.' },
 
@@ -24,10 +27,16 @@ const VOYAGE_EVENTS = [
     { progress: 0.32, note: '🌧️ SQUALL LINE approaching from WSW. Reefing main, furling genoa.' },
     { progress: 0.35, note: '⛈️ STORM! 40kt gusts, 4m seas. All crew clipped on. Scary but handling well.' },
     { progress: 0.38, note: '🤢 First mate down with seasickness. Captain not feeling great either.' },
-    { progress: 0.40, note: '💔 Lost the dinner plate set overboard in a big roll. RIP Corelle.' },
-    { progress: 0.42, note: '😱 RIPPED SAIL! Main has a 2-foot tear near the second reef. Dropped main, sailing under jib only.' },
+    { progress: 0.4, note: '💔 Lost the dinner plate set overboard in a big roll. RIP Corelle.' },
+    {
+        progress: 0.42,
+        note: '😱 RIPPED SAIL! Main has a 2-foot tear near the second reef. Dropped main, sailing under jib only.',
+    },
     { progress: 0.45, note: '🚽 HEAD IS BROKEN. Pump failed. All hands now using the cedar bucket. Morale low.' },
-    { progress: 0.48, note: '☀️ Storm passed. Seas settling. Crew exhausted but relieved. Makeshift sail repair holding.' },
+    {
+        progress: 0.48,
+        note: '☀️ Storm passed. Seas settling. Crew exhausted but relieved. Makeshift sail repair holding.',
+    },
 
     // Day 4 - Recovery and wildlife
     { progress: 0.52, note: '🔧 Proper sail repair completed. Stitching held through the night.' },
@@ -37,7 +46,10 @@ const VOYAGE_EVENTS = [
 
     // Day 5 - The "pirates"
     { progress: 0.68, note: '👀 Unknown vessel approaching fast from stern. No AIS signal. All hands on deck.' },
-    { progress: 0.70, note: '🏴‍☠️ FALSE ALARM! "Pirates" turned out to be French fishermen offering us fresh lobster. Very friendly!' },
+    {
+        progress: 0.7,
+        note: '🏴‍☠️ FALSE ALARM! "Pirates" turned out to be French fishermen offering us fresh lobster. Very friendly!',
+    },
     { progress: 0.72, note: '🦞 Lobster dinner! Best meal of the trip. Traded them some Brisbane beer.' },
 
     // Day 6 - Approach
@@ -47,16 +59,19 @@ const VOYAGE_EVENTS = [
     { progress: 0.92, note: '🐢 Sea turtle surfaced next to the hull. Welcome committee!' },
     { progress: 0.95, note: '🏙️ Nouméa harbor in sight! Preparing dock lines and fenders.' },
     { progress: 0.98, note: '🎉 ARRIVED! 770nm, 5 days, 1 storm, 1 ripped sail, 1 broken toilet, countless memories.' },
-    { progress: 1.00, note: '🍾 Tied up at Port Moselle. Cold Kronenbourg in hand. Crew survived. Boat mostly intact. Victory!' }
+    {
+        progress: 1.0,
+        note: '🍾 Tied up at Port Moselle. Cold Kronenbourg in hand. Crew survived. Boat mostly intact. Victory!',
+    },
 ];
 
 // Waypoints with colorful names
 const WAYPOINTS = [
-    { lat: -26.85, lon: 154.20, name: 'Cape Moreton Clear', progress: 0.08 },
-    { lat: -25.50, lon: 157.00, name: 'Offshore - Byron Abeam', progress: 0.20 },
-    { lat: -24.20, lon: 160.50, name: 'Mid-Coral Sea', progress: 0.45 },
-    { lat: -23.00, lon: 163.80, name: 'NC EEZ Entry', progress: 0.70 },
-    { lat: -22.40, lon: 165.50, name: 'Havannah Pass Approach', progress: 0.88 }
+    { lat: -26.85, lon: 154.2, name: 'Cape Moreton Clear', progress: 0.08 },
+    { lat: -25.5, lon: 157.0, name: 'Offshore - Byron Abeam', progress: 0.2 },
+    { lat: -24.2, lon: 160.5, name: 'Mid-Coral Sea', progress: 0.45 },
+    { lat: -23.0, lon: 163.8, name: 'NC EEZ Entry', progress: 0.7 },
+    { lat: -22.4, lon: 165.5, name: 'Havannah Pass Approach', progress: 0.88 },
 ];
 
 /**
@@ -74,12 +89,12 @@ export function generateDemoVoyage(): ShipLogEntry[] {
 
     // End position: Port Moselle, Nouméa
     const endLat = -22.2758;
-    const endLon = 166.4380;
+    const endLon = 166.438;
 
     // Voyage timing - arrive Feb 4, 2026 at 1600 local (0600 UTC)
     const arrivalTime = new Date('2026-02-04T06:00:00Z');
     const totalHours = 5 * 24 + 10; // 5 days 10 hours
-    const startTime = new Date(arrivalTime.getTime() - (totalHours * 60 * 60 * 1000));
+    const startTime = new Date(arrivalTime.getTime() - totalHours * 60 * 60 * 1000);
 
     const totalDistance = 770; // nautical miles
     const intervalMinutes = 15;
@@ -91,7 +106,7 @@ export function generateDemoVoyage(): ShipLogEntry[] {
 
     for (let i = 0; i < totalEntries; i++) {
         const progress = i / totalEntries;
-        const timestamp = new Date(startTime.getTime() + (i * intervalMinutes * 60 * 1000));
+        const timestamp = new Date(startTime.getTime() + i * intervalMinutes * 60 * 1000);
 
         // Interpolate position with some realistic variation
         const progressWithVariation = progress + Math.sin(progress * Math.PI * 8) * 0.01;
@@ -118,7 +133,7 @@ export function generateDemoVoyage(): ShipLogEntry[] {
             i === 0 ? lat : entries[i - 1].latitude,
             i === 0 ? lon : entries[i - 1].longitude,
             lat,
-            lon
+            lon,
         );
 
         // Weather simulation
@@ -185,7 +200,7 @@ export function generateDemoVoyage(): ShipLogEntry[] {
             waterTemp: Math.round(waterTemp),
             entryType,
             notes,
-            waypointName
+            waypointName,
         });
     }
 

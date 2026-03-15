@@ -1,6 +1,6 @@
 /**
  * Universal API Response Cache
- * 
+ *
  * Prevents quota exhaustion by caching API responses based on when
  * upstream data actually changes — not arbitrary timeouts.
  *
@@ -18,12 +18,12 @@
 // ── Cache TTLs (milliseconds) ─────────────────────────────────
 
 const TTL = {
-    worldtides: 24 * 60 * 60 * 1000,  // 24 hours — predictions are deterministic
-    stormglass: 3 * 60 * 60 * 1000,  //  3 hours — catches every 6h model cycle
-    weatherkit: 15 * 60 * 1000,        // 15 minutes — Apple refreshes frequently
-    openmeteo: 30 * 60 * 1000,        // 30 minutes — free, but still polite
-    noaa_gfs: 3 * 60 * 60 * 1000,  //  3 hours — same as StormGlass
-    tides: 24 * 60 * 60 * 1000,  // 24 hours — parsed tide extremes
+    worldtides: 24 * 60 * 60 * 1000, // 24 hours — predictions are deterministic
+    stormglass: 3 * 60 * 60 * 1000, //  3 hours — catches every 6h model cycle
+    weatherkit: 15 * 60 * 1000, // 15 minutes — Apple refreshes frequently
+    openmeteo: 30 * 60 * 1000, // 30 minutes — free, but still polite
+    noaa_gfs: 3 * 60 * 60 * 1000, //  3 hours — same as StormGlass
+    tides: 24 * 60 * 60 * 1000, // 24 hours — parsed tide extremes
 } as const;
 
 export type ApiCacheProvider = keyof typeof TTL;
@@ -53,12 +53,7 @@ interface CacheEntry<T> {
 /**
  * Get cached API response. Returns null if expired or missing.
  */
-export function apiCacheGet<T>(
-    provider: ApiCacheProvider,
-    lat: number,
-    lon: number,
-    extra?: string,
-): T | null {
+export function apiCacheGet<T>(provider: ApiCacheProvider, lat: number, lon: number, extra?: string): T | null {
     try {
         const key = cacheKey(provider, lat, lon, extra);
         const raw = localStorage.getItem(key);
@@ -77,7 +72,7 @@ export function apiCacheGet<T>(
         const ttlMin = Math.round(ttl / 60000);
         return entry.data;
     } catch (e) {
-            console.warn('[apiCache]', e);
+        console.warn('[apiCache]', e);
         return null;
     }
 }
@@ -85,13 +80,7 @@ export function apiCacheGet<T>(
 /**
  * Store an API response in cache.
  */
-export function apiCacheSet<T>(
-    provider: ApiCacheProvider,
-    lat: number,
-    lon: number,
-    data: T,
-    extra?: string,
-): void {
+export function apiCacheSet<T>(provider: ApiCacheProvider, lat: number, lon: number, data: T, extra?: string): void {
     try {
         const key = cacheKey(provider, lat, lon, extra);
         const entry: CacheEntry<T> = {
@@ -101,14 +90,19 @@ export function apiCacheSet<T>(
         };
         localStorage.setItem(key, JSON.stringify(entry));
     } catch (e) {
-            console.warn('[apiCache]', e);
+        console.warn('[apiCache]', e);
         // localStorage full — evict oldest entries
         evictOldest(3);
         try {
             const key = cacheKey(provider, lat, lon, extra);
-            localStorage.setItem(key, JSON.stringify({
-                data, storedAt: Date.now(), provider,
-            }));
+            localStorage.setItem(
+                key,
+                JSON.stringify({
+                    data,
+                    storedAt: Date.now(),
+                    provider,
+                }),
+            );
         } catch (e) {
             console.warn('[apiCache]', e);
             // Still full — give up silently
@@ -119,12 +113,7 @@ export function apiCacheSet<T>(
 /**
  * Invalidate cache for a specific provider + location.
  */
-export function apiCacheInvalidate(
-    provider: ApiCacheProvider,
-    lat: number,
-    lon: number,
-    extra?: string,
-): void {
+export function apiCacheInvalidate(provider: ApiCacheProvider, lat: number, lon: number, extra?: string): void {
     const key = cacheKey(provider, lat, lon, extra);
     localStorage.removeItem(key);
 }
@@ -142,7 +131,9 @@ function evictOldest(count: number): void {
             if (!raw) continue;
             const parsed = JSON.parse(raw);
             entries.push({ key, storedAt: parsed.storedAt || 0 });
-        } catch (e) { console.warn('[apiCache] skip corrupt:', e); }
+        } catch (e) {
+            console.warn('[apiCache] skip corrupt:', e);
+        }
     }
 
     entries.sort((a, b) => a.storedAt - b.storedAt);
@@ -167,7 +158,9 @@ export function apiCacheStats(): { provider: string; count: number; oldestAge: s
             existing.count++;
             existing.oldest = Math.min(existing.oldest, parsed.storedAt || 0);
             stats.set(provider, existing);
-        } catch (e) { console.warn('[apiCache] skip:', e); }
+        } catch (e) {
+            console.warn('[apiCache] skip:', e);
+        }
     }
 
     return Array.from(stats.entries()).map(([provider, { count, oldest }]) => ({

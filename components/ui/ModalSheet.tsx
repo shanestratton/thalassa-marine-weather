@@ -49,32 +49,41 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
 
         let cleanup: (() => void) | undefined;
 
-        import('@capacitor/keyboard').then(({ Keyboard }) => {
-            const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
-                setKeyboardHeight(info.keyboardHeight);
+        import('@capacitor/keyboard')
+            .then(({ Keyboard }) => {
+                const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
+                    setKeyboardHeight(info.keyboardHeight);
 
-                // After the panel shrinks (allow 250ms for CSS transition),
-                // scroll the focused field into view
-                setTimeout(() => {
-                    const focused = document.activeElement as HTMLElement;
-                    if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA' || focused.tagName === 'SELECT')) {
-                        focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // After the panel shrinks (allow 250ms for CSS transition),
+                    // scroll the focused field into view
+                    setTimeout(() => {
+                        const focused = document.activeElement as HTMLElement;
+                        if (
+                            focused &&
+                            (focused.tagName === 'INPUT' ||
+                                focused.tagName === 'TEXTAREA' ||
+                                focused.tagName === 'SELECT')
+                        ) {
+                            focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    }, 250);
+                });
+                const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                    setKeyboardHeight(0);
+                    // Scroll panel back to top when keyboard hides
+                    if (panelRef.current) {
+                        panelRef.current.scrollTo({ top: 0, behavior: 'smooth' });
                     }
-                }, 250);
-            });
-            const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                setKeyboardHeight(0);
-                // Scroll panel back to top when keyboard hides
-                if (panelRef.current) {
-                    panelRef.current.scrollTo({ top: 0, behavior: 'smooth' });
-                }
-            });
+                });
 
-            cleanup = () => {
-                showHandle.then(h => h.remove());
-                hideHandle.then(h => h.remove());
-            };
-        }).catch(() => { /* Keyboard plugin not available */ });
+                cleanup = () => {
+                    showHandle.then((h) => h.remove());
+                    hideHandle.then((h) => h.remove());
+                };
+            })
+            .catch(() => {
+                /* Keyboard plugin not available */
+            });
 
         return () => {
             cleanup?.();
@@ -88,23 +97,14 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
 
     // When keyboard is open: shrink panel and align to top.
     // When closed: center vertically with generous clearance.
-    const panelMaxHeight = kbOpen
-        ? `calc(100dvh - ${keyboardHeight}px - 6rem)`
-        : 'calc(100dvh - 12rem)';
+    const panelMaxHeight = kbOpen ? `calc(100dvh - ${keyboardHeight}px - 6rem)` : 'calc(100dvh - 12rem)';
 
     // When keyboard is open, switch to items-start with top padding
     // so the panel sits above the keyboard. When closed, center it.
-    const alignment = kbOpen
-        ? 'items-start pt-12'
-        : alignTop
-            ? 'items-start pt-24'
-            : 'items-center';
+    const alignment = kbOpen ? 'items-start pt-12' : alignTop ? 'items-start pt-24' : 'items-center';
 
     const modal = (
-        <div
-            className={`fixed inset-0 ${zIndex} flex ${alignment} justify-center px-3`}
-            onClick={onClose}
-        >
+        <div className={`fixed inset-0 ${zIndex} flex ${alignment} justify-center px-3`} onClick={onClose}>
             {/* Backdrop */}
             <div className="absolute inset-0 bg-black/60" />
 
@@ -114,7 +114,7 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
                 data-modal-sheet
                 className={`relative w-full ${maxWidth} bg-slate-900 border border-white/10 rounded-2xl p-5 animate-in fade-in zoom-in-95 duration-300 overflow-y-auto`}
                 style={{ maxHeight: panelMaxHeight, transition: 'max-height 200ms ease' }}
-                onClick={e => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
             >
                 {/* Close button */}
                 <button
@@ -122,15 +122,19 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
                     className="absolute top-4 right-4 p-2 rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
                     aria-label="Close"
                 >
-                    <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <svg
+                        className="w-5 h-5 text-gray-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                    >
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
 
                 {/* Title */}
-                {title && (
-                    <h3 className="text-lg font-black text-white mb-4">{title}</h3>
-                )}
+                {title && <h3 className="text-lg font-black text-white mb-4">{title}</h3>}
 
                 {children}
             </div>

@@ -1,5 +1,12 @@
-
-import { StormGlassHour, MarineWeatherReport, HourlyForecast, ForecastDay, WeatherMetrics, Tide, StormGlassTideData } from '../../types';
+import {
+    StormGlassHour,
+    MarineWeatherReport,
+    HourlyForecast,
+    ForecastDay,
+    WeatherMetrics,
+    Tide,
+    StormGlassTideData,
+} from '../../types';
 
 import { getPrecipitationLabelV2 } from '../../services/WeatherFormatter';
 import { calculateFeelsLike, getSunTimes } from '../../utils/math';
@@ -16,9 +23,9 @@ export interface AstroEntry {
 
 // Helpers
 export const abbreviate = (val: string): string => {
-    if (!val) return "";
+    if (!val) return '';
     if (val.length <= 12) return val;
-    return val.substring(0, 10) + "..";
+    return val.substring(0, 10) + '..';
 };
 
 // Robust Day/Night Check handling UTC Date boundaries
@@ -30,15 +37,20 @@ export const checkIsDay = (now: Date, lat: number, lon: number): boolean => {
 };
 
 export const getCondition = (cloudCover: number, precip: number, isDay: boolean): string => {
-    if (precip > 5) return "Rain";
-    if (precip > 0.5) return "Light Rain";
-    if (cloudCover > 90) return "Overcast";
-    if (cloudCover > 50) return "Cloudy";
-    if (cloudCover > 20) return isDay ? "Clouds" : "Clouds";
-    return isDay ? "Sunny" : "Clear";
+    if (precip > 5) return 'Rain';
+    if (precip > 0.5) return 'Light Rain';
+    if (cloudCover > 90) return 'Overcast';
+    if (cloudCover > 50) return 'Cloudy';
+    if (cloudCover > 20) return isDay ? 'Clouds' : 'Clouds';
+    return isDay ? 'Sunny' : 'Clear';
 };
 
-export const generateDescription = (condition: string, windSpeed: number | null, windDir: string, waveHeight: number | null): string => {
+export const generateDescription = (
+    condition: string,
+    windSpeed: number | null,
+    windDir: string,
+    waveHeight: number | null,
+): string => {
     let desc = condition;
     if (windSpeed !== null) {
         desc += `. Winds ${windDir} at ${Math.round(windSpeed)}kts`;
@@ -46,7 +58,7 @@ export const generateDescription = (condition: string, windSpeed: number | null,
     if (waveHeight !== null && waveHeight > 2) {
         desc += `. Seas ${waveHeight.toFixed(1)}ft`;
     }
-    return desc + ".";
+    return desc + '.';
 };
 
 export const mapStormGlassToReport = (
@@ -54,14 +66,14 @@ export const mapStormGlassToReport = (
     lat: number,
     lon: number,
     name: string,
-    dailyUV?: { time: string[], uv_index_max: number[] },
+    dailyUV?: { time: string[]; uv_index_max: number[] },
     tides: Tide[] = [],
     seaLevels: Partial<StormGlassTideData>[] = [],
     model: string = 'sg',
     astro?: AstroEntry[], // Pass astronomy data
     existingLocationType?: 'coastal' | 'offshore' | 'inland',
     timeZone?: string,
-    utcOffset?: number
+    utcOffset?: number,
 ): MarineWeatherReport => {
     // 1. Current Conditions
     const now = new Date();
@@ -73,10 +85,10 @@ export const mapStormGlassToReport = (
     // FIX: Sanity Filter for Data Corruption (Year 2030 Bug)
     // Filter out hours that are wildly in the past (>24h ago) or too far in future (>15 days)
     // This strips the bad test data causing the vertical cards to fail.
-    const safeMin = nowTime - (24 * 60 * 60 * 1000);
-    const safeMax = nowTime + (15 * 24 * 60 * 60 * 1000);
+    const safeMin = nowTime - 24 * 60 * 60 * 1000;
+    const safeMax = nowTime + 15 * 24 * 60 * 60 * 1000;
 
-    const validHours = hours.filter(h => {
+    const validHours = hours.filter((h) => {
         const t = new Date(h.time).getTime();
         return t >= safeMin && t <= safeMax;
     });
@@ -90,7 +102,7 @@ export const mapStormGlassToReport = (
         // hours = []; // This might crash UI if it expects hours[0].
         // currentHour will be undefined below and throw "Stormglass returned no data"
         // This is BETTER than showing 2030 data.
-        throw new Error("Data Corruption: All weather data is date-invalid (2028-2030 Bug). Aborting transform.");
+        throw new Error('Data Corruption: All weather data is date-invalid (2028-2030 Bug). Aborting transform.');
     }
 
     currentHour = hours[0];
@@ -102,7 +114,7 @@ export const mapStormGlassToReport = (
             currentHour = h;
         }
     }
-    if (!currentHour) throw new Error("Stormglass returned no data");
+    if (!currentHour) throw new Error('Stormglass returned no data');
 
     const trustedSources = ['icon', 'dwd', 'meto', 'metno', 'sg', 'noaa'];
     let winnerSource = 'sg';
@@ -114,7 +126,7 @@ export const mapStormGlassToReport = (
     if (currentHour.windSpeed) {
         const ws = currentHour.windSpeed as Record<string, number | undefined>;
         let maxWind = -1;
-        trustedSources.forEach(src => {
+        trustedSources.forEach((src) => {
             const val = ws[src];
             if (typeof val === 'number' && val > maxWind) {
                 maxWind = val;
@@ -172,15 +184,20 @@ export const mapStormGlassToReport = (
     // METAR/airport data removed in v20.0 - was skewing marine conditions
 
     const sunTimes = getSunTimes(now, lat, lon);
-    const fmtTime = (d: Date | null) => d ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
-    const sRise = sunTimes ? fmtTime(sunTimes.sunrise) : "06:00";
-    const sSet = sunTimes ? fmtTime(sunTimes.sunset) : "18:00";
+    const fmtTime = (d: Date | null) =>
+        d ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
+    const sRise = sunTimes ? fmtTime(sunTimes.sunrise) : '06:00';
+    const sSet = sunTimes ? fmtTime(sunTimes.sunset) : '18:00';
 
     const rawUV = currentHour.uvIndex as MultiSourceField;
     const curUV = getVal(rawUV) ?? 0;
 
     const cIsDay = checkIsDay(now, lat, lon);
-    const finalCondition = getCondition(getVal(currentHour.cloudCover as MultiSourceField) ?? 0, getVal(currentHour.precipitation as MultiSourceField) ?? 0, cIsDay);
+    const finalCondition = getCondition(
+        getVal(currentHour.cloudCover as MultiSourceField) ?? 0,
+        getVal(currentHour.precipitation as MultiSourceField) ?? 0,
+        cIsDay,
+    );
 
     const hum = getVal(currentHour.humidity as MultiSourceField) ?? 0;
     const calculatedFeels = calculateFeelsLike(temp, hum, wSpeed * 0.8);
@@ -193,7 +210,10 @@ export const mapStormGlassToReport = (
         waveHeight: parseFloat(((getVal(currentHour.waveHeight as MultiSourceField) ?? 0) * 3.28084).toFixed(1)),
         swellPeriod: getVal(currentHour.wavePeriod as MultiSourceField) ?? 0,
         swellDirection: degreesToCardinal(getVal(currentHour.waveDirection as MultiSourceField) ?? 0),
-        secondarySwellHeight: (() => { const v = getVal(currentHour.secondarySwellHeight as MultiSourceField); return v != null ? parseFloat((v * 3.28084).toFixed(1)) : null; })(),
+        secondarySwellHeight: (() => {
+            const v = getVal(currentHour.secondarySwellHeight as MultiSourceField);
+            return v != null ? parseFloat((v * 3.28084).toFixed(1)) : null;
+        })(),
         secondarySwellPeriod: getVal(currentHour.secondarySwellPeriod as MultiSourceField) ?? null,
         airTemperature: temp,
         waterTemperature: getVal(currentHour.waterTemperature as MultiSourceField),
@@ -207,14 +227,26 @@ export const mapStormGlassToReport = (
         uvIndex: curUV,
         condition: finalCondition,
         description: `${generateDescription(finalCondition, wSpeed, degreesToCardinal(getVal(currentHour.windDirection as MultiSourceField) ?? 0), (getVal(currentHour.waveHeight as MultiSourceField) ?? 0) * 3.28084)}  `,
-        day: "Today",
+        day: 'Today',
         date: now.toLocaleDateString(),
         feelsLike: calculatedFeels,
         cape: typeof (currentHour as any).cape === 'number' ? (currentHour as any).cape : 0,
         isDay: true,
         isEstimated: false,
-        sunrise: astro?.[0]?.sunrise ? new Date(astro[0].sunrise).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : sRise,
-        sunset: astro?.[0]?.sunset ? new Date(astro[0].sunset).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : sSet,
+        sunrise: astro?.[0]?.sunrise
+            ? new Date(astro[0].sunrise).toLocaleTimeString('en-GB', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: false,
+              })
+            : sRise,
+        sunset: astro?.[0]?.sunset
+            ? new Date(astro[0].sunset).toLocaleTimeString('en-GB', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: false,
+              })
+            : sSet,
         moonPhase: astro?.[0]?.moonPhase?.current?.text,
         moonPhaseValue: astro?.[0]?.moonPhase?.current?.value,
         moonIllumination: astro?.[0]?.moonFraction,
@@ -228,11 +260,11 @@ export const mapStormGlassToReport = (
             return (val + 180) % 360;
         })(),
         precipLabel: getPrecipitationLabelV2(null, getVal(currentHour.precipitation as MultiSourceField) || 0).label,
-        precipValue: getPrecipitationLabelV2(null, getVal(currentHour.precipitation as MultiSourceField) || 0).value
+        precipValue: getPrecipitationLabelV2(null, getVal(currentHour.precipitation as MultiSourceField) || 0).value,
     };
 
     // 2. Map Hourly
-    const hourlyStr: HourlyForecast[] = hours.map((h, i) => {
+    const hourlyStr: HourlyForecast[] = hours.map((h, _i) => {
         const windKts = (getVal(h.windSpeed as MultiSourceField) ?? 0) * 1.94384;
         const windDeg = getVal(h.windDirection as MultiSourceField) ?? 0;
         return {
@@ -255,44 +287,64 @@ export const mapStormGlassToReport = (
             pressure: getVal(h.pressure as MultiSourceField) ?? 0,
             precipitation: getVal(h.precipitation as MultiSourceField) ?? 0,
             cloudCover: getVal(h.cloudCover as MultiSourceField) ?? 0,
-            condition: getCondition(getVal(h.cloudCover as MultiSourceField) ?? 0, getVal(h.precipitation as MultiSourceField) ?? 0, checkIsDay(new Date(h.time), lat, lon)),
+            condition: getCondition(
+                getVal(h.cloudCover as MultiSourceField) ?? 0,
+                getVal(h.precipitation as MultiSourceField) ?? 0,
+                checkIsDay(new Date(h.time), lat, lon),
+            ),
             isEstimated: false,
             swellPeriod: getVal(h.wavePeriod as MultiSourceField) ?? 0,
-            secondarySwellHeight: (() => { const v = getVal(h.secondarySwellHeight as MultiSourceField); return v != null ? parseFloat((v * 3.28084).toFixed(1)) : null; })(),
+            secondarySwellHeight: (() => {
+                const v = getVal(h.secondarySwellHeight as MultiSourceField);
+                return v != null ? parseFloat((v * 3.28084).toFixed(1)) : null;
+            })(),
             secondarySwellPeriod: getVal(h.secondarySwellPeriod as MultiSourceField) ?? null,
             tideHeight: 0,
             uvIndex: (() => {
                 const uvField = h.uvIndex as MultiSourceField;
                 return getVal(uvField) ?? 0;
             })(),
-            feelsLike: calculateFeelsLike(getVal(h.airTemperature as MultiSourceField) ?? 0, getVal(h.humidity as MultiSourceField) ?? 0, windKts * 0.8),
+            feelsLike: calculateFeelsLike(
+                getVal(h.airTemperature as MultiSourceField) ?? 0,
+                getVal(h.humidity as MultiSourceField) ?? 0,
+                windKts * 0.8,
+            ),
             dewPoint: getVal(h.dewPointTemperature as MultiSourceField) ?? null,
             cape: typeof (h as any).cape === 'number' ? (h as any).cape : 0,
         };
     });
 
-
-
     // 3. Map Daily (Aggregate)
     const seenDays = new Set<string>();
-    hours.forEach(h => seenDays.add(new Date(h.time).toLocaleDateString('en-CA')));
+    hours.forEach((h) => seenDays.add(new Date(h.time).toLocaleDateString('en-CA')));
     const uniqueDays = Array.from(seenDays).sort().slice(0, 16);
     const dailies: ForecastDay[] = [];
 
-    uniqueDays.forEach(dayIso => {
-        const dayHours = hours.filter(h => new Date(h.time).toLocaleDateString('en-CA') === dayIso);
+    uniqueDays.forEach((dayIso) => {
+        const dayHours = hours.filter((h) => new Date(h.time).toLocaleDateString('en-CA') === dayIso);
         if (dayHours.length > 0) {
-            let minT = 100, maxT = -100;
-            let maxWind = 0, maxGust = 0, maxWave = 0;
-            let totalPrecip = 0, totalCloud = 0, totalPress = 0;
-            let totalHum = 0, totalVis = 0;
-            let totalWaterTemp = 0, waterTempCount = 0;
+            let minT = 100,
+                maxT = -100;
+            let maxWind = 0,
+                maxGust = 0,
+                maxWave = 0;
+            let totalPrecip = 0,
+                totalCloud = 0,
+                totalPress = 0;
+            let totalHum = 0,
+                totalVis = 0;
+            let totalWaterTemp = 0,
+                waterTempCount = 0;
             let maxCurrentSpeed = 0;
-            let currentDirVectorX = 0, currentDirVectorY = 0, currentDirCount = 0;
-            let windDirVectorX = 0, windDirVectorY = 0, windDirCount = 0;
+            let currentDirVectorX = 0,
+                currentDirVectorY = 0,
+                currentDirCount = 0;
+            let windDirVectorX = 0,
+                windDirVectorY = 0,
+                windDirCount = 0;
             let maxUV = 0;
 
-            dayHours.forEach(h => {
+            dayHours.forEach((h) => {
                 const t = getVal(h.airTemperature as MultiSourceField) ?? 0;
                 if (t < minT) minT = t;
                 if (t > maxT) maxT = t;
@@ -321,7 +373,10 @@ export const mapStormGlassToReport = (
                 totalVis += (getVal(h.visibility as MultiSourceField) ?? 0) * 0.539957;
 
                 const wt = getVal(h.waterTemperature as MultiSourceField);
-                if (wt) { totalWaterTemp += wt; waterTempCount++; }
+                if (wt) {
+                    totalWaterTemp += wt;
+                    waterTempCount++;
+                }
 
                 const cs = (getVal(h.currentSpeed as MultiSourceField) ?? 0) * 1.94384;
                 if (cs > maxCurrentSpeed) maxCurrentSpeed = cs;
@@ -354,7 +409,9 @@ export const mapStormGlassToReport = (
 
             let avgCurrentDir = 0;
             if (currentDirCount > 0) {
-                avgCurrentDir = (Math.atan2(currentDirVectorY / currentDirCount, currentDirVectorX / currentDirCount) * 180) / Math.PI;
+                avgCurrentDir =
+                    (Math.atan2(currentDirVectorY / currentDirCount, currentDirVectorX / currentDirCount) * 180) /
+                    Math.PI;
                 if (avgCurrentDir < 0) avgCurrentDir += 360;
             } else {
                 avgCurrentDir = getVal(dayHours[0].currentDirection as MultiSourceField) ?? 0;
@@ -372,24 +429,37 @@ export const mapStormGlassToReport = (
                 condition: getCondition(avgCloud, totalPrecip, true),
                 precipitation: parseFloat(totalPrecip.toFixed(1)),
                 uvIndex: maxUV,
-                sunrise: sunTimesDay ? sunTimesDay.sunrise.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : "06:00",
-                sunset: sunTimesDay ? sunTimesDay.sunset.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : "18:00",
+                sunrise: sunTimesDay
+                    ? sunTimesDay.sunrise.toLocaleTimeString('en-GB', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          hour12: false,
+                      })
+                    : '06:00',
+                sunset: sunTimesDay
+                    ? sunTimesDay.sunset.toLocaleTimeString('en-GB', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          hour12: false,
+                      })
+                    : '18:00',
                 pressure: parseFloat((totalPress / dayHours.length).toFixed(1)),
                 cloudCover: Math.round(avgCloud),
                 isEstimated: false,
                 humidity: Math.round(totalHum / dayHours.length),
                 visibility: parseFloat((totalVis / dayHours.length).toFixed(1)),
-                waterTemperature: waterTempCount > 0 ? parseFloat((totalWaterTemp / waterTempCount).toFixed(1)) : undefined,
+                waterTemperature:
+                    waterTempCount > 0 ? parseFloat((totalWaterTemp / waterTempCount).toFixed(1)) : undefined,
                 currentSpeed: parseFloat(maxCurrentSpeed.toFixed(1)),
                 currentDirection: Math.round(avgCurrentDir),
                 precipLabel: getPrecipitationLabelV2(null, totalPrecip).label,
-                precipValue: getPrecipitationLabelV2(null, totalPrecip).value
+                precipValue: getPrecipitationLabelV2(null, totalPrecip).value,
             });
         }
     });
 
     const todayIso = new Date().toLocaleDateString('en-CA');
-    const todayDaily = dailies.find(d => d.isoDate === todayIso);
+    const todayDaily = dailies.find((d) => d.isoDate === todayIso);
     if (todayDaily) {
         if (current.airTemperature !== null) {
             if (current.airTemperature > todayDaily.highTemp) todayDaily.highTemp = current.airTemperature;
@@ -402,15 +472,19 @@ export const mapStormGlassToReport = (
     const advice = generateTacticalAdvice(current, false, name, undefined, [], current.sunset);
 
     // Sync Current to Hourly
-    const currentHourIndex = hourlyStr.findIndex(h => Math.abs(new Date(h.time).getTime() - nowTime) < 30 * 60 * 1000);
+    const currentHourIndex = hourlyStr.findIndex(
+        (h) => Math.abs(new Date(h.time).getTime() - nowTime) < 30 * 60 * 1000,
+    );
     if (currentHourIndex !== -1) {
         const target = hourlyStr[currentHourIndex];
         if (current.windSpeed !== null && current.windSpeed !== undefined) target.windSpeed = current.windSpeed;
         if (current.windGust !== null && current.windGust !== undefined) target.windGust = current.windGust;
         if (current.windDirection !== undefined) target.windDirection = current.windDirection;
-        if (current.airTemperature !== null && current.airTemperature !== undefined) target.temperature = current.airTemperature;
+        if (current.airTemperature !== null && current.airTemperature !== undefined)
+            target.temperature = current.airTemperature;
         if (current.pressure !== null && current.pressure !== undefined) target.pressure = current.pressure;
-        if (current.visibility !== null && current.visibility !== undefined && current.visibility >= 0) target.visibility = current.visibility;
+        if (current.visibility !== null && current.visibility !== undefined && current.visibility >= 0)
+            target.visibility = current.visibility;
         if (current.cloudCover !== null && current.cloudCover !== undefined) target.cloudCover = current.cloudCover;
         if (current.condition) target.condition = current.condition;
     }
@@ -439,13 +513,13 @@ export const mapStormGlassToReport = (
         hourly: hourlyStr,
         forecast: dailies,
         tides: tides || [],
-        tideHourly: seaLevels?.map(sl => ({ time: sl.time!, height: (((sl.sg || sl.noaa) || 0) * 3.28084) })) || [],
+        tideHourly: seaLevels?.map((sl) => ({ time: sl.time!, height: (sl.sg || sl.noaa || 0) * 3.28084 })) || [],
         modelUsed: 'stormglass_sg',
         boatingAdvice: advice,
         isLandlocked: locType === 'inland',
         locationType: locType,
         alerts: generateSafetyAlerts(current, dailies[0]?.highTemp, dailies),
         timeZone,
-        utcOffset
+        utcOffset,
     };
 };

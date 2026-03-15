@@ -33,7 +33,9 @@ export const saveLargeData = async (key: string, data: unknown) => {
                 // Capacitor Filesystem not available (web browser) — use localStorage fallback
                 try {
                     localStorage.setItem(key, jsonString);
-                } catch (e) { console.warn('[nativeStorage] quota exceeded — ignore:', e); }
+                } catch (e) {
+                    console.warn('[nativeStorage] quota exceeded — ignore:', e);
+                }
             } finally {
                 delete saveTimers[key];
                 resolve();
@@ -73,7 +75,9 @@ export const saveLargeDataImmediate = async (key: string, data: unknown): Promis
     // 1. ALWAYS write to localStorage for instant reads on next boot
     try {
         localStorage.setItem(key, jsonString);
-    } catch (lsErr) { /* quota exceeded — non-fatal, filesystem is the primary */ }
+    } catch (_lsErr) {
+        /* quota exceeded — non-fatal, filesystem is the primary */
+    }
 
     // 2. Write to filesystem for durability (survives iOS localStorage eviction)
     try {
@@ -108,7 +112,7 @@ export const readCacheVersion = async (): Promise<string | null> => {
         // Check if version file exists
         const result = await Filesystem.readdir({
             path: '',
-            directory: Directory.Documents
+            directory: Directory.Documents,
         });
         const fileFound = result.files.some((f: { name: string } | string) => {
             const name = typeof f === 'string' ? f : f.name;
@@ -162,7 +166,7 @@ export const loadLargeData = async (key: string) => {
     try {
         const result = await Filesystem.readdir({
             path: '',
-            directory: Directory.Documents
+            directory: Directory.Documents,
         });
         // Capacitor 6 returns FileInfo[] objects, but handle strings for safety
         fileFound = result.files.some((f: { name: string } | string) => {
@@ -171,7 +175,6 @@ export const loadLargeData = async (key: string) => {
         });
     } catch (e) {
         // If readdir fails, we just proceed to legacy check
-
     }
 
     if (fileFound) {
@@ -188,7 +191,9 @@ export const loadLargeData = async (key: string) => {
             // If we detect data from 2028+, we NUKE this cache hit immediately.
             if (data && data.hourly && Array.isArray(data.hourly) && data.hourly.length > 0) {
                 const poisonThreshold = new Date('2028-01-01').getTime();
-                const hasCorruption = data.hourly.some((h: { time: string }) => new Date(h.time).getTime() > poisonThreshold);
+                const hasCorruption = data.hourly.some(
+                    (h: { time: string }) => new Date(h.time).getTime() > poisonThreshold,
+                );
 
                 if (hasCorruption) {
                     return null;
@@ -196,7 +201,7 @@ export const loadLargeData = async (key: string) => {
             }
 
             return data;
-        } catch (readErr) {
+        } catch (_readErr) {
             // localStorage fallback read failed — return undefined
         }
     }
@@ -207,7 +212,6 @@ export const loadLargeData = async (key: string) => {
 
     const legacyData = localStorage.getItem(key);
     if (legacyData) {
-
         try {
             // Parse to ensure valid JSON before saving
             const parsed = JSON.parse(legacyData);
@@ -221,7 +225,7 @@ export const loadLargeData = async (key: string) => {
             // cause data loss on the next reload.
 
             return parsed;
-        } catch (migErr) {
+        } catch (_migErr) {
             return null;
         }
     }
@@ -236,7 +240,6 @@ export const deleteLargeData = async (key: string) => {
             path: `${key}.json`,
             directory: Directory.Documents,
         });
-
     } catch (e) {
         // Ignore if file doesn't exist
     }

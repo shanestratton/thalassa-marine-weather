@@ -11,30 +11,29 @@
 import { type TurnWaypoint, type IsochroneResult } from './IsochroneRouter';
 
 function escapeXml(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
 }
 
 export function exportPassageAsGPX(
-  isoResult: IsochroneResult,
-  waypoints: TurnWaypoint[],
-  departureName: string,
-  arrivalName: string,
-  departureTime: string,
+    isoResult: IsochroneResult,
+    waypoints: TurnWaypoint[],
+    departureName: string,
+    arrivalName: string,
+    departureTime: string,
 ): string {
-  const depTime = new Date(departureTime).getTime();
-  const routeName = `${departureName} → ${arrivalName}`;
+    const depTime = new Date(departureTime).getTime();
+    const routeName = `${departureName} → ${arrivalName}`;
 
-  // ── Route waypoints (<rte>) ──
-  const rtePts = waypoints.map(wp => {
-    const name = wp.id === 'DEP' ? departureName
-      : wp.id === 'ARR' ? arrivalName
-        : wp.id;
-    return `    <rtept lat="${wp.lat.toFixed(6)}" lon="${wp.lon.toFixed(6)}">
+    // ── Route waypoints (<rte>) ──
+    const rtePts = waypoints
+        .map((wp) => {
+            const name = wp.id === 'DEP' ? departureName : wp.id === 'ARR' ? arrivalName : wp.id;
+            return `    <rtept lat="${wp.lat.toFixed(6)}" lon="${wp.lon.toFixed(6)}">
       <ele>0</ele>
       <time>${wp.eta}</time>
       <name>${escapeXml(name)}</name>
@@ -46,12 +45,14 @@ export function exportPassageAsGPX(
         <thalassa:bearingChange>${wp.bearingChange}</thalassa:bearingChange>
       </extensions>
     </rtept>`;
-  }).join('\n');
+        })
+        .join('\n');
 
-  // ── Full track (<trk>) ──
-  const trkPts = isoResult.route.map(node => {
-    const eta = new Date(depTime + node.timeHours * 3600_000).toISOString();
-    return `      <trkpt lat="${node.lat.toFixed(6)}" lon="${node.lon.toFixed(6)}">
+    // ── Full track (<trk>) ──
+    const trkPts = isoResult.route
+        .map((node) => {
+            const eta = new Date(depTime + node.timeHours * 3600_000).toISOString();
+            return `      <trkpt lat="${node.lat.toFixed(6)}" lon="${node.lon.toFixed(6)}">
         <ele>0</ele>
         <time>${eta}</time>
         <speed>${(node.speed * 0.514444).toFixed(2)}</speed>
@@ -61,13 +62,14 @@ export function exportPassageAsGPX(
           <thalassa:twa>${node.twa.toFixed(0)}</thalassa:twa>
         </extensions>
       </trkpt>`;
-  }).join('\n');
+        })
+        .join('\n');
 
-  // ── Bounds ──
-  const lats = isoResult.route.map(n => n.lat);
-  const lons = isoResult.route.map(n => n.lon);
+    // ── Bounds ──
+    const lats = isoResult.route.map((n) => n.lat);
+    const lons = isoResult.route.map((n) => n.lon);
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
+    return `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="Thalassa Marine Weather"
      xmlns="http://www.topografix.com/GPX/1/1"
      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -106,18 +108,18 @@ ${trkPts}
  * Used as a fallback when the background weather routing hasn't completed yet.
  */
 export function exportBasicPassageGPX(
-  departure: { lat: number; lon: number; name: string },
-  arrival: { lat: number; lon: number; name: string },
-  departureTime: string,
-  distanceNM?: number,
-  durationHours?: number,
+    departure: { lat: number; lon: number; name: string },
+    arrival: { lat: number; lon: number; name: string },
+    departureTime: string,
+    distanceNM?: number,
+    durationHours?: number,
 ): string {
-  const routeName = `${departure.name} → ${arrival.name}`;
-  const depTimeISO = new Date(departureTime).toISOString();
-  const distStr = distanceNM ? `${distanceNM.toFixed(0)} NM` : 'unknown';
-  const durStr = durationHours ? `${durationHours.toFixed(0)}h` : 'unknown';
+    const routeName = `${departure.name} → ${arrival.name}`;
+    const depTimeISO = new Date(departureTime).toISOString();
+    const distStr = distanceNM ? `${distanceNM.toFixed(0)} NM` : 'unknown';
+    const durStr = durationHours ? `${durationHours.toFixed(0)}h` : 'unknown';
 
-  return `<?xml version="1.0" encoding="UTF-8"?>
+    return `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="Thalassa Marine Weather"
      xmlns="http://www.topografix.com/GPX/1/1"
      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"

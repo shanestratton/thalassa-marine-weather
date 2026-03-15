@@ -1,5 +1,4 @@
-
-import React, { Suspense, useState, useEffect, useRef, useCallback } from 'react';
+import React, { Suspense, useState, useEffect, useRef } from 'react';
 import { useWeather } from './context/WeatherContext';
 import { initLocalDatabase, startSyncEngine, stopSyncEngine } from './services/vessel';
 import { useSettings } from './context/SettingsContext';
@@ -8,7 +7,7 @@ import { useAppController } from './hooks/useAppController';
 import { Dashboard } from './components/Dashboard';
 import { SearchIcon, WindIcon, MapIcon, ShipWheelIcon, ServerIcon, StarIcon, ChatIcon } from './components/Icons';
 import { SkeletonDashboard } from './components/SkeletonLoader';
-const ForecastSheet = lazyRetry(() => import('./components/ForecastSheet').then(m => ({ default: m.ForecastSheet })));
+const ForecastSheet = lazyRetry(() => import('./components/ForecastSheet').then((m) => ({ default: m.ForecastSheet })));
 import { NotificationManager } from './components/NotificationManager';
 import { ProcessOverlay } from './components/ProcessOverlay';
 import { PullToRefresh } from './components/PullToRefresh';
@@ -22,8 +21,6 @@ import { PushNotificationService } from './services/PushNotificationService';
 import { ToastPortal, toast } from './components/Toast';
 import { PageTransition } from './components/ui/PageTransition';
 import { ChatService } from './services/ChatService';
-
-
 
 // --- LAZY LOAD HEAVY COMPONENTS ---
 // Retry wrapper: if a dynamic import fails (stale Vite module hash after HMR/restart),
@@ -40,67 +37,122 @@ function lazyRetry<T extends React.ComponentType<any>>(
                 sessionStorage.setItem(key, '1');
                 window.location.reload();
                 // Return a never-resolving promise to stop React rendering during reload
-                return new Promise<{ default: T }>(() => { });
+                return new Promise<{ default: T }>(() => {});
             }
             // If we already retried, re-throw so ErrorBoundary catches it
             sessionStorage.removeItem(key);
             throw err;
-        })
+        }),
     );
 }
 
-const VoyagePlanner = lazyRetry(() => import('./components/RoutePlanner').then(module => ({ default: module.RoutePlanner })));
-const SettingsView = lazyRetry(() => import('./components/SettingsModal').then(module => ({ default: module.SettingsView })));
-const UpgradeModal = lazyRetry(() => import('./components/UpgradeModal').then(module => ({ default: module.UpgradeModal })));
-const VesselHub = lazyRetry(() => import('./components/VesselHub').then(module => ({ default: module.VesselHub })));
-const InventoryPage = lazyRetry(() => import('./components/vessel/InventoryList').then(m => ({ default: m.InventoryList })));
-const MaintenancePage = lazyRetry(() => import('./components/vessel/MaintenanceHub').then(m => ({ default: m.MaintenanceHub })));
-const EquipmentPage = lazyRetry(() => import('./components/vessel/EquipmentList').then(m => ({ default: m.EquipmentList })));
-const DocumentsPage = lazyRetry(() => import('./components/vessel/DocumentsHub').then(m => ({ default: m.DocumentsHub })));
-const NmeaGatewayPage = lazyRetry(() => import('./components/vessel/NmeaPage').then(m => ({ default: m.NmeaPage })));
-const PolarPage = lazyRetry(() => import('./components/vessel/PolarPage').then(m => ({ default: m.PolarPage })));
+const VoyagePlanner = lazyRetry(() =>
+    import('./components/RoutePlanner').then((module) => ({ default: module.RoutePlanner })),
+);
+const SettingsView = lazyRetry(() =>
+    import('./components/SettingsModal').then((module) => ({ default: module.SettingsView })),
+);
+const UpgradeModal = lazyRetry(() =>
+    import('./components/UpgradeModal').then((module) => ({ default: module.UpgradeModal })),
+);
+const VesselHub = lazyRetry(() => import('./components/VesselHub').then((module) => ({ default: module.VesselHub })));
+const InventoryPage = lazyRetry(() =>
+    import('./components/vessel/InventoryList').then((m) => ({ default: m.InventoryList })),
+);
+const MaintenancePage = lazyRetry(() =>
+    import('./components/vessel/MaintenanceHub').then((m) => ({ default: m.MaintenanceHub })),
+);
+const EquipmentPage = lazyRetry(() =>
+    import('./components/vessel/EquipmentList').then((m) => ({ default: m.EquipmentList })),
+);
+const DocumentsPage = lazyRetry(() =>
+    import('./components/vessel/DocumentsHub').then((m) => ({ default: m.DocumentsHub })),
+);
+const NmeaGatewayPage = lazyRetry(() => import('./components/vessel/NmeaPage').then((m) => ({ default: m.NmeaPage })));
+const PolarPage = lazyRetry(() => import('./components/vessel/PolarPage').then((m) => ({ default: m.PolarPage })));
 
-const MapHub = lazyRetry(() => import('./components/map/MapHub').then(m => ({ default: m.MapHub })));
-const OnboardingWizard = lazyRetry(() => import('./components/OnboardingWizard').then(module => ({ default: module.OnboardingWizard })));
-const WarningDetails = lazyRetry(() => import('./components/WarningDetails').then(module => ({ default: module.WarningDetails })));
-const AnchorWatchPage = lazyRetry(() => import('./components/AnchorWatchPage').then(module => ({ default: module.AnchorWatchPage })));
-const ChatPage = lazyRetry(() => import('./components/ChatPage').then(module => ({ default: module.ChatPage })));
-const LogPage = lazyRetry(() => import('./pages/LogPage').then(module => ({ default: module.LogPage })));
-const DiaryPage = lazyRetry(() => import('./components/DiaryPage').then(module => ({ default: module.DiaryPage })));
-const CrewPage = lazyRetry(() => import('./components/CrewManagement').then(m => ({ default: m.CrewManagement })));
-const ChecklistsPage = lazyRetry(() => import('./components/vessel/ChecklistsPage').then(m => ({ default: m.ChecklistsPage })));
-const IOSInstallPrompt = React.lazy(() => import('./components/IOSInstallPrompt').then(m => ({ default: m.IOSInstallPrompt })));
-const OnboardingOverlay = React.lazy(() => import('./components/ui/OnboardingOverlay').then(m => ({ default: m.OnboardingOverlay })));
+const MapHub = lazyRetry(() => import('./components/map/MapHub').then((m) => ({ default: m.MapHub })));
+const OnboardingWizard = lazyRetry(() =>
+    import('./components/OnboardingWizard').then((module) => ({ default: module.OnboardingWizard })),
+);
+const WarningDetails = lazyRetry(() =>
+    import('./components/WarningDetails').then((module) => ({ default: module.WarningDetails })),
+);
+const AnchorWatchPage = lazyRetry(() =>
+    import('./components/AnchorWatchPage').then((module) => ({ default: module.AnchorWatchPage })),
+);
+const ChatPage = lazyRetry(() => import('./components/ChatPage').then((module) => ({ default: module.ChatPage })));
+const LogPage = lazyRetry(() => import('./pages/LogPage').then((module) => ({ default: module.LogPage })));
+const DiaryPage = lazyRetry(() => import('./components/DiaryPage').then((module) => ({ default: module.DiaryPage })));
+const CrewPage = lazyRetry(() => import('./components/CrewManagement').then((m) => ({ default: m.CrewManagement })));
+const ChecklistsPage = lazyRetry(() =>
+    import('./components/vessel/ChecklistsPage').then((m) => ({ default: m.ChecklistsPage })),
+);
+const IOSInstallPrompt = React.lazy(() =>
+    import('./components/IOSInstallPrompt').then((m) => ({ default: m.IOSInstallPrompt })),
+);
+const OnboardingOverlay = React.lazy(() =>
+    import('./components/ui/OnboardingOverlay').then((m) => ({ default: m.OnboardingOverlay })),
+);
 
 const App: React.FC = () => {
     // 1. DATA STATE
     const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData } = useWeather();
     const { settings, togglePro, updateSettings, loading: settingsLoading } = useSettings();
     const { currentView, previousView, setPage, isOffline, transitionDirection } = useUI();
-    const isVesselView = currentView === 'vessel' || currentView === 'details' || currentView === 'voyage' || currentView === 'compass' || currentView === 'inventory' || currentView === 'maintenance' || currentView === 'polars' || currentView === 'nmea' || currentView === 'equipment' || currentView === 'documents' || currentView === 'diary' || currentView === 'route' || currentView === 'crew' || currentView === 'checklists';
+    const isVesselView =
+        currentView === 'vessel' ||
+        currentView === 'details' ||
+        currentView === 'voyage' ||
+        currentView === 'compass' ||
+        currentView === 'inventory' ||
+        currentView === 'maintenance' ||
+        currentView === 'polars' ||
+        currentView === 'nmea' ||
+        currentView === 'equipment' ||
+        currentView === 'documents' ||
+        currentView === 'diary' ||
+        currentView === 'route' ||
+        currentView === 'crew' ||
+        currentView === 'checklists';
 
     // Unread DM count for Chat tab badge
     const [chatUnread, setChatUnread] = useState(0);
     // Track if map was opened from WX page (auto-return) vs tab bar (stay on map)
     const mapFromWxRef = useRef(false);
     useEffect(() => {
-        const poll = () => ChatService.getUnreadDMCount().then(n => setChatUnread(n)).catch(() => { });
+        const poll = () =>
+            ChatService.getUnreadDMCount()
+                .then((n) => setChatUnread(n))
+                .catch(() => {});
         poll();
         const timer = setInterval(poll, 30000);
         return () => clearInterval(timer);
     }, []);
     // Clear badge when viewing chat
-    useEffect(() => { if (currentView === 'chat') setChatUnread(0); }, [currentView]);
+    useEffect(() => {
+        if (currentView === 'chat') setChatUnread(0);
+    }, [currentView]);
 
     // 2. APP LOGIC / CONTROLLER
     const {
-        query, bgImage, showOnboarding,
+        query,
+        bgImage,
+        showOnboarding,
         handleOnboardingComplete,
-        toggleFavorite, handleFavoriteSelect, handleMapTargetSelect, handleMapStaySelect,
+        toggleFavorite,
+        handleFavoriteSelect,
+        handleMapTargetSelect,
+        handleMapStaySelect,
         effectiveMode,
-        sheetOpen, setSheetOpen, sheetData,
-        isUpgradeOpen, setIsUpgradeOpen, isMobileLandscape,
-        handleTabDashboard, handleTabMap,
+        sheetOpen,
+        setSheetOpen,
+        sheetData,
+        isUpgradeOpen,
+        setIsUpgradeOpen,
+        isMobileLandscape,
+        handleTabDashboard,
+        handleTabMap,
     } = useAppController();
 
     const isFavorite = weatherData ? settings.savedLocations.includes(weatherData.locationName) : false;
@@ -108,7 +160,11 @@ const App: React.FC = () => {
     // Early restore: re-establish anchor watch GPS + geofence on app boot,
     // even if user opens dashboard first (AnchorWatchPage is lazy-loaded).
     useEffect(() => {
-        import('./services/AnchorWatchService').then(m => m.AnchorWatchService.restoreWatchState()).catch(() => { /* Non-critical */ });
+        import('./services/AnchorWatchService')
+            .then((m) => m.AnchorWatchService.restoreWatchState())
+            .catch(() => {
+                /* Non-critical */
+            });
     }, []);
 
     // NMEA auto-start DISABLED — connection is now explicit via the NMEA page.\n    // Previously this would silently connect to any saved host:port on every app boot,\n    // even when not on the boat, wasting battery and causing confusing reconnect loops.
@@ -117,7 +173,7 @@ const App: React.FC = () => {
     useEffect(() => {
         initLocalDatabase()
             .then(() => startSyncEngine())
-            .catch(e => console.error('[App] Local DB init failed:', e));
+            .catch((e) => console.error('[App] Local DB init failed:', e));
         return () => stopSyncEngine();
     }, []);
 
@@ -191,13 +247,18 @@ const App: React.FC = () => {
     }
 
     const isLight = effectiveMode === 'light';
-    const containerClasses = effectiveMode === 'night' ? 'bg-black text-red-600' : isLight ? 'bg-slate-200 text-slate-900' : 'bg-black text-white';
+    const containerClasses =
+        effectiveMode === 'night'
+            ? 'bg-black text-red-600'
+            : isLight
+              ? 'bg-slate-200 text-slate-900'
+              : 'bg-black text-white';
 
     // Header Title Logic
     // Show the location name as-is when it's a real place name.
     // Only prepend "WP" for raw decimal coordinates (e.g. "-27.47, 153.03").
     // Cardinal formats (e.g. "27.47°S, 153.03°E") are already human-readable — leave them.
-    const rawTitle = weatherData ? weatherData.locationName : (query || settings.defaultLocation || "Select Location");
+    const rawTitle = weatherData ? weatherData.locationName : query || settings.defaultLocation || 'Select Location';
     let displayTitle = rawTitle;
 
     // Only catch truly raw/generic names:
@@ -206,13 +267,15 @@ const App: React.FC = () => {
     //    e.g. "-27.47, 153.03" or "27.4700" but NOT "27.47°S" (already formatted)
     const isRawCoordinate = /^-?\d+\.?\d*\s*,\s*-?\d/.test(rawTitle);
     const isGenericName = /^(Location|Waypoint)\b/i.test(rawTitle);
-    const needsWpPrefix = (isRawCoordinate || isGenericName) && !rawTitle.startsWith("WP");
+    const needsWpPrefix = (isRawCoordinate || isGenericName) && !rawTitle.startsWith('WP');
 
     if (needsWpPrefix) {
         // Reconstruct as cardinal coordinate WP name
         if (weatherData?.coordinates) {
-            const latStr = Math.abs(weatherData.coordinates.lat).toFixed(4) + (weatherData.coordinates.lat >= 0 ? "°N" : "°S");
-            const lonStr = Math.abs(weatherData.coordinates.lon).toFixed(4) + (weatherData.coordinates.lon >= 0 ? "°E" : "°W");
+            const latStr =
+                Math.abs(weatherData.coordinates.lat).toFixed(4) + (weatherData.coordinates.lat >= 0 ? '°N' : '°S');
+            const lonStr =
+                Math.abs(weatherData.coordinates.lon).toFixed(4) + (weatherData.coordinates.lon >= 0 ? '°E' : '°W');
             displayTitle = `WP ${latStr} ${lonStr}`;
         } else {
             displayTitle = `WP ${rawTitle}`;
@@ -224,29 +287,39 @@ const App: React.FC = () => {
     const isDashboard = currentView === 'dashboard';
 
     return (
-        <div className={`relative h-screen supports-[height:100dvh]:h-[100dvh] w-full overflow-hidden font-sans transition-colors duration-500 ${containerClasses} ${isLight ? 'display-light' : ''} flex flex-col`}>
-
+        <div
+            className={`relative h-screen supports-[height:100dvh]:h-[100dvh] w-full overflow-hidden font-sans transition-colors duration-500 ${containerClasses} ${isLight ? 'display-light' : ''} flex flex-col`}
+        >
             {/* MODALS & OVERLAYS */}
             <Suspense fallback={null}>
                 {showOnboarding && <OnboardingWizard onComplete={handleOnboardingComplete} />}
                 <UpgradeModal isOpen={isUpgradeOpen} onClose={() => setIsUpgradeOpen(false)} onUpgrade={togglePro} />
             </Suspense>
 
-            <Suspense fallback={null}><IOSInstallPrompt /></Suspense>
+            <Suspense fallback={null}>
+                <IOSInstallPrompt />
+            </Suspense>
             <NotificationManager onNotify={(msg) => toast.info(msg)} />
 
             {/* BACKGROUND */}
             {showBackgroundImage ? (
-                <div className="absolute inset-0 z-0 bg-cover bg-center transition-all duration-1000 transform scale-105" style={{ backgroundImage: `url(${bgImage})` }}>
+                <div
+                    className="absolute inset-0 z-0 bg-cover bg-center transition-all duration-1000 transform scale-105"
+                    style={{ backgroundImage: `url(${bgImage})` }}
+                >
                     <div className="absolute inset-0 bg-black/30"></div>
                     <div className="absolute inset-0 bg-gradient-to-b from-slate-900/90 via-slate-900/40 to-slate-900/90"></div>
                 </div>
             ) : (
-                <div className={`absolute inset-0 z-0 ${isLight ? 'bg-slate-200' : effectiveMode === 'night' ? 'bg-black' : 'bg-slate-950'}`}></div>
+                <div
+                    className={`absolute inset-0 z-0 ${isLight ? 'bg-slate-200' : effectiveMode === 'night' ? 'bg-black' : 'bg-slate-950'}`}
+                ></div>
             )}
 
             {loading && <ProcessOverlay message={loadingMessage} />}
-            <Suspense fallback={null}><OnboardingOverlay /></Suspense>
+            <Suspense fallback={null}>
+                <OnboardingOverlay />
+            </Suspense>
 
             <div className="relative z-10 flex flex-col h-full overflow-hidden">
                 {/* OFFLINE BANNER */}
@@ -258,8 +331,6 @@ const App: React.FC = () => {
 
                 {/* GLOBAL TOAST PORTAL */}
                 <ToastPortal />
-
-
 
                 {/* HEADER */}
                 {showHeader && (
@@ -273,8 +344,14 @@ const App: React.FC = () => {
                                 <img src="/thalassa-icon.png" alt="" className="w-10 h-10 rounded-lg" />
                                 <div>
                                     <div className="flex items-center gap-1">
-                                        <h2 className="text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">Thalassa</h2>
-                                        {settings.isPro && <span className="px-1.5 py-0.5 rounded bg-gradient-to-r from-sky-500 to-blue-600 text-[9px] font-bold text-white uppercase tracking-wider shadow-lg">PRO</span>}
+                                        <h2 className="text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">
+                                            Thalassa
+                                        </h2>
+                                        {settings.isPro && (
+                                            <span className="px-1.5 py-0.5 rounded bg-gradient-to-r from-sky-500 to-blue-600 text-[9px] font-bold text-white uppercase tracking-wider shadow-lg">
+                                                PRO
+                                            </span>
+                                        )}
                                     </div>
                                     <p className="text-[10px] text-sky-200 uppercase tracking-widest shadow-black drop-shadow-md">
                                         Officer on Watch Assistant
@@ -300,47 +377,96 @@ const App: React.FC = () => {
                             </div>
                         </div>
 
-                        {currentView !== 'details' && currentView !== 'compass' && currentView !== 'chat' && currentView !== 'voyage' && currentView !== 'polars' && currentView !== 'nmea' && currentView !== 'vessel' && currentView !== 'inventory' && currentView !== 'maintenance' && currentView !== 'equipment' && currentView !== 'documents' && currentView !== 'diary' && currentView !== 'route' && currentView !== 'crew' && currentView !== 'checklists' && (
-                            <div className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}>
-                                <div className="relative flex-grow md:w-96 group h-full">
-                                    <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
-                                        <input
-                                            type="text"
-                                            value={query}
-                                            readOnly
-                                            placeholder="Select via Map..."
-                                            className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default ${isOffline ? 'bg-white/5 opacity-50' : 'bg-slate-900/60 border border-white/10'}`}
-                                            onClick={() => { mapFromWxRef.current = true; setPage('map'); }}
-                                        />
-                                        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400 bg-sky-500/10 p-1 rounded-md"><SearchIcon className="w-4 h-4" /></div>
-                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                                            <button
-                                                type="button"
-                                                onClick={toggleFavorite}
-                                                className="p-1.5 rounded-full hover:bg-white/10 text-gray-300 hover:text-yellow-400 transition-colors"
-                                            >
-                                                <StarIcon className={`w-4 h-4 ${isFavorite ? 'text-yellow-400' : ''}`} filled={isFavorite} />
-                                            </button>
-                                            <div className="w-px h-4 bg-white/20 mx-1"></div>
-                                            <button
-                                                type="button"
-                                                onClick={() => { mapFromWxRef.current = true; setPage('map'); }}
-                                                className="p-1.5 hover:bg-white/10 rounded-full text-gray-300 hover:text-emerald-400 transition-colors"
-                                            >
-                                                <MapIcon className="w-4 h-4" />
-                                            </button>
-                                        </div>
-                                    </form>
+                        {currentView !== 'details' &&
+                            currentView !== 'compass' &&
+                            currentView !== 'chat' &&
+                            currentView !== 'voyage' &&
+                            currentView !== 'polars' &&
+                            currentView !== 'nmea' &&
+                            currentView !== 'vessel' &&
+                            currentView !== 'inventory' &&
+                            currentView !== 'maintenance' &&
+                            currentView !== 'equipment' &&
+                            currentView !== 'documents' &&
+                            currentView !== 'diary' &&
+                            currentView !== 'route' &&
+                            currentView !== 'crew' &&
+                            currentView !== 'checklists' && (
+                                <div
+                                    className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}
+                                >
+                                    <div className="relative flex-grow md:w-96 group h-full">
+                                        <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
+                                            <input
+                                                type="text"
+                                                value={query}
+                                                readOnly
+                                                placeholder="Select via Map..."
+                                                className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default ${isOffline ? 'bg-white/5 opacity-50' : 'bg-slate-900/60 border border-white/10'}`}
+                                                onClick={() => {
+                                                    mapFromWxRef.current = true;
+                                                    setPage('map');
+                                                }}
+                                            />
+                                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400 bg-sky-500/10 p-1 rounded-md">
+                                                <SearchIcon className="w-4 h-4" />
+                                            </div>
+                                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={toggleFavorite}
+                                                    className="p-1.5 rounded-full hover:bg-white/10 text-gray-300 hover:text-yellow-400 transition-colors"
+                                                >
+                                                    <StarIcon
+                                                        className={`w-4 h-4 ${isFavorite ? 'text-yellow-400' : ''}`}
+                                                        filled={isFavorite}
+                                                    />
+                                                </button>
+                                                <div className="w-px h-4 bg-white/20 mx-1"></div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        mapFromWxRef.current = true;
+                                                        setPage('map');
+                                                    }}
+                                                    className="p-1.5 hover:bg-white/10 rounded-full text-gray-300 hover:text-emerald-400 transition-colors"
+                                                >
+                                                    <MapIcon className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                        </form>
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
                     </header>
                 )}
 
                 {/* MAIN CONTENT AREA */}
                 {currentView !== 'map' ? (
-                    <PullToRefresh onRefresh={() => refreshData()} disabled={currentView === 'dashboard' || currentView === 'voyage' || currentView === 'details' || currentView === 'compass' || currentView === 'chat' || currentView === 'route' || currentView === 'polars' || currentView === 'diary' || currentView === 'inventory' || currentView === 'nmea' || currentView === 'maintenance' || currentView === 'equipment' || currentView === 'documents' || currentView === 'crew' || currentView === 'checklists' || currentView === 'vessel'}>
-                        <main className={`flex-grow relative flex flex-col ${isLight ? 'bg-slate-200' : 'bg-black'} ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}>
+                    <PullToRefresh
+                        onRefresh={() => refreshData()}
+                        disabled={
+                            currentView === 'dashboard' ||
+                            currentView === 'voyage' ||
+                            currentView === 'details' ||
+                            currentView === 'compass' ||
+                            currentView === 'chat' ||
+                            currentView === 'route' ||
+                            currentView === 'polars' ||
+                            currentView === 'diary' ||
+                            currentView === 'inventory' ||
+                            currentView === 'nmea' ||
+                            currentView === 'maintenance' ||
+                            currentView === 'equipment' ||
+                            currentView === 'documents' ||
+                            currentView === 'crew' ||
+                            currentView === 'checklists' ||
+                            currentView === 'vessel'
+                        }
+                    >
+                        <main
+                            className={`flex-grow relative flex flex-col ${isLight ? 'bg-slate-200' : 'bg-black'} ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}
+                        >
                             <ErrorBoundary boundaryName="MainContent">
                                 <Suspense fallback={<SkeletonDashboard />}>
                                     <div className="relative flex-1 overflow-hidden">
@@ -355,17 +481,33 @@ const App: React.FC = () => {
                                                     <>
                                                         {error ? (
                                                             <div className="p-8 bg-red-500/20 border border-red-500/30 rounded-2xl text-center max-w-lg mx-auto mt-20">
-                                                                <h3 className="text-xl font-bold text-red-200 mb-2">Error</h3>
+                                                                <h3 className="text-xl font-bold text-red-200 mb-2">
+                                                                    Error
+                                                                </h3>
                                                                 <p className="text-white/80">{error}</p>
-                                                                <button onClick={() => fetchWeather(query || settings.defaultLocation || '')} className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors">Retry</button>
+                                                                <button
+                                                                    onClick={() =>
+                                                                        fetchWeather(
+                                                                            query || settings.defaultLocation || '',
+                                                                        )
+                                                                    }
+                                                                    className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+                                                                >
+                                                                    Retry
+                                                                </button>
                                                             </div>
-                                                        ) : (!weatherData) ? (
+                                                        ) : !weatherData ? (
                                                             <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center">
-                                                                <ProcessOverlay message={loadingMessage || "Loading Marine Data..."} />
+                                                                <ProcessOverlay
+                                                                    message={loadingMessage || 'Loading Marine Data...'}
+                                                                />
                                                             </div>
                                                         ) : (
                                                             <Dashboard
-                                                                onOpenMap={() => { mapFromWxRef.current = true; setPage('map'); }}
+                                                                onOpenMap={() => {
+                                                                    mapFromWxRef.current = true;
+                                                                    setPage('map');
+                                                                }}
                                                                 onTriggerUpgrade={() => setIsUpgradeOpen(true)}
                                                                 displayTitle={displayTitle}
                                                                 timeZone={weatherData?.timeZone}
@@ -384,7 +526,13 @@ const App: React.FC = () => {
                                                     </>
                                                 )}
 
-                                                {currentView === 'voyage' && <ErrorBoundary boundaryName="VoyagePlanner"><VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} /></ErrorBoundary>}
+                                                {currentView === 'voyage' && (
+                                                    <ErrorBoundary boundaryName="VoyagePlanner">
+                                                        <VoyagePlanner
+                                                            onTriggerUpgrade={() => setIsUpgradeOpen(true)}
+                                                        />
+                                                    </ErrorBoundary>
+                                                )}
 
                                                 {currentView === 'settings' && (
                                                     <ErrorBoundary boundaryName="Settings">
@@ -396,27 +544,99 @@ const App: React.FC = () => {
                                                     </ErrorBoundary>
                                                 )}
 
-                                                {currentView === 'warnings' && <ErrorBoundary boundaryName="Warnings"><WarningDetails alerts={weatherData?.alerts || []} /></ErrorBoundary>}
+                                                {currentView === 'warnings' && (
+                                                    <ErrorBoundary boundaryName="Warnings">
+                                                        <WarningDetails alerts={weatherData?.alerts || []} />
+                                                    </ErrorBoundary>
+                                                )}
 
-                                                {currentView === 'chat' && <ErrorBoundary boundaryName="Chat"><ChatPage /></ErrorBoundary>}
+                                                {currentView === 'chat' && (
+                                                    <ErrorBoundary boundaryName="Chat">
+                                                        <ChatPage />
+                                                    </ErrorBoundary>
+                                                )}
 
-                                                {currentView === 'vessel' && <ErrorBoundary boundaryName="VesselHub"><VesselHub onNavigate={setPage} settings={settings as unknown as Record<string, unknown>} onSave={(u) => updateSettings(u as Partial<typeof settings>)} /></ErrorBoundary>}
+                                                {currentView === 'vessel' && (
+                                                    <ErrorBoundary boundaryName="VesselHub">
+                                                        <VesselHub
+                                                            onNavigate={setPage}
+                                                            settings={settings as unknown as Record<string, unknown>}
+                                                            onSave={(u) =>
+                                                                updateSettings(u as Partial<typeof settings>)
+                                                            }
+                                                        />
+                                                    </ErrorBoundary>
+                                                )}
 
                                                 {/* Vessel sub-pages — full-screen push on all devices */}
                                                 {isVesselView && currentView !== 'vessel' && (
                                                     <>
-                                                        {currentView === 'details' && <ErrorBoundary boundaryName="LogPage"><LogPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
-                                                        {currentView === 'compass' && <ErrorBoundary boundaryName="AnchorWatch"><AnchorWatchPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
-                                                        {currentView === 'inventory' && <ErrorBoundary boundaryName="Inventory"><InventoryPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
-                                                        {currentView === 'maintenance' && <ErrorBoundary boundaryName="Maintenance"><MaintenancePage onBack={() => setPage('vessel')} /></ErrorBoundary>}
-                                                        {currentView === 'polars' && <ErrorBoundary boundaryName="Polars"><PolarPage onBack={() => setPage('vessel')} onNavigateToNmea={() => setPage('nmea')} /></ErrorBoundary>}
-                                                        {currentView === 'nmea' && <ErrorBoundary boundaryName="NmeaGateway"><NmeaGatewayPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
-                                                        {currentView === 'equipment' && <ErrorBoundary boundaryName="Equipment"><EquipmentPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
-                                                        {currentView === 'documents' && <ErrorBoundary boundaryName="Documents"><DocumentsPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
-                                                        {currentView === 'diary' && <ErrorBoundary boundaryName="Diary"><DiaryPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
-                                                        {currentView === 'route' && <ErrorBoundary boundaryName="RoutePlanner"><VoyagePlanner onTriggerUpgrade={() => setIsUpgradeOpen(true)} onBack={() => setPage('vessel')} /></ErrorBoundary>}
-                                                        {currentView === 'crew' && <ErrorBoundary boundaryName="Crew"><CrewPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
-                                                        {currentView === 'checklists' && <ErrorBoundary boundaryName="Checklists"><ChecklistsPage onBack={() => setPage('vessel')} /></ErrorBoundary>}
+                                                        {currentView === 'details' && (
+                                                            <ErrorBoundary boundaryName="LogPage">
+                                                                <LogPage onBack={() => setPage('vessel')} />
+                                                            </ErrorBoundary>
+                                                        )}
+                                                        {currentView === 'compass' && (
+                                                            <ErrorBoundary boundaryName="AnchorWatch">
+                                                                <AnchorWatchPage onBack={() => setPage('vessel')} />
+                                                            </ErrorBoundary>
+                                                        )}
+                                                        {currentView === 'inventory' && (
+                                                            <ErrorBoundary boundaryName="Inventory">
+                                                                <InventoryPage onBack={() => setPage('vessel')} />
+                                                            </ErrorBoundary>
+                                                        )}
+                                                        {currentView === 'maintenance' && (
+                                                            <ErrorBoundary boundaryName="Maintenance">
+                                                                <MaintenancePage onBack={() => setPage('vessel')} />
+                                                            </ErrorBoundary>
+                                                        )}
+                                                        {currentView === 'polars' && (
+                                                            <ErrorBoundary boundaryName="Polars">
+                                                                <PolarPage
+                                                                    onBack={() => setPage('vessel')}
+                                                                    onNavigateToNmea={() => setPage('nmea')}
+                                                                />
+                                                            </ErrorBoundary>
+                                                        )}
+                                                        {currentView === 'nmea' && (
+                                                            <ErrorBoundary boundaryName="NmeaGateway">
+                                                                <NmeaGatewayPage onBack={() => setPage('vessel')} />
+                                                            </ErrorBoundary>
+                                                        )}
+                                                        {currentView === 'equipment' && (
+                                                            <ErrorBoundary boundaryName="Equipment">
+                                                                <EquipmentPage onBack={() => setPage('vessel')} />
+                                                            </ErrorBoundary>
+                                                        )}
+                                                        {currentView === 'documents' && (
+                                                            <ErrorBoundary boundaryName="Documents">
+                                                                <DocumentsPage onBack={() => setPage('vessel')} />
+                                                            </ErrorBoundary>
+                                                        )}
+                                                        {currentView === 'diary' && (
+                                                            <ErrorBoundary boundaryName="Diary">
+                                                                <DiaryPage onBack={() => setPage('vessel')} />
+                                                            </ErrorBoundary>
+                                                        )}
+                                                        {currentView === 'route' && (
+                                                            <ErrorBoundary boundaryName="RoutePlanner">
+                                                                <VoyagePlanner
+                                                                    onTriggerUpgrade={() => setIsUpgradeOpen(true)}
+                                                                    onBack={() => setPage('vessel')}
+                                                                />
+                                                            </ErrorBoundary>
+                                                        )}
+                                                        {currentView === 'crew' && (
+                                                            <ErrorBoundary boundaryName="Crew">
+                                                                <CrewPage onBack={() => setPage('vessel')} />
+                                                            </ErrorBoundary>
+                                                        )}
+                                                        {currentView === 'checklists' && (
+                                                            <ErrorBoundary boundaryName="Checklists">
+                                                                <ChecklistsPage onBack={() => setPage('vessel')} />
+                                                            </ErrorBoundary>
+                                                        )}
                                                     </>
                                                 )}
                                             </div>
@@ -429,13 +649,23 @@ const App: React.FC = () => {
                 ) : (
                     <div className="flex-grow w-full relative bg-slate-900 overflow-hidden">
                         <ErrorBoundary boundaryName="MapView">
-                            <Suspense fallback={<div className="flex items-center justify-center h-full text-white"><div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div></div>}>
+                            <Suspense
+                                fallback={
+                                    <div className="flex items-center justify-center h-full text-white">
+                                        <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+                                    </div>
+                                }
+                            >
                                 <MapHub
                                     mapboxToken={settings.mapboxToken}
                                     homePort={settings.defaultLocation}
                                     onLocationSelect={(lat: number, lon: number, name?: string) => {
-                                        if (mapFromWxRef.current) { mapFromWxRef.current = false; handleMapTargetSelect(lat, lon, name); }
-                                        else { handleMapStaySelect(lat, lon, name); }
+                                        if (mapFromWxRef.current) {
+                                            mapFromWxRef.current = false;
+                                            handleMapTargetSelect(lat, lon, name);
+                                        } else {
+                                            handleMapStaySelect(lat, lon, name);
+                                        }
                                     }}
                                 />
                             </Suspense>
@@ -452,8 +682,18 @@ const App: React.FC = () => {
                                 aria-label="Back"
                                 className="w-10 h-10 bg-slate-900/90 hover:bg-slate-800 rounded-full flex items-center justify-center border border-white/20 shadow-2xl transition-all hover:scale-110 active:scale-95"
                             >
-                                <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                                <svg
+                                    className="w-5 h-5 text-white"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M15.75 19.5L8.25 12l7.5-7.5"
+                                    />
                                 </svg>
                             </button>
                         </div>
@@ -478,24 +718,50 @@ const App: React.FC = () => {
                 </Suspense>
 
                 {!isMobileLandscape && (
-                    <div className={`fixed bottom-0 left-0 right-0 z-[900] border-t pb-[env(safe-area-inset-bottom)] ${isLight ? 'bg-slate-200/95 border-slate-300' : 'bg-slate-900 border-white/10'}`}>
-                        <div className="flex justify-around items-center h-16 mx-auto px-4 relative" role="tablist" aria-label="Main navigation">
-                            <NavButton icon={<WindIcon className="w-6 h-6" />} label="Wx" active={currentView === 'dashboard'} onClick={handleTabDashboard} />
-                            <NavButton icon={<MapIcon className="w-6 h-6" />} label="Map" active={currentView === 'map'} onClick={() => { mapFromWxRef.current = false; handleTabMap(); }} />
-                            <NavButton icon={<ChatIcon className="w-6 h-6" />} label="Chat" active={currentView === 'chat'} onClick={() => setPage('chat')} badge={chatUnread > 0 ? chatUnread : undefined} />
-                            <NavButton icon={<ShipWheelIcon className="w-6 h-6" />} label="Vessel" active={isVesselView} onClick={() => setPage('vessel')} />
+                    <div
+                        className={`fixed bottom-0 left-0 right-0 z-[900] border-t pb-[env(safe-area-inset-bottom)] ${isLight ? 'bg-slate-200/95 border-slate-300' : 'bg-slate-900 border-white/10'}`}
+                    >
+                        <div
+                            className="flex justify-around items-center h-16 mx-auto px-4 relative"
+                            role="tablist"
+                            aria-label="Main navigation"
+                        >
+                            <NavButton
+                                icon={<WindIcon className="w-6 h-6" />}
+                                label="Wx"
+                                active={currentView === 'dashboard'}
+                                onClick={handleTabDashboard}
+                            />
+                            <NavButton
+                                icon={<MapIcon className="w-6 h-6" />}
+                                label="Map"
+                                active={currentView === 'map'}
+                                onClick={() => {
+                                    mapFromWxRef.current = false;
+                                    handleTabMap();
+                                }}
+                            />
+                            <NavButton
+                                icon={<ChatIcon className="w-6 h-6" />}
+                                label="Chat"
+                                active={currentView === 'chat'}
+                                onClick={() => setPage('chat')}
+                                badge={chatUnread > 0 ? chatUnread : undefined}
+                            />
+                            <NavButton
+                                icon={<ShipWheelIcon className="w-6 h-6" />}
+                                label="Vessel"
+                                active={isVesselView}
+                                onClick={() => setPage('vessel')}
+                            />
                         </div>
                     </div>
                 )}
-
             </div>
-
 
             {effectiveMode === 'night' && (
                 <div className="fixed inset-0 z-[9999] pointer-events-none touch-none bg-red-950/40 mix-blend-multiply"></div>
             )}
-
-
         </div>
     );
 };

@@ -1,9 +1,9 @@
 /**
  * ChatService Unit Tests
- * 
+ *
  * Tests the core chat business logic: init, messaging, subscriptions,
  * moderation, DMs, offline queue, and role-based access control.
- * 
+ *
  * Strategy: Mock Supabase at the module level so ChatService operates
  * against a controlled fake backend. Uses vi.hoisted() to ensure mock
  * variables are available in hoisted vi.mock() factories.
@@ -13,9 +13,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // --- Mock fns (hoisted so vi.mock factories can reference them) ---
 const {
-    mockSingle, mockFrom, mockGetUser, mockRpc,
-    mockChannel, mockRemoveChannel, mockOn, mockSubscribe,
-    mockSupabase, mockPreferencesGet, mockPreferencesSet,
+    mockSingle,
+    mockFrom,
+    mockGetUser,
+    mockRpc,
+    mockChannel,
+    mockRemoveChannel,
+    mockOn,
+    mockSubscribe,
+    mockSupabase,
+    mockPreferencesGet,
+    mockPreferencesSet,
 } = vi.hoisted(() => {
     const mockSingle = vi.fn().mockResolvedValue({ data: null, error: null });
     const mockOrder = vi.fn().mockReturnValue({
@@ -26,7 +34,8 @@ const {
         single: mockSingle,
         eq: vi.fn().mockReturnValue({
             single: mockSingle,
-            data: null, error: null,
+            data: null,
+            error: null,
         }),
         order: mockOrder,
     });
@@ -42,7 +51,9 @@ const {
         }),
         insert: vi.fn().mockReturnValue({ select: () => ({ single: mockSingle }) }),
         update: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ data: null, error: null }) }),
-        delete: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ data: null, error: null }) }) }),
+        delete: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ data: null, error: null }) }),
+        }),
         upsert: vi.fn().mockReturnValue({ data: null, error: null }),
     });
 
@@ -71,9 +82,17 @@ const {
     };
 
     return {
-        mockSingle, mockFrom, mockGetUser, mockRpc,
-        mockChannel, mockRemoveChannel, mockOn, mockSubscribe,
-        mockSupabase, mockPreferencesGet, mockPreferencesSet,
+        mockSingle,
+        mockFrom,
+        mockGetUser,
+        mockRpc,
+        mockChannel,
+        mockRemoveChannel,
+        mockOn,
+        mockSubscribe,
+        mockSupabase,
+        mockPreferencesGet,
+        mockPreferencesSet,
     };
 });
 
@@ -142,7 +161,10 @@ describe('ChatService', () => {
         });
 
         it('loads user role on init', async () => {
-            mockSingle.mockResolvedValueOnce({ data: { role: 'admin', muted_until: null, is_blocked: false }, error: null });
+            mockSingle.mockResolvedValueOnce({
+                data: { role: 'admin', muted_until: null, is_blocked: false },
+                error: null,
+            });
             await ChatService.initialize();
             expect(ChatService.getRole()).toBe('admin');
         });
@@ -409,12 +431,14 @@ describe('ChatService', () => {
                 expect.objectContaining({
                     key: expect.any(String),
                     value: expect.stringContaining('Hello from offline'),
-                })
+                }),
             );
         });
 
         it('appends to existing queue in Preferences', async () => {
-            const existing = JSON.stringify([{ type: 'channel', channel_id: 'ch-1', message: 'First', timestamp: new Date().toISOString() }]);
+            const existing = JSON.stringify([
+                { type: 'channel', channel_id: 'ch-1', message: 'First', timestamp: new Date().toISOString() },
+            ]);
             mockPreferencesGet.mockResolvedValueOnce({ value: existing });
 
             await (ChatService as any).queueOffline({

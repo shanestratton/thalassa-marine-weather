@@ -1,7 +1,7 @@
 /**
  * Chat Service — "Crew Talk"
  * Community chat with channels, PMs, moderation, and Supabase Realtime.
- * 
+ *
  * Anti-toxicity design:
  * - Questions (🆘) float to top of channel
  * - Crew rank earned by helpful replies, not volume
@@ -118,13 +118,76 @@ interface QueuedMessage {
 
 // --- PRE-SEEDED CHANNELS ---
 export const DEFAULT_CHANNELS: Omit<ChatChannel, 'id' | 'created_at'>[] = [
-    { name: 'Marketplace', description: 'Buy, sell, and trade gear, boats, and services', region: null, icon: '🏪', is_global: true, is_private: false, owner_id: null, parent_id: null },
-    { name: 'Find Crew', description: 'Looking for crew or a berth? Connect here', region: null, icon: '👥', is_global: true, is_private: false, owner_id: null, parent_id: null },
-    { name: 'General', description: 'Open chat for all sailors', region: null, icon: '🌊', is_global: true, is_private: false, owner_id: null, parent_id: null },
-    { name: 'Anchorages', description: 'Share and discover anchorage spots', region: null, icon: '⚓', is_global: true, is_private: false, owner_id: null, parent_id: null },
-    { name: 'Fishing', description: 'Catches, spots, and techniques', region: null, icon: '🐟', is_global: true, is_private: false, owner_id: null, parent_id: null },
-    { name: 'Repairs & Gear', description: 'Maintenance tips, gear reviews, workshop recs', region: null, icon: '🔧', is_global: true, is_private: false, owner_id: null, parent_id: null },
-    { name: 'Weather Talk', description: 'Conditions, forecasts, and sea state discussion', region: null, icon: '🌤', is_global: true, is_private: false, owner_id: null, parent_id: null },
+    {
+        name: 'Marketplace',
+        description: 'Buy, sell, and trade gear, boats, and services',
+        region: null,
+        icon: '🏪',
+        is_global: true,
+        is_private: false,
+        owner_id: null,
+        parent_id: null,
+    },
+    {
+        name: 'Find Crew',
+        description: 'Looking for crew or a berth? Connect here',
+        region: null,
+        icon: '👥',
+        is_global: true,
+        is_private: false,
+        owner_id: null,
+        parent_id: null,
+    },
+    {
+        name: 'General',
+        description: 'Open chat for all sailors',
+        region: null,
+        icon: '🌊',
+        is_global: true,
+        is_private: false,
+        owner_id: null,
+        parent_id: null,
+    },
+    {
+        name: 'Anchorages',
+        description: 'Share and discover anchorage spots',
+        region: null,
+        icon: '⚓',
+        is_global: true,
+        is_private: false,
+        owner_id: null,
+        parent_id: null,
+    },
+    {
+        name: 'Fishing',
+        description: 'Catches, spots, and techniques',
+        region: null,
+        icon: '🐟',
+        is_global: true,
+        is_private: false,
+        owner_id: null,
+        parent_id: null,
+    },
+    {
+        name: 'Repairs & Gear',
+        description: 'Maintenance tips, gear reviews, workshop recs',
+        region: null,
+        icon: '🔧',
+        is_global: true,
+        is_private: false,
+        owner_id: null,
+        parent_id: null,
+    },
+    {
+        name: 'Weather Talk',
+        description: 'Conditions, forecasts, and sea state discussion',
+        region: null,
+        icon: '🌤',
+        is_global: true,
+        is_private: false,
+        owner_id: null,
+        parent_id: null,
+    },
 ];
 
 // --- SERVICE ---
@@ -137,7 +200,7 @@ class ChatServiceClass {
     private mutedUntil: Date | null = null;
     private blocked: boolean = false;
     private initPromise: Promise<void> | null = null;
-    private ownerUserId: string | null = null;  // Founding admin — immutable
+    private ownerUserId: string | null = null; // Founding admin — immutable
     private cachedDisplayName: string | null = null; // Cached to avoid per-message DB lookup
 
     // --- INIT ---
@@ -152,7 +215,9 @@ class ChatServiceClass {
     private async _doInit(): Promise<void> {
         if (!supabase) return;
         try {
-            const { data: { user } } = await supabase.auth.getUser();
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
             if (!user) return;
             this.currentUserId = user.id;
             // Detect platform owner
@@ -160,10 +225,7 @@ class ChatServiceClass {
                 this.ownerUserId = user.id;
             }
             // Run role load + offline sync in parallel
-            await Promise.all([
-                this.loadUserRole(),
-                this.syncOfflineQueue(),
-            ]);
+            await Promise.all([this.loadUserRole(), this.syncOfflineQueue()]);
         } catch (e) {
             console.warn('[Chat]', e);
             // Non-critical — will retry on next call
@@ -190,7 +252,9 @@ class ChatServiceClass {
 
     async getCurrentUser(): Promise<{ id: string; email?: string } | null> {
         if (!supabase) return null;
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         return user ? { id: user.id, email: user.email ?? undefined } : null;
     }
 
@@ -208,7 +272,9 @@ class ChatServiceClass {
                     return parsed;
                 }
             }
-        } catch (e) { console.warn('[Chat] corrupt cache — fetch fresh:', e); }
+        } catch (e) {
+            console.warn('[Chat] corrupt cache — fetch fresh:', e);
+        }
 
         // 2. No cache — fetch from Supabase
         return this._fetchAndCacheChannels();
@@ -225,13 +291,17 @@ class ChatServiceClass {
 
         if (error || !data || data.length === 0) return [];
         const channels = data as ChatChannel[];
-        try { localStorage.setItem(CHANNELS_CACHE_KEY, JSON.stringify(channels)); } catch (e) { console.warn('[Chat] Operation failed:', e); }
+        try {
+            localStorage.setItem(CHANNELS_CACHE_KEY, JSON.stringify(channels));
+        } catch (e) {
+            console.warn('[Chat] Operation failed:', e);
+        }
         return channels;
     }
 
     private _refreshChannelsCache(): void {
         // Fire-and-forget background refresh
-        this._fetchAndCacheChannels().catch(() => { });
+        this._fetchAndCacheChannels().catch(() => {});
     }
 
     // --- MESSAGES ---
@@ -251,14 +321,23 @@ class ChatServiceClass {
 
     async sendMessage(channelId: string, text: string, isQuestion = false): Promise<ChatMessage | null> {
         if (!supabase) {
-            await this.queueOffline({ type: 'channel', channel_id: channelId, message: text, is_question: isQuestion, timestamp: new Date().toISOString() });
+            await this.queueOffline({
+                type: 'channel',
+                channel_id: channelId,
+                message: text,
+                is_question: isQuestion,
+                timestamp: new Date().toISOString(),
+            });
             return null;
         }
 
         // Check mute
         if (this.isMuted()) return null;
 
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        const {
+            data: { user },
+            error: authError,
+        } = await supabase.auth.getUser();
         if (authError) console.error('[Chat] Auth error in sendMessage:', authError.message);
         if (!user) {
             console.error('[Chat] No authenticated user — message NOT saved:', text.substring(0, 40));
@@ -295,19 +374,24 @@ class ChatServiceClass {
 
         if (error) {
             console.error('[Chat] sendMessage INSERT failed:', error.message, error.details, error.hint);
-            await this.queueOffline({ type: 'channel', channel_id: channelId, message: text, is_question: isQuestion, timestamp: new Date().toISOString() });
+            await this.queueOffline({
+                type: 'channel',
+                channel_id: channelId,
+                message: text,
+                is_question: isQuestion,
+                timestamp: new Date().toISOString(),
+            });
             return null;
         }
-
 
         // Fire-and-forget: async AI moderation check (~1-2s)
         // Message is already posted — if flagged, it gets soft-deleted
         const msg = data as ChatMessage;
-        moderateMessage(msg.id, text, user.id, channelId).catch(() => { });
+        moderateMessage(msg.id, text, user.id, channelId).catch(() => {});
 
         // Fire-and-forget: push notifications for SOS questions
         if (isQuestion && data?.id) {
-            this.pushSOSNotification(channelId, user.id, resolvedName, text, data.id).catch(() => { });
+            this.pushSOSNotification(channelId, user.id, resolvedName, text, data.id).catch(() => {});
         }
 
         return msg;
@@ -315,16 +399,17 @@ class ChatServiceClass {
 
     async markHelpful(messageId: string): Promise<void> {
         if (!supabase) return;
-        try { await supabase.rpc('increment_helpful_count', { msg_id: messageId }); } catch (e) { console.warn('[Chat] best effort:', e); }
+        try {
+            await supabase.rpc('increment_helpful_count', { msg_id: messageId });
+        } catch (e) {
+            console.warn('[Chat] best effort:', e);
+        }
     }
 
     // --- REALTIME SUBSCRIPTIONS ---
 
-    subscribeToChannel(
-        channelId: string,
-        onMessage: (msg: ChatMessage) => void
-    ): () => void {
-        if (!supabase) return () => { };
+    subscribeToChannel(channelId: string, onMessage: (msg: ChatMessage) => void): () => void {
+        if (!supabase) return () => {};
 
         // Unsubscribe existing
         this.unsubscribeChannel(channelId);
@@ -343,7 +428,7 @@ class ChatServiceClass {
                     if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
                         onMessage(payload.new as ChatMessage);
                     }
-                }
+                },
             )
             .subscribe();
 
@@ -384,7 +469,7 @@ class ChatServiceClass {
                     display_name: dm.sender_id !== this.currentUserId ? dm.sender_name : 'Loading...',
                     last_message: dm.message,
                     last_at: dm.created_at,
-                    unread_count: (!dm.read && dm.recipient_id === this.currentUserId) ? 1 : 0,
+                    unread_count: !dm.read && dm.recipient_id === this.currentUserId ? 1 : 0,
                 });
             } else {
                 const conv = convMap.get(partnerId)!;
@@ -394,8 +479,8 @@ class ChatServiceClass {
             }
         }
 
-        return Array.from(convMap.values()).sort((a, b) =>
-            new Date(b.last_at).getTime() - new Date(a.last_at).getTime()
+        return Array.from(convMap.values()).sort(
+            (a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime(),
         );
     }
 
@@ -407,7 +492,7 @@ class ChatServiceClass {
             .select('*')
             .or(
                 `and(sender_id.eq.${this.currentUserId},recipient_id.eq.${partnerId}),` +
-                `and(sender_id.eq.${partnerId},recipient_id.eq.${this.currentUserId})`
+                    `and(sender_id.eq.${partnerId},recipient_id.eq.${this.currentUserId})`,
             )
             .order('created_at', { ascending: true })
             .limit(limit);
@@ -420,7 +505,7 @@ class ChatServiceClass {
                 .eq('recipient_id', this.currentUserId)
                 .eq('sender_id', partnerId)
                 .eq('read', false)
-                .then(() => { });
+                .then(() => {});
         }
 
         return (data || []) as DirectMessage[];
@@ -428,13 +513,21 @@ class ChatServiceClass {
 
     async sendDM(recipientId: string, text: string): Promise<DirectMessage | null | 'blocked'> {
         if (!supabase) {
-            await this.queueOffline({ type: 'dm', recipient_id: recipientId, message: text, timestamp: new Date().toISOString() });
+            await this.queueOffline({
+                type: 'dm',
+                recipient_id: recipientId,
+                message: text,
+                timestamp: new Date().toISOString(),
+            });
             return null;
         }
 
         if (this.isMuted()) return null;
 
-        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        const {
+            data: { user },
+            error: authError,
+        } = await supabase.auth.getUser();
         if (authError) console.error('[Chat] Auth error in sendDM:', authError.message);
         if (!user) {
             console.error('[Chat] No authenticated user — DM NOT saved');
@@ -463,13 +556,18 @@ class ChatServiceClass {
 
         if (error) {
             console.error('[Chat] sendDM INSERT failed:', error.message, error.details, error.hint);
-            await this.queueOffline({ type: 'dm', recipient_id: recipientId, message: text, timestamp: new Date().toISOString() });
+            await this.queueOffline({
+                type: 'dm',
+                recipient_id: recipientId,
+                message: text,
+                timestamp: new Date().toISOString(),
+            });
             return null;
         }
 
         // Fire-and-forget Gemini moderation on DMs too
         if (data?.id) {
-            moderateMessage(data.id, text, user.id, `dm_${recipientId}`).catch(() => { });
+            moderateMessage(data.id, text, user.id, `dm_${recipientId}`).catch(() => {});
         }
 
         // Fire-and-forget: push notification to DM recipient
@@ -480,7 +578,9 @@ class ChatServiceClass {
                 title: `💬 ${displayName}`,
                 body: text.length > 100 ? text.substring(0, 97) + '...' : text,
                 data: { sender_id: user.id, message_id: data.id },
-            }).catch(() => { /* best effort */ });
+            }).catch(() => {
+                /* best effort */
+            });
         }
 
         return data as DirectMessage;
@@ -491,12 +591,13 @@ class ChatServiceClass {
     /** Block a user from DMing you. Directional: A blocks B = B can't DM A. */
     async blockUser(userId: string): Promise<boolean> {
         if (!supabase || !this.currentUserId) return false;
-        const { error } = await supabase
-            .from(DM_BLOCKS_TABLE)
-            .upsert({
+        const { error } = await supabase.from(DM_BLOCKS_TABLE).upsert(
+            {
                 blocker_id: this.currentUserId,
                 blocked_id: userId,
-            }, { onConflict: 'blocker_id,blocked_id' });
+            },
+            { onConflict: 'blocker_id,blocked_id' },
+        );
         return !error;
     }
 
@@ -519,7 +620,7 @@ class ChatServiceClass {
             .select('id')
             .or(
                 `and(blocker_id.eq.${this.currentUserId},blocked_id.eq.${userId}),` +
-                `and(blocker_id.eq.${userId},blocked_id.eq.${this.currentUserId})`
+                    `and(blocker_id.eq.${userId},blocked_id.eq.${this.currentUserId})`,
             )
             .limit(1);
         return !!(data && data.length > 0);
@@ -528,15 +629,12 @@ class ChatServiceClass {
     /** Get list of user IDs blocked by the current user */
     async getBlockedUsers(): Promise<string[]> {
         if (!supabase || !this.currentUserId) return [];
-        const { data } = await supabase
-            .from(DM_BLOCKS_TABLE)
-            .select('blocked_id')
-            .eq('blocker_id', this.currentUserId);
+        const { data } = await supabase.from(DM_BLOCKS_TABLE).select('blocked_id').eq('blocker_id', this.currentUserId);
         return (data || []).map((r: any) => r.blocked_id);
     }
 
     subscribeToDMs(onMessage: (dm: DirectMessage) => void): () => void {
-        if (!supabase || !this.currentUserId) return () => { };
+        if (!supabase || !this.currentUserId) return () => {};
 
         if (this.dmSubscription) {
             supabase.removeChannel(this.dmSubscription);
@@ -554,7 +652,7 @@ class ChatServiceClass {
                 },
                 (payload) => {
                     onMessage(payload.new as DirectMessage);
-                }
+                },
             )
             .subscribe();
 
@@ -568,11 +666,21 @@ class ChatServiceClass {
 
     // --- MODERATION ---
 
-    getRole(): ChatRole { return this.currentRole; }
-    isMod(): boolean { return this.currentRole === 'admin' || this.currentRole === 'moderator'; }
-    isAdmin(): boolean { return this.currentRole === 'admin'; }
-    isModerator(): boolean { return this.currentRole === 'moderator'; }
-    getCurrentUserId(): string | null { return this.currentUserId; }
+    getRole(): ChatRole {
+        return this.currentRole;
+    }
+    isMod(): boolean {
+        return this.currentRole === 'admin' || this.currentRole === 'moderator';
+    }
+    isAdmin(): boolean {
+        return this.currentRole === 'admin';
+    }
+    isModerator(): boolean {
+        return this.currentRole === 'moderator';
+    }
+    getCurrentUserId(): string | null {
+        return this.currentUserId;
+    }
 
     /**
      * Admin-only: list all registered users with their roles.
@@ -590,9 +698,7 @@ class ChatServiceClass {
         if (!profiles) return [];
 
         // Get all roles
-        const { data: roles } = await supabase
-            .from(ROLES_TABLE)
-            .select('user_id, role, muted_until, is_blocked');
+        const { data: roles } = await supabase.from(ROLES_TABLE).select('user_id, role, muted_until, is_blocked');
 
         const roleMap = new Map<string, { role: ChatRole; muted_until: string | null; is_blocked: boolean }>();
         if (roles) {
@@ -605,12 +711,12 @@ class ChatServiceClass {
             }
         }
 
-        return profiles.map(p => ({
+        return profiles.map((p) => ({
             user_id: p.user_id,
             display_name: p.display_name || 'Unknown',
             avatar_url: p.avatar_url || null,
             vessel_name: p.vessel_name || null,
-            role: roleMap.get(p.user_id)?.role || 'member' as ChatRole,
+            role: roleMap.get(p.user_id)?.role || ('member' as ChatRole),
             muted_until: roleMap.get(p.user_id)?.muted_until || null,
             is_blocked: roleMap.get(p.user_id)?.is_blocked || false,
         }));
@@ -627,7 +733,9 @@ class ChatServiceClass {
         return true;
     }
 
-    getMutedUntil(): Date | null { return this.mutedUntil; }
+    getMutedUntil(): Date | null {
+        return this.mutedUntil;
+    }
 
     async deleteMessage(messageId: string): Promise<boolean> {
         if (!supabase || !this.isMod()) return false;
@@ -640,10 +748,7 @@ class ChatServiceClass {
 
     async pinMessage(messageId: string, pinned: boolean): Promise<boolean> {
         if (!supabase || !this.isMod()) return false;
-        const { error } = await supabase
-            .from(MESSAGES_TABLE)
-            .update({ is_pinned: pinned })
-            .eq('id', messageId);
+        const { error } = await supabase.from(MESSAGES_TABLE).update({ is_pinned: pinned }).eq('id', messageId);
         return !error;
     }
 
@@ -653,13 +758,14 @@ class ChatServiceClass {
         if (this.isOwnerProtected(userId)) return false;
         const mutedUntil = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 
-        const { error } = await supabase
-            .from(ROLES_TABLE)
-            .upsert({
+        const { error } = await supabase.from(ROLES_TABLE).upsert(
+            {
                 user_id: userId,
                 role: 'member',
                 muted_until: mutedUntil,
-            }, { onConflict: 'user_id' });
+            },
+            { onConflict: 'user_id' },
+        );
 
         return !error;
     }
@@ -667,10 +773,7 @@ class ChatServiceClass {
     /** Unmute a user — removes mute immediately */
     async unmuteUser(userId: string): Promise<boolean> {
         if (!supabase || !this.isMod()) return false;
-        const { error } = await supabase
-            .from(ROLES_TABLE)
-            .update({ muted_until: null })
-            .eq('user_id', userId);
+        const { error } = await supabase.from(ROLES_TABLE).update({ muted_until: null }).eq('user_id', userId);
         if (!error) this.logAudit('unmute_user', userId);
         return !error;
     }
@@ -688,14 +791,15 @@ class ChatServiceClass {
         // Owner is untouchable — cannot be demoted by rogue admins
         if (this.isOwnerProtected(userId) && role !== 'admin') return false;
 
-        const { error } = await supabase
-            .from(ROLES_TABLE)
-            .upsert({
+        const { error } = await supabase.from(ROLES_TABLE).upsert(
+            {
                 user_id: userId,
                 role,
                 muted_until: null,
                 is_blocked: false,
-            }, { onConflict: 'user_id' });
+            },
+            { onConflict: 'user_id' },
+        );
 
         if (!error) this.logAudit('set_role', userId, { role });
         return !error;
@@ -706,14 +810,15 @@ class ChatServiceClass {
         if (!supabase || !this.isAdmin()) return false;
         // Owner cannot be blocked
         if (this.isOwnerProtected(userId)) return false;
-        const { error } = await supabase
-            .from(ROLES_TABLE)
-            .upsert({
+        const { error } = await supabase.from(ROLES_TABLE).upsert(
+            {
                 user_id: userId,
                 role: 'member',
                 is_blocked: true,
                 muted_until: null,
-            }, { onConflict: 'user_id' });
+            },
+            { onConflict: 'user_id' },
+        );
         if (!error) this.logAudit('block_user', userId, { action: 'blocked' });
         return !error;
     }
@@ -721,10 +826,7 @@ class ChatServiceClass {
     /** Admin-only: unblock a platform-blocked user */
     async unblockUserPlatform(userId: string): Promise<boolean> {
         if (!supabase || !this.isAdmin()) return false;
-        const { error } = await supabase
-            .from(ROLES_TABLE)
-            .update({ is_blocked: false })
-            .eq('user_id', userId);
+        const { error } = await supabase.from(ROLES_TABLE).update({ is_blocked: false }).eq('user_id', userId);
         if (!error) this.logAudit('unblock_user', userId, { action: 'unblocked' });
         return !error;
     }
@@ -742,7 +844,9 @@ class ChatServiceClass {
                 target_id: targetId,
                 details: details || {},
             });
-        } catch (e) { /* non-blocking — audit should never break the flow */ }
+        } catch (e) {
+            /* non-blocking — audit should never break the flow */
+        }
     }
 
     /** Get recent audit log entries (admin-only) */
@@ -777,7 +881,14 @@ class ChatServiceClass {
     // Private channels: require membership, join via request
 
     /** Admin or Moderator: create a channel instantly */
-    async createChannel(name: string, description: string, icon: string, isPrivate = false, region?: string, parentId?: string): Promise<ChatChannel | null> {
+    async createChannel(
+        name: string,
+        description: string,
+        icon: string,
+        isPrivate = false,
+        region?: string,
+        parentId?: string,
+    ): Promise<ChatChannel | null> {
         if (!supabase || !this.isMod()) return null;
 
         const user = (await supabase.auth.getUser()).data.user;
@@ -811,26 +922,31 @@ class ChatServiceClass {
     }
 
     /** Anyone can propose a channel (goes to 'pending' — admin approves) */
-    async proposeChannel(name: string, description: string, icon: string, isPrivate = false, region?: string, parentId?: string): Promise<boolean> {
+    async proposeChannel(
+        name: string,
+        description: string,
+        icon: string,
+        isPrivate = false,
+        region?: string,
+        parentId?: string,
+    ): Promise<boolean> {
         if (!supabase) return false;
 
         const user = (await supabase.auth.getUser()).data.user;
         if (!user) return false;
 
-        const { error } = await supabase
-            .from(CHANNELS_TABLE)
-            .insert({
-                name,
-                description,
-                icon,
-                region: region || null,
-                is_global: !region,
-                is_private: isPrivate,
-                owner_id: user.id,
-                parent_id: parentId || null,
-                status: 'pending',
-                proposed_by: user.id,
-            });
+        const { error } = await supabase.from(CHANNELS_TABLE).insert({
+            name,
+            description,
+            icon,
+            region: region || null,
+            is_global: !region,
+            is_private: isPrivate,
+            owner_id: user.id,
+            parent_id: parentId || null,
+            status: 'pending',
+            proposed_by: user.id,
+        });
 
         return !error;
     }
@@ -869,11 +985,7 @@ class ChatServiceClass {
     /** Admin: reject a pending channel proposal */
     async rejectChannel(channelId: string): Promise<boolean> {
         if (!supabase || !this.isAdmin()) return false;
-        const { error } = await supabase
-            .from(CHANNELS_TABLE)
-            .delete()
-            .eq('id', channelId)
-            .eq('status', 'pending');
+        const { error } = await supabase.from(CHANNELS_TABLE).delete().eq('id', channelId).eq('status', 'pending');
         if (!error) this.logAudit('reject_channel', channelId);
         return !error;
     }
@@ -889,12 +1001,12 @@ class ChatServiceClass {
         return (data || []) as ChatChannel[];
     }
 
-    async editChannel(channelId: string, updates: { name?: string; description?: string; icon?: string }): Promise<boolean> {
+    async editChannel(
+        channelId: string,
+        updates: { name?: string; description?: string; icon?: string },
+    ): Promise<boolean> {
         if (!supabase || !this.isAdmin()) return false;
-        const { error } = await supabase
-            .from(CHANNELS_TABLE)
-            .update(updates)
-            .eq('id', channelId);
+        const { error } = await supabase.from(CHANNELS_TABLE).update(updates).eq('id', channelId);
         return !error;
     }
 
@@ -902,10 +1014,7 @@ class ChatServiceClass {
         if (!supabase || !this.isAdmin()) return false;
         // Get channel name for audit log
         const { data: ch } = await supabase.from(CHANNELS_TABLE).select('name').eq('id', channelId).single();
-        const { error } = await supabase
-            .from(CHANNELS_TABLE)
-            .delete()
-            .eq('id', channelId);
+        const { error } = await supabase.from(CHANNELS_TABLE).delete().eq('id', channelId);
         if (!error) this.logAudit('delete_channel', channelId, { channel_name: ch?.name });
         return !error;
     }
@@ -944,14 +1053,12 @@ class ChatServiceClass {
             .single();
         if (existing) return false; // Already pending
 
-        const { error } = await supabase
-            .from('channel_join_requests')
-            .insert({
-                channel_id: channelId,
-                user_id: this.currentUserId,
-                message: message.trim() || 'I would like to join this channel.',
-                status: 'pending',
-            });
+        const { error } = await supabase.from('channel_join_requests').insert({
+            channel_id: channelId,
+            user_id: this.currentUserId,
+            message: message.trim() || 'I would like to join this channel.',
+            status: 'pending',
+        });
 
         return !error;
     }
@@ -1029,10 +1136,13 @@ class ChatServiceClass {
         if (updateErr) return false;
 
         // Add to channel members
-        await supabase.from('channel_members').upsert({
-            channel_id: request.channel_id,
-            user_id: request.user_id,
-        }, { onConflict: 'channel_id,user_id' });
+        await supabase.from('channel_members').upsert(
+            {
+                channel_id: request.channel_id,
+                user_id: request.user_id,
+            },
+            { onConflict: 'channel_id,user_id' },
+        );
 
         return true;
     }
@@ -1052,11 +1162,7 @@ class ChatServiceClass {
         if (!supabase || !this.currentUserId) return false;
 
         // Check if user is the channel owner — owners can't leave
-        const { data: channel } = await supabase
-            .from(CHANNELS_TABLE)
-            .select('owner_id')
-            .eq('id', channelId)
-            .single();
+        const { data: channel } = await supabase.from(CHANNELS_TABLE).select('owner_id').eq('id', channelId).single();
         if (channel?.owner_id === this.currentUserId) return false;
 
         // Remove from channel_members
@@ -1095,8 +1201,11 @@ class ChatServiceClass {
 
     /** Push notifications to all recent channel participants for an SOS question */
     private async pushSOSNotification(
-        channelId: string, senderId: string, senderName: string,
-        questionText: string, messageId: string
+        channelId: string,
+        senderId: string,
+        senderName: string,
+        questionText: string,
+        messageId: string,
     ): Promise<void> {
         if (!supabase) return;
         try {
@@ -1110,13 +1219,12 @@ class ChatServiceClass {
 
             if (!recentMessages) return;
 
-            const uniqueUserIds = [...new Set(recentMessages.map(m => m.user_id))]
-                .filter(id => id !== senderId); // Don't notify sender
+            const uniqueUserIds = [...new Set(recentMessages.map((m) => m.user_id))].filter((id) => id !== senderId); // Don't notify sender
 
             const body = questionText.length > 80 ? questionText.substring(0, 77) + '...' : questionText;
 
             // Queue a notification for each channel participant
-            const inserts = uniqueUserIds.map(uid => ({
+            const inserts = uniqueUserIds.map((uid) => ({
                 recipient_user_id: uid,
                 notification_type: 'sos',
                 title: `🆘 ${senderName} needs help`,
@@ -1141,7 +1249,9 @@ class ChatServiceClass {
             const queue: QueuedMessage[] = value ? JSON.parse(value) : [];
             queue.push(msg);
             await Preferences.set({ key: OFFLINE_QUEUE_KEY, value: JSON.stringify(queue) });
-        } catch (e) { console.warn('[Chat] best effort:', e); }
+        } catch (e) {
+            console.warn('[Chat] best effort:', e);
+        }
     }
 
     private async syncOfflineQueue(): Promise<void> {
@@ -1162,7 +1272,9 @@ class ChatServiceClass {
                     await this.sendDM(msg.recipient_id, msg.message);
                 }
             }
-        } catch (e) { console.warn('[Chat] best effort:', e); }
+        } catch (e) {
+            console.warn('[Chat] best effort:', e);
+        }
     }
 
     // --- UNREAD COUNT ---

@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { Waypoint } from '../types';
 
@@ -6,13 +5,15 @@ export const useMapMarkers = (
     mapInstance: React.MutableRefObject<any>,
     centerLat: number,
     centerLon: number,
-    rawTargetPos: { lat: number, lon: number } | null,
-    routeCoordinates?: { lat: number, lon: number }[],
-    waypoints?: Waypoint[]
+    rawTargetPos: { lat: number; lon: number } | null,
+    routeCoordinates?: { lat: number; lon: number }[],
+    waypoints?: Waypoint[],
 ) => {
-    const [vesselPos, setVesselPos] = useState<{ x: number, y: number } | null>(null);
-    const [targetPos, setTargetPos] = useState<{ x: number, y: number } | null>(null);
-    const [waypointPositions, setWaypointPositions] = useState<{ x: number, y: number, idx: number, name: string, wp: Waypoint }[]>([]);
+    const [vesselPos, setVesselPos] = useState<{ x: number; y: number } | null>(null);
+    const [targetPos, setTargetPos] = useState<{ x: number; y: number } | null>(null);
+    const [waypointPositions, setWaypointPositions] = useState<
+        { x: number; y: number; idx: number; name: string; wp: Waypoint }[]
+    >([]);
     const [routePath, setRoutePath] = useState<string>('');
 
     const updatePositions = () => {
@@ -31,7 +32,7 @@ export const useMapMarkers = (
 
         // 3. Route Line
         if (routeCoordinates && routeCoordinates.length > 1) {
-            const points = routeCoordinates.map(c => {
+            const points = routeCoordinates.map((c) => {
                 const pt = map.latLngToContainerPoint([c.lat, c.lon]);
                 return `${pt.x.toFixed(1)},${pt.y.toFixed(1)}`;
             });
@@ -42,11 +43,13 @@ export const useMapMarkers = (
 
         // 4. Waypoints
         if (waypoints && waypoints.length > 0) {
-            const pts = waypoints.map((wp, i) => {
-                if (!wp.coordinates) return null;
-                const pt = map.latLngToContainerPoint([wp.coordinates.lat, wp.coordinates.lon]);
-                return { x: pt.x, y: pt.y, idx: i, name: wp.name, wp };
-            }).filter(Boolean) as { x: number; y: number; idx: number; name: string; wp: Waypoint }[];
+            const pts = waypoints
+                .map((wp, i) => {
+                    if (!wp.coordinates) return null;
+                    const pt = map.latLngToContainerPoint([wp.coordinates.lat, wp.coordinates.lon]);
+                    return { x: pt.x, y: pt.y, idx: i, name: wp.name, wp };
+                })
+                .filter(Boolean) as { x: number; y: number; idx: number; name: string; wp: Waypoint }[];
             setWaypointPositions(pts);
         } else {
             setWaypointPositions([]);

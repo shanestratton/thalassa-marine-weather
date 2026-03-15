@@ -62,7 +62,9 @@ export async function lookupUserByEmail(email: string): Promise<{
     if (!supabase) return null;
 
     try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+            data: { session },
+        } = await supabase.auth.getSession();
         if (!session) return null;
 
         const { data, error } = await supabase.rpc('lookup_user_by_email', {
@@ -93,7 +95,9 @@ export async function inviteCrew(
 
     try {
         // Get current user
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return { success: false, error: 'Not authenticated' };
 
         // Look up the crew member
@@ -101,9 +105,10 @@ export async function inviteCrew(
         if (!lookup?.found) {
             return {
                 success: false,
-                error: lookup?.reason === 'self'
-                    ? "You can't invite yourself!"
-                    : 'User not found. They need to sign up first.',
+                error:
+                    lookup?.reason === 'self'
+                        ? "You can't invite yourself!"
+                        : 'User not found. They need to sign up first.',
             };
         }
 
@@ -137,17 +142,15 @@ export async function inviteCrew(
         }
 
         // Create new invite
-        const { error: insertError } = await supabase
-            .from('vessel_crew')
-            .insert({
-                owner_id: user.id,
-                crew_user_id: lookup.user_id,
-                crew_email: crewEmail.toLowerCase().trim(),
-                owner_email: user.email || '',
-                shared_registers: registers,
-                status: 'pending',
-                role: 'crew',
-            });
+        const { error: insertError } = await supabase.from('vessel_crew').insert({
+            owner_id: user.id,
+            crew_user_id: lookup.user_id,
+            crew_email: crewEmail.toLowerCase().trim(),
+            owner_email: user.email || '',
+            shared_registers: registers,
+            status: 'pending',
+            role: 'crew',
+        });
 
         if (insertError) return { success: false, error: insertError.message };
         return { success: true };
@@ -163,7 +166,9 @@ export async function getMyCrew(): Promise<CrewMember[]> {
     if (!supabase) return [];
 
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return [];
 
         const { data, error } = await supabase
@@ -186,10 +191,7 @@ export async function getMyCrew(): Promise<CrewMember[]> {
 /**
  * Update which registers are shared with a specific crew member.
  */
-export async function updateCrewPermissions(
-    crewId: string,
-    registers: SharedRegister[],
-): Promise<boolean> {
+export async function updateCrewPermissions(crewId: string, registers: SharedRegister[]): Promise<boolean> {
     if (!supabase) return false;
 
     try {
@@ -214,10 +216,7 @@ export async function removeCrew(crewId: string): Promise<boolean> {
     if (!supabase) return false;
 
     try {
-        const { error } = await supabase
-            .from('vessel_crew')
-            .delete()
-            .eq('id', crewId);
+        const { error } = await supabase.from('vessel_crew').delete().eq('id', crewId);
 
         return !error;
     } catch (e) {
@@ -234,7 +233,9 @@ export async function getMyInvites(): Promise<CrewMember[]> {
     if (!supabase) return [];
 
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return [];
 
         const { data, error } = await supabase
@@ -258,7 +259,9 @@ export async function getMyMemberships(): Promise<CrewMember[]> {
     if (!supabase) return [];
 
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return [];
 
         const { data, error } = await supabase
@@ -324,10 +327,7 @@ export async function leaveVessel(membershipId: string): Promise<boolean> {
     if (!supabase) return false;
 
     try {
-        const { error } = await supabase
-            .from('vessel_crew')
-            .delete()
-            .eq('id', membershipId);
+        const { error } = await supabase.from('vessel_crew').delete().eq('id', membershipId);
 
         return !error;
     } catch (e) {
@@ -347,7 +347,9 @@ export async function getSharedOwnerForRegister(
     if (!supabase) return null;
 
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return null;
 
         const { data, error } = await supabase
@@ -373,7 +375,9 @@ export async function getPendingInviteCount(): Promise<number> {
     if (!supabase) return 0;
 
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return 0;
 
         const { count, error } = await supabase

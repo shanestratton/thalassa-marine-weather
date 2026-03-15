@@ -25,28 +25,28 @@ const log = createLogger('SeamarkService');
 
 /** IALA classification for a seamark */
 export type SeamarkClass =
-    | 'port'           // Lateral — port side (red in Region A, green in Region B)
-    | 'starboard'      // Lateral — starboard side (green in Region A, red in Region B)
-    | 'lateral'        // Lateral — unclassified side
-    | 'cardinal_n'     // Cardinal — pass north of hazard
-    | 'cardinal_s'     // Cardinal — pass south
-    | 'cardinal_e'     // Cardinal — pass east
-    | 'cardinal_w'     // Cardinal — pass west
-    | 'cardinal'       // Cardinal — unclassified direction
-    | 'safe_water'     // Safe water — deep water, mid-channel
-    | 'danger'         // Isolated danger / rocks / wrecks
-    | 'special'        // Special purpose
-    | 'light_major'    // Major navigation light
-    | 'light_minor'    // Minor navigation light
-    | 'light'          // Generic light
-    | 'landmark'       // Visual landmark
-    | 'mooring'        // Mooring buoy
-    | 'berth'          // Berth
-    | 'anchorage'      // Anchorage area
-    | 'harbour'        // Harbour mark
-    | 'fairway'        // Fairway buoy
-    | 'gate'           // Gate/barrier
-    | 'other';         // Unclassified
+    | 'port' // Lateral — port side (red in Region A, green in Region B)
+    | 'starboard' // Lateral — starboard side (green in Region A, red in Region B)
+    | 'lateral' // Lateral — unclassified side
+    | 'cardinal_n' // Cardinal — pass north of hazard
+    | 'cardinal_s' // Cardinal — pass south
+    | 'cardinal_e' // Cardinal — pass east
+    | 'cardinal_w' // Cardinal — pass west
+    | 'cardinal' // Cardinal — unclassified direction
+    | 'safe_water' // Safe water — deep water, mid-channel
+    | 'danger' // Isolated danger / rocks / wrecks
+    | 'special' // Special purpose
+    | 'light_major' // Major navigation light
+    | 'light_minor' // Minor navigation light
+    | 'light' // Generic light
+    | 'landmark' // Visual landmark
+    | 'mooring' // Mooring buoy
+    | 'berth' // Berth
+    | 'anchorage' // Anchorage area
+    | 'harbour' // Harbour mark
+    | 'fairway' // Fairway buoy
+    | 'gate' // Gate/barrier
+    | 'other'; // Unclassified
 
 /** A single seamark feature with typed properties */
 export interface SeamarkFeature {
@@ -56,7 +56,7 @@ export interface SeamarkFeature {
         coordinates: [number, number]; // [lng, lat]
     };
     properties: {
-        _type: string;      // Original seamark:type value
+        _type: string; // Original seamark:type value
         _class: SeamarkClass;
         /** Light characteristics e.g. "Fl.G.5s" */
         'light:character'?: string;
@@ -153,9 +153,12 @@ async function getFromCache(key: string): Promise<SeamarkCollection | null> {
 async function putToCache(key: string, data: SeamarkCollection): Promise<void> {
     try {
         const cache = await caches.open(CACHE_NAME);
-        await cache.put(key, new Response(JSON.stringify(data), {
-            headers: { 'Content-Type': 'application/json' },
-        }));
+        await cache.put(
+            key,
+            new Response(JSON.stringify(data), {
+                headers: { 'Content-Type': 'application/json' },
+            }),
+        );
     } catch {
         // Cache write failures are non-critical
     }
@@ -172,11 +175,7 @@ export const SeamarkService = {
      * @param radiusNM Search radius in nautical miles (default 5, max 15)
      * @returns Typed SeamarkCollection with IALA classifications
      */
-    async fetchNearby(
-        lat: number,
-        lon: number,
-        radiusNM: number = 5,
-    ): Promise<SeamarkCollection> {
+    async fetchNearby(lat: number, lon: number, radiusNM: number = 5): Promise<SeamarkCollection> {
         const key = cacheKey(lat, lon, radiusNM);
 
         // Check cache first
@@ -190,8 +189,8 @@ export const SeamarkService = {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'apikey': SUPABASE_KEY,
-                    'Authorization': `Bearer ${SUPABASE_KEY}`,
+                    apikey: SUPABASE_KEY,
+                    Authorization: `Bearer ${SUPABASE_KEY}`,
                 },
                 body: JSON.stringify({ lat, lon, radiusNM }),
             });
@@ -238,12 +237,9 @@ export const SeamarkService = {
     /**
      * Filter seamarks by IALA class.
      */
-    filterByClass(
-        collection: SeamarkCollection,
-        classes: SeamarkClass[],
-    ): SeamarkFeature[] {
+    filterByClass(collection: SeamarkCollection, classes: SeamarkClass[]): SeamarkFeature[] {
         const classSet = new Set(classes);
-        return collection.features.filter(f => classSet.has(f.properties._class));
+        return collection.features.filter((f) => classSet.has(f.properties._class));
     },
 
     /**
@@ -265,9 +261,18 @@ export const SeamarkService = {
      */
     getNavigationMarks(collection: SeamarkCollection): SeamarkFeature[] {
         return this.filterByClass(collection, [
-            'port', 'starboard', 'lateral',
-            'cardinal_n', 'cardinal_s', 'cardinal_e', 'cardinal_w', 'cardinal',
-            'safe_water', 'fairway', 'light_major', 'light_minor',
+            'port',
+            'starboard',
+            'lateral',
+            'cardinal_n',
+            'cardinal_s',
+            'cardinal_e',
+            'cardinal_w',
+            'cardinal',
+            'safe_water',
+            'fairway',
+            'light_major',
+            'light_minor',
         ]);
     },
 
@@ -282,11 +287,7 @@ export const SeamarkService = {
      * Find the outermost navigation mark from a given position.
      * This is the "sea buoy" — the transition point between channel and ocean routing.
      */
-    findOutermostMark(
-        collection: SeamarkCollection,
-        fromLat: number,
-        fromLon: number,
-    ): SeamarkFeature | null {
+    findOutermostMark(collection: SeamarkCollection, fromLat: number, fromLon: number): SeamarkFeature | null {
         const navMarks = this.getNavigationMarks(collection);
         if (navMarks.length === 0) return null;
 
@@ -296,7 +297,7 @@ export const SeamarkService = {
         for (const mark of navMarks) {
             const [mLon, mLat] = mark.geometry.coordinates;
             const dlat = mLat - fromLat;
-            const dlon = (mLon - fromLon) * Math.cos(fromLat * Math.PI / 180);
+            const dlon = (mLon - fromLon) * Math.cos((fromLat * Math.PI) / 180);
             const distSq = dlat * dlat + dlon * dlon;
             if (distSq > maxDist) {
                 maxDist = distSq;

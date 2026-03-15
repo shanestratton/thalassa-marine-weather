@@ -19,10 +19,10 @@ import { NmeaStore, type NmeaStoreState } from './NmeaStore';
 export interface NmeaGpsPosition {
     latitude: number;
     longitude: number;
-    accuracy: number;       // Estimated from HDOP (meters)
-    heading: number;        // COG or heading from NMEA
-    speed: number;          // SOG from NMEA (kts)
-    timestamp: number;      // Epoch ms
+    accuracy: number; // Estimated from HDOP (meters)
+    heading: number; // COG or heading from NMEA
+    speed: number; // SOG from NMEA (kts)
+    timestamp: number; // Epoch ms
     source: 'nmea';
     satellites: number | null;
     hdop: number | null;
@@ -47,7 +47,10 @@ class NmeaGpsProviderClass {
     /** Stop listening */
     stop(): void {
         this.running = false;
-        if (this.unsub) { this.unsub(); this.unsub = null; }
+        if (this.unsub) {
+            this.unsub();
+            this.unsub = null;
+        }
         this.lastPosition = null;
     }
 
@@ -74,11 +77,16 @@ class NmeaGpsProviderClass {
         const quality = state.gpsFixQuality;
         if (quality === null) return 'GPS';
         switch (quality) {
-            case 1: return 'GPS';
-            case 2: return 'DGPS';
-            case 4: return 'RTK';
-            case 5: return 'Float RTK';
-            default: return 'GPS';
+            case 1:
+                return 'GPS';
+            case 2:
+                return 'DGPS';
+            case 4:
+                return 'RTK';
+            case 5:
+                return 'Float RTK';
+            default:
+                return 'GPS';
         }
     }
 

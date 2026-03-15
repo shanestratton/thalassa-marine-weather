@@ -2,7 +2,7 @@
  * Tests for ListSkeleton component
  */
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import { ListSkeleton } from '../components/ui/ListSkeleton';
 
 describe('ListSkeleton', () => {

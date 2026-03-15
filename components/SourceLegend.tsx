@@ -3,12 +3,12 @@ import { t } from '../theme';
 
 /**
  * SourceLegend - Educational tooltip explaining color-coded data sources
- * 
+ *
  * Displays a collapsible legend teaching users what the metric colors mean:
  * - Emerald: Apple WeatherKit observations (atmospheric)
  * - Amber: StormGlass model predictions (marine)
  * - White: Future forecast data
- * 
+ *
  * Solves the UX "learning curve" problem by making source transparency obvious.
  */
 export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' }) => {
@@ -24,7 +24,12 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
             >
                 {/* Info Icon (inline SVG) */}
                 <svg className="w-3 h-3 text-white/70" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
                 </svg>
                 <span className="text-sm md:text-sm font-medium text-white/70 uppercase tracking-wider">Sources</span>
             </button>
@@ -50,9 +55,12 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
                         <div className="flex items-start gap-3">
                             <div className="flex-shrink-0 w-3 h-3 rounded-full bg-emerald-400 mt-0.5 shadow-lg shadow-emerald-400/50" />
                             <div className="flex-1">
-                                <div className="text-sm font-bold text-emerald-400 mb-0.5">Apple Weather (Observed)</div>
+                                <div className="text-sm font-bold text-emerald-400 mb-0.5">
+                                    Apple Weather (Observed)
+                                </div>
                                 <div className="text-sm text-white/70 leading-relaxed">
-                                    Station-blended observations from Apple WeatherKit. Premium atmospheric data — temperature, wind, humidity, pressure, and rain.
+                                    Station-blended observations from Apple WeatherKit. Premium atmospheric data —
+                                    temperature, wind, humidity, pressure, and rain.
                                 </div>
                             </div>
                         </div>
@@ -63,7 +71,8 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
                             <div className="flex-1">
                                 <div className="text-sm font-bold text-amber-400 mb-0.5">StormGlass (Model)</div>
                                 <div className="text-sm text-white/70 leading-relaxed">
-                                    Predictions from StormGlass weather models. Waves, swell, water temperature, and currents. Tides powered by WorldTides.
+                                    Predictions from StormGlass weather models. Waves, swell, water temperature, and
+                                    currents. Tides powered by WorldTides.
                                 </div>
                             </div>
                         </div>
@@ -83,7 +92,8 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
                     {/* Footer Note */}
                     <div className="mt-3 pt-3 border-t border-white/10">
                         <p className="text-sm text-white/60 leading-relaxed">
-                            Thalassa blends Apple WeatherKit (atmospheric) with StormGlass (marine) to deliver the most accurate conditions.
+                            Thalassa blends Apple WeatherKit (atmospheric) with StormGlass (marine) to deliver the most
+                            accurate conditions.
                         </p>
                     </div>
                 </div>

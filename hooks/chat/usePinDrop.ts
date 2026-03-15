@@ -45,7 +45,9 @@ export function usePinDrop(options: UsePinDropOptions) {
         setPinCaption('');
         setShowPinSheet(true);
 
-        PinService.getMyPins(15).then(pins => setSavedPins(pins)).catch(() => { });
+        PinService.getMyPins(15)
+            .then((pins) => setSavedPins(pins))
+            .catch(() => {});
 
         try {
             const pos = BgGeoManager.getLastPosition();
@@ -89,14 +91,14 @@ export function usePinDrop(options: UsePinDropOptions) {
             deleted_at: null,
             created_at: new Date().toISOString(),
         };
-        setMessages(prev => [...prev, optimistic]);
+        setMessages((prev) => [...prev, optimistic]);
         await ChatService.sendMessage(activeChannel.id, text, false);
 
         PinService.savePin({
             latitude: pinLat,
             longitude: pinLng,
             caption: pinCaption.trim() || 'Dropped a pin',
-        }).catch(() => { });
+        }).catch(() => {});
 
         setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     }, [activeChannel, pinLat, pinLng, pinCaption, setMessages, setMessageText, messageEndRef]);
@@ -138,14 +140,14 @@ export function usePinDrop(options: UsePinDropOptions) {
             deleted_at: null,
             created_at: new Date().toISOString(),
         };
-        setMessages(prev => [...prev, optimistic]);
+        setMessages((prev) => [...prev, optimistic]);
         await ChatService.sendMessage(activeChannel.id, text, false);
 
         PinService.savePin({
             latitude: pinLat,
             longitude: pinLng,
             caption: pinCaption.trim() || 'Point of interest',
-        }).catch(() => { });
+        }).catch(() => {});
 
         setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     }, [activeChannel, pinLat, pinLng, pinCaption, setMessages, setMessageText, messageEndRef]);
@@ -208,12 +210,18 @@ export function usePinDrop(options: UsePinDropOptions) {
 
     return {
         // State
-        showAttachMenu, setShowAttachMenu,
-        showPinSheet, setShowPinSheet,
-        showPoiSheet, setShowPoiSheet,
-        pinLat, setPinLat,
-        pinLng, setPinLng,
-        pinCaption, setPinCaption,
+        showAttachMenu,
+        setShowAttachMenu,
+        showPinSheet,
+        setShowPinSheet,
+        showPoiSheet,
+        setShowPoiSheet,
+        pinLat,
+        setPinLat,
+        pinLng,
+        setPinLng,
+        pinCaption,
+        setPinCaption,
         pinLoading,
         savedPins,
         poiMapRef,

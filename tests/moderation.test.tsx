@@ -9,7 +9,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { clientFilter } from '../services/ContentModerationService';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { ChatErrorBoundary } from '../components/chat/ChatErrorBoundary';
 
@@ -67,9 +67,7 @@ describe('clientFilter — Layer 1 Content Moderation', () => {
         });
 
         it('blocks link spam (3+ URLs)', () => {
-            const result = clientFilter(
-                'check https://a.com and https://b.com and https://c.com'
-            );
+            const result = clientFilter('check https://a.com and https://b.com and https://c.com');
             expect(result.blocked).toBe(true);
             expect(result.warning).toContain('link');
         });
@@ -120,8 +118,12 @@ describe('clientFilter — Layer 1 Content Moderation', () => {
 describe('ChatErrorBoundary', () => {
     // Suppress console.error for error boundary tests
     const originalError = console.error;
-    beforeEach(() => { console.error = vi.fn(); });
-    afterEach(() => { console.error = originalError; });
+    beforeEach(() => {
+        console.error = vi.fn();
+    });
+    afterEach(() => {
+        console.error = originalError;
+    });
 
     const ThrowError: React.FC<{ shouldThrow: boolean }> = ({ shouldThrow }) => {
         if (shouldThrow) throw new Error('Test crash');
@@ -131,8 +133,8 @@ describe('ChatErrorBoundary', () => {
     it('renders children when no error', () => {
         render(
             <ChatErrorBoundary>
-            <div>Healthy content </div>
-        </ChatErrorBoundary>
+                <div>Healthy content </div>
+            </ChatErrorBoundary>,
         );
         expect(screen.getByText('Healthy content')).toBeTruthy();
     });
@@ -140,8 +142,8 @@ describe('ChatErrorBoundary', () => {
     it('shows error UI when child throws', () => {
         render(
             <ChatErrorBoundary>
-            <ThrowError shouldThrow={ true} />
-        </ChatErrorBoundary>
+                <ThrowError shouldThrow={true} />
+            </ChatErrorBoundary>,
         );
         expect(screen.getByText('Man overboard!')).toBeTruthy();
         expect(screen.getByText('Test crash')).toBeTruthy();
@@ -151,8 +153,8 @@ describe('ChatErrorBoundary', () => {
     it('shows friendly recovery message', () => {
         render(
             <ChatErrorBoundary>
-            <ThrowError shouldThrow={ true} />
-        </ChatErrorBoundary>
+                <ThrowError shouldThrow={true} />
+            </ChatErrorBoundary>,
         );
         expect(screen.getByText(/something went wrong/i)).toBeTruthy();
         expect(screen.getByText(/messages are safe/i)).toBeTruthy();
@@ -161,8 +163,8 @@ describe('ChatErrorBoundary', () => {
     it('retry button has correct aria label', () => {
         render(
             <ChatErrorBoundary>
-            <ThrowError shouldThrow={ true} />
-        </ChatErrorBoundary>
+                <ThrowError shouldThrow={true} />
+            </ChatErrorBoundary>,
         );
         const retryBtn = screen.getByLabelText('Try again');
         expect(retryBtn).toBeTruthy();

@@ -38,16 +38,13 @@ const MS_TO_KTS = 1.94384;
 // ── GEOMETRY HELPERS ───────────────────────────────────────────────────
 
 /** Haversine distance in meters between two lat/lon points */
-function haversineMeters(
-    lat1: number, lon1: number,
-    lat2: number, lon2: number
-): number {
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6_371_000; // Earth radius in meters
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(dLat / 2) ** 2 +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon / 2) ** 2;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
@@ -56,9 +53,12 @@ function haversineMeters(
  * Uses cross-track distance formula for spherical earth.
  */
 function perpendicularDistanceMeters(
-    pLat: number, pLon: number,
-    aLat: number, aLon: number,
-    bLat: number, bLon: number
+    pLat: number,
+    pLon: number,
+    aLat: number,
+    aLon: number,
+    bLat: number,
+    bLon: number,
 ): number {
     const dAP = haversineMeters(aLat, aLon, pLat, pLon);
     const dAB = haversineMeters(aLat, aLon, bLat, bLon);
@@ -72,23 +72,19 @@ function perpendicularDistanceMeters(
 
     // Cross-track distance (signed)
     const R = 6_371_000;
-    const crossTrack = Math.asin(
-        Math.sin(dAP / R) * Math.sin((bearAP - bearAB) * Math.PI / 180)
-    ) * R;
+    const crossTrack = Math.asin(Math.sin(dAP / R) * Math.sin(((bearAP - bearAB) * Math.PI) / 180)) * R;
 
     return Math.abs(crossTrack);
 }
 
 /** Bearing in degrees from point A to point B */
-export function bearing(
-    lat1: number, lon1: number,
-    lat2: number, lon2: number
-): number {
-    const dLon = (lon2 - lon1) * Math.PI / 180;
-    const y = Math.sin(dLon) * Math.cos(lat2 * Math.PI / 180);
-    const x = Math.cos(lat1 * Math.PI / 180) * Math.sin(lat2 * Math.PI / 180) -
-        Math.sin(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.cos(dLon);
-    return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+export function bearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const y = Math.sin(dLon) * Math.cos((lat2 * Math.PI) / 180);
+    const x =
+        Math.cos((lat1 * Math.PI) / 180) * Math.sin((lat2 * Math.PI) / 180) -
+        Math.sin((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.cos(dLon);
+    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
 /**
@@ -109,10 +105,10 @@ export function headingDelta(a: number, b: number): number {
  * Looser at high speed (offshore passage) where slight deviations don't matter.
  */
 function getEpsilonForSpeed(speedKts: number): number {
-    if (speedKts < 3) return 2;    // Walking / harbor drifting → 2m tolerance
-    if (speedKts < 8) return 5;    // Motoring / coastal sailing → 5m tolerance
-    if (speedKts < 15) return 10;  // Fast passage → 10m tolerance
-    return 15;                      // Racing / planing → 15m tolerance
+    if (speedKts < 3) return 2; // Walking / harbor drifting → 2m tolerance
+    if (speedKts < 8) return 5; // Motoring / coastal sailing → 5m tolerance
+    if (speedKts < 15) return 10; // Fast passage → 10m tolerance
+    return 15; // Racing / planing → 15m tolerance
 }
 
 // ── RAMER-DOUGLAS-PEUCKER ──────────────────────────────────────────────
@@ -147,9 +143,12 @@ function rdpSimplify(points: CachedPosition[], epsilon: number): Set<number> {
 
         for (let i = start + 1; i < end; i++) {
             const dist = perpendicularDistanceMeters(
-                points[i].latitude, points[i].longitude,
-                points[start].latitude, points[start].longitude,
-                points[end].latitude, points[end].longitude
+                points[i].latitude,
+                points[i].longitude,
+                points[start].latitude,
+                points[start].longitude,
+                points[end].latitude,
+                points[end].longitude,
             );
             if (dist > maxDist) {
                 maxDist = dist;
@@ -239,7 +238,7 @@ export function thinTrack(points: CachedPosition[], epsilonMultiplier: number = 
 
     // --- Pass 2: RDP simplification with speed-adaptive epsilon ---
     // Calculate average speed across the buffer
-    const avgSpeedKts = points.reduce((s, p) => s + (p.speed ?? 0), 0) / points.length * MS_TO_KTS;
+    const avgSpeedKts = (points.reduce((s, p) => s + (p.speed ?? 0), 0) / points.length) * MS_TO_KTS;
     const epsilon = getEpsilonForSpeed(avgSpeedKts) * epsilonMultiplier;
 
     const rdpKeep = rdpSimplify(points, epsilon);
@@ -264,10 +263,7 @@ export function thinTrack(points: CachedPosition[], epsilonMultiplier: number = 
 
         // Skip if too close to last kept point
         if (lastKeptPos) {
-            const dist = haversineMeters(
-                lastKeptPos.latitude, lastKeptPos.longitude,
-                p.latitude, p.longitude
-            );
+            const dist = haversineMeters(lastKeptPos.latitude, lastKeptPos.longitude, p.latitude, p.longitude);
             if (dist < MIN_POINT_SPACING_M) continue;
         }
 
@@ -275,7 +271,7 @@ export function thinTrack(points: CachedPosition[], epsilonMultiplier: number = 
         lastKeptPos = p;
     }
 
-    return finalIndices.map(i => points[i]);
+    return finalIndices.map((i) => points[i]);
 }
 
 // ── RING BUFFER ────────────────────────────────────────────────────────

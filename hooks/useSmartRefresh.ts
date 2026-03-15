@@ -17,18 +17,23 @@ export const useSmartRefresh = ({
     nextUpdate,
     setNextUpdate,
     fetchWeather,
-    safeSetItem
+    safeSetItem,
 }: UseSmartRefreshProps) => {
-
     // Track Refs for internal loop usage
     const weatherDataRef = useRef(weatherData);
     const settingsRef = useRef(settings);
-    const isTrackingCurrentLocation = useRef(settings.defaultLocation === "Current Location");
+    const isTrackingCurrentLocation = useRef(settings.defaultLocation === 'Current Location');
 
     // Sync Refs
-    useEffect(() => { weatherDataRef.current = weatherData; }, [weatherData]);
-    useEffect(() => { settingsRef.current = settings; }, [settings]);
-    useEffect(() => { isTrackingCurrentLocation.current = settings.defaultLocation === "Current Location"; }, [settings.defaultLocation]);
+    useEffect(() => {
+        weatherDataRef.current = weatherData;
+    }, [weatherData]);
+    useEffect(() => {
+        settingsRef.current = settings;
+    }, [settings]);
+    useEffect(() => {
+        isTrackingCurrentLocation.current = settings.defaultLocation === 'Current Location';
+    }, [settings.defaultLocation]);
 
     // CALCULATE NEXT UPDATE TIME
     useEffect(() => {
@@ -46,7 +51,7 @@ export const useSmartRefresh = ({
 
             // 2. Coastal Checks (30m Interval)
             // Definition: Not Inland AND Has Tides (or Ocean Point etc)
-            const isCoastal = !currentReport.isLandlocked && (currentReport.tides && currentReport.tides.length > 0);
+            const isCoastal = !currentReport.isLandlocked && currentReport.tides && currentReport.tides.length > 0;
 
             if (isCoastal) {
                 // Check if we can hit the :30 mark before the next hour
@@ -59,32 +64,27 @@ export const useSmartRefresh = ({
                 }
 
                 // 3. Unstable Weather Check (10 min Override)
-                const isUnstable = (
+                const isUnstable =
                     (currentReport.current.windSpeed && currentReport.current.windSpeed > 20) ||
                     (currentReport.current.windGust && currentReport.current.windGust > 25) ||
                     (currentReport.current.pressure && currentReport.current.pressure < 990) ||
                     (currentReport.current.precipitation && currentReport.current.precipitation > 5) || // > 5mm/hr
-                    (currentReport.current.visibility && currentReport.current.visibility < 1)
-                );
+                    (currentReport.current.visibility && currentReport.current.visibility < 1);
 
                 if (isUnstable) {
-                    const tenMins = nowTime + (10 * 60 * 1000);
+                    const tenMins = nowTime + 10 * 60 * 1000;
                     if (tenMins < targetTime) {
                         targetTime = tenMins;
-
                     }
                 }
             }
 
             setNextUpdate(targetTime);
             safeSetItem('thalassa_next_update', targetTime.toString());
-
         };
 
         scheduleNextUpdate();
-
     }, [weatherData?.generatedAt]); // Triggers when new data arrives
-
 
     // MONITOR LOOP (Ticks every 10s)
     useEffect(() => {
@@ -97,8 +97,7 @@ export const useSmartRefresh = ({
             const data = weatherDataRef.current;
             if (data) {
                 const age = Date.now() - (data.generatedAt ? new Date(data.generatedAt).getTime() : 0);
-                if (age > (2 * 60 * 60 * 1000)) {
-
+                if (age > 2 * 60 * 60 * 1000) {
                     const loc = data.locationName || settingsRef.current.defaultLocation;
                     if (loc) fetchWeather(loc, false);
                     return;
@@ -109,14 +108,11 @@ export const useSmartRefresh = ({
 
             // Trigger window
             if (Date.now() >= nextUpdate) {
-
-
                 // RE-GEOLOCATE CHECK
                 if (isTrackingCurrentLocation.current) {
-
                     GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then((pos) => {
                         if (pos) {
-                            fetchWeather("Current Location", true, { lat: pos.latitude, lon: pos.longitude });
+                            fetchWeather('Current Location', true, { lat: pos.latitude, lon: pos.longitude });
                         } else {
                             const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
                             if (loc) fetchWeather(loc, false);
@@ -126,7 +122,6 @@ export const useSmartRefresh = ({
                     // Static Refresh (Data Only)
                     const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
                     if (loc) {
-
                         fetchWeather(loc, false);
                     }
                 }

@@ -1,5 +1,3 @@
-import { calculateDistance } from '../../utils/math';
-
 export type LocationType = 'coastal' | 'offshore' | 'inland';
 
 /**
@@ -16,15 +14,14 @@ export const determineLocationType = (
     distToWaterKm: number,
     landName?: string,
     hasTides?: boolean,
-    elevation?: number
+    elevation?: number,
 ): LocationType => {
-
     // --- THRESHOLDS ---
     const OFFSHORE_THRESHOLD_KM = 37.04; // 20 NM
     const IS_ON_WATER_THRESHOLD_KM = 5.0; // 5km marine grid snap
     const INLAND_WATER_THRESHOLD_KM = 15.0; // ~8 NM, relaxed for grid resolution
 
-    const elev = (elevation !== undefined && elevation !== null) ? elevation : -1;
+    const elev = elevation !== undefined && elevation !== null ? elevation : -1;
     const hasElevation = elev >= 0;
 
     // ═══════════════════════════════════════════════════════════════
@@ -35,14 +32,38 @@ export const determineLocationType = (
     let isMaritimeName = false;
     if (landName) {
         const MARITIME_KEYWORDS = [
-            'river', 'harbour', 'harbor', 'port', 'bay', 'creek',
-            'estuary', 'marina', 'channel', 'wharf', 'dock', 'inlet',
-            'cove', 'lagoon', 'strait', 'sound', 'reef', 'cape',
-            'head', 'point', 'pier', 'jetty', 'quay', 'waterfront',
-            'seaside', 'beach', 'coast', 'shore', 'anchorage'
+            'river',
+            'harbour',
+            'harbor',
+            'port',
+            'bay',
+            'creek',
+            'estuary',
+            'marina',
+            'channel',
+            'wharf',
+            'dock',
+            'inlet',
+            'cove',
+            'lagoon',
+            'strait',
+            'sound',
+            'reef',
+            'cape',
+            'head',
+            'point',
+            'pier',
+            'jetty',
+            'quay',
+            'waterfront',
+            'seaside',
+            'beach',
+            'coast',
+            'shore',
+            'anchorage',
         ];
         const nameLower = landName.toLowerCase();
-        isMaritimeName = MARITIME_KEYWORDS.some(kw => nameLower.includes(kw));
+        isMaritimeName = MARITIME_KEYWORDS.some((kw) => nameLower.includes(kw));
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -50,7 +71,6 @@ export const determineLocationType = (
     // Either deep ocean or deep inland (desert / mountain).
     // ═══════════════════════════════════════════════════════════════
     if (distToLandKm === null || distToLandKm > OFFSHORE_THRESHOLD_KM) {
-
         // Maritime name + far from land = offshore (not coastal — too far)
         if (isMaritimeName) return 'offshore';
 

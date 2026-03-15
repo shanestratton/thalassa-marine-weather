@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef } from 'react';
 import { useThalassa } from '../context/ThalassaContext';
 import { supabase } from '../services/supabase';
@@ -42,25 +41,28 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
             if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
                 new Notification(title, {
                     body,
-                    icon: 'https://cdn-icons-png.flaticon.com/512/567/567055.png'
+                    icon: 'https://cdn-icons-png.flaticon.com/512/567/567055.png',
                 });
             }
 
             // 3. Queue for APNs push delivery (so it arrives when app is backgrounded)
             if (supabase && user?.id) {
-                supabase.from('push_notification_queue').insert({
-                    recipient_user_id: user.id,
-                    notification_type: 'weather_alert',
-                    title,
-                    body,
-                    data: {
-                        alert_type: id,
-                        location: weatherData.locationName || 'Unknown',
-                    },
-                }).then(({ error }) => {
-                    if (error) log.warn('Push queue insert failed:', error.message);
-                    else log.info('Weather alert queued for push:', id);
-                });
+                supabase
+                    .from('push_notification_queue')
+                    .insert({
+                        recipient_user_id: user.id,
+                        notification_type: 'weather_alert',
+                        title,
+                        body,
+                        data: {
+                            alert_type: id,
+                            location: weatherData.locationName || 'Unknown',
+                        },
+                    })
+                    .then(({ error }) => {
+                        if (error) log.warn('Push queue insert failed:', error.message);
+                        else log.info('Weather alert queued for push:', id);
+                    });
             }
 
             alertedConditions.current.add(id);
@@ -73,7 +75,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
                 checkAndNotify(
                     'wind',
                     `🌬 High Wind Alert: ${current.windSpeed}kts`,
-                    `Wind speed at ${weatherData.locationName} has exceeded your ${notifications.wind.threshold}kts threshold.`
+                    `Wind speed at ${weatherData.locationName} has exceeded your ${notifications.wind.threshold}kts threshold.`,
                 );
             }
         }
@@ -84,22 +86,24 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
                 checkAndNotify(
                     'waves',
                     `🌊 High Surf Advisory: ${current.waveHeight}ft`,
-                    `Wave height at ${weatherData.locationName} is above your ${notifications.waves.threshold}ft limit.`
+                    `Wave height at ${weatherData.locationName} is above your ${notifications.waves.threshold}ft limit.`,
                 );
             }
         }
 
         // — Precipitation Alert
         if (notifications.precipitation.enabled) {
-            if (current.condition && (current.condition.toLowerCase().includes('rain') || current.condition.toLowerCase().includes('storm'))) {
+            if (
+                current.condition &&
+                (current.condition.toLowerCase().includes('rain') || current.condition.toLowerCase().includes('storm'))
+            ) {
                 checkAndNotify(
                     'precip',
                     `🌧 Precipitation Detected`,
-                    `Current conditions at ${weatherData.locationName}: ${current.condition}`
+                    `Current conditions at ${weatherData.locationName}: ${current.condition}`,
                 );
             }
         }
-
     }, [weatherData, settings.notifications, onNotify, user?.id]);
 
     return null; // Headless component

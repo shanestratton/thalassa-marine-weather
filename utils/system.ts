@@ -25,7 +25,7 @@ export const getSystemUnits = (): UnitPreferences => {
         temp: 'C',
         distance: 'nm',
         visibility: 'nm',
-        volume: 'l'
+        volume: 'l',
     };
 
     if (typeof navigator === 'undefined') return defaults;
@@ -33,7 +33,7 @@ export const getSystemUnits = (): UnitPreferences => {
     // Check for US Locale (Imperial Defaults)
     // We check both languages array and single property for broader support
     const languages = navigator.languages || [navigator.language || 'en'];
-    const isUS = languages.some(l => l.toLowerCase() === 'en-us' || l.toLowerCase() === 'en-us');
+    const isUS = languages.some((l) => l.toLowerCase() === 'en-us' || l.toLowerCase() === 'en-us');
 
     if (isUS) {
         return {
@@ -44,7 +44,7 @@ export const getSystemUnits = (): UnitPreferences => {
             temp: 'F',
             distance: 'nm',
             visibility: 'nm',
-            volume: 'gal'
+            volume: 'gal',
         };
     }
 

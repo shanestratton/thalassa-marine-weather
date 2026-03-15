@@ -12,18 +12,60 @@ export interface GribParameterInfo {
     key: GribParameter;
     label: string;
     description: string;
-    saildocsCode: string;     // Saildocs parameter code
-    essential: boolean;       // On by default
-    bytesPerPoint: number;    // Estimated GRIB2 encoding overhead per grid point
+    saildocsCode: string; // Saildocs parameter code
+    essential: boolean; // On by default
+    bytesPerPoint: number; // Estimated GRIB2 encoding overhead per grid point
 }
 
 export const GRIB_PARAMETERS: GribParameterInfo[] = [
-    { key: 'wind', label: 'Wind Speed & Direction', description: '10m wind U/V components', saildocsCode: 'WIND', essential: true, bytesPerPoint: 4 },
-    { key: 'pressure', label: 'MSLP', description: 'Mean Sea Level Pressure', saildocsCode: 'PRESS', essential: true, bytesPerPoint: 2 },
-    { key: 'waves', label: 'Wave Height', description: 'Significant wave height + period', saildocsCode: 'HTSGW,PERPW', essential: false, bytesPerPoint: 4 },
-    { key: 'precip', label: 'Precipitation', description: 'Total precipitation rate', saildocsCode: 'APCP', essential: false, bytesPerPoint: 2 },
-    { key: 'cape', label: 'CAPE Index', description: 'Convective instability', saildocsCode: 'CAPE', essential: false, bytesPerPoint: 2 },
-    { key: 'sst', label: 'Sea Surface Temp', description: 'Ocean surface temperature', saildocsCode: 'SSTK', essential: false, bytesPerPoint: 2 },
+    {
+        key: 'wind',
+        label: 'Wind Speed & Direction',
+        description: '10m wind U/V components',
+        saildocsCode: 'WIND',
+        essential: true,
+        bytesPerPoint: 4,
+    },
+    {
+        key: 'pressure',
+        label: 'MSLP',
+        description: 'Mean Sea Level Pressure',
+        saildocsCode: 'PRESS',
+        essential: true,
+        bytesPerPoint: 2,
+    },
+    {
+        key: 'waves',
+        label: 'Wave Height',
+        description: 'Significant wave height + period',
+        saildocsCode: 'HTSGW,PERPW',
+        essential: false,
+        bytesPerPoint: 4,
+    },
+    {
+        key: 'precip',
+        label: 'Precipitation',
+        description: 'Total precipitation rate',
+        saildocsCode: 'APCP',
+        essential: false,
+        bytesPerPoint: 2,
+    },
+    {
+        key: 'cape',
+        label: 'CAPE Index',
+        description: 'Convective instability',
+        saildocsCode: 'CAPE',
+        essential: false,
+        bytesPerPoint: 2,
+    },
+    {
+        key: 'sst',
+        label: 'Sea Surface Temp',
+        description: 'Ocean surface temperature',
+        saildocsCode: 'SSTK',
+        essential: false,
+        bytesPerPoint: 2,
+    },
 ];
 
 // ── Resolution options ──
@@ -77,14 +119,14 @@ export class GribRequestBuilder {
         // Sum bytes per grid point across selected parameters
         let bytesPerPoint = 0;
         for (const paramKey of parameters) {
-            const info = GRIB_PARAMETERS.find(p => p.key === paramKey);
+            const info = GRIB_PARAMETERS.find((p) => p.key === paramKey);
             if (info) bytesPerPoint += info.bytesPerPoint;
         }
 
         // GRIB2 header overhead (~200 bytes per parameter per time step)
         const headerOverhead = parameters.length * timeSteps * 200;
 
-        return (gridPoints * bytesPerPoint * timeSteps) + headerOverhead;
+        return gridPoints * bytesPerPoint * timeSteps + headerOverhead;
     }
 
     /**
@@ -99,7 +141,12 @@ export class GribRequestBuilder {
     /**
      * Calculate grid point count for display.
      */
-    static getGridInfo(request: GribRequest): { latPoints: number; lonPoints: number; totalPoints: number; timeSteps: number } {
+    static getGridInfo(request: GribRequest): {
+        latPoints: number;
+        lonPoints: number;
+        totalPoints: number;
+        timeSteps: number;
+    } {
         const latSpan = Math.abs(request.bbox.north - request.bbox.south);
         const lonSpan = Math.abs(request.bbox.east - request.bbox.west);
         const latPoints = Math.max(1, Math.ceil(latSpan / request.resolution) + 1);
@@ -128,7 +175,7 @@ export class GribRequestBuilder {
 
         // Map parameters to Saildocs codes
         const paramCodes = parameters
-            .map(key => GRIB_PARAMETERS.find(p => p.key === key)?.saildocsCode)
+            .map((key) => GRIB_PARAMETERS.find((p) => p.key === key)?.saildocsCode)
             .filter(Boolean)
             .join(',');
 
@@ -170,17 +217,31 @@ export class GribRequestBuilder {
 
             // Level
             params.set('lev_10_m_above_ground', 'on'); // Wind
-            params.set('lev_mean_sea_level', 'on');     // Pressure
+            params.set('lev_mean_sea_level', 'on'); // Pressure
 
             // Variables based on parameters
             for (const key of parameters) {
                 switch (key) {
-                    case 'wind': params.set('var_UGRD', 'on'); params.set('var_VGRD', 'on'); break;
-                    case 'pressure': params.set('var_PRMSL', 'on'); break;
-                    case 'waves': params.set('var_HTSGW', 'on'); params.set('var_PERPW', 'on'); break;
-                    case 'precip': params.set('var_APCP', 'on'); break;
-                    case 'cape': params.set('var_CAPE', 'on'); break;
-                    case 'sst': params.set('var_TMP', 'on'); break;
+                    case 'wind':
+                        params.set('var_UGRD', 'on');
+                        params.set('var_VGRD', 'on');
+                        break;
+                    case 'pressure':
+                        params.set('var_PRMSL', 'on');
+                        break;
+                    case 'waves':
+                        params.set('var_HTSGW', 'on');
+                        params.set('var_PERPW', 'on');
+                        break;
+                    case 'precip':
+                        params.set('var_APCP', 'on');
+                        break;
+                    case 'cape':
+                        params.set('var_CAPE', 'on');
+                        break;
+                    case 'sst':
+                        params.set('var_TMP', 'on');
+                        break;
                 }
             }
 
@@ -216,7 +277,7 @@ export class GribRequestBuilder {
      * Get the default essential parameters.
      */
     static getDefaultParameters(): GribParameter[] {
-        return GRIB_PARAMETERS.filter(p => p.essential).map(p => p.key);
+        return GRIB_PARAMETERS.filter((p) => p.essential).map((p) => p.key);
     }
 
     /**

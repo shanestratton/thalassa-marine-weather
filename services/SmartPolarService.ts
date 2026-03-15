@@ -16,12 +16,12 @@ import { SmartPolarStore } from './SmartPolarStore';
 // ── Filter thresholds ──
 const MAX_RPM = 0;
 const ALT_VOLTAGE_THRESHOLD = 14.2; // Volts — alternator charging spike
-const MAX_ROT_DEG_PER_SEC = 3.0;    // Rate of Turn threshold
-const TWS_STD_MAX = 3.0;            // Max TWS std-dev over window
-const TWA_STD_MAX = 15.0;           // Max TWA std-dev over window
-const MIN_STW = 1.0;                // Minimum boat speed (kts)
-const STEADY_STATE_SEC = 30;         // Seconds of clean data before recording
-const ROLLING_WINDOW_SEC = 30;       // Window for std-dev calculations
+const MAX_ROT_DEG_PER_SEC = 3.0; // Rate of Turn threshold
+const TWS_STD_MAX = 3.0; // Max TWS std-dev over window
+const TWA_STD_MAX = 15.0; // Max TWA std-dev over window
+const MIN_STW = 1.0; // Minimum boat speed (kts)
+const STEADY_STATE_SEC = 30; // Seconds of clean data before recording
+const ROLLING_WINDOW_SEC = 30; // Window for std-dev calculations
 
 export type FilterGateStatus = 'pass' | 'fail' | 'unavailable';
 
@@ -61,12 +61,15 @@ class SmartPolarServiceClass {
         if (this.enabled) return;
         this.enabled = true;
         await SmartPolarStore.initialize();
-        this.unsubscribe = NmeaListenerService.onSample(sample => this.processSample(sample));
+        this.unsubscribe = NmeaListenerService.onSample((sample) => this.processSample(sample));
     }
 
     stop(): void {
         this.enabled = false;
-        if (this.unsubscribe) { this.unsubscribe(); this.unsubscribe = null; }
+        if (this.unsubscribe) {
+            this.unsubscribe();
+            this.unsubscribe = null;
+        }
         this.sampleHistory = [];
         this.steadyStateStart = null;
         this.recording = false;
@@ -166,8 +169,8 @@ class SmartPolarServiceClass {
         const windowSamples = this.getWindowSamples();
         if (windowSamples.length < 3) return 'unavailable';
 
-        const twsValues = windowSamples.map(s => s.tws).filter((v): v is number => v !== null);
-        const twaValues = windowSamples.map(s => s.twa).filter((v): v is number => v !== null);
+        const twsValues = windowSamples.map((s) => s.tws).filter((v): v is number => v !== null);
+        const twaValues = windowSamples.map((s) => s.twa).filter((v): v is number => v !== null);
 
         if (twsValues.length < 3 || twaValues.length < 3) return 'unavailable';
 
@@ -188,7 +191,7 @@ class SmartPolarServiceClass {
 
     private getWindowSamples(): NmeaSample[] {
         const cutoff = Date.now() - ROLLING_WINDOW_SEC * 1000;
-        return this.sampleHistory.filter(s => s.timestamp >= cutoff);
+        return this.sampleHistory.filter((s) => s.timestamp >= cutoff);
     }
 
     private buildStatus(): FilterStatus {
@@ -198,7 +201,7 @@ class SmartPolarServiceClass {
             stableHeading: this.gateStableHeading(),
             steadyWind: this.gateSteadyWind(),
             minimumSpeed: latest ? this.gateMinimumSpeed(latest) : 'unavailable',
-            steadyState: this.recording ? 'pass' : (this.steadyStateStart !== null ? 'unavailable' : 'fail'),
+            steadyState: this.recording ? 'pass' : this.steadyStateStart !== null ? 'unavailable' : 'fail',
             recording: this.recording,
             totalAccepted: this.totalAccepted,
             totalRejected: this.totalRejected,

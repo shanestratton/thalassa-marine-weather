@@ -1,7 +1,6 @@
-
 import React from 'react';
 import { t } from '../theme';
-import { XIcon, DiamondIcon, CheckIcon, StarIcon, RouteIcon, ServerIcon, LockIcon } from './Icons';
+import { XIcon, DiamondIcon, StarIcon, RouteIcon, ServerIcon, LockIcon } from './Icons';
 import { useFocusTrap } from '../hooks/useAccessibility';
 
 interface UpgradeModalProps {
@@ -10,11 +9,11 @@ interface UpgradeModalProps {
     onUpgrade: () => void;
 }
 
-const FeatureRow = ({ icon, title, desc }: { icon: React.ReactNode, title: string, desc: string }) => (
-    <div className={`flex items-start gap-4 p-4 rounded-xl bg-white/5 ${t.border.subtle} hover:bg-white/10 transition-colors`}>
-        <div className="p-2 rounded-lg bg-sky-500/20 text-sky-300 shrink-0">
-            {icon}
-        </div>
+const FeatureRow = ({ icon, title, desc }: { icon: React.ReactNode; title: string; desc: string }) => (
+    <div
+        className={`flex items-start gap-4 p-4 rounded-xl bg-white/5 ${t.border.subtle} hover:bg-white/10 transition-colors`}
+    >
+        <div className="p-2 rounded-lg bg-sky-500/20 text-sky-300 shrink-0">{icon}</div>
         <div>
             <h4 className="text-white font-bold text-sm">{title}</h4>
             <p className="text-sm text-gray-400 mt-1 leading-relaxed">{desc}</p>
@@ -27,13 +26,19 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
 
     if (!isOpen) return null;
 
-
     return (
-        <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="upgrade-title" ref={focusTrapRef}>
+        <div
+            className="fixed inset-0 z-[1200] flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="upgrade-title"
+            ref={focusTrapRef}
+        >
             <div className="absolute inset-0 bg-black/90 transition-opacity" onClick={onClose} />
 
-            <div className={`modal-panel-enter relative bg-slate-900 w-full max-w-lg rounded-2xl overflow-hidden ${t.border.default} shadow-2xl flex flex-col max-h-[90vh]`}>
-
+            <div
+                className={`modal-panel-enter relative bg-slate-900 w-full max-w-lg rounded-2xl overflow-hidden ${t.border.default} shadow-2xl flex flex-col max-h-[90vh]`}
+            >
                 {/* Header Image/Gradient */}
                 <div className="relative h-40 bg-gradient-to-br from-sky-900 via-sky-900 to-slate-900 flex items-center justify-center overflow-hidden">
                     <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1534008753122-a83776b29f6c?q=80&w=2070&fm=jpg&fit=crop')] bg-cover bg-center opacity-30"></div>
@@ -43,10 +48,16 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                         <div className="w-16 h-16 mx-auto bg-sky-500 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(14,165,233,0.5)] mb-3">
                             <DiamondIcon className="w-8 h-8 text-white" />
                         </div>
-                        <h2 id="upgrade-title" className="text-2xl font-bold text-white tracking-tight">Thalassa <span className="text-sky-400">Pro</span></h2>
+                        <h2 id="upgrade-title" className="text-2xl font-bold text-white tracking-tight">
+                            Thalassa <span className="text-sky-400">Pro</span>
+                        </h2>
                     </div>
 
-                    <button onClick={onClose} className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 rounded-full text-white/70 hover:text-white transition-colors z-20" aria-label="Close">
+                    <button
+                        onClick={onClose}
+                        className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 rounded-full text-white/70 hover:text-white transition-colors z-20"
+                        aria-label="Close"
+                    >
                         <XIcon className="w-5 h-5" />
                     </button>
                 </div>
@@ -55,7 +66,9 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                 <div className="p-6 overflow-y-auto custom-scrollbar">
                     <div className="text-center mb-6">
                         <h3 className="text-xl font-medium text-white mb-2">Unlock Professional Intelligence</h3>
-                        <p className="text-sm text-gray-400">Upgrade for computational routing, extended forecasts, and advanced marine insights.</p>
+                        <p className="text-sm text-gray-400">
+                            Upgrade for computational routing, extended forecasts, and advanced marine insights.
+                        </p>
                     </div>
 
                     <div className="space-y-3 mb-8">
@@ -78,9 +91,13 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
 
                     {/* Pricing */}
                     <div className="bg-sky-500/10 border border-sky-500/30 rounded-2xl p-4 text-center mb-6 relative overflow-hidden">
-                        <div className="absolute top-0 right-0 bg-sky-500 text-white text-sm font-bold px-2 py-1 rounded-bl-lg">BEST VALUE</div>
+                        <div className="absolute top-0 right-0 bg-sky-500 text-white text-sm font-bold px-2 py-1 rounded-bl-lg">
+                            BEST VALUE
+                        </div>
                         <p className="text-sm text-gray-400 mb-1">Annual Subscription</p>
-                        <p className="text-3xl font-bold text-white mb-1">$99.99<span className="text-sm font-normal text-gray-400">/year</span></p>
+                        <p className="text-3xl font-bold text-white mb-1">
+                            $99.99<span className="text-sm font-normal text-gray-400">/year</span>
+                        </p>
                         <p className="text-sm text-sky-300">Less than $8.50/month</p>
                     </div>
 

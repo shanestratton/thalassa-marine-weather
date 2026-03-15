@@ -1,17 +1,15 @@
-
 import { describe, it, expect } from 'vitest';
-import { 
-    convertSpeed, 
-    convertLength, 
-    convertTemp, 
-    calculateWindChill, 
-    expandCompassDirection, 
+import {
+    convertSpeed,
+    convertLength,
+    convertTemp,
+    calculateWindChill,
+    expandCompassDirection,
     getBeaufort,
-    calculateApparentTemp 
+    calculateApparentTemp,
 } from './utils';
 
 describe('Thalassa Marine Utilities', () => {
-    
     describe('Speed Conversions', () => {
         it('converts knots to mph correctly', () => {
             // 10 kts * 1.15078 = 11.5

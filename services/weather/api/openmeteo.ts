@@ -2,7 +2,7 @@ import { CapacitorHttp } from '@capacitor/core';
 import { MarineWeatherReport, WeatherModel } from '../../../types';
 import { determineLocationType } from '../locationType';
 import { getOpenMeteoKey } from '../keys';
-import { getCondition, generateDescription } from '../transformers';
+import { generateDescription } from '../transformers';
 import { calculateFeelsLike, calculateDistance } from '../../../utils/math';
 import { degreesToCardinal } from '../../../utils/format';
 
@@ -93,23 +93,22 @@ interface OMMarineResponse {
 
 // ... inside fetchOpenMeteo ...
 
-
-
-
-
-export const attemptGridSearch = async (lat: number, lon: number, name: string): Promise<MarineWeatherReport | null> => {
+export const attemptGridSearch = async (
+    lat: number,
+    lon: number,
+    name: string,
+): Promise<MarineWeatherReport | null> => {
     // Spiral Grid Search to find nearest marine point
     // We search outward from the center point in increments
     const rings = [
         0.05, // ~5km
-        0.10, // ~11km
+        0.1, // ~11km
         0.15, // ~16km
-        0.20, // ~22km
-        0.30  // ~33km
+        0.2, // ~22km
+        0.3, // ~33km
     ];
 
     try {
-
         for (const ring of rings) {
             // Check 8 points around the ring
             // N, NE, E, SE, S, SW, W, NW
@@ -121,13 +120,12 @@ export const attemptGridSearch = async (lat: number, lon: number, name: string):
                 { lat: lat - ring, lon: lon },
                 { lat: lat - ring, lon: lon - ring },
                 { lat: lat, lon: lon - ring },
-                { lat: lat + ring, lon: lon - ring }
+                { lat: lat + ring, lon: lon - ring },
             ];
 
             for (const p of points) {
                 const check = await checkMarineProximity(p.lat, p.lon);
                 if (check.hasMarineData) {
-
                     // Found a valid marine point!
                     // Fetch weather for this new point
                     return fetchOpenMeteo(p.lat, p.lon, name, true);
@@ -136,7 +134,6 @@ export const attemptGridSearch = async (lat: number, lon: number, name: string):
         }
     } catch (e) {
         // Silently ignored — non-critical failure
-
     }
     return null;
 };
@@ -146,36 +143,39 @@ export const fetchOpenMeteo = async (
     lon: number,
     locationName: string,
     isFast: boolean,
-    model: WeatherModel = 'best_match'
+    model: WeatherModel = 'best_match',
 ): Promise<MarineWeatherReport> => {
     const now = new Date();
     const apiKey = getOpenMeteoKey();
     const isCommercial = !!apiKey && apiKey.length > 5;
 
     if (!isCommercial) {
-        throw new Error(`STRICT MODE: Commercial Open-Meteo Key Missing. (Key: ${apiKey ? 'Present' : 'Missing'}, Len: ${apiKey ? apiKey.length : 0})`);
+        throw new Error(
+            `STRICT MODE: Commercial Open-Meteo Key Missing. (Key: ${apiKey ? 'Present' : 'Missing'}, Len: ${apiKey ? apiKey.length : 0})`,
+        );
     }
 
     // normalize (wrap/clamp) - copied logic
     const safeLat = Math.max(-90, Math.min(90, lat));
-    const safeLon = ((lon + 180) % 360 + 360) % 360 - 180;
+    const safeLon = ((((lon + 180) % 360) + 360) % 360) - 180;
 
-    const baseUrl = "https://customer-api.open-meteo.com/v1/forecast";
+    const baseUrl = 'https://customer-api.open-meteo.com/v1/forecast';
 
     const params = new URLSearchParams({
         latitude: safeLat.toFixed(4),
         longitude: safeLon.toFixed(4),
-        current: "temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,snowfall,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m",
-        hourly: "temperature_2m,relative_humidity_2m,dew_point_2m,precipitation_probability,precipitation,weather_code,pressure_msl,surface_pressure,cloud_cover,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,cape",
-        daily: "weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_hours,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant",
-        timezone: "auto",
-        forecast_days: "16",
+        current:
+            'temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,snowfall,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m',
+        hourly: 'temperature_2m,relative_humidity_2m,dew_point_2m,precipitation_probability,precipitation,weather_code,pressure_msl,surface_pressure,cloud_cover,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,cape',
+        daily: 'weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_hours,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant',
+        timezone: 'auto',
+        forecast_days: '16',
         models: model,
-        elevation: "nan" // Explicitly request elevation metadata if needed, though usually default. 
+        elevation: 'nan', // Explicitly request elevation metadata if needed, though usually default.
         // actually standard OM API returns it.
     });
 
-    if (isCommercial) params.append("apikey", apiKey!);
+    if (isCommercial) params.append('apikey', apiKey!);
 
     // Fetch Weather using Native HTTP to avoid silent failures/CORS
     const res = await CapacitorHttp.get({ url: `${baseUrl}?${params.toString()}` });
@@ -190,7 +190,11 @@ export const fetchOpenMeteo = async (
 
     let wData = res.data as OMWeatherResponse;
     if (typeof wData === 'string') {
-        try { wData = JSON.parse(wData); } catch (e) { throw e; }
+        try {
+            wData = JSON.parse(wData);
+        } catch (e) {
+            throw e;
+        }
     }
 
     // Fetch Marine (Waves) using Ring Search (Proximity)
@@ -205,11 +209,9 @@ export const fetchOpenMeteo = async (
             waveData = proxResult.data as OMMarineResponse;
             distToWaterIdx = proxResult.nearestWaterDistanceKm;
         } else {
-
         }
     } catch (e) {
         // Silently ignored — non-critical failure
-
     }
 
     // Fetch Tides (Parallel-ish, but we await here for simplicity or use Promise.all above? Let's use Promise.all for speed)
@@ -219,12 +221,23 @@ export const fetchOpenMeteo = async (
 
     // Helper: Map WMO Code to String
     const wmoMap: Record<number, string> = {
-        0: 'Clear', 1: 'Clear', 2: 'Clouds', 3: 'Overcast',
-        45: 'Fog', 48: 'Depositing Rime Fog',
-        51: 'Light Drizzle', 53: 'Moderate Drizzle', 55: 'Dense Drizzle',
-        61: 'Light Rain', 63: 'Moderate Rain', 65: 'Heavy Rain',
-        80: 'Light Showers', 81: 'Moderate Showers', 82: 'Violent Showers',
-        95: 'Thunderstorm', 96: 'Thunderstorm with Hail'
+        0: 'Clear',
+        1: 'Clear',
+        2: 'Clouds',
+        3: 'Overcast',
+        45: 'Fog',
+        48: 'Depositing Rime Fog',
+        51: 'Light Drizzle',
+        53: 'Moderate Drizzle',
+        55: 'Dense Drizzle',
+        61: 'Light Rain',
+        63: 'Moderate Rain',
+        65: 'Heavy Rain',
+        80: 'Light Showers',
+        81: 'Moderate Showers',
+        82: 'Violent Showers',
+        95: 'Thunderstorm',
+        96: 'Thunderstorm with Hail',
     };
     const getWmo = (code: number) => wmoMap[code] || 'Cloudy';
 
@@ -233,21 +246,22 @@ export const fetchOpenMeteo = async (
     const curWave = waveData?.current || {};
 
     // Fallback if current block missing (rare)
-    if (!cur) throw new Error("OpenMeteo: No Current Data");
+    if (!cur) throw new Error('OpenMeteo: No Current Data');
 
     // Use hourly fallback for Visibility (not in current)
-    const currentHourIndex = wData.hourly?.time?.findIndex((t: string) => t.startsWith(now.toISOString().slice(0, 13))) || 0;
+    const currentHourIndex =
+        wData.hourly?.time?.findIndex((t: string) => t.startsWith(now.toISOString().slice(0, 13))) || 0;
     const curVis = wData.hourly?.visibility ? wData.hourly.visibility[currentHourIndex] : 10000; // meters
     const curDew = wData.hourly?.dew_point_2m ? wData.hourly.dew_point_2m[currentHourIndex] : 0;
     const curUV = wData.hourly?.uv_index ? wData.hourly.uv_index[currentHourIndex] : 0;
     const curCAPE = wData.hourly?.cape ? wData.hourly.cape[currentHourIndex] : 0;
 
-    const windKts = cur.wind_speed_10m * 1.94384; // km/h to knots? NO. OM uses km/h by default unless specified. 
-    // Wait, params didn't specify units. Default is km/h. 
+    const windKts = cur.wind_speed_10m * 1.94384; // km/h to knots? NO. OM uses km/h by default unless specified.
+    // Wait, params didn't specify units. Default is km/h.
     // Is 1 km/h = 0.539957 knots.
     // 1 m/s = 1.94384 knots.
     // OpenMeteo Default: km/h. To Knots: * 0.539957.
-    // Wait, let's check legacy code. 
+    // Wait, let's check legacy code.
     // Legacy `weatherService.ts`: "windSpeed: wData.current.wind_speed_10m * 0.539957" (Line 1585 in original thought process? No, I need verification.)
 
     // VERIFICATION: Open-Meteo docs say default windspeed unit is km/h.
@@ -276,23 +290,28 @@ export const fetchOpenMeteo = async (
         humidity: cur.relative_humidity_2m,
         uvIndex: curUV,
         condition: getWmo(cur.weather_code),
-        description: "",
-        day: wData.timezone ? now.toLocaleDateString('en-US', { weekday: 'long', timeZone: wData.timezone }) : "Today",
+        description: '',
+        day: wData.timezone ? now.toLocaleDateString('en-US', { weekday: 'long', timeZone: wData.timezone }) : 'Today',
         date: wData.timezone ? now.toLocaleDateString('en-US', { timeZone: wData.timezone }) : now.toLocaleDateString(),
         feelsLike: calculateFeelsLike(cur.temperature_2m, cur.relative_humidity_2m, cur.wind_speed_10m * kFactor * 0.8), // Approx
         isDay: cur.is_day === 1,
         isEstimated: false,
-        sunrise: "", // Filled from daily
-        sunset: "",
-        moonPhase: "",
+        sunrise: '', // Filled from daily
+        sunset: '',
+        moonPhase: '',
         moonIllumination: 0,
         currentSpeed: 0,
         currentDirection: 0,
         highTemp: undefined as number | undefined,
         lowTemp: undefined as number | undefined,
-        cape: curCAPE
+        cape: curCAPE,
     };
-    currentMetrics.description = generateDescription(currentMetrics.condition, currentMetrics.windSpeed, currentMetrics.windDirection, waveH);
+    currentMetrics.description = generateDescription(
+        currentMetrics.condition,
+        currentMetrics.windSpeed,
+        currentMetrics.windDirection,
+        waveH,
+    );
 
     // Build Daily
     const dailyArr = wData.daily || {};
@@ -304,12 +323,22 @@ export const fetchOpenMeteo = async (
         lowTemp: dailyArr.temperature_2m_min[i],
         windSpeed: parseFloat((dailyArr.wind_speed_10m_max[i] * kFactor).toFixed(1)),
         windGust: parseFloat((dailyArr.wind_gusts_10m_max[i] * kFactor).toFixed(1)),
-        waveHeight: waveData?.daily?.wave_height_max ? parseFloat((waveData.daily.wave_height_max[i] * 3.28084).toFixed(1)) : 0,
+        waveHeight: waveData?.daily?.wave_height_max
+            ? parseFloat((waveData.daily.wave_height_max[i] * 3.28084).toFixed(1))
+            : 0,
         condition: getWmo(dailyArr.weather_code[i]),
         precipitation: dailyArr.precipitation_sum[i],
         uvIndex: dailyArr.uv_index_max[i],
-        sunrise: new Date(dailyArr.sunrise[i]).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }),
-        sunset: new Date(dailyArr.sunset[i]).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }),
+        sunrise: new Date(dailyArr.sunrise[i]).toLocaleTimeString('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+        }),
+        sunset: new Date(dailyArr.sunset[i]).toLocaleTimeString('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+        }),
         pressure: 1013, // Daily pressure avg not easily available
         cloudCover: 50,
         isEstimated: false,
@@ -317,8 +346,8 @@ export const fetchOpenMeteo = async (
         visibility: 10,
         windDirection: degreesToCardinal(dailyArr.wind_direction_10m_dominant?.[i] ?? 0),
         windDegree: dailyArr.wind_direction_10m_dominant?.[i] ?? 0,
-        precipLabel: "",
-        precipValue: ""
+        precipLabel: '',
+        precipValue: '',
     }));
 
     if (dailies.length > 0) {
@@ -343,7 +372,7 @@ export const fetchOpenMeteo = async (
         precipitation: hourlyArr.precipitation[i],
         cloudCover: hourlyArr.cloud_cover[i],
         condition: getWmo(hourlyArr.weather_code[i]),
-        visibility: ((hourlyArr.visibility?.[i] ?? 10000) / 1000), // m to km
+        visibility: (hourlyArr.visibility?.[i] ?? 10000) / 1000, // m to km
         humidity: hourlyArr.relative_humidity_2m[i],
         isEstimated: false,
         currentSpeed: 0,
@@ -352,7 +381,11 @@ export const fetchOpenMeteo = async (
         uvIndex: hourlyArr.uv_index[i],
         cape: hourlyArr.cape?.[i] ?? 0,
         dewPoint: hourlyArr.dew_point_2m?.[i] ?? null,
-        feelsLike: calculateFeelsLike(hourlyArr.temperature_2m[i], hourlyArr.relative_humidity_2m[i], hourlyArr.wind_speed_10m[i] * kFactor * 0.8)
+        feelsLike: calculateFeelsLike(
+            hourlyArr.temperature_2m[i],
+            hourlyArr.relative_humidity_2m[i],
+            hourlyArr.wind_speed_10m[i] * kFactor * 0.8,
+        ),
     }));
 
     // Advice
@@ -372,7 +405,7 @@ export const fetchOpenMeteo = async (
         isLandlocked: false,
         alerts: generateSafetyAlerts(currentMetrics, dailies[0]?.highTemp, dailies),
         timeZone: wData.timezone,
-        utcOffset: wData.utc_offset_seconds
+        utcOffset: wData.utc_offset_seconds,
     };
 
     // Attach Tides
@@ -407,14 +440,16 @@ export const fetchOpenMeteo = async (
             // In this case, we should treat it as "Unknown Context" so the inland rule (elevation) can take over.
             // NOTE: Only match STANDALONE generic water body names ("Pacific Ocean", "South Sea"),
             // NOT place names containing these words ("Seaford", "Coral Sea Marina", "Reefton").
-            const isGeneric = landCtx.name.startsWith("Location") ||
+            const isGeneric =
+                landCtx.name.startsWith('Location') ||
                 /^[+-]?\d/.test(landCtx.name) ||
-                /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(landCtx.name);
+                /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(
+                    landCtx.name,
+                );
 
             if (!isGeneric) {
                 distToLand = calculateDistance(lat, lon, landCtx.lat, landCtx.lon);
             } else {
-
                 landCtx = null;
                 distToLand = 9999;
             }
@@ -427,11 +462,12 @@ export const fetchOpenMeteo = async (
     // If the input 'locationName' is generic (e.g. coordinates or "Current Location")
     // AND we found a specific context name (e.g. "Mooloolaba, QLD"), use it.
     if (landCtx && landCtx.name) {
-        const isCurrentGeneric = locationName.startsWith("WP") ||
-            locationName.startsWith("Current") ||
-            locationName.includes(",") && locationName.match(/[0-9]/);
+        const isCurrentGeneric =
+            locationName.startsWith('WP') ||
+            locationName.startsWith('Current') ||
+            (locationName.includes(',') && locationName.match(/[0-9]/));
 
-        if (isCurrentGeneric && !landCtx.name.startsWith("Location")) {
+        if (isCurrentGeneric && !landCtx.name.startsWith('Location')) {
             report.locationName = landCtx.name;
         }
     }
@@ -442,19 +478,14 @@ export const fetchOpenMeteo = async (
     // UPDATE: If distToLand is 9999 (null context), pass NULL to determiner to trigger Inland Check.
     const effectiveDistToLand = landCtx ? distToLand : null;
 
-
-
-
     // Determine Location Type using Shared Utility
     locType = determineLocationType(
         effectiveDistToLand,
         distToWaterIdx,
         landCtx?.name,
         report.tides && report.tides.length > 0,
-        typeof wData.elevation === 'number' ? wData.elevation : undefined // Pass elevation for Lake filtering
+        typeof wData.elevation === 'number' ? wData.elevation : undefined, // Pass elevation for Lake filtering
     );
-
-
 
     report.locationType = locType;
     report.isLandlocked = locType === 'inland'; // Backwards compat
@@ -464,7 +495,8 @@ export const fetchOpenMeteo = async (
     }
     // Store elevation for EnvironmentService theme detection
     if (wData.elevation !== undefined && wData.elevation !== 'nan') {
-        (report as unknown as Record<string, unknown>)._elevation = typeof wData.elevation === 'number' ? wData.elevation : parseFloat(wData.elevation as string);
+        (report as unknown as Record<string, unknown>)._elevation =
+            typeof wData.elevation === 'number' ? wData.elevation : parseFloat(wData.elevation as string);
     }
 
     return report;

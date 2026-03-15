@@ -9,7 +9,15 @@ export { initLocalDatabase, getPendingCount, getSyncMeta, generateUUID } from '.
 export type { SyncQueueItem, SyncMeta } from './LocalDatabase';
 
 // Sync engine
-export { startSyncEngine, stopSyncEngine, syncNow, forceFullPull, getSyncStatus, onSyncComplete, onStatusChange } from './SyncService';
+export {
+    startSyncEngine,
+    stopSyncEngine,
+    syncNow,
+    forceFullPull,
+    getSyncStatus,
+    onSyncComplete,
+    onStatusChange,
+} from './SyncService';
 export type { SyncStatus } from './SyncService';
 
 // Local-first services

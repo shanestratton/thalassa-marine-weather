@@ -1,6 +1,6 @@
 /**
  * Coordinate formatting utilities — handles both hemispheres correctly.
- * 
+ *
  * Southern latitudes → S, Northern → N
  * Western longitudes → W, Eastern → E
  */

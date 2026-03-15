@@ -9,13 +9,13 @@ import type { MarineWeatherReport } from '../types';
 
 // ── INTELLIGENT UPDATE INTERVALS ──
 // All snapped to clock boundaries (:00, :10, :20, :30, :40, :50)
-export const INLAND_INTERVAL = 60 * 60 * 1000;        // 60 mins (hourly) — top of hour
-export const OFFSHORE_INTERVAL = 60 * 60 * 1000;      // 60 mins (hourly) — top of hour
-export const COASTAL_INTERVAL = 30 * 60 * 1000;       // 30 mins — :00 or :30
-export const BAD_WEATHER_INTERVAL = 10 * 60 * 1000;   // 10 mins — :00/:10/:20/:30/:40/:50
+export const INLAND_INTERVAL = 60 * 60 * 1000; // 60 mins (hourly) — top of hour
+export const OFFSHORE_INTERVAL = 60 * 60 * 1000; // 60 mins (hourly) — top of hour
+export const COASTAL_INTERVAL = 30 * 60 * 1000; // 30 mins — :00 or :30
+export const BAD_WEATHER_INTERVAL = 10 * 60 * 1000; // 10 mins — :00/:10/:20/:30/:40/:50
 export const SATELLITE_INTERVAL = 3 * 60 * 60 * 1000; // 3 hours — satellite/Iridium GO! bandwidth conservation
 export const AI_UPDATE_INTERVAL = 3 * 60 * 60 * 1000; // 3 Hours
-export const LIVE_OVERLAY_INTERVAL = 5 * 60 * 1000;   // 5 mins — lightweight temp/conditions poll
+export const LIVE_OVERLAY_INTERVAL = 5 * 60 * 1000; // 5 mins — lightweight temp/conditions poll
 
 // ── Bad Weather Detection ──
 
@@ -35,11 +35,11 @@ export const isBadWeather = (weather: MarineWeatherReport): boolean => {
     const next12 = weather.hourly?.slice(0, 12) || [];
 
     const hasAlerts = weather.alerts && weather.alerts.length > 0;
-    const highWind = (current.windGust || current.windSpeed || 0) > 25;  // kts
-    const highWaves = (current.waveHeight || 0) > 2.5;  // meters
-    const heavyRain = (current.precipitation || 0) > 5;  // mm/h
-    const poorVisibility = (current.visibility ?? 10) < 2;  // nm (default 10 if undefined)
-    const forecastHighWind = Math.max(...next12.map(h => h.windGust || h.windSpeed || 0)) > 30;
+    const highWind = (current.windGust || current.windSpeed || 0) > 25; // kts
+    const highWaves = (current.waveHeight || 0) > 2.5; // meters
+    const heavyRain = (current.precipitation || 0) > 5; // mm/h
+    const poorVisibility = (current.visibility ?? 10) < 2; // nm (default 10 if undefined)
+    const forecastHighWind = Math.max(...next12.map((h) => h.windGust || h.windSpeed || 0)) > 30;
 
     return hasAlerts || highWind || highWaves || heavyRain || poorVisibility || forecastHighWind;
 };
@@ -60,7 +60,7 @@ export const getUpdateInterval = (
     locationType: 'inland' | 'coastal' | 'offshore',
     weather: MarineWeatherReport,
     isCurrentLocation: boolean = true,
-    satelliteMode: boolean = false
+    satelliteMode: boolean = false,
 ): number => {
     // 0. SATELLITE MODE OVERRIDE — 3h for all locations
     if (satelliteMode) {

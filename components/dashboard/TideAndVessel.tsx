@@ -1,13 +1,32 @@
-
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('TideAndVessel');
 import { Card } from './shared/Card';
-import { PowerBoatIcon, SailBoatIcon, TideCurveIcon, SearchIcon, ArrowUpIcon, ArrowDownIcon, MinusIcon, CloudIcon, GaugeIcon, ClockIcon, MoonIcon, SunIcon, EyeIcon, StarIcon } from '../Icons';
+import {
+    PowerBoatIcon,
+    SailBoatIcon,
+    TideCurveIcon,
+    SearchIcon,
+    ArrowUpIcon,
+    ArrowDownIcon,
+    MinusIcon,
+    GaugeIcon,
+    MoonIcon,
+    SunIcon,
+    EyeIcon,
+    StarIcon,
+} from '../Icons';
 import { Tide, UnitPreferences, VesselProfile, WeatherMetrics, HourlyForecast, TidePoint } from '../../types';
 import { TideGUIDetails } from '../../services/weather/api/tides';
-import { calculateMCR, calculateCSF, calculateDLR, calculateHullSpeed, convertDistance, convertLength, convertMetersTo } from '../../utils';
+import {
+    calculateMCR,
+    calculateCSF,
+    calculateDLR,
+    calculateHullSpeed,
+    convertDistance,
+    convertMetersTo,
+} from '../../utils';
 
 /** Vessel safety status, derived from weather conditions vs vessel limits */
 export interface VesselStatus {
@@ -21,242 +40,279 @@ export type VesselStatusStyles = Record<string, string>;
 import { MoonVisual, SolarArc, getMoonPhaseData } from './tide/CelestialComponents';
 export { MoonVisual, SolarArc, getMoonPhaseData };
 
-
 // SolarArc is now imported from CelestialComponents
-
-
 
 // --- CANVAS-BASED TIDE CHART ---
 // Replaces the old Recharts StaticTideBackground + ActiveTideOverlay with a single <canvas>.
 // Canvas eliminates SVG DOM overhead and merges what were two stacked AreaCharts into one draw call.
 
-const TideCanvas = React.memo(({ dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer }: {
-    dataPoints: { time: number; height: number }[];
-    currentHour: number;
-    currentHeight: number;
-    minHeight: number;
-    maxHeight: number;
-    domainBuffer: number;
+const TideCanvas = React.memo(
+    ({
+        dataPoints,
+        currentHour,
+        currentHeight,
+        minHeight,
+        maxHeight,
+        domainBuffer,
+    }: {
+        dataPoints: { time: number; height: number }[];
+        currentHour: number;
+        currentHeight: number;
+        minHeight: number;
+        maxHeight: number;
+        domainBuffer: number;
+    }) => {
+        const canvasRef = useRef<HTMLCanvasElement>(null);
+        const containerRef = useRef<HTMLDivElement>(null);
 
-}) => {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const containerRef = useRef<HTMLDivElement>(null);
+        const draw = useCallback(() => {
+            const canvas = canvasRef.current;
+            const container = containerRef.current;
+            if (!canvas || !container || dataPoints.length < 2) return;
 
-    const draw = useCallback(() => {
-        const canvas = canvasRef.current;
-        const container = containerRef.current;
-        if (!canvas || !container || dataPoints.length < 2) return;
+            const dpr = window.devicePixelRatio || 1;
+            const rect = container.getBoundingClientRect();
+            const w = rect.width;
+            const h = rect.height;
 
-        const dpr = window.devicePixelRatio || 1;
-        const rect = container.getBoundingClientRect();
-        const w = rect.width;
-        const h = rect.height;
+            canvas.width = w * dpr;
+            canvas.height = h * dpr;
+            canvas.style.width = `${w}px`;
+            canvas.style.height = `${h}px`;
 
-        canvas.width = w * dpr;
-        canvas.height = h * dpr;
-        canvas.style.width = `${w}px`;
-        canvas.style.height = `${h}px`;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return;
+            ctx.scale(dpr, dpr);
 
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-        ctx.scale(dpr, dpr);
+            // Chart area with margins matching old Recharts layout
+            const marginTop = 20;
+            const marginRight = 0;
+            const marginLeft = 0;
+            const marginBottom = 4;
+            const plotW = w - marginLeft - marginRight;
+            const plotH = h - marginTop - marginBottom;
 
-        // Chart area with margins matching old Recharts layout
-        const marginTop = 20;
-        const marginRight = 0;
-        const marginLeft = 0;
-        const marginBottom = 4;
-        const plotW = w - marginLeft - marginRight;
-        const plotH = h - marginTop - marginBottom;
+            const yMin = minHeight - domainBuffer;
+            const yMax = maxHeight + domainBuffer;
 
-        const yMin = minHeight - domainBuffer;
-        const yMax = maxHeight + domainBuffer;
+            // Coordinate mappers
+            const toX = (time: number) => marginLeft + (time / 24) * plotW;
+            const toY = (height: number) => marginTop + plotH - ((height - yMin) / (yMax - yMin)) * plotH;
 
-        // Coordinate mappers
-        const toX = (time: number) => marginLeft + (time / 24) * plotW;
-        const toY = (height: number) => marginTop + plotH - ((height - yMin) / (yMax - yMin)) * plotH;
+            // Clear
+            ctx.clearRect(0, 0, w, h);
 
-        // Clear
-        ctx.clearRect(0, 0, w, h);
+            // --- VERTICAL GRID LINES (every 2 hours) ---
+            for (let hour = 0; hour <= 24; hour += 2) {
+                const gx = toX(hour);
+                ctx.save();
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+                ctx.lineWidth = 0.5;
+                ctx.beginPath();
+                ctx.moveTo(gx, marginTop);
+                ctx.lineTo(gx, h - marginBottom);
+                ctx.stroke();
 
-        // --- VERTICAL GRID LINES (every 2 hours) ---
-        for (let hour = 0; hour <= 24; hour += 2) {
-            const gx = toX(hour);
-            ctx.save();
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
-            ctx.lineWidth = 0.5;
-            ctx.beginPath();
-            ctx.moveTo(gx, marginTop);
-            ctx.lineTo(gx, h - marginBottom);
-            ctx.stroke();
-
-            // Label every 4 hours
-            if (hour % 4 === 0 && hour < 24) {
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
-                ctx.font = '8px system-ui, sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillText(hour.toString().padStart(2, '0'), gx, h - 1);
+                // Label every 4 hours
+                if (hour % 4 === 0 && hour < 24) {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+                    ctx.font = '8px system-ui, sans-serif';
+                    ctx.textAlign = 'center';
+                    ctx.fillText(hour.toString().padStart(2, '0'), gx, h - 1);
+                }
+                ctx.restore();
             }
-            ctx.restore();
-        }
 
-        // --- Helper: get interpolated height at any time ---
-        const getHeightAtTime = (t: number): number => {
-            const idx = dataPoints.findIndex(p => p.time >= t);
-            if (idx === -1) return dataPoints[dataPoints.length - 1].height;
-            if (idx === 0) return dataPoints[0].height;
-            const p1 = dataPoints[idx - 1];
-            const p2 = dataPoints[idx];
-            const frac = (t - p1.time) / (p2.time - p1.time);
-            return p1.height + frac * (p2.height - p1.height);
-        };
-
-        // --- Height-to-color helper (neon gradient: cyan at high, orange at low) ---
-        const getHeightColor = (height: number): { r: number; g: number; b: number } => {
-            const t = (height - yMin) / (yMax - yMin); // 0 = bottom, 1 = top
-            // Orange (warm) at low: rgb(251, 146, 60)
-            // Cyan (cool) at high: rgb(34, 211, 238)
-            return {
-                r: Math.round(251 + (34 - 251) * t),
-                g: Math.round(146 + (211 - 146) * t),
-                b: Math.round(60 + (238 - 60) * t),
+            // --- Helper: get interpolated height at any time ---
+            const getHeightAtTime = (t: number): number => {
+                const idx = dataPoints.findIndex((p) => p.time >= t);
+                if (idx === -1) return dataPoints[dataPoints.length - 1].height;
+                if (idx === 0) return dataPoints[0].height;
+                const p1 = dataPoints[idx - 1];
+                const p2 = dataPoints[idx];
+                const frac = (t - p1.time) / (p2.time - p1.time);
+                return p1.height + frac * (p2.height - p1.height);
             };
-        };
 
-        // --- FILL: Professional area shading under the curve ---
-        // Uses a smooth vertical gradient that's visible but not overpowering.
-        // Blends cyan/teal to match the neon stroke palette.
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(toX(dataPoints[0].time), toY(dataPoints[0].height));
-        for (let i = 1; i < dataPoints.length; i++) {
-            ctx.lineTo(toX(dataPoints[i].time), toY(dataPoints[i].height));
-        }
-        ctx.lineTo(toX(dataPoints[dataPoints.length - 1].time), h);
-        ctx.lineTo(toX(dataPoints[0].time), h);
-        ctx.closePath();
+            // --- Height-to-color helper (neon gradient: cyan at high, orange at low) ---
+            const getHeightColor = (height: number): { r: number; g: number; b: number } => {
+                const t = (height - yMin) / (yMax - yMin); // 0 = bottom, 1 = top
+                // Orange (warm) at low: rgb(251, 146, 60)
+                // Cyan (cool) at high: rgb(34, 211, 238)
+                return {
+                    r: Math.round(251 + (34 - 251) * t),
+                    g: Math.round(146 + (211 - 146) * t),
+                    b: Math.round(60 + (238 - 60) * t),
+                };
+            };
 
-        const fillGrad = ctx.createLinearGradient(0, marginTop, 0, h);
-        fillGrad.addColorStop(0, 'rgba(34, 211, 238, 0.35)');   // Cyan at peaks — 35%
-        fillGrad.addColorStop(0.3, 'rgba(20, 184, 166, 0.25)');   // Teal blend
-        fillGrad.addColorStop(0.6, 'rgba(20, 184, 166, 0.14)');   // Richer mid
-        fillGrad.addColorStop(1, 'rgba(20, 184, 166, 0.03)');    // Subtle base tint
-        ctx.fillStyle = fillGrad;
-        ctx.fill();
-        ctx.restore();
-
-        // --- NEON STROKE (Two-pass for performance) ---
-
-        // Pass 1: Single glow underlay (one stroke call — fast)
-        ctx.save();
-        ctx.shadowColor = 'rgba(34, 211, 238, 0.4)';
-        ctx.shadowBlur = 12;
-        ctx.lineWidth = 5;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.strokeStyle = 'rgba(34, 211, 238, 0.25)';
-        ctx.beginPath();
-        ctx.moveTo(toX(dataPoints[0].time), toY(dataPoints[0].height));
-        for (let i = 1; i < dataPoints.length; i++) {
-            ctx.lineTo(toX(dataPoints[i].time), toY(dataPoints[i].height));
-        }
-        ctx.stroke();
-        ctx.restore();
-
-        // Pass 2: Per-segment colored stroke (NO shadow — fast)
-        ctx.save();
-        ctx.lineWidth = 3;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-
-        for (let i = 1; i < dataPoints.length; i++) {
-            const p0 = dataPoints[i - 1];
-            const p1 = dataPoints[i];
-            const midHeight = (p0.height + p1.height) / 2;
-
-            let segColor: string;
-            {
-                const c = getHeightColor(midHeight);
-                segColor = `rgb(${c.r}, ${c.g}, ${c.b})`;
+            // --- FILL: Professional area shading under the curve ---
+            // Uses a smooth vertical gradient that's visible but not overpowering.
+            // Blends cyan/teal to match the neon stroke palette.
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(toX(dataPoints[0].time), toY(dataPoints[0].height));
+            for (let i = 1; i < dataPoints.length; i++) {
+                ctx.lineTo(toX(dataPoints[i].time), toY(dataPoints[i].height));
             }
+            ctx.lineTo(toX(dataPoints[dataPoints.length - 1].time), h);
+            ctx.lineTo(toX(dataPoints[0].time), h);
+            ctx.closePath();
 
-            ctx.beginPath();
-            ctx.moveTo(toX(p0.time), toY(p0.height));
-            ctx.lineTo(toX(p1.time), toY(p1.height));
-            ctx.strokeStyle = segColor;
-            ctx.stroke();
-        }
-        ctx.restore();
-
-
-        // --- CURRENT TIME: Hairline vertical + Glow Dot ---
-        if (currentHour >= 0 && currentHour <= 24) {
-            const cx = toX(currentHour);
-            const cy = toY(currentHeight);
-
-            // Hairline vertical line (30% opacity)
-            ctx.save();
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-            ctx.lineWidth = 0.5;
-            ctx.beginPath();
-            ctx.moveTo(cx, marginTop);
-            ctx.lineTo(cx, h - marginBottom);
-            ctx.stroke();
-            ctx.restore();
-
-            // Determine dot color — red if below draft, else match the curve color
-            const isDanger = false;
-            const dotC = isDanger
-                ? { r: 239, g: 68, b: 68 }
-                : getHeightColor(currentHeight);
-
-            // Outer halo glow (semi-transparent colored ring)
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(cx, cy, 10, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(${dotC.r}, ${dotC.g}, ${dotC.b}, 0.2)`;
+            const fillGrad = ctx.createLinearGradient(0, marginTop, 0, h);
+            fillGrad.addColorStop(0, 'rgba(34, 211, 238, 0.35)'); // Cyan at peaks — 35%
+            fillGrad.addColorStop(0.3, 'rgba(20, 184, 166, 0.25)'); // Teal blend
+            fillGrad.addColorStop(0.6, 'rgba(20, 184, 166, 0.14)'); // Richer mid
+            fillGrad.addColorStop(1, 'rgba(20, 184, 166, 0.03)'); // Subtle base tint
+            ctx.fillStyle = fillGrad;
             ctx.fill();
             ctx.restore();
 
-            // Mid ring
+            // --- NEON STROKE (Two-pass for performance) ---
+
+            // Pass 1: Single glow underlay (one stroke call — fast)
+            ctx.save();
+            ctx.shadowColor = 'rgba(34, 211, 238, 0.4)';
+            ctx.shadowBlur = 12;
+            ctx.lineWidth = 5;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            ctx.strokeStyle = 'rgba(34, 211, 238, 0.25)';
             ctx.beginPath();
-            ctx.arc(cx, cy, 7, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(${dotC.r}, ${dotC.g}, ${dotC.b}, 0.35)`;
-            ctx.fill();
+            ctx.moveTo(toX(dataPoints[0].time), toY(dataPoints[0].height));
+            for (let i = 1; i < dataPoints.length; i++) {
+                ctx.lineTo(toX(dataPoints[i].time), toY(dataPoints[i].height));
+            }
+            ctx.stroke();
+            ctx.restore();
 
-            // Solid white center (4px)
-            ctx.beginPath();
-            ctx.arc(cx, cy, 4, 0, Math.PI * 2);
-            ctx.fillStyle = '#ffffff';
-            ctx.fill();
-        }
-    }, [dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer]);
+            // Pass 2: Per-segment colored stroke (NO shadow — fast)
+            ctx.save();
+            ctx.lineWidth = 3;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
 
-    useEffect(() => {
-        draw();
-        const container = containerRef.current;
-        if (!container) return;
+            for (let i = 1; i < dataPoints.length; i++) {
+                const p0 = dataPoints[i - 1];
+                const p1 = dataPoints[i];
+                const midHeight = (p0.height + p1.height) / 2;
 
-        const ro = new ResizeObserver(() => draw());
-        ro.observe(container);
-        return () => ro.disconnect();
-    }, [draw]);
+                let segColor: string;
+                {
+                    const c = getHeightColor(midHeight);
+                    segColor = `rgb(${c.r}, ${c.g}, ${c.b})`;
+                }
 
-    return (
-        <div ref={containerRef} className="absolute inset-0">
-            <canvas ref={canvasRef} className="absolute inset-0" />
-        </div>
-    );
-}, (prev, next) => {
-    // Re-render when data, time position, scale, or draft changes
-    return prev.dataPoints === next.dataPoints &&
-        prev.currentHour === next.currentHour &&
-        prev.currentHeight === next.currentHeight &&
-        prev.minHeight === next.minHeight &&
-        prev.maxHeight === next.maxHeight;
-});
+                ctx.beginPath();
+                ctx.moveTo(toX(p0.time), toY(p0.height));
+                ctx.lineTo(toX(p1.time), toY(p1.height));
+                ctx.strokeStyle = segColor;
+                ctx.stroke();
+            }
+            ctx.restore();
 
-export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeries, modelUsed, unitPref, stationName, secondaryStationName, guiDetails, stationPosition = 'bottom', customTime, showAllDayEvents, className, style }: { tides: Tide[], unit: string, timeZone?: string, hourlyTides?: HourlyForecast[], tideSeries?: TidePoint[], modelUsed?: string, unitPref: UnitPreferences, stationName?: string, secondaryStationName?: string, guiDetails?: TideGUIDetails, stationPosition?: 'top' | 'bottom', customTime?: number, showAllDayEvents?: boolean, className?: string, style?: React.CSSProperties }) => {
+            // --- CURRENT TIME: Hairline vertical + Glow Dot ---
+            if (currentHour >= 0 && currentHour <= 24) {
+                const cx = toX(currentHour);
+                const cy = toY(currentHeight);
+
+                // Hairline vertical line (30% opacity)
+                ctx.save();
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.lineWidth = 0.5;
+                ctx.beginPath();
+                ctx.moveTo(cx, marginTop);
+                ctx.lineTo(cx, h - marginBottom);
+                ctx.stroke();
+                ctx.restore();
+
+                // Determine dot color — red if below draft, else match the curve color
+                const isDanger = false;
+                const dotC = isDanger ? { r: 239, g: 68, b: 68 } : getHeightColor(currentHeight);
+
+                // Outer halo glow (semi-transparent colored ring)
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${dotC.r}, ${dotC.g}, ${dotC.b}, 0.2)`;
+                ctx.fill();
+                ctx.restore();
+
+                // Mid ring
+                ctx.beginPath();
+                ctx.arc(cx, cy, 7, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(${dotC.r}, ${dotC.g}, ${dotC.b}, 0.35)`;
+                ctx.fill();
+
+                // Solid white center (4px)
+                ctx.beginPath();
+                ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+                ctx.fillStyle = '#ffffff';
+                ctx.fill();
+            }
+        }, [dataPoints, currentHour, currentHeight, minHeight, maxHeight, domainBuffer]);
+
+        useEffect(() => {
+            draw();
+            const container = containerRef.current;
+            if (!container) return;
+
+            const ro = new ResizeObserver(() => draw());
+            ro.observe(container);
+            return () => ro.disconnect();
+        }, [draw]);
+
+        return (
+            <div ref={containerRef} className="absolute inset-0">
+                <canvas ref={canvasRef} className="absolute inset-0" />
+            </div>
+        );
+    },
+    (prev, next) => {
+        // Re-render when data, time position, scale, or draft changes
+        return (
+            prev.dataPoints === next.dataPoints &&
+            prev.currentHour === next.currentHour &&
+            prev.currentHeight === next.currentHeight &&
+            prev.minHeight === next.minHeight &&
+            prev.maxHeight === next.maxHeight
+        );
+    },
+);
+
+export const TideGraphOriginal = ({
+    tides,
+    unit,
+    timeZone,
+    hourlyTides,
+    tideSeries,
+    modelUsed,
+    unitPref,
+    stationName,
+    secondaryStationName,
+    guiDetails,
+    stationPosition = 'bottom',
+    customTime,
+    showAllDayEvents,
+    className,
+    style,
+}: {
+    tides: Tide[];
+    unit: string;
+    timeZone?: string;
+    hourlyTides?: HourlyForecast[];
+    tideSeries?: TidePoint[];
+    modelUsed?: string;
+    unitPref: UnitPreferences;
+    stationName?: string;
+    secondaryStationName?: string;
+    guiDetails?: TideGUIDetails;
+    stationPosition?: 'top' | 'bottom';
+    customTime?: number;
+    showAllDayEvents?: boolean;
+    className?: string;
+    style?: React.CSSProperties;
+}) => {
     // FIX: Remove local state sync to eliminate 1-frame lag. Use props directly.
     const effectiveTime = customTime ? new Date(customTime) : new Date();
 
@@ -268,13 +324,13 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                 minute: 'numeric',
                 hour12: false,
             }).formatToParts(date);
-            const h = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
-            const m = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
-            return h + (m / 60);
+            const h = parseInt(parts.find((p) => p.type === 'hour')?.value || '0');
+            const m = parseInt(parts.find((p) => p.type === 'minute')?.value || '0');
+            return h + m / 60;
         } catch (e) {
             log.warn(e);
             /* Invalid timeZone or Intl unavailable — fall back to local device time */
-            return date.getHours() + (date.getMinutes() / 60);
+            return date.getHours() + date.getMinutes() / 60;
         }
     };
 
@@ -313,7 +369,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         }
 
         if (t1 !== -999) {
-            const phase = Math.PI * (t - t1) / (t2 - t1);
+            const phase = (Math.PI * (t - t1)) / (t2 - t1);
             const amp = (h1 - h2) / 2;
             const mid = (h1 + h2) / 2;
             return mid + amp * Math.cos(phase);
@@ -328,20 +384,20 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         return convertMetersTo(nearest.height, unitPref.tideHeight || 'm') || 0;
     };
 
-
     // --- SMART DATA GENERATION (MEMOIZED) ---
     // Optimization: Only recalculate points when tides/hourly/tideSeries/customTime changes
     // FIX: All data building + sorting consolidated inside useMemo.
     // Previously, code outside the memo tried to .push() and .sort() on the frozen
     // memoized array, causing "Attempted to assign to readonly property" on iOS WebKit.
     const dataPoints = React.useMemo(() => {
-        const points: { time: number, height: number }[] = [];
+        const points: { time: number; height: number }[] = [];
 
         // Priority 1: WorldTides (Authoritative Extremes) - Use Sine Interpolation
         if (tides && tides.length > 0) {
             const sortedTides = [...tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
-            for (let t = 0; t <= 24; t += 0.1) { // 6min resolution
+            for (let t = 0; t <= 24; t += 0.1) {
+                // 6min resolution
                 const h = calculateTideHeightAt(t, sortedTides);
                 points.push({ time: t, height: h });
             }
@@ -355,7 +411,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                     const converted = convertMetersTo(h.tideHeight, unitPref.tideHeight || 'm');
                     points.push({
                         time: t,
-                        height: converted || 0
+                        height: converted || 0,
                     });
                 }
             });
@@ -364,7 +420,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         // Priority 3: Use TideSeries (Sea Level API) as last resort
         if (points.length < 12 && tideSeries && tideSeries.length > 0) {
             points.length = 0;
-            tideSeries.forEach(p => {
+            tideSeries.forEach((p) => {
                 const h = getHourFromMidnight(p.time);
                 if (h >= -2 && h <= 26) {
                     const converted = convertMetersTo(p.height, unitPref.tideHeight || 'm');
@@ -380,45 +436,49 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
 
     // --- COMPREHENSIVE MARKERS (Next ~48h) ---
     // We need a broader range to find the "Next" high/low even if it's tomorrow (time > 24).
-    const allMarkers = tides ? tides.map(t => {
-        const time = getHourFromMidnight(t.time);
-        // Allow broad range for "Next Event" lookup
-        if (time >= -12 && time <= 48) {
-            const hVal = convertMetersTo(t.height, unitPref.tideHeight || 'm') || 0;
+    const allMarkers = tides
+        ? (tides
+              .map((t) => {
+                  const time = getHourFromMidnight(t.time);
+                  // Allow broad range for "Next Event" lookup
+                  if (time >= -12 && time <= 48) {
+                      const hVal = convertMetersTo(t.height, unitPref.tideHeight || 'm') || 0;
 
-            // FIX: Use Location Timezone for Label
-            let labelTime = '';
-            try {
-                labelTime = new Date(t.time).toLocaleTimeString('en-US', {
-                    timeZone: timeZone,
-                    hour: 'numeric',
-                    minute: '2-digit',
-                    hour12: true
-                });
-            } catch (e) {
-                // Fallback if timezone invalid
-                labelTime = new Date(t.time).toLocaleTimeString('en-US', {
-                    hour: 'numeric',
-                    minute: '2-digit',
-                    hour12: true
-                });
-            }
+                      // FIX: Use Location Timezone for Label
+                      let labelTime = '';
+                      try {
+                          labelTime = new Date(t.time).toLocaleTimeString('en-US', {
+                              timeZone: timeZone,
+                              hour: 'numeric',
+                              minute: '2-digit',
+                              hour12: true,
+                          });
+                      } catch (e) {
+                          // Fallback if timezone invalid
+                          labelTime = new Date(t.time).toLocaleTimeString('en-US', {
+                              hour: 'numeric',
+                              minute: '2-digit',
+                              hour12: true,
+                          });
+                      }
 
-            return {
-                time,
-                height: hVal,
-                type: t.type,
-                labelTime
-            };
-        }
-        return null;
-    }).filter(Boolean) as { time: number, height: number, type: 'High' | 'Low', labelTime: string }[] : [];
+                      return {
+                          time,
+                          height: hVal,
+                          type: t.type,
+                          labelTime,
+                      };
+                  }
+                  return null;
+              })
+              .filter(Boolean) as { time: number; height: number; type: 'High' | 'Low'; labelTime: string }[])
+        : [];
 
     // --- VISIBLE MARKERS (Graph Only 0-24h) ---
-    const visibleMarkers = allMarkers.filter(m => m.time >= 0 && m.time <= 24);
+    const visibleMarkers = allMarkers.filter((m) => m.time >= 0 && m.time <= 24);
 
     // PERFORMANCE FIX: REMOVED VERTEX INJECTION
-    // Injecting the currentHour into dataPoints caused the StaticTideBackground to re-render 
+    // Injecting the currentHour into dataPoints caused the StaticTideBackground to re-render
     // on every frame of the scroll, killing performance.
     // We rely on the High Resolution (6-min) data + Exact Cosine Math for the dot to ensure alignment.
 
@@ -426,7 +486,9 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         return (
             <div className="flex flex-col items-center justify-center h-full opacity-60">
                 <GaugeIcon className="w-8 h-8 text-gray-500 mb-2" />
-                <span className="text-[11px] uppercase font-bold text-gray-500 tracking-widest">Awaiting Telemetry</span>
+                <span className="text-[11px] uppercase font-bold text-gray-500 tracking-widest">
+                    Awaiting Telemetry
+                </span>
             </div>
         );
     }
@@ -443,7 +505,7 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
     // We must match the visual corner-cutting to be pixel-perfect.
 
     // Find the interval [p1, p2] where p1.time <= currentHour <= p2.time
-    const p2Index = dataPoints.findIndex(p => p.time >= currentHour);
+    const p2Index = dataPoints.findIndex((p) => p.time >= currentHour);
 
     if (p2Index === -1) {
         // Time is after last point
@@ -470,41 +532,41 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
     }
 
     // Find next event (inclusive of tomorrow)
-    const nextEvent = allMarkers.find(m => m.time > currentHour);
+    const nextEvent = allMarkers.find((m) => m.time > currentHour);
 
     // Trend Logic
     // Check for "Slack / Stand" period (approx 20 mins either side of High/Low)
-    const isSlack = visibleMarkers.some(m => Math.abs(m.time - currentHour) < 0.33);
+    const isSlack = visibleMarkers.some((m) => Math.abs(m.time - currentHour) < 0.33);
 
-    const nextHourVal = dataPoints.find(p => p.time > currentHour + 0.5 && p.time < currentHour + 1.5)?.height;
+    const nextHourVal = dataPoints.find((p) => p.time > currentHour + 0.5 && p.time < currentHour + 1.5)?.height;
     const isRising = nextHourVal !== undefined ? nextHourVal > currentHeight : false;
 
     let TrendIcon = isRising ? ArrowUpIcon : ArrowDownIcon;
-    let trendColor = isRising ? "text-emerald-400" : "text-red-400";
+    let trendColor = isRising ? 'text-emerald-400' : 'text-red-400';
 
     if (isSlack) {
         TrendIcon = MinusIcon;
-        trendColor = "text-sky-200"; // Neutral color for slack
+        trendColor = 'text-sky-200'; // Neutral color for slack
     }
 
     // Scale Y-Axis based on GLOBAL markers (props.tides) to prevent "Zooming" on low-variance days.
     // If we only use dataPoints (0-24h), a day with small tides will auto-scale to fill the box, making it inconsistent.
 
     // Default to dataPoints if no global tides
-    let minHeight = Math.min(...dataPoints.map(d => d.height));
-    let maxHeight = Math.max(...dataPoints.map(d => d.height));
+    let minHeight = Math.min(...dataPoints.map((d) => d.height));
+    let maxHeight = Math.max(...dataPoints.map((d) => d.height));
 
     if (tides && tides.length > 0) {
         // Use the full available dataset for scaling context
-        const globalHeights = tides.map(t => convertMetersTo(t.height, unitPref.tideHeight || 'm') || 0);
+        const globalHeights = tides.map((t) => convertMetersTo(t.height, unitPref.tideHeight || 'm') || 0);
         minHeight = Math.min(...globalHeights);
         maxHeight = Math.max(...globalHeights);
     }
 
     // Include visible markers in case they exceed the curve (rare but possible)
     if (visibleMarkers.length > 0) {
-        minHeight = Math.min(minHeight, ...visibleMarkers.map(m => m.height));
-        maxHeight = Math.max(maxHeight, ...visibleMarkers.map(m => m.height));
+        minHeight = Math.min(minHeight, ...visibleMarkers.map((m) => m.height));
+        maxHeight = Math.max(maxHeight, ...visibleMarkers.map((m) => m.height));
     }
 
     if (minHeight === maxHeight || minHeight === Infinity || maxHeight === -Infinity) {
@@ -512,20 +574,20 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
         maxHeight = 2; // Fallback range
     }
 
-
-
-
     const domainBuffer = (maxHeight - minHeight) * 0.2;
 
     // Find next high and low for Hero Mode (using ALL markers)
-    const nextHigh = allMarkers.find(m => m.time > currentHour && m.type === 'High');
-    const nextLow = allMarkers.find(m => m.time > currentHour && m.type === 'Low');
+    const nextHigh = allMarkers.find((m) => m.time > currentHour && m.type === 'High');
+    const nextLow = allMarkers.find((m) => m.time > currentHour && m.type === 'Low');
 
-    const heroLabelClass = "text-[11px] text-sky-300/80 font-bold uppercase tracking-widest";
-    const heroValueClass = "text-xl font-bold text-white tracking-tight leading-none";
+    const heroLabelClass = 'text-[11px] text-sky-300/80 font-bold uppercase tracking-widest';
+    const heroValueClass = 'text-xl font-bold text-white tracking-tight leading-none';
 
     return (
-        <div className={`flex flex-col h-full relative group ${className || ''}`} style={{ ...style, transform: 'translateZ(0)', contain: 'layout style', willChange: 'transform' }}>
+        <div
+            className={`flex flex-col h-full relative group ${className || ''}`}
+            style={{ ...style, transform: 'translateZ(0)', contain: 'layout style', willChange: 'transform' }}
+        >
             {/* INTUITIVE HEADER OVERLAYS */}
             {stationPosition === 'bottom' ? (
                 /* HERO MODE (Clean, Single Line) */
@@ -535,7 +597,9 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                         <div className="flex items-baseline gap-1.5 pointer-events-auto">
                             <span className={heroLabelClass}>Height</span>
                             <div className="flex items-baseline gap-0.5">
-                                <span className="text-sm font-bold text-white tracking-tight leading-none font-mono">{currentHeight.toFixed(1)}</span>
+                                <span className="text-sm font-bold text-white tracking-tight leading-none font-mono">
+                                    {currentHeight.toFixed(1)}
+                                </span>
                                 <span className="text-[11px] text-sky-200 font-medium">{unit}</span>
                             </div>
                             <TrendIcon className={`w-3 h-3 ${trendColor} ml-0.5`} />
@@ -545,24 +609,29 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                     )}
 
                     {/* RIGHT: High / Low Events */}
-                    <div className={`flex items-baseline gap-4 pointer-events-auto ${showAllDayEvents ? 'w-full justify-between px-2' : ''}`}>
-                        {(showAllDayEvents ? visibleMarkers : [nextHigh, nextLow]).filter(Boolean).sort((a, b) => a!.time - b!.time).map((event, idx) => (
-                            <div key={idx} className="flex items-start gap-1.5">
-                                <span className={`${heroLabelClass} mt-[2px]`}>{event!.type}</span>
-                                <div className="flex flex-col items-end">
-                                    <span className="text-sm font-bold text-white tracking-tight leading-none font-mono">
-                                        {(() => {
-                                            const h = Math.floor(event!.time) % 24; // Modulo 24 for tomorrow times
-                                            const m = Math.round((event!.time - Math.floor(event!.time)) * 60);
-                                            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-                                        })()}
-                                    </span>
-                                    <span className="text-sm font-medium text-sky-200/80 leading-none mt-1 font-mono">
-                                        {event!.height.toFixed(1)} {unit}
-                                    </span>
+                    <div
+                        className={`flex items-baseline gap-4 pointer-events-auto ${showAllDayEvents ? 'w-full justify-between px-2' : ''}`}
+                    >
+                        {(showAllDayEvents ? visibleMarkers : [nextHigh, nextLow])
+                            .filter(Boolean)
+                            .sort((a, b) => a!.time - b!.time)
+                            .map((event, idx) => (
+                                <div key={idx} className="flex items-start gap-1.5">
+                                    <span className={`${heroLabelClass} mt-[2px]`}>{event!.type}</span>
+                                    <div className="flex flex-col items-end">
+                                        <span className="text-sm font-bold text-white tracking-tight leading-none font-mono">
+                                            {(() => {
+                                                const h = Math.floor(event!.time) % 24; // Modulo 24 for tomorrow times
+                                                const m = Math.round((event!.time - Math.floor(event!.time)) * 60);
+                                                return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+                                            })()}
+                                        </span>
+                                        <span className="text-sm font-medium text-sky-200/80 leading-none mt-1 font-mono">
+                                            {event!.height.toFixed(1)} {unit}
+                                        </span>
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            ))}
                     </div>
                 </div>
             ) : (
@@ -574,7 +643,9 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                             Current Tide Level
                         </span>
                         <div className={`flex items-baseline gap-1.5 ${trendColor}`}>
-                            <span className="text-2xl font-mono font-bold tracking-tight text-ivory">{currentHeight.toFixed(1)}</span>
+                            <span className="text-2xl font-mono font-bold tracking-tight text-ivory">
+                                {currentHeight.toFixed(1)}
+                            </span>
                             <span className="text-xs font-bold">{unit}</span>
                             <TrendIcon className="w-4 h-4 translate-y-0.5" />
                         </div>
@@ -587,10 +658,16 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                                 Next {nextEvent.type === 'High' ? 'High' : 'Low'}
                             </span>
                             <div className="flex items-center gap-2">
-                                <span className="text-2xl font-bold text-white tracking-tight">{nextEvent.labelTime.replace(/ [AP]M/, '')}</span>
-                                <span className="text-xs text-gray-500 font-bold self-end mb-1">{nextEvent.labelTime.includes('PM') ? 'PM' : 'AM'}</span>
+                                <span className="text-2xl font-bold text-white tracking-tight">
+                                    {nextEvent.labelTime.replace(/ [AP]M/, '')}
+                                </span>
+                                <span className="text-xs text-gray-500 font-bold self-end mb-1">
+                                    {nextEvent.labelTime.includes('PM') ? 'PM' : 'AM'}
+                                </span>
                             </div>
-                            <span className="text-[11px] text-sky-400 font-mono font-bold">{nextEvent.height.toFixed(1)} {unit} Target</span>
+                            <span className="text-[11px] text-sky-400 font-mono font-bold">
+                                {nextEvent.height.toFixed(1)} {unit} Target
+                            </span>
                         </div>
                     )}
                 </div>
@@ -615,41 +692,96 @@ export const TideGraphOriginal = ({ tides, unit, timeZone, hourlyTides, tideSeri
                     </span>
                 )}
             </div>
-
-
         </div>
     );
 };
 
 export const TideGraph = TideGraphOriginal;
 
-const TideWidgetComponent = ({ tides, hourlyTides, tideHourly, units, timeZone, modelUsed, stationName, guiDetails, customTime, showAllDayEvents }: { tides: Tide[], hourlyTides: HourlyForecast[], tideHourly?: TidePoint[], units: UnitPreferences, timeZone?: string, modelUsed?: string, stationName?: string, guiDetails?: TideGUIDetails, customTime?: number, showAllDayEvents?: boolean }) => {
+const TideWidgetComponent = ({
+    tides,
+    hourlyTides,
+    tideHourly,
+    units,
+    timeZone,
+    modelUsed,
+    stationName,
+    guiDetails,
+    customTime,
+    showAllDayEvents,
+}: {
+    tides: Tide[];
+    hourlyTides: HourlyForecast[];
+    tideHourly?: TidePoint[];
+    units: UnitPreferences;
+    timeZone?: string;
+    modelUsed?: string;
+    stationName?: string;
+    guiDetails?: TideGUIDetails;
+    customTime?: number;
+    showAllDayEvents?: boolean;
+}) => {
     return (
-        <Card key={guiDetails ? JSON.stringify(guiDetails) : 'tide-widget-loading'} className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-between min-h-[220px] relative overflow-hidden gap-4" role="figure" aria-labelledby="tide-chart-title" aria-describedby="tide-chart-desc">
+        <Card
+            key={guiDetails ? JSON.stringify(guiDetails) : 'tide-widget-loading'}
+            className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-between min-h-[220px] relative overflow-hidden gap-4"
+            role="figure"
+            aria-labelledby="tide-chart-title"
+            aria-describedby="tide-chart-desc"
+        >
             {/* Header */}
             <div className="flex justify-between items-start border-b border-white/5 pb-2">
                 <div className="flex items-center gap-2">
                     <TideCurveIcon className="w-5 h-5 text-sky-400" aria-hidden="true" />
                     <div className="flex flex-col">
                         <h3 id="tide-chart-title" className="text-sm font-bold text-white uppercase tracking-widest">
-                            Tidal Forecast {guiDetails?.stationName ? <span className="text-sky-400">• {guiDetails.stationName}</span> : ''}
+                            Tidal Forecast{' '}
+                            {guiDetails?.stationName ? (
+                                <span className="text-sky-400">• {guiDetails.stationName}</span>
+                            ) : (
+                                ''
+                            )}
                         </h3>
                     </div>
-
                 </div>
             </div>
-            <span id="tide-chart-desc" className="sr-only">Interactive tidal forecast graph showing predicted tide heights over 24 hours. The moving indicator shows the current tide level.</span>
+            <span id="tide-chart-desc" className="sr-only">
+                Interactive tidal forecast graph showing predicted tide heights over 24 hours. The moving indicator
+                shows the current tide level.
+            </span>
 
             {/* Graph Area */}
             <div className="flex-1 w-full min-h-[160px] relative z-10">
-                <TideGraph tides={tides} unit={units.tideHeight || 'm'} timeZone={timeZone} hourlyTides={hourlyTides} tideSeries={tideHourly} modelUsed={modelUsed} unitPref={units} stationName={stationName} guiDetails={guiDetails} customTime={customTime} showAllDayEvents={showAllDayEvents} />
+                <TideGraph
+                    tides={tides}
+                    unit={units.tideHeight || 'm'}
+                    timeZone={timeZone}
+                    hourlyTides={hourlyTides}
+                    tideSeries={tideHourly}
+                    modelUsed={modelUsed}
+                    unitPref={units}
+                    stationName={stationName}
+                    guiDetails={guiDetails}
+                    customTime={customTime}
+                    showAllDayEvents={showAllDayEvents}
+                />
             </div>
         </Card>
     );
 };
 export const TideWidget = React.memo(TideWidgetComponent);
 
-const SunMoonWidgetComponent = ({ current, units, timeZone, lat }: { current: WeatherMetrics, units: UnitPreferences, timeZone?: string, lat?: number }) => {
+const SunMoonWidgetComponent = ({
+    current,
+    units,
+    timeZone,
+    lat,
+}: {
+    current: WeatherMetrics;
+    units: UnitPreferences;
+    timeZone?: string;
+    lat?: number;
+}) => {
     return (
         <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col gap-4">
             {/* Header */}
@@ -674,8 +806,16 @@ const SunMoonWidgetComponent = ({ current, units, timeZone, lat }: { current: We
                 <div className="flex items-center justify-center p-2 w-full">
                     {current.sunrise && current.sunset && (
                         <div className="w-full">
-                            <div className="text-[11px] text-gray-400 font-bold uppercase tracking-wider mb-2 text-center">Solar Cycle</div>
-                            <SolarArc sunrise={current.sunrise} sunset={current.sunset} size="normal" showTimes={true} timeZone={timeZone} />
+                            <div className="text-[11px] text-gray-400 font-bold uppercase tracking-wider mb-2 text-center">
+                                Solar Cycle
+                            </div>
+                            <SolarArc
+                                sunrise={current.sunrise}
+                                sunset={current.sunset}
+                                size="normal"
+                                showTimes={true}
+                                timeZone={timeZone}
+                            />
                         </div>
                     )}
                 </div>
@@ -685,7 +825,7 @@ const SunMoonWidgetComponent = ({ current, units, timeZone, lat }: { current: We
 };
 export const SunMoonWidget = React.memo(SunMoonWidgetComponent);
 
-const VesselWidgetComponent = ({ vessel, vesselStatus }: { vessel: VesselProfile, vesselStatus: VesselStatus }) => {
+const VesselWidgetComponent = ({ vessel, vesselStatus }: { vessel: VesselProfile; vesselStatus: VesselStatus }) => {
     // --- MARINE CALCULATIONS ---
     const hullSpeed = vessel && vessel.type !== 'observer' ? calculateHullSpeed(vessel.length) : null;
     const mcr = vessel && vessel.type === 'sail' ? calculateMCR(vessel.displacement, vessel.length, vessel.beam) : null;
@@ -706,10 +846,18 @@ const VesselWidgetComponent = ({ vessel, vesselStatus }: { vessel: VesselProfile
         <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-between min-h-[220px]">
             <div className="flex justify-between items-start mb-2">
                 <div className="flex items-center gap-2 text-amber-300">
-                    {vessel.type === 'power' ? <PowerBoatIcon className="w-5 h-5" /> : <SailBoatIcon className="w-5 h-5" />}
-                    <span className="text-sm font-bold uppercase tracking-widest truncate max-w-[150px]">{vessel.name}</span>
+                    {vessel.type === 'power' ? (
+                        <PowerBoatIcon className="w-5 h-5" />
+                    ) : (
+                        <SailBoatIcon className="w-5 h-5" />
+                    )}
+                    <span className="text-sm font-bold uppercase tracking-widest truncate max-w-[150px]">
+                        {vessel.name}
+                    </span>
                 </div>
-                <div className={`px-2 py-1 rounded border text-[11px] font-bold uppercase ${vesselStatus?.status === 'unsafe' ? 'bg-red-500/20 border-red-500/50 text-red-300' : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'}`}>
+                <div
+                    className={`px-2 py-1 rounded border text-[11px] font-bold uppercase ${vesselStatus?.status === 'unsafe' ? 'bg-red-500/20 border-red-500/50 text-red-300' : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'}`}
+                >
                     {vesselStatus?.status === 'unsafe' ? 'Limits Exceeded' : 'Within Limits'}
                 </div>
             </div>
@@ -717,24 +865,40 @@ const VesselWidgetComponent = ({ vessel, vesselStatus }: { vessel: VesselProfile
             <div className="grid grid-cols-2 gap-4 mt-2">
                 <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                     <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Hull Speed</span>
-                    <span className="text-xl font-mono font-bold text-white">{hullSpeed?.toFixed(1)} <span className="text-xs text-gray-500">kts</span></span>
+                    <span className="text-xl font-mono font-bold text-white">
+                        {hullSpeed?.toFixed(1)} <span className="text-xs text-gray-500">kts</span>
+                    </span>
                 </div>
                 <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                     <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Displacement</span>
-                    <span className="text-xl font-mono font-bold text-white">{(vessel.displacement / 2204.62).toFixed(1)} <span className="text-xs text-gray-500">t</span></span>
+                    <span className="text-xl font-mono font-bold text-white">
+                        {(vessel.displacement / 2204.62).toFixed(1)} <span className="text-xs text-gray-500">t</span>
+                    </span>
                 </div>
                 {vessel.type === 'sail' && (
                     <>
                         {mcr && (
                             <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                                <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Comfort</span>
-                                <span className={`text-xl font-mono font-bold ${mcr > 30 ? 'text-emerald-300' : mcr > 20 ? 'text-yellow-300' : 'text-amber-300'}`}>{Math.round(mcr)}</span>
+                                <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">
+                                    Comfort
+                                </span>
+                                <span
+                                    className={`text-xl font-mono font-bold ${mcr > 30 ? 'text-emerald-300' : mcr > 20 ? 'text-yellow-300' : 'text-amber-300'}`}
+                                >
+                                    {Math.round(mcr)}
+                                </span>
                             </div>
                         )}
                         {csf && (
                             <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                                <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Capsize</span>
-                                <span className={`text-xl font-mono font-bold ${csf < 2 ? 'text-emerald-300' : 'text-red-300'}`}>{csf.toFixed(1)}</span>
+                                <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">
+                                    Capsize
+                                </span>
+                                <span
+                                    className={`text-xl font-mono font-bold ${csf < 2 ? 'text-emerald-300' : 'text-red-300'}`}
+                                >
+                                    {csf.toFixed(1)}
+                                </span>
                             </div>
                         )}
                     </>
@@ -746,8 +910,33 @@ const VesselWidgetComponent = ({ vessel, vesselStatus }: { vessel: VesselProfile
 export const VesselWidget = React.memo(VesselWidgetComponent);
 
 // --- LEGACY EXPORT FOR BACKWARD COMPAT (DEPRECATED) ---
-const VesselStatusWidgetComponent = ({ vessel, current, vesselStatus, statusStyles, tides, hourlyTides, tideHourly, units, timeZone, modelUsed, isLandlocked, lat }: { vessel: VesselProfile, current: WeatherMetrics, vesselStatus: VesselStatus, statusStyles: VesselStatusStyles, tides: Tide[], hourlyTides: HourlyForecast[], tideHourly?: TidePoint[], units: UnitPreferences, timeZone?: string, modelUsed?: string, isLandlocked?: boolean, lat?: number }) => {
-
+const VesselStatusWidgetComponent = ({
+    vessel,
+    current,
+    vesselStatus,
+    statusStyles,
+    tides,
+    hourlyTides,
+    tideHourly,
+    units,
+    timeZone,
+    modelUsed,
+    isLandlocked,
+    lat,
+}: {
+    vessel: VesselProfile;
+    current: WeatherMetrics;
+    vesselStatus: VesselStatus;
+    statusStyles: VesselStatusStyles;
+    tides: Tide[];
+    hourlyTides: HourlyForecast[];
+    tideHourly?: TidePoint[];
+    units: UnitPreferences;
+    timeZone?: string;
+    modelUsed?: string;
+    isLandlocked?: boolean;
+    lat?: number;
+}) => {
     // --- MARINE CALCULATIONS ---
     const hullSpeed = vessel && vessel.type !== 'observer' ? calculateHullSpeed(vessel.length) : null;
     const mcr = vessel && vessel.type === 'sail' ? calculateMCR(vessel.displacement, vessel.length, vessel.beam) : null;
@@ -766,13 +955,20 @@ const VesselStatusWidgetComponent = ({ vessel, current, vesselStatus, statusStyl
                     </div>
 
                     <div className="flex-1 flex flex-col justify-center items-center py-4">
-                        <SolarArc sunrise={current.sunrise || '06:00'} sunset={current.sunset || '18:00'} showTimes={true} size="large" />
+                        <SolarArc
+                            sunrise={current.sunrise || '06:00'}
+                            sunset={current.sunset || '18:00'}
+                            showTimes={true}
+                            size="large"
+                        />
                     </div>
 
                     <div className="bg-white/5 rounded-xl p-3 border border-white/5 mt-auto">
                         <div className="flex justify-between items-center text-xs">
                             <span className="text-gray-400 font-bold uppercase tracking-wider">Daylight Remaining</span>
-                            <span className="text-white font-mono">{current.uvIndex > 0 ? "High Visibility" : "Night Mode"}</span>
+                            <span className="text-white font-mono">
+                                {current.uvIndex > 0 ? 'High Visibility' : 'Night Mode'}
+                            </span>
                         </div>
                     </div>
                 </Card>
@@ -801,14 +997,20 @@ const VesselStatusWidgetComponent = ({ vessel, current, vesselStatus, statusStyl
                         {/* Atmospherics Grid */}
                         <div className="grid grid-cols-2 gap-4">
                             <div className="bg-white/5 rounded-xl p-3 border border-white/5 flex flex-col justify-between">
-                                <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1 flex items-center gap-1"><EyeIcon className="w-3 h-3" /> Visibility</span>
+                                <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1 flex items-center gap-1">
+                                    <EyeIcon className="w-3 h-3" /> Visibility
+                                </span>
                                 <span className="text-xl font-mono font-bold text-white">
-                                    {current.visibility ? convertDistance(current.visibility, units.visibility || 'mi') : '--'}
+                                    {current.visibility
+                                        ? convertDistance(current.visibility, units.visibility || 'mi')
+                                        : '--'}
                                     <span className="text-xs text-gray-500 ml-1">{units.visibility || 'mi'}</span>
                                 </span>
                             </div>
                             <div className="bg-white/5 rounded-xl p-3 border border-white/5 flex flex-col justify-between">
-                                <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1 flex items-center gap-1"><GaugeIcon className="w-3 h-3" /> Pressure</span>
+                                <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1 flex items-center gap-1">
+                                    <GaugeIcon className="w-3 h-3" /> Pressure
+                                </span>
                                 <span className="text-xl font-mono font-bold text-white">
                                     {current.pressure ? Math.round(current.pressure) : '--'}
                                     <span className="text-xs text-gray-500 ml-1">hPa</span>
@@ -826,7 +1028,6 @@ const VesselStatusWidgetComponent = ({ vessel, current, vesselStatus, statusStyl
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
             {/* Card 1: Tides & Astro - REMOVED OLD HEADER for cleaner look with new overlays */}
             <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-between min-h-[220px] relative overflow-hidden gap-4">
-
                 {/* Header: Moon & Phase */}
                 <div className="flex justify-between items-start mb-2">
                     <div className="flex items-center gap-2">
@@ -844,7 +1045,15 @@ const VesselStatusWidgetComponent = ({ vessel, current, vesselStatus, statusStyl
 
                 {/* Graph Area */}
                 <div className="flex-1 w-full min-h-[160px] relative z-10">
-                    <TideGraph tides={tides} unit={units.tideHeight || 'm'} timeZone={timeZone} hourlyTides={hourlyTides} tideSeries={tideHourly} modelUsed={modelUsed} unitPref={units} />
+                    <TideGraph
+                        tides={tides}
+                        unit={units.tideHeight || 'm'}
+                        timeZone={timeZone}
+                        hourlyTides={hourlyTides}
+                        tideSeries={tideHourly}
+                        modelUsed={modelUsed}
+                        unitPref={units}
+                    />
                 </div>
 
                 {/* Solar Arc Footer */}
@@ -860,41 +1069,74 @@ const VesselStatusWidgetComponent = ({ vessel, current, vesselStatus, statusStyl
                 <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-between min-h-[220px]">
                     <div className="flex justify-between items-start mb-2">
                         <div className="flex items-center gap-2 text-amber-300">
-                            {vessel.type === 'power' ? <PowerBoatIcon className="w-5 h-5" /> : <SailBoatIcon className="w-5 h-5" />}
-                            <span className="text-sm font-bold uppercase tracking-widest truncate max-w-[150px]">{vessel.name}</span>
+                            {vessel.type === 'power' ? (
+                                <PowerBoatIcon className="w-5 h-5" />
+                            ) : (
+                                <SailBoatIcon className="w-5 h-5" />
+                            )}
+                            <span className="text-sm font-bold uppercase tracking-widest truncate max-w-[150px]">
+                                {vessel.name}
+                            </span>
                         </div>
-                        <div className={`px-2 py-1 rounded border text-[11px] font-bold uppercase ${vesselStatus?.status === 'unsafe' ? 'bg-red-500/20 border-red-500/50 text-red-300' : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'}`}>
+                        <div
+                            className={`px-2 py-1 rounded border text-[11px] font-bold uppercase ${vesselStatus?.status === 'unsafe' ? 'bg-red-500/20 border-red-500/50 text-red-300' : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'}`}
+                        >
                             {vesselStatus?.status === 'unsafe' ? 'Limits Exceeded' : 'Within Limits'}
                         </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 mt-2">
                         <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                            <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Theoretical Hull Speed</span>
-                            <span className="text-xl font-mono font-bold text-white">{hullSpeed?.toFixed(1)} <span className="text-xs text-gray-500">kts</span></span>
+                            <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">
+                                Theoretical Hull Speed
+                            </span>
+                            <span className="text-xl font-mono font-bold text-white">
+                                {hullSpeed?.toFixed(1)} <span className="text-xs text-gray-500">kts</span>
+                            </span>
                         </div>
                         <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                            <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Displacement</span>
-                            <span className="text-xl font-mono font-bold text-white">{(vessel.displacement / 2204.62).toFixed(1)} <span className="text-xs text-gray-500">t</span></span>
+                            <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">
+                                Displacement
+                            </span>
+                            <span className="text-xl font-mono font-bold text-white">
+                                {(vessel.displacement / 2204.62).toFixed(1)}{' '}
+                                <span className="text-xs text-gray-500">t</span>
+                            </span>
                         </div>
                         {vessel.type === 'sail' && (
                             <>
                                 {mcr && (
                                     <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                                        <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Motion Comfort</span>
-                                        <span className={`text-xl font-mono font-bold ${mcr > 30 ? 'text-emerald-300' : mcr > 20 ? 'text-yellow-300' : 'text-amber-300'}`}>{Math.round(mcr)}</span>
+                                        <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">
+                                            Motion Comfort
+                                        </span>
+                                        <span
+                                            className={`text-xl font-mono font-bold ${mcr > 30 ? 'text-emerald-300' : mcr > 20 ? 'text-yellow-300' : 'text-amber-300'}`}
+                                        >
+                                            {Math.round(mcr)}
+                                        </span>
                                     </div>
                                 )}
                                 {csf && (
                                     <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                                        <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Capsize Risk</span>
-                                        <span className={`text-xl font-mono font-bold ${csf < 2 ? 'text-emerald-300' : 'text-red-300'}`}>{csf.toFixed(1)}</span>
+                                        <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">
+                                            Capsize Risk
+                                        </span>
+                                        <span
+                                            className={`text-xl font-mono font-bold ${csf < 2 ? 'text-emerald-300' : 'text-red-300'}`}
+                                        >
+                                            {csf.toFixed(1)}
+                                        </span>
                                     </div>
                                 )}
                                 {dlr && (
                                     <div className="bg-white/5 rounded-xl p-3 border border-white/5">
-                                        <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">D/L Ratio</span>
-                                        <span className="text-xl font-mono font-bold text-white">{Math.round(dlr)}</span>
+                                        <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">
+                                            D/L Ratio
+                                        </span>
+                                        <span className="text-xl font-mono font-bold text-white">
+                                            {Math.round(dlr)}
+                                        </span>
                                     </div>
                                 )}
                             </>
@@ -905,7 +1147,9 @@ const VesselStatusWidgetComponent = ({ vessel, current, vesselStatus, statusStyl
                 <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-center items-center h-full text-center min-h-[220px]">
                     <SearchIcon className="w-12 h-12 text-gray-500 mb-3" />
                     <h3 className="text-lg font-medium text-white mb-1">Observer Mode</h3>
-                    <p className="text-xs text-gray-400 max-w-[200px]">Configure a vessel profile to see hydrostatics.</p>
+                    <p className="text-xs text-gray-400 max-w-[200px]">
+                        Configure a vessel profile to see hydrostatics.
+                    </p>
                 </Card>
             )}
         </div>

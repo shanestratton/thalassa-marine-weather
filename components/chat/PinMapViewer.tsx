@@ -47,9 +47,11 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
             const styleLayers = map.getStyle()?.layers || [];
             let firstSymbolId: string | undefined;
             for (const l of styleLayers) {
-                if (l.type === 'symbol') { firstSymbolId = l.id; break; }
+                if (l.type === 'symbol') {
+                    firstSymbolId = l.id;
+                    break;
+                }
             }
-
 
             // GEBCO Bathymetry removed — WMS now returns 'Zoom Level Not Supported' tiles
 
@@ -60,14 +62,17 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                 tileSize: 256,
                 maxzoom: 18,
             });
-            map.addLayer({
-                id: 'openseamap',
-                type: 'raster',
-                source: 'openseamap',
-                minzoom: 6,
-                maxzoom: 18,
-                paint: { 'raster-opacity': 0.85 },
-            }, firstSymbolId);
+            map.addLayer(
+                {
+                    id: 'openseamap',
+                    type: 'raster',
+                    source: 'openseamap',
+                    minzoom: 6,
+                    maxzoom: 18,
+                    paint: { 'raster-opacity': 0.85 },
+                },
+                firstSymbolId,
+            );
 
             // Coastline stroke
             map.addLayer({
@@ -97,9 +102,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                     <span style="transform: rotate(45deg); font-size: 14px;">📍</span>
                 </div>
             `;
-            new mapboxgl.Marker(el)
-                .setLngLat([lng, lat])
-                .addTo(map);
+            new mapboxgl.Marker(el).setLngLat([lng, lat]).addTo(map);
 
             setMapReady(true);
         });
@@ -115,7 +118,9 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
     // Block body scroll when open
     useEffect(() => {
         document.body.style.overflow = 'hidden';
-        return () => { document.body.style.overflow = ''; };
+        return () => {
+            document.body.style.overflow = '';
+        };
     }, []);
 
     const formattedLat = `${Math.abs(lat).toFixed(4)}°${lat < 0 ? 'S' : 'N'}`;
@@ -129,7 +134,15 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                     onClick={onClose}
                     className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center active:scale-90 transition-transform"
                 >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round">
+                    <svg
+                        width="18"
+                        height="18"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="white"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                    >
                         <path d="M18 6L6 18M6 6l12 12" />
                     </svg>
                 </button>

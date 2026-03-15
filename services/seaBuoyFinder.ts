@@ -58,40 +58,29 @@ const NM_TO_DEG = 1 / 60; // 1 NM ≈ 1/60°
 /**
  * Project a lat/lon by distance and bearing (simple equirectangular).
  */
-function projectPoint(
-    lat: number,
-    lon: number,
-    bearingDeg: number,
-    distanceNM: number,
-): { lat: number; lon: number } {
-    const dLat = distanceNM * NM_TO_DEG * Math.cos(bearingDeg * Math.PI / 180);
-    const dLon = distanceNM * NM_TO_DEG * Math.sin(bearingDeg * Math.PI / 180)
-        / Math.cos(lat * Math.PI / 180);
+function projectPoint(lat: number, lon: number, bearingDeg: number, distanceNM: number): { lat: number; lon: number } {
+    const dLat = distanceNM * NM_TO_DEG * Math.cos((bearingDeg * Math.PI) / 180);
+    const dLon = (distanceNM * NM_TO_DEG * Math.sin((bearingDeg * Math.PI) / 180)) / Math.cos((lat * Math.PI) / 180);
     return { lat: lat + dLat, lon: lon + dLon };
 }
 
 /**
  * Calculate rhumb line bearing from point A to point B (degrees, 0=N, 90=E).
  */
-function rhumbBearing(
-    lat1: number, lon1: number,
-    lat2: number, lon2: number,
-): number {
-    const φ1 = lat1 * Math.PI / 180;
-    const φ2 = lat2 * Math.PI / 180;
-    let Δλ = (lon2 - lon1) * Math.PI / 180;
+function rhumbBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    let Δλ = ((lon2 - lon1) * Math.PI) / 180;
 
     // Stretched latitude difference for Mercator
-    const Δψ = Math.log(
-        Math.tan(Math.PI / 4 + φ2 / 2) / Math.tan(Math.PI / 4 + φ1 / 2)
-    );
+    const Δψ = Math.log(Math.tan(Math.PI / 4 + φ2 / 2) / Math.tan(Math.PI / 4 + φ1 / 2));
 
     // Handle crossing the antimeridian
     if (Math.abs(Δλ) > Math.PI) {
-        Δλ = Δλ > 0 ? -(2 * Math.PI - Δλ) : (2 * Math.PI + Δλ);
+        Δλ = Δλ > 0 ? -(2 * Math.PI - Δλ) : 2 * Math.PI + Δλ;
     }
 
-    const bearing = Math.atan2(Δλ, Δψ) * 180 / Math.PI;
+    const bearing = (Math.atan2(Δλ, Δψ) * 180) / Math.PI;
     return (bearing + 360) % 360;
 }
 
@@ -118,9 +107,7 @@ export async function findSeaBuoy(
     minDepth: number = MIN_SAFE_DEPTH_M,
 ): Promise<SeaBuoyResult> {
     // Calculate bearing — use rhumb line to destination if provided
-    const bearing = (destLat !== undefined && destLon !== undefined)
-        ? rhumbBearing(lat, lon, destLat, destLon)
-        : 180; // Default: head south (toward open water in southern hemisphere)
+    const bearing = destLat !== undefined && destLon !== undefined ? rhumbBearing(lat, lon, destLat, destLon) : 180; // Default: head south (toward open water in southern hemisphere)
 
     console.info(`[SeaBuoy] Searching from [${lat.toFixed(3)}, ${lon.toFixed(3)}] bearing ${bearing.toFixed(0)}°`);
 
@@ -129,13 +116,11 @@ export async function findSeaBuoy(
         const candidate = projectPoint(lat, lon, bearing, dist);
         const depth = await GebcoDepthService.queryDepth(candidate.lat, candidate.lon);
 
-        console.info(
-            `[SeaBuoy] ${dist}NM → [${candidate.lat.toFixed(3)}, ${candidate.lon.toFixed(3)}]: ${depth}m`
-        );
+        console.info(`[SeaBuoy] ${dist}NM → [${candidate.lat.toFixed(3)}, ${candidate.lon.toFixed(3)}]: ${depth}m`);
 
         if (depth !== null && depth <= minDepth) {
             console.info(
-                `[SeaBuoy] ✓ Found deep water at ${dist}NM: ${depth}m at [${candidate.lat.toFixed(3)}, ${candidate.lon.toFixed(3)}]`
+                `[SeaBuoy] ✓ Found deep water at ${dist}NM: ${depth}m at [${candidate.lat.toFixed(3)}, ${candidate.lon.toFixed(3)}]`,
             );
             return {
                 lat: candidate.lat,
@@ -152,7 +137,7 @@ export async function findSeaBuoy(
     // Try ±30°, ±60°, ±90°, ±120°, ±150°, 180° from the original bearing.
     const fanOffsets = [30, -30, 60, -60, 90, -90, 120, -120, 150, -150, 180];
     console.warn(
-        `[SeaBuoy] ✗ Rhumb line (${bearing.toFixed(0)}°) failed — fanning out across ${fanOffsets.length} alternate bearings`
+        `[SeaBuoy] ✗ Rhumb line (${bearing.toFixed(0)}°) failed — fanning out across ${fanOffsets.length} alternate bearings`,
     );
 
     let bestResult: SeaBuoyResult | null = null;
@@ -166,7 +151,7 @@ export async function findSeaBuoy(
 
             if (depth !== null && depth <= minDepth) {
                 console.info(
-                    `[SeaBuoy] ✓ Found deep water on bearing ${altBearing.toFixed(0)}° at ${dist}NM: ${depth}m`
+                    `[SeaBuoy] ✓ Found deep water on bearing ${altBearing.toFixed(0)}° at ${dist}NM: ${depth}m`,
                 );
                 bestResult = {
                     lat: candidate.lat,
@@ -187,10 +172,11 @@ export async function findSeaBuoy(
 
     // Total failure — couldn't find deep water on any bearing
     console.warn(
-        `[SeaBuoy] ✗ No deep water found on ANY bearing within ${MAX_SEARCH_NM}NM of [${lat.toFixed(3)}, ${lon.toFixed(3)}]. Manual intervention required.`
+        `[SeaBuoy] ✗ No deep water found on ANY bearing within ${MAX_SEARCH_NM}NM of [${lat.toFixed(3)}, ${lon.toFixed(3)}]. Manual intervention required.`,
     );
     return {
-        lat, lon,
+        lat,
+        lon,
         depth_m: 0,
         offsetNM: 0,
         alreadyDeep: false,

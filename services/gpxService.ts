@@ -1,7 +1,7 @@
 /**
  * GPX Service
  * Import and export voyage tracks in GPX 1.1 format
- * 
+ *
  * GPX (GPS Exchange Format) is the industry standard for sharing
  * GPS tracks between navigation software (OpenCPN, Navionics, etc.)
  */
@@ -20,15 +20,9 @@ const log = createLogger('GPX');
  * Creates a <trk> with <trkseg> containing all track points.
  * Weather data is included as GPX extensions.
  */
-export function exportVoyageAsGPX(
-    entries: ShipLogEntry[],
-    voyageName: string,
-    vesselName?: string
-): string {
+export function exportVoyageAsGPX(entries: ShipLogEntry[], voyageName: string, vesselName?: string): string {
     // Sort entries by timestamp
-    const sorted = [...entries].sort(
-        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
+    const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
     if (sorted.length === 0) {
         throw new Error('No entries to export');
@@ -39,35 +33,54 @@ export function exportVoyageAsGPX(
     const totalDistanceNM = lastEntry.cumulativeDistanceNM || 0;
 
     // Build trackpoints
-    const trackpoints = sorted.map(entry => {
-        const time = new Date(entry.timestamp).toISOString();
-        const extensions = buildExtensions(entry);
+    const trackpoints = sorted
+        .map((entry) => {
+            const time = new Date(entry.timestamp).toISOString();
+            const extensions = buildExtensions(entry);
 
-        return `      <trkpt lat="${entry.latitude}" lon="${entry.longitude}">
+            return `      <trkpt lat="${entry.latitude}" lon="${entry.longitude}">
         <ele>0</ele>
-        <time>${time}</time>${entry.speedKts !== undefined ? `
-        <speed>${(entry.speedKts * 0.514444).toFixed(2)}</speed>` : ''}${entry.courseDeg !== undefined ? `
-        <course>${entry.courseDeg}</course>` : ''}${extensions ? `
+        <time>${time}</time>${
+            entry.speedKts !== undefined
+                ? `
+        <speed>${(entry.speedKts * 0.514444).toFixed(2)}</speed>`
+                : ''
+        }${
+            entry.courseDeg !== undefined
+                ? `
+        <course>${entry.courseDeg}</course>`
+                : ''
+        }${
+            extensions
+                ? `
         <extensions>
 ${extensions}
-        </extensions>` : ''}
+        </extensions>`
+                : ''
+        }
       </trkpt>`;
-    }).join('\n');
+        })
+        .join('\n');
 
     // Build waypoint markers for manual/waypoint entries
     const waypoints = sorted
-        .filter(e => e.entryType === 'waypoint' || e.entryType === 'manual')
-        .map(entry => {
+        .filter((e) => e.entryType === 'waypoint' || e.entryType === 'manual')
+        .map((entry) => {
             const time = new Date(entry.timestamp).toISOString();
             const name = entry.waypointName || entry.notes || `${entry.entryType} entry`;
             return `  <wpt lat="${entry.latitude}" lon="${entry.longitude}">
     <ele>0</ele>
     <time>${time}</time>
-    <name>${escapeXml(name)}</name>${entry.notes ? `
-    <desc>${escapeXml(entry.notes)}</desc>` : ''}
+    <name>${escapeXml(name)}</name>${
+        entry.notes
+            ? `
+    <desc>${escapeXml(entry.notes)}</desc>`
+            : ''
+    }
     <type>${entry.entryType}</type>
   </wpt>`;
-        }).join('\n');
+        })
+        .join('\n');
 
     const gpx = `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="Thalassa Marine Weather"
@@ -83,10 +96,10 @@ ${extensions}
     </author>
     <time>${new Date().toISOString()}</time>
     <keywords>marine,sailing,navigation,voyage</keywords>
-    <bounds minlat="${Math.min(...sorted.map(e => e.latitude)).toFixed(6)}"
-            minlon="${Math.min(...sorted.map(e => e.longitude)).toFixed(6)}"
-            maxlat="${Math.max(...sorted.map(e => e.latitude)).toFixed(6)}"
-            maxlon="${Math.max(...sorted.map(e => e.longitude)).toFixed(6)}" />
+    <bounds minlat="${Math.min(...sorted.map((e) => e.latitude)).toFixed(6)}"
+            minlon="${Math.min(...sorted.map((e) => e.longitude)).toFixed(6)}"
+            maxlat="${Math.max(...sorted.map((e) => e.latitude)).toFixed(6)}"
+            maxlon="${Math.max(...sorted.map((e) => e.longitude)).toFixed(6)}" />
   </metadata>
 ${waypoints ? waypoints + '\n' : ''}  <trk>
     <name>${escapeXml(voyageName)}</name>
@@ -177,7 +190,7 @@ export function importGPXToEntries(gpxXml: string): Partial<ShipLogEntry>[] {
             courseDeg,
             entryType: 'auto',
             source: 'gpx_import',
-            ...extensions
+            ...extensions,
         };
 
         entries.push(entry);
@@ -205,16 +218,14 @@ export function importGPXToEntries(gpxXml: string): Partial<ShipLogEntry>[] {
             entryType: typeEl?.textContent === 'manual' ? 'manual' : 'waypoint',
             source: 'gpx_import',
             waypointName: nameEl?.textContent || undefined,
-            notes: descEl?.textContent || undefined
+            notes: descEl?.textContent || undefined,
         };
 
         entries.push(entry);
     });
 
     // Sort all entries by timestamp
-    entries.sort((a, b) =>
-        new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime()
-    );
+    entries.sort((a, b) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime());
 
     return entries;
 }
@@ -227,16 +238,23 @@ export function importGPXToEntries(gpxXml: string): Partial<ShipLogEntry>[] {
 function buildExtensions(entry: ShipLogEntry): string {
     const lines: string[] = [];
 
-    if (entry.windSpeed !== undefined) lines.push(`          <thalassa:windSpeed>${entry.windSpeed}</thalassa:windSpeed>`);
-    if (entry.windDirection) lines.push(`          <thalassa:windDirection>${escapeXml(entry.windDirection)}</thalassa:windDirection>`);
-    if (entry.waveHeight !== undefined) lines.push(`          <thalassa:waveHeight>${entry.waveHeight}</thalassa:waveHeight>`);
+    if (entry.windSpeed !== undefined)
+        lines.push(`          <thalassa:windSpeed>${entry.windSpeed}</thalassa:windSpeed>`);
+    if (entry.windDirection)
+        lines.push(`          <thalassa:windDirection>${escapeXml(entry.windDirection)}</thalassa:windDirection>`);
+    if (entry.waveHeight !== undefined)
+        lines.push(`          <thalassa:waveHeight>${entry.waveHeight}</thalassa:waveHeight>`);
     if (entry.pressure !== undefined) lines.push(`          <thalassa:pressure>${entry.pressure}</thalassa:pressure>`);
     if (entry.airTemp !== undefined) lines.push(`          <thalassa:airTemp>${entry.airTemp}</thalassa:airTemp>`);
-    if (entry.waterTemp !== undefined) lines.push(`          <thalassa:waterTemp>${entry.waterTemp}</thalassa:waterTemp>`);
-    if (entry.beaufortScale !== undefined) lines.push(`          <thalassa:beaufort>${entry.beaufortScale}</thalassa:beaufort>`);
+    if (entry.waterTemp !== undefined)
+        lines.push(`          <thalassa:waterTemp>${entry.waterTemp}</thalassa:waterTemp>`);
+    if (entry.beaufortScale !== undefined)
+        lines.push(`          <thalassa:beaufort>${entry.beaufortScale}</thalassa:beaufort>`);
     if (entry.seaState !== undefined) lines.push(`          <thalassa:seaState>${entry.seaState}</thalassa:seaState>`);
-    if (entry.visibility !== undefined) lines.push(`          <thalassa:visibility>${entry.visibility}</thalassa:visibility>`);
-    if (entry.engineStatus) lines.push(`          <thalassa:engineStatus>${entry.engineStatus}</thalassa:engineStatus>`);
+    if (entry.visibility !== undefined)
+        lines.push(`          <thalassa:visibility>${entry.visibility}</thalassa:visibility>`);
+    if (entry.engineStatus)
+        lines.push(`          <thalassa:engineStatus>${entry.engineStatus}</thalassa:engineStatus>`);
     if (entry.entryType) lines.push(`          <thalassa:entryType>${entry.entryType}</thalassa:entryType>`);
     if (entry.notes) lines.push(`          <thalassa:notes>${escapeXml(entry.notes)}</thalassa:notes>`);
 
@@ -255,7 +273,8 @@ function parseThalassaExtensions(trkpt: Element): Partial<ShipLogEntry> {
         // Note: querySelector('thalassa:windSpeed') throws because ':' is a CSS pseudo-class.
         // Use getElementsByTagName (literal match) and getElementsByTagNameNS (namespace match) instead.
         const localName = tag.replace('thalassa:', '');
-        const el = extensions.getElementsByTagName(tag)?.[0] ||
+        const el =
+            extensions.getElementsByTagName(tag)?.[0] ||
             extensions.getElementsByTagNameNS('https://thalassa.app/gpx/1', localName)?.[0] ||
             extensions.getElementsByTagName(localName)?.[0];
         return el?.textContent || undefined;
@@ -316,12 +335,11 @@ function escapeXml(str: string): string {
  */
 function haversineNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 3440.065; // Earth radius in NM
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
     const a =
         Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
 }

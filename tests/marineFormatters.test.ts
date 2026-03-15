@@ -16,7 +16,7 @@ import {
     getWatchPeriodRange,
     formatCourseTrue,
     getVisibilityCategory,
-    getVisibilityDescription
+    getVisibilityDescription,
 } from '../utils/marineFormatters';
 
 describe('Marine Formatters', () => {

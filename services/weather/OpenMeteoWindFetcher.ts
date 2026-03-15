@@ -15,8 +15,8 @@ import type { ModelSource } from './WindFieldAdapter';
 import { AVAILABLE_MODELS, type WeatherModelId, recommendModels } from './MultiModelWeatherService';
 
 const FORECAST_HOURS = 168; // 7 days for passage planning
-const BATCH_SIZE = 50;      // Open-Meteo max per request
-const CONCURRENCY = 4;      // Parallel API calls
+const BATCH_SIZE = 50; // Open-Meteo max per request
+const CONCURRENCY = 4; // Parallel API calls
 
 /**
  * Fetch a WindGrid for a specific weather model covering the route bbox.
@@ -35,7 +35,7 @@ export async function fetchModelWindGrid(
         return null;
     }
 
-    const model = AVAILABLE_MODELS.find(m => m.id === modelId);
+    const model = AVAILABLE_MODELS.find((m) => m.id === modelId);
     if (!model) {
         console.warn(`[OpenMeteoFetcher] Unknown model: ${modelId}`);
         return null;
@@ -77,7 +77,9 @@ export async function fetchModelWindGrid(
         }
     }
 
-    console.info(`[OpenMeteoFetcher] ${model.name}: ${rows}×${cols} grid (${allPoints.length} points), ${forecastHours}h`);
+    console.info(
+        `[OpenMeteoFetcher] ${model.name}: ${rows}×${cols} grid (${allPoints.length} points), ${forecastHours}h`,
+    );
 
     // Batch requests
     const allResults: any[] = new Array(allPoints.length).fill(null);
@@ -91,41 +93,44 @@ export async function fetchModelWindGrid(
     try {
         for (let b = 0; b < batches.length; b += CONCURRENCY) {
             const chunk = batches.slice(b, b + CONCURRENCY);
-            await Promise.all(chunk.map(async ({ start, end }) => {
-                const batchPoints = allPoints.slice(start, end);
-                const latParam = batchPoints.map(p => p.lat).join(',');
-                const lonParam = batchPoints.map(p => p.lon).join(',');
+            await Promise.all(
+                chunk.map(async ({ start, end }) => {
+                    const batchPoints = allPoints.slice(start, end);
+                    const latParam = batchPoints.map((p) => p.lat).join(',');
+                    const lonParam = batchPoints.map((p) => p.lon).join(',');
 
-                const url = `${baseUrl}?latitude=${latParam}&longitude=${lonParam}` +
-                    `&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
-                    `&forecast_hours=${forecastHours}` +
-                    `&models=${model.openMeteoModel}` +
-                    `&timezone=UTC` +
-                    `&apikey=${omKey}`;
+                    const url =
+                        `${baseUrl}?latitude=${latParam}&longitude=${lonParam}` +
+                        `&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
+                        `&forecast_hours=${forecastHours}` +
+                        `&models=${model.openMeteoModel}` +
+                        `&timezone=UTC` +
+                        `&apikey=${omKey}`;
 
-                const resp = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-                if (!resp.ok) {
-                    console.warn(`[OpenMeteoFetcher] ${model.name} batch ${start}-${end} failed: ${resp.status}`);
-                    return;
-                }
+                    const resp = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+                    if (!resp.ok) {
+                        console.warn(`[OpenMeteoFetcher] ${model.name} batch ${start}-${end} failed: ${resp.status}`);
+                        return;
+                    }
 
-                const data = await resp.json();
-                const results = Array.isArray(data) ? data : [data];
-                for (let i = 0; i < results.length; i++) {
-                    allResults[start + i] = results[i];
-                }
-            }));
+                    const data = await resp.json();
+                    const results = Array.isArray(data) ? data : [data];
+                    for (let i = 0; i < results.length; i++) {
+                        allResults[start + i] = results[i];
+                    }
+                }),
+            );
         }
 
         // Check we got enough data
-        const validCount = allResults.filter(r => r?.hourly).length;
+        const validCount = allResults.filter((r) => r?.hourly).length;
         if (validCount < allPoints.length * 0.5) {
             console.warn(`[OpenMeteoFetcher] ${model.name}: only ${validCount}/${allPoints.length} points valid`);
             return null;
         }
 
         // Determine actual forecast length from response
-        const firstValid = allResults.find(r => r?.hourly?.wind_speed_10m);
+        const firstValid = allResults.find((r) => r?.hourly?.wind_speed_10m);
         const totalHours = firstValid?.hourly?.wind_speed_10m?.length ?? forecastHours;
 
         // Convert Open-Meteo JSON → WindGrid (U/V Float32Arrays)
@@ -148,7 +153,7 @@ export async function fetchModelWindGrid(
 
                     // km/h → m/s
                     const speedMs = speedKmh / 3.6;
-                    const dirRad = dirDeg * Math.PI / 180;
+                    const dirRad = (dirDeg * Math.PI) / 180;
 
                     // Meteorological: direction is where wind comes FROM
                     // U = eastward, V = northward (direction wind blows TO)
@@ -211,13 +216,13 @@ export async function fetchMultiModelWindGrids(
         models.map(async (modelId): Promise<ModelSource | null> => {
             const grid = await fetchModelWindGrid(modelId, bounds, forecastHours);
             if (!grid) return null;
-            const model = AVAILABLE_MODELS.find(m => m.id === modelId);
+            const model = AVAILABLE_MODELS.find((m) => m.id === modelId);
             return {
                 name: model?.name ?? modelId.toUpperCase(),
                 grid,
                 weight: 1.0,
             };
-        })
+        }),
     );
 
     return results.filter(Boolean) as ModelSource[];

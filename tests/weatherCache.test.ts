@@ -3,8 +3,14 @@
  * Tests pure in-memory cache logic with mocked localStorage
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { differenceInMinutes, saveToCache, getFromCache, clearCache, getFromCacheOffline } from '../services/weather/cache';
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+    differenceInMinutes,
+    saveToCache,
+    getFromCache,
+    clearCache,
+    getFromCacheOffline,
+} from '../services/weather/cache';
 import { MarineWeatherReport } from '../types';
 
 // --- differenceInMinutes ---

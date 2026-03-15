@@ -23,8 +23,8 @@ export interface DiaryEntry {
     title: string;
     body: string;
     mood: DiaryMood;
-    photos: string[];           // Public URLs (or data: URIs when offline)
-    audio_url: string | null;   // Voice memo URL (or data: URI when offline)
+    photos: string[]; // Public URLs (or data: URIs when offline)
+    audio_url: string | null; // Voice memo URL (or data: URI when offline)
     latitude: number | null;
     longitude: number | null;
     location_name: string;
@@ -33,8 +33,8 @@ export interface DiaryEntry {
     tags: string[];
     created_at: string;
     updated_at: string;
-    _offline?: boolean;         // Client-only flag — not persisted to DB
-    _pendingPhotos?: string[];  // Base64 photos awaiting upload
+    _offline?: boolean; // Client-only flag — not persisted to DB
+    _pendingPhotos?: string[]; // Base64 photos awaiting upload
 }
 
 export type DiaryMood = 'epic' | 'good' | 'neutral' | 'rough' | 'storm';
@@ -59,7 +59,6 @@ const MAX_PHOTO_SIZE = 1200;
 // ── Service ────────────────────────────────────────────────────
 
 class DiaryServiceClass {
-
     private _syncInProgress = false;
     private _lastRefreshTime = 0;
     private _refreshPromise: Promise<void> | null = null;
@@ -90,11 +89,9 @@ class DiaryServiceClass {
         const pending = this._getPendingEntries();
 
         // Combine: pending first (newest), then cached (remove dups)
-        const pendingIds = new Set(pending.map(e => e.id));
-        const merged = [
-            ...pending,
-            ...cached.filter(e => !pendingIds.has(e.id)),
-        ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        const pendingIds = new Set(pending.map((e) => e.id));
+        const merged = [...pending, ...cached.filter((e) => !pendingIds.has(e.id))]
+            .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
             .slice(0, limit);
 
         // Background refresh from Supabase (non-blocking) — but throttle to max once per 5s
@@ -106,27 +103,23 @@ class DiaryServiceClass {
 
         // Strip _offline flag — background sync handles persistence transparently.
         // Showing PENDING badges confuses users when sync is slow or auth is stale.
-        return merged.map(e => ({ ...e, _offline: false }));
+        return merged.map((e) => ({ ...e, _offline: false }));
     }
 
     async getEntry(id: string): Promise<DiaryEntry | null> {
         // Check pending first
         const pending = this._getPendingEntries();
-        const pendingMatch = pending.find(e => e.id === id);
+        const pendingMatch = pending.find((e) => e.id === id);
         if (pendingMatch) return pendingMatch;
 
         // Check cache
         const cached = this._getCachedEntries();
-        const cacheMatch = cached.find(e => e.id === id);
+        const cacheMatch = cached.find((e) => e.id === id);
         if (cacheMatch) return cacheMatch;
 
         // Fallback to network
         if (!supabase) return null;
-        const { data } = await supabase
-            .from(TABLE)
-            .select('*')
-            .eq('id', id)
-            .single();
+        const { data } = await supabase.from(TABLE).select('*').eq('id', id).single();
         return data as DiaryEntry | null;
     }
 
@@ -163,7 +156,7 @@ class DiaryServiceClass {
             created_at: now,
             updated_at: now,
             _offline: true,
-            _pendingPhotos: (entry.photos || []).filter(p => p.startsWith('data:')),
+            _pendingPhotos: (entry.photos || []).filter((p) => p.startsWith('data:')),
         };
 
         // Save to pending queue immediately (survives app crash)
@@ -181,13 +174,16 @@ class DiaryServiceClass {
 
     // ── Update ─────────────────────────────────────────────────
 
-    async updateEntry(id: string, updates: Partial<Pick<DiaryEntry,
-        'title' | 'body' | 'mood' | 'photos' | 'location_name' | 'weather_summary' | 'tags'
-    >>): Promise<boolean> {
+    async updateEntry(
+        id: string,
+        updates: Partial<
+            Pick<DiaryEntry, 'title' | 'body' | 'mood' | 'photos' | 'location_name' | 'weather_summary' | 'tags'>
+        >,
+    ): Promise<boolean> {
         // Update in pending queue if offline entry
         if (id.startsWith('offline-')) {
             const pending = this._getPendingEntries();
-            const idx = pending.findIndex(e => e.id === id);
+            const idx = pending.findIndex((e) => e.id === id);
             if (idx >= 0) {
                 Object.assign(pending[idx], updates, { updated_at: new Date().toISOString() });
                 this._savePending(pending);
@@ -212,7 +208,7 @@ class DiaryServiceClass {
         // Delete from pending if offline entry
         if (id.startsWith('offline-')) {
             const pending = this._getPendingEntries();
-            this._savePending(pending.filter(e => e.id !== id));
+            this._savePending(pending.filter((e) => e.id !== id));
             return true;
         }
 
@@ -258,21 +254,20 @@ class DiaryServiceClass {
             const ext = file.name.split('.').pop() || 'jpg';
             const path = `${user.id}/${Date.now()}.${ext}`;
 
-            const { error } = await supabase.storage
-                .from(PHOTO_BUCKET)
-                .upload(path, compressed, {
-                    contentType: `image/${ext === 'png' ? 'png' : 'jpeg'}`,
-                    upsert: false,
-                });
+            const { error } = await supabase.storage.from(PHOTO_BUCKET).upload(path, compressed, {
+                contentType: `image/${ext === 'png' ? 'png' : 'jpeg'}`,
+                upsert: false,
+            });
 
             if (error) return null;
 
-            const { data: urlData } = supabase.storage
-                .from(PHOTO_BUCKET)
-                .getPublicUrl(path);
+            const { data: urlData } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path);
 
             return urlData?.publicUrl || null;
-        } catch (e) { console.error('[Diary] Photo upload failed:', e); return null; }
+        } catch (e) {
+            console.error('[Diary] Photo upload failed:', e);
+            return null;
+        }
     }
 
     private async _fileToDataUri(file: File): Promise<string> {
@@ -302,12 +297,13 @@ class DiaryServiceClass {
 
             if (error) return null;
 
-            const { data: urlData } = supabase.storage
-                .from(PHOTO_BUCKET)
-                .getPublicUrl(path);
+            const { data: urlData } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(path);
 
             return urlData?.publicUrl || null;
-        } catch (e) { console.error('[Diary] Data URI upload failed:', e); return null; }
+        } catch (e) {
+            console.error('[Diary] Data URI upload failed:', e);
+            return null;
+        }
     }
 
     // ── Sync Engine ────────────────────────────────────────────
@@ -398,7 +394,7 @@ class DiaryServiceClass {
 
                     if (!error && data) {
                         // Remove this entry from pending immediately (crash-safe)
-                        const remaining = this._getPendingEntries().filter(e => e.id !== entry.id);
+                        const remaining = this._getPendingEntries().filter((e) => e.id !== entry.id);
                         this._savePending(remaining);
                         // Keep the server-returned entry in a short-lived buffer so it
                         // survives the gap between pending removal and server cache refresh
@@ -406,11 +402,16 @@ class DiaryServiceClass {
                         syncedCount++;
                         console.log(`[Diary] ✅ Synced entry: ${entry.title || entry.id}`);
                     } else if (error) {
-                        console.error(`[Diary] ❌ Supabase error for "${entry.title}":`, error.message, error.code, error.details);
+                        console.error(
+                            `[Diary] ❌ Supabase error for "${entry.title}":`,
+                            error.message,
+                            error.code,
+                            error.details,
+                        );
                         // If it's a duplicate (unique constraint), remove from pending — it's already synced
                         if (error.code === '23505') {
                             console.warn(`[Diary] Duplicate detected — removing from pending queue`);
-                            const remaining = this._getPendingEntries().filter(e => e.id !== entry.id);
+                            const remaining = this._getPendingEntries().filter((e) => e.id !== entry.id);
                             this._savePending(remaining);
                             syncedCount++;
                         }
@@ -462,22 +463,36 @@ class DiaryServiceClass {
         try {
             const raw = localStorage.getItem(CACHE_KEY);
             return raw ? JSON.parse(raw) : [];
-        } catch (e) { console.warn('[Diary] Cache read failed:', e); return []; }
+        } catch (e) {
+            console.warn('[Diary] Cache read failed:', e);
+            return [];
+        }
     }
 
     private _saveCachedEntries(entries: DiaryEntry[]): void {
-        try { localStorage.setItem(CACHE_KEY, JSON.stringify(entries)); } catch (e) { console.warn('[Diary] Cache write failed:', e); }
+        try {
+            localStorage.setItem(CACHE_KEY, JSON.stringify(entries));
+        } catch (e) {
+            console.warn('[Diary] Cache write failed:', e);
+        }
     }
 
     private _getPendingEntries(): DiaryEntry[] {
         try {
             const raw = localStorage.getItem(PENDING_KEY);
             return raw ? JSON.parse(raw) : [];
-        } catch (e) { console.warn('[Diary] Pending read failed:', e); return []; }
+        } catch (e) {
+            console.warn('[Diary] Pending read failed:', e);
+            return [];
+        }
     }
 
     private _savePending(entries: DiaryEntry[]): void {
-        try { localStorage.setItem(PENDING_KEY, JSON.stringify(entries)); } catch (e) { console.error('[Diary] Pending write failed — entries may be lost:', e); }
+        try {
+            localStorage.setItem(PENDING_KEY, JSON.stringify(entries));
+        } catch (e) {
+            console.error('[Diary] Pending write failed — entries may be lost:', e);
+        }
     }
 
     private _addPending(entry: DiaryEntry): void {
@@ -487,14 +502,22 @@ class DiaryServiceClass {
     }
 
     private _invalidateCache(): void {
-        try { localStorage.removeItem(CACHE_KEY); } catch (e) { console.warn('[Diary] Cache invalidation failed:', e); }
+        try {
+            localStorage.removeItem(CACHE_KEY);
+        } catch (e) {
+            console.warn('[Diary] Cache invalidation failed:', e);
+        }
     }
 
     private async _refreshFromServer(limit: number): Promise<void> {
         // Deduplicate concurrent calls — reuse in-flight promise
         if (this._refreshPromise) return this._refreshPromise;
         this._refreshPromise = this._doRefreshFromServer(limit);
-        try { await this._refreshPromise; } finally { this._refreshPromise = null; }
+        try {
+            await this._refreshPromise;
+        } finally {
+            this._refreshPromise = null;
+        }
     }
 
     private async _doRefreshFromServer(limit: number): Promise<void> {
@@ -523,26 +546,24 @@ class DiaryServiceClass {
 
                 // Purge stale entries from recently-synced buffer (>30s)
                 const now = Date.now();
-                this._recentlySynced = this._recentlySynced.filter(r => now - r.syncedAt < 30_000);
+                this._recentlySynced = this._recentlySynced.filter((r) => now - r.syncedAt < 30_000);
 
                 // Collect all IDs already in server data
-                const serverIds = new Set((data as DiaryEntry[]).map(e => e.id));
+                const serverIds = new Set((data as DiaryEntry[]).map((e) => e.id));
 
                 // Merge: server data + pending entries + recently-synced buffer
                 // (pending and recently-synced win on collision with server data)
-                const pendingNotOnServer = pending.filter(e => !serverIds.has(e.id));
-                const recentNotOnServer = this._recentlySynced
-                    .map(r => r.entry)
-                    .filter(e => !serverIds.has(e.id));
+                const pendingNotOnServer = pending.filter((e) => !serverIds.has(e.id));
+                const recentNotOnServer = this._recentlySynced.map((r) => r.entry).filter((e) => !serverIds.has(e.id));
 
-                const merged = [
-                    ...pendingNotOnServer,
-                    ...recentNotOnServer,
-                    ...(data as DiaryEntry[]),
-                ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+                const merged = [...pendingNotOnServer, ...recentNotOnServer, ...(data as DiaryEntry[])].sort(
+                    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+                );
                 this._saveCachedEntries(merged);
             }
-        } catch (e) { console.error('[Diary] Server refresh failed:', e); }
+        } catch (e) {
+            console.error('[Diary] Server refresh failed:', e);
+        }
     }
 
     // ── Image Compression ──────────────────────────────────────
@@ -576,7 +597,10 @@ class DiaryServiceClass {
         try {
             const match = url.match(/diary-photos\/(.+)$/);
             return match ? match[1] : null;
-        } catch (e) { console.warn('[Diary] Storage path extraction failed:', e); return null; }
+        } catch (e) {
+            console.warn('[Diary] Storage path extraction failed:', e);
+            return null;
+        }
     }
 
     // ── GPS ────────────────────────────────────────────────────
@@ -588,7 +612,10 @@ class DiaryServiceClass {
             const fresh = await BgGeoManager.getFreshPosition(10000, 10);
             if (fresh) return { lat: fresh.latitude, lon: fresh.longitude };
             return null;
-        } catch (e) { console.warn('[Diary] GPS location failed:', e); return null; }
+        } catch (e) {
+            console.warn('[Diary] GPS location failed:', e);
+            return null;
+        }
     }
 
     /** Reverse geocode lat/lon to a human-readable place name via Nominatim */
@@ -596,7 +623,7 @@ class DiaryServiceClass {
         try {
             const res = await fetch(
                 `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=14&addressdetails=1`,
-                { headers: { 'User-Agent': 'Thalassa-Marine-Weather/1.0' } }
+                { headers: { 'User-Agent': 'Thalassa-Marine-Weather/1.0' } },
             );
             if (!res.ok) return null;
             const data = await res.json();
@@ -610,7 +637,9 @@ class DiaryServiceClass {
             }
             if (addr.state) parts.push(addr.state);
             else if (addr.county) parts.push(addr.county);
-            return parts.length > 0 ? parts.join(', ') : (data.display_name?.split(',').slice(0, 2).join(',').trim() || null);
+            return parts.length > 0
+                ? parts.join(', ')
+                : data.display_name?.split(',').slice(0, 2).join(',').trim() || null;
         } catch (e) {
             console.warn('[Diary] Reverse geocode failed:', e);
             return null;
@@ -619,11 +648,14 @@ class DiaryServiceClass {
 
     // ── Gemini AI ──────────────────────────────────────────────
 
-    async enhanceWithGemini(body: string, context: {
-        mood: DiaryMood;
-        location?: string;
-        weather?: string;
-    }): Promise<string | null> {
+    async enhanceWithGemini(
+        body: string,
+        context: {
+            mood: DiaryMood;
+            location?: string;
+            weather?: string;
+        },
+    ): Promise<string | null> {
         if (!navigator.onLine) return null;
 
         try {
@@ -649,7 +681,10 @@ class DiaryServiceClass {
             if (!res.ok) return null;
             const data = await res.json();
             return data?.enhanced || null;
-        } catch (e) { console.error('[Diary] Gemini enhance failed:', e); return null; }
+        } catch (e) {
+            console.error('[Diary] Gemini enhance failed:', e);
+            return null;
+        }
     }
 
     // ── Audio ──────────────────────────────────────────────────
@@ -685,12 +720,13 @@ class DiaryServiceClass {
 
             if (error) return null;
 
-            const { data: urlData } = supabase.storage
-                .from(AUDIO_BUCKET)
-                .getPublicUrl(path);
+            const { data: urlData } = supabase.storage.from(AUDIO_BUCKET).getPublicUrl(path);
 
             return urlData?.publicUrl || null;
-        } catch (e) { console.error('[Diary] Audio blob upload failed:', e); return null; }
+        } catch (e) {
+            console.error('[Diary] Audio blob upload failed:', e);
+            return null;
+        }
     }
 
     private async _uploadAudioDataUri(dataUri: string): Promise<string | null> {
@@ -702,7 +738,10 @@ class DiaryServiceClass {
             const res = await fetch(dataUri);
             const blob = await res.blob();
             return this._uploadAudioBlob(blob);
-        } catch (e) { console.error('[Diary] Audio data URI upload failed:', e); return null; }
+        } catch (e) {
+            console.error('[Diary] Audio data URI upload failed:', e);
+            return null;
+        }
     }
 
     async transcribeAudio(audioUrl: string, mimeType?: string): Promise<string | null> {
@@ -743,7 +782,10 @@ class DiaryServiceClass {
             if (!res.ok) return null;
             const data = await res.json();
             return data?.transcript || null;
-        } catch (e) { console.error('[Diary] Audio transcription failed:', e); return null; }
+        } catch (e) {
+            console.error('[Diary] Audio transcription failed:', e);
+            return null;
+        }
     }
 
     // ── Status ─────────────────────────────────────────────────

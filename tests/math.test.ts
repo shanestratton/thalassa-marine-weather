@@ -1,6 +1,5 @@
-
 import { describe, it, expect } from 'vitest';
-import { calculateHeatIndex, calculateWindChill, calculateDistance, getSunTimes } from '../utils/math';
+import { calculateHeatIndex, calculateWindChill, calculateDistance } from '../utils/math';
 
 describe('Math Utils', () => {
     describe('calculateHeatIndex', () => {
@@ -33,7 +32,7 @@ describe('Math Utils', () => {
         it('should calculate distance between two points', () => {
             // New York to London approx 3461 miles / 5570 km / 3007 nm
             // 40.7128° N, 74.0060° W -> 51.5074° N, 0.1278° W
-            const dist = calculateDistance(40.7128, -74.0060, 51.5074, -0.1278);
+            const dist = calculateDistance(40.7128, -74.006, 51.5074, -0.1278);
             expect(dist).toBeGreaterThan(5500); // KM (approx 5570km)
             expect(dist).toBeLessThan(5600);
         });

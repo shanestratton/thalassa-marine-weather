@@ -167,12 +167,7 @@ void main() {
 
 // ── Helpers ───────────────────────────────────────────────────
 
-function compileShader(
-    gl: WebGLRenderingContext,
-    type: number,
-    source: string,
-    label: string,
-): WebGLShader {
+function compileShader(gl: WebGLRenderingContext, type: number, source: string, label: string): WebGLShader {
     const shader = gl.createShader(type);
     if (!shader) throw new Error(`[WindParticleLayer] Failed to create ${label}`);
     gl.shaderSource(shader, source);
@@ -185,12 +180,7 @@ function compileShader(
     return shader;
 }
 
-function linkProgram(
-    gl: WebGLRenderingContext,
-    vs: WebGLShader,
-    fs: WebGLShader,
-    label: string,
-): WebGLProgram {
+function linkProgram(gl: WebGLRenderingContext, vs: WebGLShader, fs: WebGLShader, label: string): WebGLProgram {
     const program = gl.createProgram();
     if (!program) throw new Error(`[WindParticleLayer] Failed to create ${label} program`);
     gl.attachShader(program, vs);
@@ -264,10 +254,10 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     private totalHours: number = 0;
 
     // Current interpolation state (fractional hour → smooth blend)
-    private forecastHour: number = 0;     // float, e.g. 4.5
-    private blendFactor: number = 0;      // 0.0–1.0 between hourA and hourB
-    private hourIdxA: number = 0;         // floor index into windTimeline
-    private hourIdxB: number = 0;         // ceil index into windTimeline
+    private forecastHour: number = 0; // float, e.g. 4.5
+    private blendFactor: number = 0; // 0.0–1.0 between hourA and hourB
+    private hourIdxA: number = 0; // floor index into windTimeline
+    private hourIdxB: number = 0; // ceil index into windTimeline
 
     private dataBounds: WindBounds = { south: -85, north: 85, west: -180, east: 180 };
     private gridBounds = { south: -85.0, north: 85.0, west: -180.0, east: 180.0 };
@@ -327,8 +317,6 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         this.aParticlePosLoc = gl.getAttribLocation(this.program, 'a_particle_pos');
         this.aParticleSpeedLoc = gl.getAttribLocation(this.program, 'a_particle_speed');
         this.aParticleAlphaLoc = gl.getAttribLocation(this.program, 'a_particle_alpha');
-
-
 
         this.uMatrixLoc = gl.getUniformLocation(this.program, 'u_matrix');
         this.uGridBoundsLoc = gl.getUniformLocation(this.program, 'u_grid_bounds');
@@ -391,7 +379,6 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         this.heatmapIndexBuffer = gl.createBuffer();
         this.speedTexture = gl.createTexture();
 
-
         if (this.pendingGrid) {
             const { grid, hour } = this.pendingGrid;
             this.pendingGrid = null;
@@ -426,8 +413,10 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         }
 
         this.dataBounds = this.sanitizeBounds({
-            north: grid.north, south: grid.south,
-            east: grid.east, west: grid.west,
+            north: grid.north,
+            south: grid.south,
+            east: grid.east,
+            west: grid.west,
         });
         this.gridBounds = { ...this.dataBounds };
         this.windGridWidth = grid.width;
@@ -441,7 +430,9 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         this.windTimeline = [];
         const size = grid.width * grid.height;
 
-        log.info(`[WindGL] setGrid: ${grid.width}×${grid.height}, totalHours=${grid.totalHours}, u.length=${grid.u.length}, bounds=[${grid.south},${grid.north}]×[${grid.west},${grid.east}]`);
+        log.info(
+            `[WindGL] setGrid: ${grid.width}×${grid.height}, totalHours=${grid.totalHours}, u.length=${grid.u.length}, bounds=[${grid.south},${grid.north}]×[${grid.west},${grid.east}]`,
+        );
 
         for (let h = 0; h < grid.totalHours; h++) {
             const uSrc = grid.u[h];
@@ -524,10 +515,14 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         // Quad spanning 3 world copies: X from -1 to 2, Y from 0 to 1
         // fract() in the fragment shader handles UV wrapping
         const quadVerts = new Float32Array([
-            -1.0, 0.0,   // bottom-left  (1 world west)
-            2.0, 0.0,   // bottom-right (2 worlds east)
-            -1.0, 1.0,   // top-left
-            2.0, 1.0,   // top-right
+            -1.0,
+            0.0, // bottom-left  (1 world west)
+            2.0,
+            0.0, // bottom-right (2 worlds east)
+            -1.0,
+            1.0, // top-left
+            2.0,
+            1.0, // top-right
         ]);
 
         gl.bindBuffer(gl.ARRAY_BUFFER, this.heatmapQuadBuffer);
@@ -552,8 +547,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         // Enable float linear filtering if available
         gl.getExtension('OES_texture_float_linear');
         // Global mode: REPEAT on S (longitude) for seamless antimeridian wrapping
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S,
-            this.globalMode ? gl.REPEAT : gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, this.globalMode ? gl.REPEAT : gl.CLAMP_TO_EDGE);
         // Always CLAMP on T (latitude) — no wrapping over poles
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 
@@ -587,9 +581,13 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
     /** Encode U/V as Uint8 RGBA texture (works on all GPUs). */
     private _uploadUint8Texture(
-        gl: WebGLRenderingContext, tex: WebGLTexture,
-        u: Float32Array, v: Float32Array,
-        w: number, h: number, size: number,
+        gl: WebGLRenderingContext,
+        tex: WebGLTexture,
+        u: Float32Array,
+        v: Float32Array,
+        w: number,
+        h: number,
+        size: number,
     ): void {
         const rgba = new Uint8Array(size * 4);
         const inv = 255.0 / (2.0 * MAX_SPEED);
@@ -597,7 +595,8 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             const o = i * 4;
             rgba[o] = Math.round(Math.max(0, Math.min(255, (u[i] + MAX_SPEED) * inv)));
             rgba[o + 1] = Math.round(Math.max(0, Math.min(255, (v[i] + MAX_SPEED) * inv)));
-            rgba[o + 2] = 0; rgba[o + 3] = 255;
+            rgba[o + 2] = 0;
+            rgba[o + 3] = 255;
         }
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
     }
@@ -632,13 +631,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     }
 
     /** Set wind data for a single timestep (backward compat). */
-    setWindData(
-        uData: Float32Array,
-        vData: Float32Array,
-        width: number,
-        height: number,
-        bounds: WindBounds,
-    ): void {
+    setWindData(uData: Float32Array, vData: Float32Array, width: number, height: number, bounds: WindBounds): void {
         this.dataBounds = this.sanitizeBounds(bounds);
         this.gridBounds = { ...this.dataBounds };
         this.windGridWidth = width;
@@ -699,10 +692,16 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
         const uArr = ts.u;
         const vArr = ts.v;
-        const u = uArr[i00] * (1 - fx) * (1 - fy) + uArr[i10] * fx * (1 - fy)
-            + uArr[i01] * (1 - fx) * fy + uArr[i11] * fx * fy;
-        const v = vArr[i00] * (1 - fx) * (1 - fy) + vArr[i10] * fx * (1 - fy)
-            + vArr[i01] * (1 - fx) * fy + vArr[i11] * fx * fy;
+        const u =
+            uArr[i00] * (1 - fx) * (1 - fy) +
+            uArr[i10] * fx * (1 - fy) +
+            uArr[i01] * (1 - fx) * fy +
+            uArr[i11] * fx * fy;
+        const v =
+            vArr[i00] * (1 - fx) * (1 - fy) +
+            vArr[i10] * fx * (1 - fy) +
+            vArr[i01] * (1 - fx) * fy +
+            vArr[i11] * fx * fy;
         return [u, v];
     }
 
@@ -729,10 +728,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
         // mix(A, B, blendFactor)
         const bf = this.blendFactor;
-        return [
-            uA * (1 - bf) + uB * bf,
-            vA * (1 - bf) + vB * bf,
-        ];
+        return [uA * (1 - bf) + uB * bf, vA * (1 - bf) + vB * bf];
     }
 
     // ── Particle management ───────────────────────────────────
@@ -820,7 +816,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
                 // At lat=60° (y=0.83): cosLat=0.5 (half speed)
                 // At lat=80° (y=0.94): cosLat=0.17 (very slow)
                 const latDeg = this.gridBounds.south + y * (this.gridBounds.north - this.gridBounds.south);
-                const cosLat = Math.max(0.1, Math.cos(latDeg * Math.PI / 180));
+                const cosLat = Math.max(0.1, Math.cos((latDeg * Math.PI) / 180));
                 x += u * SPEED_FACTOR * cosLat;
                 y += v * SPEED_FACTOR * cosLat;
             }
@@ -907,7 +903,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
                 trail0.push({ x: data[off], y: data[off + 1], spd: data[off + 2], a: data[off + 3] });
             }
             // Sample 10 particles
-            const sample: Array<{ x: number, y: number, age: number }> = [];
+            const sample: Array<{ x: number; y: number; age: number }> = [];
             for (let i = 0; i < Math.min(10, NUM_PARTICLES); i++) {
                 const b2 = i * FLOATS_PER_PARTICLE;
                 sample.push({ x: data[b2], y: data[b2 + 1], age: ages[i] });
@@ -945,7 +941,9 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
         if (!this.program || !this.particleBuffer || !matrixOrOptions) {
             if (this._renderLogCount < 3) {
-                log.warn(`[WindGL] render bail: program=${!!this.program} buf=${!!this.particleBuffer} arg=${!!matrixOrOptions} timeline=${this.windTimeline.length}`);
+                log.warn(
+                    `[WindGL] render bail: program=${!!this.program} buf=${!!this.particleBuffer} arg=${!!matrixOrOptions} timeline=${this.windTimeline.length}`,
+                );
                 this._renderLogCount++;
             }
             return;
@@ -954,21 +952,29 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         // MapLibre v3+ passes { modelViewProjectionMatrix, projectionMatrix, ... }
         // MapLibre v2 / Mapbox passes a flat matrix (number[] | Float64Array)
         let rawMatrix = matrixOrOptions;
-        if (matrixOrOptions && typeof matrixOrOptions === 'object' && !ArrayBuffer.isView(matrixOrOptions) && !Array.isArray(matrixOrOptions)) {
+        if (
+            matrixOrOptions &&
+            typeof matrixOrOptions === 'object' &&
+            !ArrayBuffer.isView(matrixOrOptions) &&
+            !Array.isArray(matrixOrOptions)
+        ) {
             // In MapLibre GL JS v3, defaultProjectionData.mainMatrix is the correct matrix for
             // 2D custom layers. modelViewProjectionMatrix does NOT work for [0,1] Mercator coords.
             const opts = matrixOrOptions as any;
-            rawMatrix = opts.defaultProjectionData?.mainMatrix
-                ?? opts.modelViewProjectionMatrix
-                ?? opts.projectionMatrix;
+            rawMatrix =
+                opts.defaultProjectionData?.mainMatrix ?? opts.modelViewProjectionMatrix ?? opts.projectionMatrix;
             if (this._renderLogCount < 2) {
-                log.info(`[WindGL] MapLibre v3 — mainMatrix[0]=${opts.defaultProjectionData?.mainMatrix?.[0]?.toFixed(0)}`);
+                log.info(
+                    `[WindGL] MapLibre v3 — mainMatrix[0]=${opts.defaultProjectionData?.mainMatrix?.[0]?.toFixed(0)}`,
+                );
             }
         }
 
         if (!rawMatrix) {
             if (this._renderLogCount < 3) {
-                log.warn(`[WindGL] No valid matrix in render arg. Type: ${typeof matrixOrOptions}, constructor: ${matrixOrOptions?.constructor?.name}`);
+                log.warn(
+                    `[WindGL] No valid matrix in render arg. Type: ${typeof matrixOrOptions}, constructor: ${matrixOrOptions?.constructor?.name}`,
+                );
                 this._renderLogCount++;
             }
             return;
@@ -985,14 +991,18 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
         if (mat.length !== 16) {
             if (this._renderLogCount < 3) {
-                log.warn(`[WindGL] Invalid matrix length: ${mat.length} (expected 16). Raw type: ${rawMatrix?.constructor?.name}`);
+                log.warn(
+                    `[WindGL] Invalid matrix length: ${mat.length} (expected 16). Raw type: ${rawMatrix?.constructor?.name}`,
+                );
                 this._renderLogCount++;
             }
             return;
         }
 
         if (this._renderLogCount < 3) {
-            log.info(`[WindGL] Rendering: timeline=${this.windTimeline.length} particles=${NUM_PARTICLES} mat[0]=${mat[0].toFixed(4)} gridBounds=[${this.gridBounds.south},${this.gridBounds.north}]×[${this.gridBounds.west},${this.gridBounds.east}]`);
+            log.info(
+                `[WindGL] Rendering: timeline=${this.windTimeline.length} particles=${NUM_PARTICLES} mat[0]=${mat[0].toFixed(4)} gridBounds=[${this.gridBounds.south},${this.gridBounds.north}]×[${this.gridBounds.west},${this.gridBounds.east}]`,
+            );
             this._renderLogCount++;
         }
 
@@ -1003,23 +1013,22 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
         this.advectParticles();
 
-
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.disable(gl.DEPTH_TEST);
-
-
-
-
 
         // ── Draw heatmap first (colored wind speed background) ──
         if (this.heatmapProgram && this.speedTexture && this.heatmapQuadBuffer && this.heatmapGridW > 0) {
             gl.useProgram(this.heatmapProgram);
             if (this.heatmapUMatrix) gl.uniformMatrix4fv(this.heatmapUMatrix, false, mat);
             if (this.heatmapUGridBounds) {
-                gl.uniform4f(this.heatmapUGridBounds,
-                    this.gridBounds.south, this.gridBounds.north,
-                    this.gridBounds.west, this.gridBounds.east);
+                gl.uniform4f(
+                    this.heatmapUGridBounds,
+                    this.gridBounds.south,
+                    this.gridBounds.north,
+                    this.gridBounds.west,
+                    this.gridBounds.east,
+                );
             }
             if (this.heatmapUOpacity) gl.uniform1f(this.heatmapUOpacity, 0.12);
 
@@ -1045,14 +1054,22 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         gl.useProgram(this.program);
         if (this.uMatrixLoc) gl.uniformMatrix4fv(this.uMatrixLoc, false, mat);
         if (this.uGridBoundsLoc) {
-            gl.uniform4f(this.uGridBoundsLoc,
-                this.gridBounds.south, this.gridBounds.north,
-                this.gridBounds.west, this.gridBounds.east);
+            gl.uniform4f(
+                this.uGridBoundsLoc,
+                this.gridBounds.south,
+                this.gridBounds.north,
+                this.gridBounds.west,
+                this.gridBounds.east,
+            );
         }
         if (this.uBboxLoc) {
-            gl.uniform4f(this.uBboxLoc,
-                this.dataBounds.west, this.dataBounds.south,
-                this.dataBounds.east, this.dataBounds.north);
+            gl.uniform4f(
+                this.uBboxLoc,
+                this.dataBounds.west,
+                this.dataBounds.south,
+                this.dataBounds.east,
+                this.dataBounds.north,
+            );
         }
         if (this.uZoomLoc && this.map) {
             gl.uniform1f(this.uZoomLoc, this.map.getZoom());
@@ -1114,8 +1131,6 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         // Restore MapLibre's VAO
         if (gl2.bindVertexArray) gl2.bindVertexArray(prevVAO);
 
-
-
         // Unbind wind textures
         gl.activeTexture(gl.TEXTURE1);
         gl.bindTexture(gl.TEXTURE_2D, null);
@@ -1125,8 +1140,10 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
         gl.useProgram(prevProgram);
         gl.bindBuffer(gl.ARRAY_BUFFER, prevBuffer);
-        if (prevBlend) gl.enable(gl.BLEND); else gl.disable(gl.BLEND);
-        if (prevDepthTest) gl.enable(gl.DEPTH_TEST); else gl.disable(gl.DEPTH_TEST);
+        if (prevBlend) gl.enable(gl.BLEND);
+        else gl.disable(gl.BLEND);
+        if (prevDepthTest) gl.enable(gl.DEPTH_TEST);
+        else gl.disable(gl.DEPTH_TEST);
 
         // Continue animation — but ONLY if the page is visible.
         // Without this guard, the GPU runs continuously even when the app

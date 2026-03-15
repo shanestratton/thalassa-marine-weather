@@ -19,15 +19,17 @@ import {
 
 // ── Helper — minimal MarineWeatherReport factory ──
 
-function makeWeather(overrides: {
-    windGust?: number;
-    windSpeed?: number;
-    waveHeight?: number;
-    precipitation?: number;
-    visibility?: number;
-    alerts?: { title: string }[];
-    hourly?: { windGust?: number; windSpeed?: number }[];
-} = {}) {
+function makeWeather(
+    overrides: {
+        windGust?: number;
+        windSpeed?: number;
+        waveHeight?: number;
+        precipitation?: number;
+        visibility?: number;
+        alerts?: { title: string }[];
+        hourly?: { windGust?: number; windSpeed?: number }[];
+    } = {},
+) {
     return {
         current: {
             windGust: overrides.windGust, // undefined unless explicitly set
@@ -49,9 +51,13 @@ describe('isBadWeather', () => {
     });
 
     it('detects alerts', () => {
-        expect(isBadWeather(makeWeather({
-            alerts: [{ title: 'Gale Warning' }],
-        }))).toBe(true);
+        expect(
+            isBadWeather(
+                makeWeather({
+                    alerts: [{ title: 'Gale Warning' }],
+                }),
+            ),
+        ).toBe(true);
     });
 
     it('detects high wind (>25 kts sustained)', () => {
@@ -75,13 +81,13 @@ describe('isBadWeather', () => {
     });
 
     it('detects forecast high wind in next 12h (>30 kts)', () => {
-        expect(isBadWeather(makeWeather({
-            hourly: [
-                { windSpeed: 10 },
-                { windSpeed: 15 },
-                { windGust: 35 },
-            ],
-        }))).toBe(true);
+        expect(
+            isBadWeather(
+                makeWeather({
+                    hourly: [{ windSpeed: 10 }, { windSpeed: 15 }, { windGust: 35 }],
+                }),
+            ),
+        ).toBe(true);
     });
 
     it('ignores forecast beyond 12h', () => {
@@ -141,9 +147,13 @@ describe('isBadWeather', () => {
     });
 
     it('handles multiple simultaneous alerts', () => {
-        expect(isBadWeather(makeWeather({
-            alerts: [{ title: 'Gale Warning' }, { title: 'Tsunami Watch' }],
-        }))).toBe(true);
+        expect(
+            isBadWeather(
+                makeWeather({
+                    alerts: [{ title: 'Gale Warning' }, { title: 'Tsunami Watch' }],
+                }),
+            ),
+        ).toBe(true);
     });
 });
 

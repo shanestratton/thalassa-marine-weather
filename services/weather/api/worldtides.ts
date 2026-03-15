@@ -26,9 +26,12 @@ function isRateLimited(): boolean {
         const raw = localStorage.getItem(WT_RATE_KEY);
         const timestamps: number[] = raw ? JSON.parse(raw) : [];
         const oneHourAgo = Date.now() - 3600_000;
-        const recent = timestamps.filter(t => t > oneHourAgo);
+        const recent = timestamps.filter((t) => t > oneHourAgo);
         return recent.length >= MAX_CALLS_PER_HOUR;
-    } catch (e) { console.warn('[worldtides]', e); return false; }
+    } catch (e) {
+        console.warn('[worldtides]', e);
+        return false;
+    }
 }
 
 function recordCall(): void {
@@ -36,10 +39,12 @@ function recordCall(): void {
         const raw = localStorage.getItem(WT_RATE_KEY);
         const timestamps: number[] = raw ? JSON.parse(raw) : [];
         const oneHourAgo = Date.now() - 3600_000;
-        const recent = timestamps.filter(t => t > oneHourAgo);
+        const recent = timestamps.filter((t) => t > oneHourAgo);
         recent.push(Date.now());
         localStorage.setItem(WT_RATE_KEY, JSON.stringify(recent));
-    } catch (e) { console.warn('[worldtides] localStorage full — proceed anyway:', e); }
+    } catch (e) {
+        console.warn('[worldtides] localStorage full — proceed anyway:', e);
+    }
 }
 
 /** Get Supabase URL for Edge Function calls */
@@ -74,8 +79,8 @@ async function fetchViaProxy(lat: number, lon: number, days: number): Promise<Wo
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${supabaseKey}`,
-                'apikey': supabaseKey,
+                Authorization: `Bearer ${supabaseKey}`,
+                apikey: supabaseKey,
             },
             body: JSON.stringify({ lat, lon, days }),
         });
@@ -124,7 +129,7 @@ async function fetchDirect(lat: number, lon: number, days: number): Promise<Worl
             return null;
         }
     } catch (e) {
-            console.warn('[worldtides]', e);
+        console.warn('[worldtides]', e);
         // Fallback: native fetch (web/dev)
         try {
             const nativeRes = await fetch(url);
@@ -152,9 +157,8 @@ function processResponse(data: Record<string, unknown>, lat: number, lon: number
 
     let stationInfo;
     if (typedData.station) {
-        const name = typeof typedData.station === 'string'
-            ? typedData.station
-            : typedData.station.name || "Unknown Station";
+        const name =
+            typeof typedData.station === 'string' ? typedData.station : typedData.station.name || 'Unknown Station';
         stationInfo = {
             name,
             lat: typedData.atlasLatitude || lat,
@@ -176,7 +180,7 @@ function processResponse(data: Record<string, unknown>, lat: number, lon: number
 export const fetchWorldTides = async (
     lat: number,
     lon: number,
-    days: number = 14
+    days: number = 14,
 ): Promise<WorldTidesResponse | null> => {
     // 1. Try Supabase Edge proxy first (key stays server-side)
     const proxyResult = await fetchViaProxy(lat, lon, days);

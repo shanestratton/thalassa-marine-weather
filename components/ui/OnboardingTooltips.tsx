@@ -25,9 +25,18 @@ interface TooltipStep {
 const STEPS: TooltipStep[] = [
     {
         title: 'Swipe for Views',
-        description: 'Swipe left and right on the forecast cards to scrub through hours. Swipe vertically for different days.',
+        description:
+            'Swipe left and right on the forecast cards to scrub through hours. Swipe vertically for different days.',
         icon: (
-            <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+            <svg
+                className="w-7 h-7"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            >
                 <path d="M5 12h14M14 7l5 5-5 5M10 7L5 12l5 5" />
             </svg>
         ),
@@ -35,9 +44,17 @@ const STEPS: TooltipStep[] = [
     },
     {
         title: 'Passage Planner',
-        description: 'Plan routes, check conditions, and download GPX tracks from the Ship\'s Office > Passages tab.',
+        description: "Plan routes, check conditions, and download GPX tracks from the Ship's Office > Passages tab.",
         icon: (
-            <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+            <svg
+                className="w-7 h-7"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            >
                 <path d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z" />
             </svg>
         ),
@@ -45,9 +62,18 @@ const STEPS: TooltipStep[] = [
     },
     {
         title: 'Save Your Voyages',
-        description: 'Every passage you plan can be saved to the logbook. Tap the bookmark icon on a completed route to save it.',
+        description:
+            'Every passage you plan can be saved to the logbook. Tap the bookmark icon on a completed route to save it.',
         icon: (
-            <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+            <svg
+                className="w-7 h-7"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            >
                 <path d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0111.186 0z" />
             </svg>
         ),
@@ -65,7 +91,7 @@ export const OnboardingTooltips: React.FC<{ onComplete?: () => void }> = ({ onCo
 
     const handleNext = useCallback(() => {
         if (step < STEPS.length - 1) {
-            setStep(s => s + 1);
+            setStep((s) => s + 1);
         } else {
             setVisible(false);
             localStorage.setItem(TOOLTIP_KEY, 'done');
@@ -81,28 +107,32 @@ export const OnboardingTooltips: React.FC<{ onComplete?: () => void }> = ({ onCo
 
     const current = STEPS[step];
     const positionClass =
-        current.position === 'top' ? 'items-start pt-24' :
-            current.position === 'bottom' ? 'items-end pb-36' :
-                'items-center';
+        current.position === 'top'
+            ? 'items-start pt-24'
+            : current.position === 'bottom'
+              ? 'items-end pb-36'
+              : 'items-center';
 
     return (
         <div
-            className={`fixed inset-0 z-[9999] flex justify-center ${positionClass} px-6 transition-all duration-300 ${visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
-                }`}
+            className={`fixed inset-0 z-[9999] flex justify-center ${positionClass} px-6 transition-all duration-300 ${
+                visible ? 'opacity-100' : 'opacity-0 pointer-events-none'
+            }`}
             style={{ background: 'radial-gradient(circle at center, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.85) 100%)' }}
             onClick={handleSkip}
         >
             <div
                 className="relative max-w-sm w-full bg-slate-900/95 border border-white/10 rounded-2xl p-5 shadow-2xl shadow-black/40 animate-in fade-in slide-in-from-bottom-4 duration-500"
-                onClick={e => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
             >
                 {/* Step dots */}
                 <div className="flex justify-center gap-2 mb-4">
                     {STEPS.map((_, i) => (
                         <div
                             key={i}
-                            className={`h-1.5 rounded-full transition-all duration-300 ${i === step ? 'w-6 bg-sky-400' : i < step ? 'w-1.5 bg-sky-400/50' : 'w-1.5 bg-white/15'
-                                }`}
+                            className={`h-1.5 rounded-full transition-all duration-300 ${
+                                i === step ? 'w-6 bg-sky-400' : i < step ? 'w-1.5 bg-sky-400/50' : 'w-1.5 bg-white/15'
+                            }`}
                         />
                     ))}
                 </div>

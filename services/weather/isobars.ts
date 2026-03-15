@@ -11,11 +11,11 @@
 // ── Types ──────────────────────────────────────────────────────
 
 interface PressureGrid {
-    allHourlyPressure: number[][][];  // [hour][row][col] in hPa
+    allHourlyPressure: number[][][]; // [hour][row][col] in hPa
     allHourlyWindSpeed: number[][][]; // [hour][row][col] in knots
-    allHourlyWindDir: number[][][];   // [hour][row][col] in degrees
-    lats: number[];                   // South → North
-    lons: number[];                   // West → East
+    allHourlyWindDir: number[][][]; // [hour][row][col] in degrees
+    lats: number[]; // South → North
+    lons: number[]; // West → East
     rows: number;
     cols: number;
     totalHours: number;
@@ -47,8 +47,8 @@ interface IsobarResult {
 
 // ── Constants ──────────────────────────────────────────────────
 
-const ISOBAR_INTERVAL = 4;     // hPa between contour lines (synoptic standard)
-const GRID_RESOLUTION = 1.0;   // degrees (1° ≈ 111km — fast, sufficient for synoptic scale)
+const ISOBAR_INTERVAL = 4; // hPa between contour lines (synoptic standard)
+const GRID_RESOLUTION = 1.0; // degrees (1° ≈ 111km — fast, sufficient for synoptic scale)
 const GRID_RESOLUTION_ZOOMED = 0.5;
 export const FORECAST_HOURS = 48; // 2-day forecast for timeline scrubber
 
@@ -66,8 +66,8 @@ const GRIB_FORECAST_HOURS = [0, 3, 6, 9, 12];
 
 interface GfsGridResponse {
     frames: number[][][]; // [frameIdx][row_S_to_N][col_W_to_E] in hPa
-    lats: number[];       // S→N
-    lons: number[];       // W→E
+    lats: number[]; // S→N
+    lons: number[]; // W→E
     width: number;
     height: number;
     north: number;
@@ -77,7 +77,10 @@ interface GfsGridResponse {
 }
 
 async function fetchPressureGridGfs(
-    north: number, south: number, west: number, east: number
+    north: number,
+    south: number,
+    west: number,
+    east: number,
 ): Promise<PressureGrid | null> {
     try {
         const url = `${SUPABASE_URL}/functions/v1/fetch-pressure-grid`;
@@ -85,7 +88,7 @@ async function fetchPressureGridGfs(
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
             },
             body: JSON.stringify({ north, south, east, west, hours: GRIB_FORECAST_HOURS }),
         });
@@ -103,9 +106,8 @@ async function fetchPressureGridGfs(
         const cols = lons.length;
         const totalHours = frames.length;
 
-
         // Sanity check: lat/lon values must be in valid geographic range
-        if (lats.some(l => Math.abs(l) > 90.1) || lons.some(l => Math.abs(l) > 360.1)) {
+        if (lats.some((l) => Math.abs(l) > 90.1) || lons.some((l) => Math.abs(l) > 360.1)) {
             return null;
         }
 
@@ -121,7 +123,7 @@ async function fetchPressureGridGfs(
             allHourlyPressure = frames;
         } else if (frameRows === cols && frameCols === rows) {
             // Frame is transposed: frame[lon_col][lat_row] — need to swap
-            allHourlyPressure = frames.map(frame => {
+            allHourlyPressure = frames.map((frame) => {
                 const transposed: number[][] = [];
                 for (let r = 0; r < rows; r++) {
                     const row: number[] = [];
@@ -189,7 +191,11 @@ async function fetchPressureGridGfs(
 // ── Open-Meteo Grid Fetch (fallback) ──────────────────────────
 
 export async function fetchPressureGrid(
-    north: number, south: number, west: number, east: number, zoom: number
+    north: number,
+    south: number,
+    west: number,
+    east: number,
+    _zoom: number,
 ): Promise<PressureGrid | null> {
     try {
         // Use coarser resolution for wide views (dateline crossing gives -180 to 180)
@@ -226,8 +232,8 @@ export async function fetchPressureGrid(
             }
         }
 
-        const multiLats = points.map(p => p.lat).join(',');
-        const multiLons = points.map(p => p.lon).join(',');
+        const multiLats = points.map((p) => p.lat).join(',');
+        const multiLons = points.map((p) => p.lon).join(',');
 
         // Fetch all forecast hours of pressure + wind in one request
         const omKey = getOpenMeteoKey();
@@ -240,8 +246,8 @@ export async function fetchPressureGrid(
         const data = await response.json();
         const results = Array.isArray(data) ? data : [data];
 
-        const uniqueLats = [...new Set(points.map(p => p.lat))].sort((a, b) => a - b);
-        const uniqueLons = [...new Set(points.map(p => p.lon))].sort((a, b) => a - b);
+        const uniqueLats = [...new Set(points.map((p) => p.lat))].sort((a, b) => a - b);
+        const uniqueLons = [...new Set(points.map((p) => p.lon))].sort((a, b) => a - b);
 
         // Determine actual number of hours returned
         const sampleHourly = results[0]?.hourly?.pressure_msl;
@@ -324,43 +330,63 @@ function generateContourLines(grid: HourGrid, level: number): number[][][] {
 
             // Marching squares case index (4-bit)
             const caseIdx =
-                (tl >= level ? 8 : 0) |
-                (tr >= level ? 4 : 0) |
-                (br >= level ? 2 : 0) |
-                (bl >= level ? 1 : 0);
+                (tl >= level ? 8 : 0) | (tr >= level ? 4 : 0) | (br >= level ? 2 : 0) | (bl >= level ? 1 : 0);
 
             if (caseIdx === 0 || caseIdx === 15) continue; // All above or below
 
             // Interpolation helpers
-            const lat0 = lats[r], lat1 = lats[r + 1];
-            const lon0 = lons[c], lon1 = lons[c + 1];
+            const lat0 = lats[r],
+                lat1 = lats[r + 1];
+            const lon0 = lons[c],
+                lon1 = lons[c + 1];
 
             const lerp = (a: number, b: number, va: number, vb: number): number => {
                 if (Math.abs(va - vb) < 0.001) return (a + b) / 2;
-                return a + (level - va) / (vb - va) * (b - a);
+                return a + ((level - va) / (vb - va)) * (b - a);
             };
 
             // Edge midpoints (interpolated)
-            const topLat = lat0, topLon = lerp(lon0, lon1, tl, tr);
-            const rightLat = lerp(lat0, lat1, tr, br), rightLon = lon1;
-            const bottomLat = lat1, bottomLon = lerp(lon0, lon1, bl, br);
-            const leftLat = lerp(lat0, lat1, tl, bl), leftLon = lon0;
+            const topLat = lat0,
+                topLon = lerp(lon0, lon1, tl, tr);
+            const rightLat = lerp(lat0, lat1, tr, br),
+                rightLon = lon1;
+            const bottomLat = lat1,
+                bottomLon = lerp(lon0, lon1, bl, br);
+            const leftLat = lerp(lat0, lat1, tl, bl),
+                leftLon = lon0;
 
             // Generate segments based on case
-            const addSeg = (la1: number, lo1: number, la2: number, lo2: number) =>
-                segments.push([la1, lo1, la2, lo2]);
+            const addSeg = (la1: number, lo1: number, la2: number, lo2: number) => segments.push([la1, lo1, la2, lo2]);
 
             switch (caseIdx) {
-                case 1: case 14: addSeg(leftLat, leftLon, bottomLat, bottomLon); break;
-                case 2: case 13: addSeg(bottomLat, bottomLon, rightLat, rightLon); break;
-                case 3: case 12: addSeg(leftLat, leftLon, rightLat, rightLon); break;
-                case 4: case 11: addSeg(topLat, topLon, rightLat, rightLon); break;
+                case 1:
+                case 14:
+                    addSeg(leftLat, leftLon, bottomLat, bottomLon);
+                    break;
+                case 2:
+                case 13:
+                    addSeg(bottomLat, bottomLon, rightLat, rightLon);
+                    break;
+                case 3:
+                case 12:
+                    addSeg(leftLat, leftLon, rightLat, rightLon);
+                    break;
+                case 4:
+                case 11:
+                    addSeg(topLat, topLon, rightLat, rightLon);
+                    break;
                 case 5: // Saddle
                     addSeg(topLat, topLon, leftLat, leftLon);
                     addSeg(bottomLat, bottomLon, rightLat, rightLon);
                     break;
-                case 6: case 9: addSeg(topLat, topLon, bottomLat, bottomLon); break;
-                case 7: case 8: addSeg(topLat, topLon, leftLat, leftLon); break;
+                case 6:
+                case 9:
+                    addSeg(topLat, topLon, bottomLat, bottomLon);
+                    break;
+                case 7:
+                case 8:
+                    addSeg(topLat, topLon, leftLat, leftLon);
+                    break;
                 case 10: // Saddle
                     addSeg(topLat, topLon, rightLat, rightLon);
                     addSeg(leftLat, leftLon, bottomLat, bottomLon);
@@ -379,8 +405,7 @@ function chainSegments(segments: [number, number, number, number][]): number[][]
     // ── O(n) hash-map chaining ──
     // Key = rounded coordinate string, Value = list of segment indices with that endpoint
     const PRECISION = 4; // decimal places for hash key (0.0001° ≈ 11m)
-    const keyOf = (lat: number, lon: number) =>
-        `${lat.toFixed(PRECISION)},${lon.toFixed(PRECISION)}`;
+    const keyOf = (lat: number, lon: number) => `${lat.toFixed(PRECISION)},${lon.toFixed(PRECISION)}`;
 
     // Build adjacency map: endpoint → segment indices
     const endpointMap = new Map<string, number[]>();
@@ -448,12 +473,12 @@ function chainSegments(segments: [number, number, number, number][]): number[][]
 
         // Only keep chains with 4+ points (filters noise from tiny grid artifacts)
         if (chain.length >= 4) {
-            chains.push(chain.map(p => [p[1], p[0]])); // GeoJSON is [lon, lat]
+            chains.push(chain.map((p) => [p[1], p[0]])); // GeoJSON is [lon, lat]
         }
     }
 
     // Smooth all chains with Chaikin subdivision (2 passes — less aggressive for dense grids)
-    return chains.map(c => chaikinSmooth(c, 2));
+    return chains.map((c) => chaikinSmooth(c, 2));
 }
 
 // ── Chaikin Curve Subdivision ──────────────────────────────────
@@ -466,7 +491,8 @@ function chaikinSmooth(points: number[][], iterations: number): number[][] {
     for (let iter = 0; iter < iterations; iter++) {
         const smoothed: number[][] = [pts[0]]; // Keep first point
         for (let i = 0; i < pts.length - 1; i++) {
-            const p0 = pts[i], p1 = pts[i + 1];
+            const p0 = pts[i],
+                p1 = pts[i + 1];
             // Q = 3/4 * P0 + 1/4 * P1
             smoothed.push([0.75 * p0[0] + 0.25 * p1[0], 0.75 * p0[1] + 0.25 * p1[1]]);
             // R = 1/4 * P0 + 3/4 * P1
@@ -524,9 +550,7 @@ function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 
         if (pt.pressure >= meanP) break;
 
         // Check distance from already-selected L centers
-        const tooClose = lows.some(l =>
-            Math.abs(l.lat - lat) < MIN_SEP && Math.abs(l.lon - lon) < MIN_SEP
-        );
+        const tooClose = lows.some((l) => Math.abs(l.lat - lat) < MIN_SEP && Math.abs(l.lon - lon) < MIN_SEP);
         if (tooClose) continue;
 
         // Sub-grid parabolic interpolation for precise position
@@ -534,13 +558,15 @@ function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 
         let refinedLon = lon;
         const { r, c } = pt;
         const val = pt.pressure;
-        const vN = values[r - 1][c], vS = values[r + 1][c];
+        const vN = values[r - 1][c],
+            vS = values[r + 1][c];
         const denomLat = 2 * (vN - 2 * val + vS);
         if (Math.abs(denomLat) > 0.001) {
             const shift = -(vS - vN) / denomLat;
             refinedLat += Math.max(-0.5, Math.min(0.5, shift)) * dLat;
         }
-        const vW = values[r][c - 1], vE = values[r][c + 1];
+        const vW = values[r][c - 1],
+            vE = values[r][c + 1];
         const denomLon = 2 * (vW - 2 * val + vE);
         if (Math.abs(denomLon) > 0.001) {
             const shift = -(vE - vW) / denomLon;
@@ -559,22 +585,22 @@ function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 
         // Must be higher than regional mean
         if (pt.pressure <= meanP) break;
 
-        const tooClose = highs.some(h =>
-            Math.abs(h.lat - lat) < MIN_SEP && Math.abs(h.lon - lon) < MIN_SEP
-        );
+        const tooClose = highs.some((h) => Math.abs(h.lat - lat) < MIN_SEP && Math.abs(h.lon - lon) < MIN_SEP);
         if (tooClose) continue;
 
         let refinedLat = lat;
         let refinedLon = lon;
         const { r, c } = pt;
         const val = pt.pressure;
-        const vN = values[r - 1][c], vS = values[r + 1][c];
+        const vN = values[r - 1][c],
+            vS = values[r + 1][c];
         const denomLat = 2 * (vN - 2 * val + vS);
         if (Math.abs(denomLat) > 0.001) {
             const shift = -(vS - vN) / denomLat;
             refinedLat += Math.max(-0.5, Math.min(0.5, shift)) * dLat;
         }
-        const vW = values[r][c - 1], vE = values[r][c + 1];
+        const vW = values[r][c - 1],
+            vE = values[r][c + 1];
         const denomLon = 2 * (vW - 2 * val + vE);
         if (Math.abs(denomLon) > 0.001) {
             const shift = -(vE - vW) / denomLon;
@@ -585,7 +611,10 @@ function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 
     }
 
     const all = [...lows, ...highs];
-    console.log('[ISOBAR] Centers detected:', all.map(c => `${c.type} ${c.pressure} @ ${c.lat.toFixed(1)},${c.lon.toFixed(1)}`).join(', '));
+    console.log(
+        '[ISOBAR] Centers detected:',
+        all.map((c) => `${c.type} ${c.pressure} @ ${c.lat.toFixed(1)},${c.lon.toFixed(1)}`).join(', '),
+    );
     return all;
 }
 
@@ -643,7 +672,7 @@ function generateWindBarbs(grid: HourGrid): GeoJSON.Feature[] {
 
 function generateCirculationArrows(
     centers: { lat: number; lon: number; type: 'H' | 'L'; pressure: number }[],
-    grid: HourGrid
+    grid: HourGrid,
 ): GeoJSON.Feature[] {
     const features: GeoJSON.Feature[] = [];
 
@@ -669,7 +698,7 @@ function generateCirculationArrows(
         for (const angle of angles) {
             const rad = (angle * Math.PI) / 180;
             const arrowLat = center.lat + radius * Math.cos(rad);
-            const arrowLon = center.lon + radius * Math.sin(rad) / Math.cos((center.lat * Math.PI) / 180);
+            const arrowLon = center.lon + (radius * Math.sin(rad)) / Math.cos((center.lat * Math.PI) / 180);
 
             // Arrow points in the tangential direction
             const rotation = (angle + tangentOffset + 360) % 360;
@@ -696,7 +725,11 @@ function generateCirculationArrows(
 
 /** Fetch + generate for a single hour */
 export async function generateIsobars(
-    north: number, south: number, west: number, east: number, zoom: number
+    north: number,
+    south: number,
+    west: number,
+    east: number,
+    zoom: number,
 ): Promise<{ grid: PressureGrid; result: IsobarResult } | null> {
     // Try GFS first (higher resolution, NOAA source), fallback to Open-Meteo
     let grid = await fetchPressureGridGfs(north, south, west, east);
@@ -715,7 +748,8 @@ export function generateIsobarsFromGrid(grid: PressureGrid, hour: number): Isoba
     const hourGrid = extractHourGrid(grid, hour);
 
     // Determine pressure range
-    let minP = Infinity, maxP = -Infinity;
+    let minP = Infinity,
+        maxP = -Infinity;
     for (const row of hourGrid.values) {
         for (const val of row) {
             if (val < minP) minP = val;
@@ -742,7 +776,7 @@ export function generateIsobarsFromGrid(grid: PressureGrid, hour: number): Isoba
 
     // Find H/L centers
     const centers = findPressureCenters(hourGrid);
-    const centerFeatures: GeoJSON.Feature[] = centers.map(c => ({
+    const centerFeatures: GeoJSON.Feature[] = centers.map((c) => ({
         type: 'Feature',
         properties: { type: c.type, pressure: c.pressure, label: `${c.type}\n${c.pressure}` },
         geometry: { type: 'Point', coordinates: [c.lon, c.lat] },
@@ -778,7 +812,9 @@ export function generateIsobarsFromGrid(grid: PressureGrid, hour: number): Isoba
 // Matches the Weatherzone synoptic chart aesthetic.
 
 function generatePressureHeatmap(
-    grid: HourGrid, minP: number, maxP: number
+    grid: HourGrid,
+    minP: number,
+    maxP: number,
 ): { dataUrl: string; bounds: [number, number, number, number] } | null {
     if (typeof document === 'undefined') return null; // SSR guard
     if (grid.rows < 3 || grid.cols < 3) return null;
@@ -798,11 +834,11 @@ function generatePressureHeatmap(
     // Inspired by Weatherzone: deep-blue lows → cyan mids → white highs
     const colorStops: [number, number, number, number, number][] = [
         // [pressure_hPa, R, G, B, A]
-        [970, 60, 20, 120, 180],  // Deep purple — intense low
-        [990, 40, 80, 180, 160],  // Royal blue — moderate low
-        [1008, 50, 140, 210, 130],  // Ocean blue — neutral-low
-        [1020, 120, 200, 230, 100],  // Cyan — neutral-high
-        [1040, 200, 230, 245, 80],  // Light ice — strong high
+        [970, 60, 20, 120, 180], // Deep purple — intense low
+        [990, 40, 80, 180, 160], // Royal blue — moderate low
+        [1008, 50, 140, 210, 130], // Ocean blue — neutral-low
+        [1020, 120, 200, 230, 100], // Cyan — neutral-high
+        [1040, 200, 230, 245, 80], // Light ice — strong high
     ];
 
     // Clamp range to observed data (with padding)
@@ -814,7 +850,10 @@ function generatePressureHeatmap(
             const pressure = values[r][c];
 
             // Interpolate color from stops
-            let R = 0, G = 0, B = 0, A = 0;
+            let R = 0,
+                G = 0,
+                B = 0,
+                A = 0;
 
             if (pressure <= colorStops[0][0]) {
                 [, R, G, B, A] = colorStops[0];
@@ -865,7 +904,7 @@ function generatePressureHeatmap(
 
 function generateMovementTracks(
     currentCenters: { lat: number; lon: number; type: 'H' | 'L'; pressure: number }[],
-    hourGrid: HourGrid
+    hourGrid: HourGrid,
 ): GeoJSON.Feature[] {
     // Build a forecast grid using the forecastValues (current+12h)
     const forecastGrid: HourGrid = {
@@ -913,7 +952,7 @@ function generateMovementTracks(
         const speedKmh = Math.round(distKm / 12); // km over 12h
 
         // Bearing
-        const bearing = (Math.atan2(dlon, dlat) * 180 / Math.PI + 360) % 360;
+        const bearing = ((Math.atan2(dlon, dlat) * 180) / Math.PI + 360) % 360;
         const cardinal = bearingToCardinal(bearing);
 
         // GeoJSON LineString from current → future position
@@ -941,7 +980,6 @@ function generateMovementTracks(
 }
 
 function bearingToCardinal(deg: number): string {
-    const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
-        'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
     return dirs[Math.round(deg / 22.5) % 16];
 }

@@ -8,27 +8,27 @@ import { ModalSheet } from '../components/ui/ModalSheet';
 describe('ModalSheet', () => {
     it('renders nothing when isOpen is false', () => {
         const { container } = render(
-            <ModalSheet isOpen={false} onClose={() => { }}>
+            <ModalSheet isOpen={false} onClose={() => {}}>
                 <p>Content</p>
-            </ModalSheet>
+            </ModalSheet>,
         );
         expect(container.innerHTML).toBe('');
     });
 
     it('renders children when isOpen is true', () => {
         render(
-            <ModalSheet isOpen={true} onClose={() => { }}>
+            <ModalSheet isOpen={true} onClose={() => {}}>
                 <p>Test Content</p>
-            </ModalSheet>
+            </ModalSheet>,
         );
         expect(screen.getByText('Test Content')).toBeInTheDocument();
     });
 
     it('renders title when provided', () => {
         render(
-            <ModalSheet isOpen={true} onClose={() => { }} title="My Modal">
+            <ModalSheet isOpen={true} onClose={() => {}} title="My Modal">
                 <p>Content</p>
-            </ModalSheet>
+            </ModalSheet>,
         );
         expect(screen.getByText('My Modal')).toBeInTheDocument();
     });
@@ -38,7 +38,7 @@ describe('ModalSheet', () => {
         render(
             <ModalSheet isOpen={true} onClose={onClose}>
                 <p>Content</p>
-            </ModalSheet>
+            </ModalSheet>,
         );
         // Click the outer container (backdrop)
         const backdrop = screen.getByText('Content').closest('[class*="fixed"]');
@@ -51,7 +51,7 @@ describe('ModalSheet', () => {
         render(
             <ModalSheet isOpen={true} onClose={onClose}>
                 <p>Content</p>
-            </ModalSheet>
+            </ModalSheet>,
         );
         const closeBtn = screen.getByLabelText('Close');
         fireEvent.click(closeBtn);
@@ -63,7 +63,7 @@ describe('ModalSheet', () => {
         render(
             <ModalSheet isOpen={true} onClose={onClose}>
                 <p>Content</p>
-            </ModalSheet>
+            </ModalSheet>,
         );
         fireEvent.click(screen.getByText('Content'));
         expect(onClose).not.toHaveBeenCalled();

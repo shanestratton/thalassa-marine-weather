@@ -1,13 +1,23 @@
-
 import React, { Suspense } from 'react';
 import { AdviceWidget } from './dashboard/Advice';
 
-const HourlyWidget = React.lazy(() => import('./dashboard/WeatherCharts').then(m => ({ default: m.HourlyWidget })));
-const DailyWidget = React.lazy(() => import('./dashboard/WeatherCharts').then(m => ({ default: m.DailyWidget })));
-const MapWidget = React.lazy(() => import('./dashboard/WeatherCharts').then(m => ({ default: m.MapWidget })));
+const HourlyWidget = React.lazy(() => import('./dashboard/WeatherCharts').then((m) => ({ default: m.HourlyWidget })));
+const DailyWidget = React.lazy(() => import('./dashboard/WeatherCharts').then((m) => ({ default: m.DailyWidget })));
+const MapWidget = React.lazy(() => import('./dashboard/WeatherCharts').then((m) => ({ default: m.MapWidget })));
 import { BeaufortWidget, DetailedMetricsWidget } from './dashboard/WeatherGrid';
 import { TideWidget, SunMoonWidget, VesselWidget, VesselStatusWidget } from './dashboard/TideAndVessel';
-import { UnitPreferences, VesselProfile, WeatherMetrics, HourlyForecast, ForecastDay, Tide, TidePoint, ChartDataPoint, LockerItem, UserSettings, MarineWeatherReport } from '../types';
+import {
+    UnitPreferences,
+    VesselProfile,
+    WeatherMetrics,
+    HourlyForecast,
+    ForecastDay,
+    Tide,
+    TidePoint,
+    LockerItem,
+    UserSettings,
+    MarineWeatherReport,
+} from '../types';
 import { TideGUIDetails } from '../services/weather/api/tides';
 // Export Context Value
 export const DashboardWidgetContext = React.createContext<DashboardWidgetContextType | null>(null);
@@ -57,7 +67,7 @@ export interface DashboardWidgetContextType {
 type WidgetRenderFn = (ctx: DashboardWidgetContextType) => React.ReactNode;
 
 const WIDGET_REGISTRY: Record<string, WidgetRenderFn> = {
-    'advice': (ctx) => (
+    advice: (ctx) => (
         <AdviceWidget
             advice={ctx.boatingAdvice}
             isPro={ctx.isPro}
@@ -72,22 +82,28 @@ const WIDGET_REGISTRY: Record<string, WidgetRenderFn> = {
             isBackgroundUpdating={ctx.backgroundUpdating}
         />
     ),
-    'hourly': (ctx) => (
+    hourly: (ctx) => (
         <Suspense fallback={<div className="h-48 bg-white/5 rounded-2xl animate-pulse" />}>
             <HourlyWidget hourly={ctx.hourly} units={ctx.units} isLandlocked={ctx.isLandlocked} />
         </Suspense>
     ),
-    'daily': (ctx) => (
+    daily: (ctx) => (
         <Suspense fallback={<div className="h-48 bg-white/5 rounded-2xl animate-pulse" />}>
-            <DailyWidget forecast={ctx.forecast} isPro={ctx.isPro} onTriggerUpgrade={ctx.onTriggerUpgrade} units={ctx.units} vessel={ctx.vessel} />
+            <DailyWidget
+                forecast={ctx.forecast}
+                isPro={ctx.isPro}
+                onTriggerUpgrade={ctx.onTriggerUpgrade}
+                units={ctx.units}
+                vessel={ctx.vessel}
+            />
         </Suspense>
     ),
-    'beaufort': (ctx) => (
+    beaufort: (ctx) => (
         <div className="w-full">
             <BeaufortWidget windSpeed={ctx.current.windSpeed} />
         </div>
     ),
-    'details': (ctx) => (
+    details: (ctx) => (
         <DetailedMetricsWidget
             current={ctx.current}
             units={ctx.units}
@@ -95,14 +111,14 @@ const WIDGET_REGISTRY: Record<string, WidgetRenderFn> = {
             locationType={ctx.locationType}
         />
     ),
-    'metrics': (ctx) => (
+    metrics: (ctx) => (
         <div className="flex flex-col gap-6">
             <div className="w-full">
                 <BeaufortWidget windSpeed={ctx.current.windSpeed} />
             </div>
         </div>
     ),
-    'tides': (ctx) => (
+    tides: (ctx) => (
         <TideWidget
             tides={ctx.tides}
             hourlyTides={ctx.hourly}
@@ -113,14 +129,10 @@ const WIDGET_REGISTRY: Record<string, WidgetRenderFn> = {
             guiDetails={ctx.tideGUIDetails}
         />
     ),
-    'sunMoon': (ctx) => (
-        <SunMoonWidget current={ctx.current} units={ctx.units} timeZone={ctx.timeZone} lat={ctx.lat} />
-    ),
-    'vessel': (ctx) => (
-        <VesselWidget vessel={ctx.vessel!} vesselStatus={{}} />
-    ),
+    sunMoon: (ctx) => <SunMoonWidget current={ctx.current} units={ctx.units} timeZone={ctx.timeZone} lat={ctx.lat} />,
+    vessel: (ctx) => <VesselWidget vessel={ctx.vessel!} vesselStatus={{}} />,
     // KEEP LEGACY MAPPING JUST IN CASE OF CACHED SETTINGS
-    'vesselStatus': (ctx) => (
+    vesselStatus: (ctx) => (
         <VesselStatusWidget
             vessel={ctx.vessel!}
             current={ctx.current}
@@ -136,28 +148,37 @@ const WIDGET_REGISTRY: Record<string, WidgetRenderFn> = {
             lat={ctx.lat}
         />
     ),
-    'map': (ctx) => (
-        <MapWidget onOpenMap={ctx.onOpenMap} />
-    )
+    map: (ctx) => <MapWidget onOpenMap={ctx.onOpenMap} />,
 };
 
-export const WidgetRenderer: React.FC<{ id: string; context: DashboardWidgetContextType }> = React.memo(({ id, context }) => {
-    const renderFn = WIDGET_REGISTRY[id];
-    if (!renderFn) return null;
-    return (
-        <>
-            {renderFn(context)}
-            {/* DEBUG VERSION LABEL - REMOVE LATER */}
-            {id === 'dashboard' && (
-                <div style={{
-                    position: 'fixed', bottom: 85, left: 10,
-                    background: 'red', color: 'white', padding: '2px 6px',
-                    zIndex: 9999, fontSize: '10px', borderRadius: '4px',
-                    fontWeight: 'bold', pointerEvents: 'none'
-                }}>
-                    v1.3.28
-                </div>
-            )}
-        </>
-    );
-});
+export const WidgetRenderer: React.FC<{ id: string; context: DashboardWidgetContextType }> = React.memo(
+    ({ id, context }) => {
+        const renderFn = WIDGET_REGISTRY[id];
+        if (!renderFn) return null;
+        return (
+            <>
+                {renderFn(context)}
+                {/* DEBUG VERSION LABEL - REMOVE LATER */}
+                {id === 'dashboard' && (
+                    <div
+                        style={{
+                            position: 'fixed',
+                            bottom: 85,
+                            left: 10,
+                            background: 'red',
+                            color: 'white',
+                            padding: '2px 6px',
+                            zIndex: 9999,
+                            fontSize: '10px',
+                            borderRadius: '4px',
+                            fontWeight: 'bold',
+                            pointerEvents: 'none',
+                        }}
+                    >
+                        v1.3.28
+                    </div>
+                )}
+            </>
+        );
+    },
+);

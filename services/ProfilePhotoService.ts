@@ -1,12 +1,12 @@
 /**
  * Profile Photo Service
- * 
+ *
  * Handles sailor profile photo uploads with:
  * - Client-side image resize/compression (max 512x512, WebP)
  * - Supabase Storage upload to `chat-avatars` bucket
  * - Gemini Vision moderation (catches inappropriate content)
  * - In-memory cache for avatar URLs
- * 
+ *
  * Supports: vessel photos, fishing trophy shots, beer gut selfies,
  * and any other maritime ego boosters.
  */
@@ -52,7 +52,6 @@ export const getCachedAvatar = (userId: string): string | null => {
     return avatarCache.get(userId) || null;
 };
 
-
 // --- IMAGE PROCESSING ---
 
 /**
@@ -80,7 +79,10 @@ export const compressImage = (file: File): Promise<Blob> => {
                 canvas.height = height;
 
                 const ctx = canvas.getContext('2d');
-                if (!ctx) { reject(new Error('Canvas context failed')); return; }
+                if (!ctx) {
+                    reject(new Error('Canvas context failed'));
+                    return;
+                }
 
                 // Draw with smooth scaling
                 ctx.imageSmoothingEnabled = true;
@@ -89,23 +91,29 @@ export const compressImage = (file: File): Promise<Blob> => {
 
                 canvas.toBlob(
                     (blob) => {
-                        if (!blob) { reject(new Error('Compression failed')); return; }
+                        if (!blob) {
+                            reject(new Error('Compression failed'));
+                            return;
+                        }
                         if (blob.size > MAX_FILE_BYTES) {
                             // Retry with lower quality
                             canvas.toBlob(
                                 (blob2) => {
-                                    if (!blob2) { reject(new Error('Compression failed')); return; }
+                                    if (!blob2) {
+                                        reject(new Error('Compression failed'));
+                                        return;
+                                    }
                                     resolve(blob2);
                                 },
                                 'image/jpeg',
-                                0.5
+                                0.5,
                             );
                         } else {
                             resolve(blob);
                         }
                     },
                     'image/jpeg',
-                    JPEG_QUALITY
+                    JPEG_QUALITY,
                 );
             };
             img.onerror = () => reject(new Error('Image load failed'));
@@ -115,7 +123,6 @@ export const compressImage = (file: File): Promise<Blob> => {
         reader.readAsDataURL(file);
     });
 };
-
 
 // --- PHOTO MODERATION (Gemini Vision) ---
 
@@ -149,7 +156,6 @@ export const moderatePhoto = async (_imageBlob: Blob): Promise<PhotoModerationRe
     return { verdict: 'approved', reason: 'Image moderation pending — approved by default' };
 };
 
-
 // --- UPLOAD & PROFILE ---
 
 /**
@@ -162,13 +168,15 @@ export const moderatePhoto = async (_imageBlob: Blob): Promise<PhotoModerationRe
  */
 export const uploadProfilePhoto = async (
     file: File,
-    onProgress?: (step: string) => void
+    onProgress?: (step: string) => void,
 ): Promise<{ success: boolean; url?: string; error?: string }> => {
     if (!supabase) return { success: false, error: 'Supabase not configured' };
 
     try {
         // Get current user
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return { success: false, error: 'Not authenticated' };
 
         // Step 1: Compress
@@ -191,43 +199,38 @@ export const uploadProfilePhoto = async (
         const fileName = `${user.id}/avatar-${Date.now()}.jpg`;
 
         // Remove old avatar first
-        const { data: existingFiles } = await supabase.storage
-            .from(BUCKET_NAME)
-            .list(user.id);
+        const { data: existingFiles } = await supabase.storage.from(BUCKET_NAME).list(user.id);
 
         if (existingFiles && existingFiles.length > 0) {
-            const filesToRemove = existingFiles.map(f => `${user.id}/${f.name}`);
+            const filesToRemove = existingFiles.map((f) => `${user.id}/${f.name}`);
             await supabase.storage.from(BUCKET_NAME).remove(filesToRemove);
         }
 
-        const { error: uploadError } = await supabase.storage
-            .from(BUCKET_NAME)
-            .upload(fileName, compressed, {
-                contentType: 'image/jpeg',
-                upsert: true,
-            });
+        const { error: uploadError } = await supabase.storage.from(BUCKET_NAME).upload(fileName, compressed, {
+            contentType: 'image/jpeg',
+            upsert: true,
+        });
 
         if (uploadError) {
             return { success: false, error: `Upload failed: ${uploadError.message}` };
         }
 
         // Step 4: Get public URL
-        const { data: urlData } = supabase.storage
-            .from(BUCKET_NAME)
-            .getPublicUrl(fileName);
+        const { data: urlData } = supabase.storage.from(BUCKET_NAME).getPublicUrl(fileName);
 
         const publicUrl = urlData?.publicUrl;
         if (!publicUrl) return { success: false, error: 'Failed to get public URL' };
 
         // Step 5: Save to profile
         onProgress?.('Saving profile...');
-        await supabase
-            .from(PROFILES_TABLE)
-            .upsert({
+        await supabase.from(PROFILES_TABLE).upsert(
+            {
                 user_id: user.id,
                 avatar_url: publicUrl,
                 updated_at: new Date().toISOString(),
-            }, { onConflict: 'user_id' });
+            },
+            { onConflict: 'user_id' },
+        );
 
         // Step 6: Update cache
         avatarCache.set(user.id, publicUrl);
@@ -245,16 +248,16 @@ export const uploadProfilePhoto = async (
 export const removeProfilePhoto = async (): Promise<boolean> => {
     if (!supabase) return false;
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return false;
 
     // Remove from storage
-    const { data: files } = await supabase.storage
-        .from(BUCKET_NAME)
-        .list(user.id);
+    const { data: files } = await supabase.storage.from(BUCKET_NAME).list(user.id);
 
     if (files && files.length > 0) {
-        const filesToRemove = files.map(f => `${user.id}/${f.name}`);
+        const filesToRemove = files.map((f) => `${user.id}/${f.name}`);
         await supabase.storage.from(BUCKET_NAME).remove(filesToRemove);
     }
 
@@ -279,11 +282,7 @@ export const getProfile = async (userId: string): Promise<ChatProfile | null> =>
     // Check cache first
     const cached = avatarCache.get(userId);
 
-    const { data } = await supabase
-        .from(PROFILES_TABLE)
-        .select('*')
-        .eq('user_id', userId)
-        .single();
+    const { data } = await supabase.from(PROFILES_TABLE).select('*').eq('user_id', userId).single();
 
     if (data) {
         const profile = data as ChatProfile;
@@ -325,16 +324,19 @@ export const updateProfile = async (updates: {
 }): Promise<boolean> => {
     if (!supabase) return false;
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return false;
 
-    const { error } = await supabase
-        .from(PROFILES_TABLE)
-        .upsert({
+    const { error } = await supabase.from(PROFILES_TABLE).upsert(
+        {
             user_id: user.id,
             ...updates,
             updated_at: new Date().toISOString(),
-        }, { onConflict: 'user_id' });
+        },
+        { onConflict: 'user_id' },
+    );
 
     return !error;
 };
@@ -348,7 +350,7 @@ export const batchFetchAvatars = async (userIds: string[]): Promise<Map<string, 
     if (!supabase || userIds.length === 0) return result;
 
     // Filter out already cached
-    const uncached = userIds.filter(id => !avatarCache.has(id));
+    const uncached = userIds.filter((id) => !avatarCache.has(id));
 
     if (uncached.length > 0) {
         const { data } = await supabase

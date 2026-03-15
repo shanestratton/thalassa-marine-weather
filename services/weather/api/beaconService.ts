@@ -1,8 +1,6 @@
-
 import { CapacitorHttp } from '@capacitor/core';
 import { BeaconObservation, BuoyStation } from '../../../types';
 import { MAJOR_BUOYS } from '../config';
-import { degreesToCardinal } from '../../../utils/format';
 
 // --- CONSTANTS ---
 const NDBC_BASE_URL = 'https://www.ndbc.noaa.gov/data/realtime2';
@@ -14,13 +12,13 @@ const QLD_WAVE_MASTER_RESOURCE = '2bbef99e-9974-49b9-a316-57402b00609c';
 
 // Map buoy IDs to Queensland site names for filtering
 const QLD_SITE_MAPPING: Record<string, string> = {
-    'Moreton': 'Brisbane',
-    'MB_Cent': 'North Moreton Bay',
-    'Spitfire': 'North Moreton Bay',
-    'Mooloolaba': 'Mooloolaba',
-    'GoldCoast': 'Gold Coast',
-    'Byron': 'Tweed River',
-    'DoubleIsland': 'Caloundra'
+    Moreton: 'Brisbane',
+    MB_Cent: 'North Moreton Bay',
+    Spitfire: 'North Moreton Bay',
+    Mooloolaba: 'Mooloolaba',
+    GoldCoast: 'Gold Coast',
+    Byron: 'Tweed River',
+    DoubleIsland: 'Caloundra',
 };
 
 // --- HELPER FUNCTIONS ---
@@ -31,17 +29,14 @@ const QLD_SITE_MAPPING: Record<string, string> = {
  */
 function calculateDistanceNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 3440.065; // Earth's radius in nautical miles
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
     const a =
         Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
 }
-
-
 
 // --- NDBC (NOAA) BUOY FETCHING ---
 
@@ -59,29 +54,29 @@ interface NDBCRawData {
 
 /**
  * Fetch real-time observation data from NOAA NDBC buoy network
- * 
+ *
  * NDBC (National Data Buoy Center) provides real-time observations from marine buoys
  * stationed throughout US coastal waters and open ocean. Data is served as space-delimited
  * text files with fixed column format.
- * 
+ *
  * ## Data Format:
  * - Line 1: Column headers (e.g., "YY MM DD hh mm WSPD WDIR...")
  * - Line 2: Units (e.g., "yr mo dy hr mn m/s degT...")
  * - Line 3+: Data rows (most recent first)
- * 
+ *
  * ## Available Metrics (when sensors present):
  * - Wind: Speed, direction, gusts
  * - Waves: Significant height, dominant period
  * - Temperature: Air, water
  * - Atmospheric: Pressure
- * 
+ *
  * Missing data is marked as "MM" or "9999" in the source file.
- * 
+ *
  * @param buoyId - NDBC station ID (e.g., "46086" for San Francisco)
  * @returns Parsed observation data, or null if fetch fails or data invalid
- * 
+ *
  * @see https://www.ndbc.noaa.gov/measdes.shtml - NDBC measurement specifications
- * 
+ *
  * @example
  * ```typescript
  * const data = await fetchNDBCBuoy("46086");
@@ -96,7 +91,7 @@ async function fetchNDBCBuoy(buoyId: string): Promise<NDBCRawData | null> {
 
         const response = await CapacitorHttp.get({
             url,
-            headers: { 'Accept': 'text/plain' }
+            headers: { Accept: 'text/plain' },
         });
 
         if (response.status !== 200 || !response.data) {
@@ -145,7 +140,7 @@ async function fetchNDBCBuoy(buoyId: string): Promise<NDBCRawData | null> {
             waterTemp: parseValue(data.WTMP),
             airTemp: parseValue(data.ATMP),
             pressure: parseValue(data.PRES),
-            timestamp
+            timestamp,
         };
     } catch (error) {
         return null;
@@ -167,14 +162,12 @@ async function fetchBOMBuoy(buoyId: string): Promise<NDBCRawData | null> {
         }
 
         // Queensland Government Open Data API with site filter
-        const filters = encodeURIComponent(JSON.stringify({ "Site": siteName }));
+        const filters = encodeURIComponent(JSON.stringify({ Site: siteName }));
         const url = `${QLD_WAVE_API_BASE}?resource_id=${QLD_WAVE_MASTER_RESOURCE}&filters=${filters}&limit=1&sort=DateTime%20desc`;
-
-
 
         const response = await CapacitorHttp.get({
             url,
-            headers: { 'Accept': 'application/json' }
+            headers: { Accept: 'application/json' },
         });
 
         if (response.status !== 200 || !response.data) {
@@ -200,7 +193,7 @@ async function fetchBOMBuoy(buoyId: string): Promise<NDBCRawData | null> {
             windSpeed: undefined,
             windGust: undefined,
             airTemp: undefined,
-            pressure: undefined
+            pressure: undefined,
         };
     } catch (error) {
         return null;
@@ -212,7 +205,7 @@ async function fetchBOMBuoy(buoyId: string): Promise<NDBCRawData | null> {
 /**
  * Fetch real-time wind observations from BOM Automatic Weather Station
  * Uses BOM JSON API for individual coastal stations with full wind sensors
- * 
+ *
  * These stations provide ACTUAL OBSERVED wind data (not forecasts)
  * Unlike wave buoys, AWS have anemometers and provide wind speed, direction, gusts
  */
@@ -221,11 +214,9 @@ async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
         // BOM JSON endpoint pattern for individual stations
         const url = `http://www.bom.gov.au/fwo/IDQ60801/IDQ60801.${stationId}.json`;
 
-
-
         const response = await CapacitorHttp.get({
             url,
-            headers: { 'Accept': 'application/json' }
+            headers: { Accept: 'application/json' },
         });
 
         if (response.status !== 200 || !response.data) {
@@ -254,7 +245,6 @@ async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
         const windSpeedKmh = parseFloat(obs.wind_spd_kmh);
         const gustKmh = parseFloat(obs.gust_kmh);
 
-
         // Convert km/h to m/s (divide by 3.6)
         const windSpeed = windSpeedKmh !== undefined ? windSpeedKmh / 3.6 : undefined;
         const windGust = gustKmh !== undefined ? gustKmh / 3.6 : undefined;
@@ -267,14 +257,29 @@ async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
         // CRITICAL FIX: Fall back to cardinal-to-degrees conversion if degrees unavailable
         // Import cardinalToDegrees inline to avoid circular dependencies
         const cardinalMap: Record<string, number> = {
-            "N": 0, "NNE": 22.5, "NE": 45, "ENE": 67.5,
-            "E": 90, "ESE": 112.5, "SE": 135, "SSE": 157.5,
-            "S": 180, "SSW": 202.5, "SW": 225, "WSW": 247.5,
-            "W": 270, "WNW": 292.5, "NW": 315, "NNW": 337.5
+            N: 0,
+            NNE: 22.5,
+            NE: 45,
+            ENE: 67.5,
+            E: 90,
+            ESE: 112.5,
+            SE: 135,
+            SSE: 157.5,
+            S: 180,
+            SSW: 202.5,
+            SW: 225,
+            WSW: 247.5,
+            W: 270,
+            WNW: 292.5,
+            NW: 315,
+            NNW: 337.5,
         };
-        const windDirection = windDirDeg !== undefined
-            ? windDirDeg
-            : (windDirCardinal ? cardinalMap[windDirCardinal.toUpperCase()] : undefined);
+        const windDirection =
+            windDirDeg !== undefined
+                ? windDirDeg
+                : windDirCardinal
+                  ? cardinalMap[windDirCardinal.toUpperCase()]
+                  : undefined;
 
         return {
             windSpeed,
@@ -286,7 +291,7 @@ async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
             // AWS typically don't have wave/water sensors
             waveHeight: undefined,
             dominantWavePeriod: undefined,
-            waterTemp: undefined
+            waterTemp: undefined,
         };
     } catch (error) {
         return null;
@@ -298,7 +303,7 @@ async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
 /**
  * Fetch real-time wind observations from Hong Kong Observatory
  * Uses DATA.GOV.HK API for regional weather stations
- * 
+ *
  * HKO provides 10-minute mean wind data from stations including:
  * - Waglan Island (marine)
  * - Cheung Chau (island)
@@ -312,7 +317,7 @@ async function fetchHKOStation(stationId: string): Promise<NDBCRawData | null> {
 
         const response = await CapacitorHttp.get({
             url,
-            headers: { 'Accept': 'application/json' }
+            headers: { Accept: 'application/json' },
         });
 
         if (response.status !== 200 || !response.data) {
@@ -322,8 +327,9 @@ async function fetchHKOStation(stationId: string): Promise<NDBCRawData | null> {
         const data = response.data;
 
         // Find the specific station in the wind array
-        const windData = data.wind?.data?.find((s: { place?: string; mean?: number; max?: number; direction?: string }) =>
-            s.place?.toLowerCase().includes(stationId.toLowerCase())
+        const windData = data.wind?.data?.find(
+            (s: { place?: string; mean?: number; max?: number; direction?: string }) =>
+                s.place?.toLowerCase().includes(stationId.toLowerCase()),
         );
 
         if (!windData) {
@@ -337,10 +343,22 @@ async function fetchHKOStation(stationId: string): Promise<NDBCRawData | null> {
 
         // Convert cardinal direction to degrees
         const cardinalMap: Record<string, number> = {
-            "N": 0, "NNE": 22.5, "NE": 45, "ENE": 67.5,
-            "E": 90, "ESE": 112.5, "SE": 135, "SSE": 157.5,
-            "S": 180, "SSW": 202.5, "SW": 225, "WSW": 247.5,
-            "W": 270, "WNW": 292.5, "NW": 315, "NNW": 337.5
+            N: 0,
+            NNE: 22.5,
+            NE: 45,
+            ENE: 67.5,
+            E: 90,
+            ESE: 112.5,
+            SE: 135,
+            SSE: 157.5,
+            S: 180,
+            SSW: 202.5,
+            SW: 225,
+            WSW: 247.5,
+            W: 270,
+            WNW: 292.5,
+            NW: 315,
+            NNW: 337.5,
         };
         const windDirection = windData.direction ? cardinalMap[windData.direction.toUpperCase()] : undefined;
 
@@ -350,10 +368,10 @@ async function fetchHKOStation(stationId: string): Promise<NDBCRawData | null> {
 
         // Try to get temperature/humidity from other sections
         const tempData = data.temperature?.data?.find((s: { place?: string; value?: number }) =>
-            s.place?.toLowerCase().includes(stationId.toLowerCase())
+            s.place?.toLowerCase().includes(stationId.toLowerCase()),
         );
         const humidityData = data.humidity?.data?.find((s: { place?: string; value?: number }) =>
-            s.place?.toLowerCase().includes(stationId.toLowerCase())
+            s.place?.toLowerCase().includes(stationId.toLowerCase()),
         );
 
         return {
@@ -365,7 +383,7 @@ async function fetchHKOStation(stationId: string): Promise<NDBCRawData | null> {
             timestamp: data.updateTime || new Date().toISOString(),
             waveHeight: undefined,
             dominantWavePeriod: undefined,
-            waterTemp: undefined
+            waterTemp: undefined,
         };
     } catch (error) {
         return null;
@@ -377,11 +395,11 @@ async function fetchHKOStation(stationId: string): Promise<NDBCRawData | null> {
 /**
  * Fetch real-time wave and wind data from Irish Marine Institute
  * Uses ERDDAP API for M-series weather buoys
- * 
+ *
  * Buoys: M2 (Galway), M3 (SW Ireland), M4 (Donegal), M5 (Belmullet), M6 (Porcupine)
  * Data: Wave height, period, water temp, wind (some stations)
  */
-async function fetchIrishBuoy(buoyId: string): Promise<NDBCRawData | null> {
+async function fetchIrishBuoy(_buoyId: string): Promise<NDBCRawData | null> {
     try {
         // Irish Marine ERDDAP endpoint - get latest observation
         // Dataset: IMI-TidyOceans_latestData
@@ -389,7 +407,7 @@ async function fetchIrishBuoy(buoyId: string): Promise<NDBCRawData | null> {
 
         const response = await CapacitorHttp.get({
             url,
-            headers: { 'Accept': 'application/json' }
+            headers: { Accept: 'application/json' },
         });
 
         if (response.status !== 200 || !response.data) {
@@ -415,15 +433,15 @@ async function fetchIrishBuoy(buoyId: string): Promise<NDBCRawData | null> {
         };
 
         return {
-            waveHeight: getValue('VHM0'),           // Significant wave height (m)
-            dominantWavePeriod: getValue('VTPK'),   // Peak wave period (s)
-            waterTemp: undefined,                    // Not in this dataset
-            windSpeed: undefined,                    // Wave buoys don't have wind
+            waveHeight: getValue('VHM0'), // Significant wave height (m)
+            dominantWavePeriod: getValue('VTPK'), // Peak wave period (s)
+            waterTemp: undefined, // Not in this dataset
+            windSpeed: undefined, // Wave buoys don't have wind
             windGust: undefined,
             windDirection: undefined,
             airTemp: undefined,
             pressure: undefined,
-            timestamp: row[cols.indexOf('time')] || new Date().toISOString()
+            timestamp: row[cols.indexOf('time')] || new Date().toISOString(),
         };
     } catch (error) {
         return null;
@@ -470,31 +488,31 @@ async function fetchBuoyData(buoy: BuoyStation): Promise<NDBCRawData | null> {
 
 /**
  * Find and fetch real-time data from the nearest weather beacon/buoy
- * 
+ *
  * Searches the global buoy network (NOAA NDBC, BOM/Queensland, etc.) for the closest
  * beacon within the specified range and fetches its latest observation data.
- * 
+ *
  * ## Search Strategy:
  * 1. Calculate distances to all known buoys
  * 2. Filter to those within `maxDistanceNM` (default 10nm)
  * 3. Sort by proximity
  * 4. Attempt to fetch data from each, stopping at first success
- * 
+ *
  * ## Supported Networks:
  * - **NOAA NDBC**: US buoys with full atmospheric + marine sensors
  * - **BOM/Queensland**: Australian wave buoys (limited to marine metrics)
  * - **IMOS, UKMO, EUROGOOS, JMA**: Planned but not yet implemented
- * 
+ *
  * ## Data Availability:
  * - **Always**: Wave height, swell period, water temperature
  * - **Sometimes**: Wind speed/direction (NDBC yes, Queensland wave buoys no)
  * - **Rarely**: Air pressure, air temperature, currents
- * 
+ *
  * @param lat - Target latitude for search
  * @param lon - Target longitude for search
  * @param maxDistanceNM - Maximum search radius in nautical miles (default: 10nm)
  * @returns BeaconObservation with real-time data, or null if no beacon found/available
- * 
+ *
  * @example
  * ```typescript
  * const beacon = await findAndFetchNearestBeacon(-27.3, 153.3, 10);
@@ -507,34 +525,26 @@ async function fetchBuoyData(buoy: BuoyStation): Promise<NDBCRawData | null> {
 export async function findAndFetchNearestBeacon(
     lat: number,
     lon: number,
-    maxDistanceNM: number = MAX_BEACON_DISTANCE_NM
+    maxDistanceNM: number = MAX_BEACON_DISTANCE_NM,
 ): Promise<BeaconObservation | null> {
     try {
-
-
         // Calculate distances and sort
-        const buoysWithDistance = MAJOR_BUOYS.map(buoy => ({
+        const buoysWithDistance = MAJOR_BUOYS.map((buoy) => ({
             buoy,
-            distance: calculateDistanceNM(lat, lon, buoy.lat, buoy.lon)
+            distance: calculateDistanceNM(lat, lon, buoy.lat, buoy.lon),
         })).sort((a, b) => a.distance - b.distance);
 
         // Filter within range
-        const nearbyBuoys = buoysWithDistance.filter(b => b.distance <= maxDistanceNM);
+        const nearbyBuoys = buoysWithDistance.filter((b) => b.distance <= maxDistanceNM);
 
         if (nearbyBuoys.length === 0) {
             return null;
         }
 
-
-
         // Try each beacon until we get valid data
         for (const { buoy, distance } of nearbyBuoys) {
-
-
             const data = await fetchBuoyData(buoy);
             if (data) {
-
-
                 // Convert to BeaconObservation
                 const observation: BeaconObservation = {
                     buoyId: buoy.id,
@@ -552,7 +562,7 @@ export async function findAndFetchNearestBeacon(
                     airTemperature: data.airTemp,
                     pressure: data.pressure,
                     currentSpeed: undefined, // Most buoys don't provide current data
-                    currentDegree: undefined
+                    currentDegree: undefined,
                 };
 
                 return observation;
@@ -561,7 +571,6 @@ export async function findAndFetchNearestBeacon(
         }
 
         return null;
-
     } catch (error) {
         return null;
     }

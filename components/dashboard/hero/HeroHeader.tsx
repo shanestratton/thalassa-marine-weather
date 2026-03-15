@@ -1,6 +1,17 @@
 import React, { useRef, useEffect, useState } from 'react';
 
-import { ArrowUpIcon, ArrowDownIcon, CloudIcon, RainIcon, DropletIcon, EyeIcon, SunriseIcon, SunsetIcon, SunIcon, GaugeIcon } from '../../Icons';
+import {
+    ArrowUpIcon,
+    ArrowDownIcon,
+    CloudIcon,
+    RainIcon,
+    DropletIcon,
+    EyeIcon,
+    SunriseIcon,
+    SunsetIcon,
+    SunIcon,
+    GaugeIcon,
+} from '../../Icons';
 
 import { UnitPreferences, WeatherMetrics } from '../../../types';
 import { CardDisplayValues } from './types';
@@ -13,10 +24,13 @@ const AutoFitConditionLabel: React.FC<{ text: string; condition?: string }> = ({
     const spanRef = useRef<HTMLSpanElement>(null);
     const [fontSize, setFontSize] = useState(14);
 
-    const colorClass = condition?.includes('STORM') ? 'text-red-500 animate-pulse'
-        : condition?.includes('POURING') ? 'text-amber-400'
-            : condition?.includes('SHOWERS') ? 'text-sky-400'
-                : 'text-sky-300';
+    const colorClass = condition?.includes('STORM')
+        ? 'text-red-500 animate-pulse'
+        : condition?.includes('POURING')
+          ? 'text-amber-400'
+          : condition?.includes('SHOWERS')
+            ? 'text-sky-400'
+            : 'text-sky-300';
 
     useEffect(() => {
         const el = spanRef.current;
@@ -26,7 +40,9 @@ const AutoFitConditionLabel: React.FC<{ text: string; condition?: string }> = ({
             const parent = el.parentElement;
             if (!parent) return;
             const parentWidth = parent.clientWidth;
-            let lo = 10, hi = 14, best = 10;
+            let lo = 10,
+                hi = 14,
+                best = 10;
             while (lo <= hi) {
                 const mid = Math.floor((lo + hi) / 2);
                 el.style.fontSize = `${mid}px`;
@@ -59,13 +75,19 @@ const AutoFitConditionLabel: React.FC<{ text: string; condition?: string }> = ({
 };
 
 /** Selects the appropriate weather background image based on conditions */
-function getWeatherBackgroundImage(condition?: string, isDay?: boolean, cloudCover?: number, moonIllumination?: number): string {
+function getWeatherBackgroundImage(
+    condition?: string,
+    isDay?: boolean,
+    cloudCover?: number,
+    moonIllumination?: number,
+): string {
     const c = (condition || '').toLowerCase();
 
     // Storm / Thunder always wins
     if (c.includes('storm') || c.includes('thunder')) return '/weather-bg/storm.png';
     // Rain / Showers / Drizzle / Pouring
-    if (c.includes('rain') || c.includes('shower') || c.includes('drizzle') || c.includes('pour')) return '/weather-bg/rain.png';
+    if (c.includes('rain') || c.includes('shower') || c.includes('drizzle') || c.includes('pour'))
+        return '/weather-bg/rain.png';
     // Fog / Mist / Haze
     if (c.includes('fog') || c.includes('mist') || c.includes('haze')) return '/weather-bg/fog.png';
 
@@ -108,16 +130,24 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
     hTime,
     forceLabel,
     moonIllumination,
-    precipChance
+    precipChance,
 }) => {
-    const bgImage = getWeatherBackgroundImage(cardData.condition, isCardDay, cardData.cloudCover ?? undefined, moonIllumination);
+    const bgImage = getWeatherBackgroundImage(
+        cardData.condition,
+        isCardDay,
+        cardData.cloudCover ?? undefined,
+        moonIllumination,
+    );
     return (
         <div className="flex flex-col gap-2 md:gap-3 mb-2 relative z-10 px-4 md:px-6 pt-4 md:pt-6 shrink-0">
             {/* MERGED Header Card (Span 3-Full Width) - PREMIUM GLASS THEME */}
-            <div className={`col-span-3 rounded-2xl p-0 flex flex-col relative overflow-hidden group min-h-[110px] border shadow-lg ${isCardDay
-                ? 'bg-gradient-to-br from-sky-900/20 via-slate-900/40 to-black/40 border-sky-400/20 shadow-sky-900/5'
-                : 'bg-gradient-to-br from-sky-900/20 via-slate-900/40 to-black/40 border-sky-400/20 shadow-sky-900/5'
-                } `}>
+            <div
+                className={`col-span-3 rounded-2xl p-0 flex flex-col relative overflow-hidden group min-h-[110px] border shadow-lg ${
+                    isCardDay
+                        ? 'bg-gradient-to-br from-sky-900/20 via-slate-900/40 to-black/40 border-sky-400/20 shadow-sky-900/5'
+                        : 'bg-gradient-to-br from-sky-900/20 via-slate-900/40 to-black/40 border-sky-400/20 shadow-sky-900/5'
+                } `}
+            >
                 {/* Gradient Orb (Shared) */}
                 <div className="absolute -top-10 -right-10 w-40 h-40 bg-gradient-to-br from-sky-500/20 via-purple-500/10 to-transparent rounded-full blur-2xl pointer-events-none" />
 
@@ -136,7 +166,6 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                     <div className="absolute inset-0 z-[1] bg-gradient-to-r from-black/60 via-black/40 to-black/50" />
                     {/* LEFT PARTITION (Conditions)-~58% */}
                     <div className="flex flex-row justify-between items-stretch p-4 pt-4 border-r border-white/5 w-[58%] shrink-0 relative z-10">
-
                         {/* Main Temp + Condition */}
                         <div className="flex flex-col justify-between gap-0.5">
                             <div className="flex items-start">
@@ -144,18 +173,29 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                                     const tempStr = cardDisplayValues.airTemp.toString();
                                     const len = tempStr.length;
                                     // Big and bold — scale down only for wide numbers
-                                    const sizeClass = len > 3 ? 'text-2xl md:text-4xl' : len > 2 ? 'text-3xl md:text-4xl' : 'text-4xl md:text-4xl';
+                                    const sizeClass =
+                                        len > 3
+                                            ? 'text-2xl md:text-4xl'
+                                            : len > 2
+                                              ? 'text-3xl md:text-4xl'
+                                              : 'text-4xl md:text-4xl';
 
                                     return (
-                                        <span className={`${sizeClass} font-mono font-bold tracking-tighter text-ivory drop-shadow-2xl leading-none transition-all duration-300`}>
+                                        <span
+                                            className={`${sizeClass} font-mono font-bold tracking-tighter text-ivory drop-shadow-2xl leading-none transition-all duration-300`}
+                                        >
                                             {cardDisplayValues.airTemp}°
                                         </span>
-                                    )
+                                    );
                                 })()}
                                 <span className="text-sm font-bold text-white/60 mt-1 ml-0.5">{units.temp}</span>
                             </div>
                             <AutoFitConditionLabel
-                                text={cardData.condition?.replace(/Thunderstorm/i, 'Thunder').replace(/Light Showers/i, 'Showers') || ''}
+                                text={
+                                    cardData.condition
+                                        ?.replace(/Thunderstorm/i, 'Thunder')
+                                        .replace(/Light Showers/i, 'Showers') || ''
+                                }
                                 condition={cardData.condition}
                             />
                         </div>
@@ -167,32 +207,40 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                             <div className="flex items-center gap-2 text-sm font-bold leading-none">
                                 <div className="flex items-center gap-0.5 text-white">
                                     <ArrowUpIcon className="w-3 h-3 text-amber-400" />
-                                    <span className="text-sm font-mono font-bold text-white leading-none">{cardDisplayValues.highTemp}°</span>
+                                    <span className="text-sm font-mono font-bold text-white leading-none">
+                                        {cardDisplayValues.highTemp}°
+                                    </span>
                                 </div>
                                 <div className="w-px h-3 bg-white/20" />
                                 <div className="flex items-center gap-0.5 text-gray-300">
                                     <ArrowDownIcon className="w-3 h-3 text-emerald-400" />
-                                    <span className="text-sm font-mono font-bold text-white leading-none">{cardDisplayValues.lowTemp}°</span>
+                                    <span className="text-sm font-mono font-bold text-white leading-none">
+                                        {cardDisplayValues.lowTemp}°
+                                    </span>
                                 </div>
                             </div>
-
 
                             {/* 4. Cloud */}
                             <div className="flex items-center gap-1 text-sm font-bold text-gray-300 justify-end translate-y-0.5">
                                 <CloudIcon className="w-2.5 h-2.5" />
                                 {Math.round(cardData.cloudCover || 0)}%
-                                <span className="text-sm font-bold uppercase tracking-wider text-slate-500 ml-0.5">Clouds</span>
+                                <span className="text-sm font-bold uppercase tracking-wider text-slate-500 ml-0.5">
+                                    Clouds
+                                </span>
                             </div>
 
                             {/* 3. Rain */}
                             <div className="flex items-center gap-1 text-sm font-bold text-sky-300 justify-end">
                                 <RainIcon className="w-2.5 h-2.5" />
                                 {cardIsLive
-                                    ? (cardData.precipValue || '0.0 mm')
-                                    : (precipChance !== undefined ? `${precipChance}%` : (cardData.precipValue || '0.0 mm'))
-                                }
+                                    ? cardData.precipValue || '0.0 mm'
+                                    : precipChance !== undefined
+                                      ? `${precipChance}%`
+                                      : cardData.precipValue || '0.0 mm'}
                                 {!cardIsLive && precipChance !== undefined && (
-                                    <span className="text-sm font-bold uppercase tracking-wider text-slate-500 ml-0.5">chance</span>
+                                    <span className="text-sm font-bold uppercase tracking-wider text-slate-500 ml-0.5">
+                                        chance
+                                    </span>
                                 )}
                             </div>
                         </div>
@@ -203,35 +251,55 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                     <div className="flex flex-col justify-between gap-0.5 p-4 pt-4 flex-1 relative min-w-0 z-10 w-[42%] h-full">
                         {/* TOP: Today - matches temp position */}
                         <div className="flex items-start">
-                            <span className={`${cardIsLive ? 'text-emerald-400' : 'text-sky-400'} font-extrabold text-sm md:text-sm tracking-[0.2em] leading-none`}>
-                                {cardIsLive ? "TODAY" : "FORECAST"}
+                            <span
+                                className={`${cardIsLive ? 'text-emerald-400' : 'text-sky-400'} font-extrabold text-sm md:text-sm tracking-[0.2em] leading-none`}
+                            >
+                                {cardIsLive ? 'TODAY' : 'FORECAST'}
                             </span>
                         </div>
                         {/* MIDDLE: Now - large text like temp */}
-                        <span className={`${cardIsLive ? 'text-emerald-400' : 'text-sky-400'} ${(!cardIsLive && (forceLabel || "TODAY") !== "TODAY") ? 'text-xl md:text-2xl' : 'text-2xl md:text-3xl'} font-mono font-bold tracking-tighter leading-none whitespace-nowrap`}>
-                            {cardIsLive ? "NOW" : (forceLabel || "TODAY")}
+                        <span
+                            className={`${cardIsLive ? 'text-emerald-400' : 'text-sky-400'} ${!cardIsLive && (forceLabel || 'TODAY') !== 'TODAY' ? 'text-xl md:text-2xl' : 'text-2xl md:text-3xl'} font-mono font-bold tracking-tighter leading-none whitespace-nowrap`}
+                        >
+                            {cardIsLive ? 'NOW' : forceLabel || 'TODAY'}
                         </span>
                         {/* BOTTOM: Hours - matches condition position */}
-                        <span className={`text-sm md:text-sm font-bold uppercase tracking-widest ${cardIsLive ? 'text-emerald-400' : 'text-sky-400'}`}>
-                            {(cardIsLive || (isHourly && hTime)) ? (
-                                cardIsLive ? (() => {
-                                    const startH = new Date().toLocaleTimeString('en-US', { hour: '2-digit', hour12: false, timeZone: timeZone }).split(':')[0];
-                                    const nextDate = new Date();
-                                    nextDate.setHours(nextDate.getHours() + 1);
-                                    const nextH = nextDate.toLocaleTimeString('en-US', { hour: '2-digit', hour12: false, timeZone: timeZone }).split(':')[0];
-                                    return `${startH}:00 - ${nextH}:00`;
-                                })() : (() => {
-                                    const start = new Date(hTime!);
-                                    const end = new Date(hTime!);
-                                    end.setHours(start.getHours() + 1);
-                                    const strictFmt = (d: Date) => {
-                                        const h = d.getHours();
-                                        const m = d.getMinutes().toString().padStart(2, '0');
-                                        return `${h.toString().padStart(2, '0')}:${m}`;
-                                    };
-                                    return `${strictFmt(start)} - ${strictFmt(end)}`;
-                                })()
-                            ) : '--:-- - --:--'}
+                        <span
+                            className={`text-sm md:text-sm font-bold uppercase tracking-widest ${cardIsLive ? 'text-emerald-400' : 'text-sky-400'}`}
+                        >
+                            {cardIsLive || (isHourly && hTime)
+                                ? cardIsLive
+                                    ? (() => {
+                                          const startH = new Date()
+                                              .toLocaleTimeString('en-US', {
+                                                  hour: '2-digit',
+                                                  hour12: false,
+                                                  timeZone: timeZone,
+                                              })
+                                              .split(':')[0];
+                                          const nextDate = new Date();
+                                          nextDate.setHours(nextDate.getHours() + 1);
+                                          const nextH = nextDate
+                                              .toLocaleTimeString('en-US', {
+                                                  hour: '2-digit',
+                                                  hour12: false,
+                                                  timeZone: timeZone,
+                                              })
+                                              .split(':')[0];
+                                          return `${startH}:00 - ${nextH}:00`;
+                                      })()
+                                    : (() => {
+                                          const start = new Date(hTime!);
+                                          const end = new Date(hTime!);
+                                          end.setHours(start.getHours() + 1);
+                                          const strictFmt = (d: Date) => {
+                                              const h = d.getHours();
+                                              const m = d.getMinutes().toString().padStart(2, '0');
+                                              return `${h.toString().padStart(2, '0')}:${m}`;
+                                          };
+                                          return `${strictFmt(start)} - ${strictFmt(end)}`;
+                                      })()
+                                : '--:-- - --:--'}
                         </span>
                     </div>
                 </div>
@@ -241,7 +309,9 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                     {/* Humidity (Replaces Cloud) */}
                     <div className="flex flex-col items-center flex-1 min-w-[30px]">
                         <DropletIcon className="w-3.5 h-3.5 text-sky-400 mb-0.5" />
-                        <span className="text-sm font-bold text-white leading-none">{cardData.humidity ? Math.round(cardData.humidity) : '--'}%</span>
+                        <span className="text-sm font-bold text-white leading-none">
+                            {cardData.humidity ? Math.round(cardData.humidity) : '--'}%
+                        </span>
                         <span className="text-sm font-bold text-gray-500 uppercase tracking-wider mt-0.5">Hum</span>
                     </div>
                     <div className="w-px h-4 bg-white/10 shrink-0" />
@@ -269,18 +339,23 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                     {/* UV Index */}
                     <div className="flex flex-col items-center flex-1 min-w-[30px]">
                         <SunIcon className="w-3.5 h-3.5 text-amber-400 mb-0.5" />
-                        <span className="text-sm font-bold text-white leading-none">{cardDisplayValues.uv !== '--' ? cardDisplayValues.uv : '0'}</span>
-                        <span className="text-sm font-bold text-gray-500 uppercase tracking-wider mt-0.5">UV:{cardData.uvIndex}</span>
+                        <span className="text-sm font-bold text-white leading-none">
+                            {cardDisplayValues.uv !== '--' ? cardDisplayValues.uv : '0'}
+                        </span>
+                        <span className="text-sm font-bold text-gray-500 uppercase tracking-wider mt-0.5">
+                            UV:{cardData.uvIndex}
+                        </span>
                     </div>
                     <div className="w-px h-4 bg-white/10 shrink-0" />
                     {/* Pressure */}
                     <div className="flex flex-col items-center flex-1 min-w-[30px]">
                         <GaugeIcon className="w-3.5 h-3.5 text-emerald-400 mb-0.5" />
                         <span className="text-sm font-bold text-white leading-none">
-                            {cardDisplayValues.pressure && cardDisplayValues.pressure !== '--' ? Math.round(parseFloat(cardDisplayValues.pressure.toString())).toString() : '--'}
+                            {cardDisplayValues.pressure && cardDisplayValues.pressure !== '--'
+                                ? Math.round(parseFloat(cardDisplayValues.pressure.toString())).toString()
+                                : '--'}
                         </span>
                         <span className="text-sm font-bold text-gray-500 uppercase tracking-wider mt-0.5">PRMSL</span>
-
                     </div>
                 </div>
             </div>

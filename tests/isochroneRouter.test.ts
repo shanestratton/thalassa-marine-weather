@@ -67,7 +67,11 @@ describe('initialBearing', () => {
     });
 
     it('always returns 0-360', () => {
-        for (const [a, b, c, d] of [[-90, 0, 90, 0], [0, 180, 0, -180], [45, 45, -45, -45]]) {
+        for (const [a, b, c, d] of [
+            [-90, 0, 90, 0],
+            [0, 180, 0, -180],
+            [45, 45, -45, -45],
+        ]) {
             const bearing = initialBearing(a, b, c, d);
             expect(bearing).toBeGreaterThanOrEqual(0);
             expect(bearing).toBeLessThan(360);
@@ -156,11 +160,11 @@ describe('createPolarSpeedLookup', () => {
         windSpeeds: [5, 10, 15, 20, 25],
         angles: [0, 45, 90, 135, 180],
         matrix: [
-            [0, 0, 0, 0, 0],       // 0° TWA — no speed (dead upwind)
-            [3, 5, 6, 6.5, 6.5],   // 45° — close haul
-            [4, 6, 7, 7.5, 7.5],   // 90° — beam reach
+            [0, 0, 0, 0, 0], // 0° TWA — no speed (dead upwind)
+            [3, 5, 6, 6.5, 6.5], // 45° — close haul
+            [4, 6, 7, 7.5, 7.5], // 90° — beam reach
             [3.5, 5.5, 6.5, 7, 7], // 135° — broad reach
-            [2, 4, 5, 5.5, 5.5],   // 180° — dead downwind
+            [2, 4, 5, 5.5, 5.5], // 180° — dead downwind
         ],
     };
 
@@ -247,7 +251,7 @@ describe('computeIsochrones (integration)', () => {
         // Wind FROM 270° + heading 90° → TWA = |270 - 90| = 180 (dead run)
         const result = await computeIsochrones(
             { lat: -33.868, lon: 151.209 }, // Sydney
-            { lat: -33.868, lon: 151.5 },   // ~16 NM east
+            { lat: -33.868, lon: 151.5 }, // ~16 NM east
             '2024-01-01T00:00:00Z',
             simplePolar,
             westWind,

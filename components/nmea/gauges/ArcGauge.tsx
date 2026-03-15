@@ -27,16 +27,17 @@ interface ArcGaugeProps {
     decimals?: number;
     zones?: Zone[];
     accentColor?: string;
-    majorTick?: number;    // Major tick interval
-    minorTick?: number;    // Minor tick interval
+    majorTick?: number; // Major tick interval
+    minorTick?: number; // Minor tick interval
     freshness?: 'live' | 'stale' | 'dead';
 }
 
 // Arc geometry constants
-const CX = 150, CY = 160;       // Center point (slightly below center for visual weight)
-const RADIUS = 120;               // Arc radius
-const START_ANGLE = 150;           // Start at bottom-left (degrees)
-const END_ANGLE = 390;             // End at bottom-right (150 + 240 = 390)
+const CX = 150,
+    CY = 160; // Center point (slightly below center for visual weight)
+const RADIUS = 120; // Arc radius
+const START_ANGLE = 150; // Start at bottom-left (degrees)
+const END_ANGLE = 390; // End at bottom-right (150 + 240 = 390)
 const SWEEP = END_ANGLE - START_ANGLE; // 240°
 
 function polarToCart(cx: number, cy: number, r: number, angleDeg: number) {
@@ -62,7 +63,7 @@ export const ArcGauge: React.FC<ArcGaugeProps> = ({
     accentColor = '#22d3ee',
     majorTick,
     minorTick,
-    freshness = 'dead'
+    freshness = 'dead',
 }) => {
     const range = max - min;
     const clampedValue = value !== null ? Math.max(min, Math.min(max, value)) : null;
@@ -82,7 +83,7 @@ export const ArcGauge: React.FC<ArcGaugeProps> = ({
 
     // Default tick intervals
     const majorTickInterval = majorTick || (range <= 20 ? 5 : range <= 60 ? 10 : range <= 200 ? 50 : 500);
-    const minorTickInterval = minorTick || (majorTickInterval / 5);
+    const minorTickInterval = minorTick || majorTickInterval / 5;
 
     // Generate ticks
     const ticks = useMemo(() => {
@@ -128,8 +129,11 @@ export const ArcGauge: React.FC<ArcGaugeProps> = ({
                     {/* Background track arc */}
                     <path
                         d={describeArc(CX, CY, RADIUS, START_ANGLE, END_ANGLE)}
-                        fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="14"
-                        strokeLinecap="round" opacity={opacity}
+                        fill="none"
+                        stroke="rgba(255,255,255,0.08)"
+                        strokeWidth="14"
+                        strokeLinecap="round"
+                        opacity={opacity}
                     />
 
                     {/* Zone arcs */}
@@ -137,10 +141,14 @@ export const ArcGauge: React.FC<ArcGaugeProps> = ({
                         const zStart = START_ANGLE + ((zone.from - min) / range) * SWEEP;
                         const zEnd = START_ANGLE + ((zone.to - min) / range) * SWEEP;
                         return (
-                            <path key={i}
+                            <path
+                                key={i}
                                 d={describeArc(CX, CY, RADIUS, zStart, zEnd)}
-                                fill="none" stroke={zone.color} strokeWidth="14"
-                                strokeLinecap="butt" opacity={opacity * 0.15}
+                                fill="none"
+                                stroke={zone.color}
+                                strokeWidth="14"
+                                strokeLinecap="butt"
+                                opacity={opacity * 0.15}
                             />
                         );
                     })}
@@ -149,8 +157,11 @@ export const ArcGauge: React.FC<ArcGaugeProps> = ({
                     {clampedValue !== null && fraction > 0.005 && (
                         <path
                             d={describeArc(CX, CY, RADIUS, START_ANGLE, needleAngle)}
-                            fill="none" stroke={accentColor} strokeWidth="14"
-                            strokeLinecap="round" opacity={opacity * 0.8}
+                            fill="none"
+                            stroke={accentColor}
+                            strokeWidth="14"
+                            strokeLinecap="round"
+                            opacity={opacity * 0.8}
                             style={{ transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)' }}
                         />
                     )}
@@ -167,7 +178,10 @@ export const ArcGauge: React.FC<ArcGaugeProps> = ({
                             return (
                                 <g key={val}>
                                     <line
-                                        x1={inner.x} y1={inner.y} x2={outer.x} y2={outer.y}
+                                        x1={inner.x}
+                                        y1={inner.y}
+                                        x2={outer.x}
+                                        y2={outer.y}
                                         stroke={isMajor ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.15)'}
                                         strokeWidth={isMajor ? 2 : 0.8}
                                         strokeLinecap="round"
@@ -176,9 +190,11 @@ export const ArcGauge: React.FC<ArcGaugeProps> = ({
                                         <text
                                             x={polarToCart(CX, CY, outerR + 14, angle).x}
                                             y={polarToCart(CX, CY, outerR + 14, angle).y}
-                                            textAnchor="middle" dominantBaseline="central"
+                                            textAnchor="middle"
+                                            dominantBaseline="central"
                                             fill="rgba(148,163,184,0.7)"
-                                            fontSize="11" fontWeight="600"
+                                            fontSize="11"
+                                            fontWeight="600"
                                             fontFamily="system-ui, -apple-system, sans-serif"
                                         >
                                             {val}
@@ -191,24 +207,37 @@ export const ArcGauge: React.FC<ArcGaugeProps> = ({
 
                     {/* Needle */}
                     {clampedValue !== null && (
-                        <g style={{ transition: 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)' }}
+                        <g
+                            style={{ transition: 'transform 0.5s cubic-bezier(0.4, 0, 0.2, 1)' }}
                             transform={`rotate(${needleAngle} ${CX} ${CY})`}
                             opacity={opacity}
                         >
                             {/* Needle body */}
-                            <line x1={CX} y1={CY} x2={CX} y2={CY - RADIUS + 8}
-                                stroke={accentColor} strokeWidth="2.5" strokeLinecap="round"
+                            <line
+                                x1={CX}
+                                y1={CY}
+                                x2={CX}
+                                y2={CY - RADIUS + 8}
+                                stroke={accentColor}
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
                                 filter={`url(#arc-glow-${label})`}
                             />
                             {/* Needle tip dot */}
-                            <circle cx={CX} cy={CY - RADIUS + 8} r="4"
-                                fill={accentColor} opacity={0.9} />
+                            <circle cx={CX} cy={CY - RADIUS + 8} r="4" fill={accentColor} opacity={0.9} />
                         </g>
                     )}
 
                     {/* Center hub */}
-                    <circle cx={CX} cy={CY} r="8" fill="rgba(15,23,42,0.9)"
-                        stroke="rgba(255,255,255,0.15)" strokeWidth="1.5" opacity={opacity} />
+                    <circle
+                        cx={CX}
+                        cy={CY}
+                        r="8"
+                        fill="rgba(15,23,42,0.9)"
+                        stroke="rgba(255,255,255,0.15)"
+                        strokeWidth="1.5"
+                        opacity={opacity}
+                    />
                     <circle cx={CX} cy={CY} r="3" fill={accentColor} opacity={opacity * 0.8} />
                 </svg>
             </div>

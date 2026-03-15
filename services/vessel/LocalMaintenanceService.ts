@@ -7,36 +7,19 @@
  * The "Log Service" action writes to BOTH local_maintenance_history
  * AND updates local_maintenance_tasks — then queues both mutations.
  */
-import {
-    getAll,
-    getById,
-    query,
-    insertLocal,
-    updateLocal,
-    deleteLocal,
-    generateUUID,
-} from './LocalDatabase';
-import {
-    calculateStatus,
-    sortByUrgency,
-    type TaskWithStatus,
-} from '../MaintenanceService';
-import type {
-    MaintenanceTask,
-    MaintenanceHistory,
-    MaintenanceCategory,
-} from '../../types';
+import { getAll, getById, query, insertLocal, updateLocal, deleteLocal, generateUUID } from './LocalDatabase';
+import { calculateStatus, sortByUrgency, type TaskWithStatus } from '../MaintenanceService';
+import type { MaintenanceTask, MaintenanceHistory, MaintenanceCategory } from '../../types';
 
 const TASKS_TABLE = 'maintenance_tasks';
 const HISTORY_TABLE = 'maintenance_history';
 
 export class LocalMaintenanceService {
-
     // ── TASKS (READ) ──
 
     /** Get all active tasks (from local cache) */
     static getTasks(): MaintenanceTask[] {
-        return query<MaintenanceTask>(TASKS_TABLE, t => t.is_active);
+        return query<MaintenanceTask>(TASKS_TABLE, (t) => t.is_active);
     }
 
     /** Get all tasks including paused */
@@ -46,22 +29,20 @@ export class LocalMaintenanceService {
 
     /** Get tasks by category */
     static getByCategory(category: MaintenanceCategory): MaintenanceTask[] {
-        return query<MaintenanceTask>(TASKS_TABLE, t =>
-            t.category === category && t.is_active
-        );
+        return query<MaintenanceTask>(TASKS_TABLE, (t) => t.category === category && t.is_active);
     }
 
     /** Get tasks with traffic light status, sorted by urgency */
     static getTasksWithStatus(engineHours: number): TaskWithStatus[] {
         const tasks = LocalMaintenanceService.getTasks();
-        return sortByUrgency(tasks.map(t => calculateStatus(t, engineHours)));
+        return sortByUrgency(tasks.map((t) => calculateStatus(t, engineHours)));
     }
 
     // ── TASKS (WRITE) ──
 
     /** Create a new maintenance task */
     static async createTask(
-        task: Omit<MaintenanceTask, 'id' | 'user_id' | 'created_at' | 'updated_at'>
+        task: Omit<MaintenanceTask, 'id' | 'user_id' | 'created_at' | 'updated_at'>,
     ): Promise<MaintenanceTask> {
         const now = new Date().toISOString();
         const record: MaintenanceTask = {
@@ -76,10 +57,7 @@ export class LocalMaintenanceService {
     }
 
     /** Update a task */
-    static async updateTask(
-        id: string,
-        updates: Partial<MaintenanceTask>
-    ): Promise<MaintenanceTask | null> {
+    static async updateTask(id: string, updates: Partial<MaintenanceTask>): Promise<MaintenanceTask | null> {
         return await updateLocal<MaintenanceTask>(TASKS_TABLE, id, updates);
     }
 
@@ -111,7 +89,6 @@ export class LocalMaintenanceService {
         notes: string | null,
         cost: number | null,
     ): Promise<{ historyId: string; nextDueDate: string | null; nextDueHours: number | null }> {
-
         const task = getById<MaintenanceTask>(TASKS_TABLE, taskId);
         if (!task) throw new Error('Task not found');
 
@@ -173,18 +150,14 @@ export class LocalMaintenanceService {
 
     /** Get service history for a specific task */
     static getHistory(taskId: string): MaintenanceHistory[] {
-        const items = query<MaintenanceHistory>(HISTORY_TABLE, h => h.task_id === taskId);
-        return items.sort((a, b) =>
-            new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()
-        );
+        const items = query<MaintenanceHistory>(HISTORY_TABLE, (h) => h.task_id === taskId);
+        return items.sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime());
     }
 
     /** Get all history (recent first) */
     static getAllHistory(limit: number = 50): MaintenanceHistory[] {
         return getAll<MaintenanceHistory>(HISTORY_TABLE)
-            .sort((a, b) =>
-                new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime()
-            )
+            .sort((a, b) => new Date(b.completed_at).getTime() - new Date(a.completed_at).getTime())
             .slice(0, limit);
     }
 
@@ -204,9 +177,9 @@ export class LocalMaintenanceService {
 
         return {
             totalTasks: statuses.length,
-            overdue: statuses.filter(t => t.status === 'red').length,
-            dueSoon: statuses.filter(t => t.status === 'yellow').length,
-            ok: statuses.filter(t => t.status === 'green').length,
+            overdue: statuses.filter((t) => t.status === 'red').length,
+            dueSoon: statuses.filter((t) => t.status === 'yellow').length,
+            ok: statuses.filter((t) => t.status === 'green').length,
             totalSpent,
         };
     }

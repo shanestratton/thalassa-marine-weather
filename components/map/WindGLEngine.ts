@@ -19,7 +19,7 @@ const log = createLogger('WindGLEngine');
 import { WindGrid, MAX_SPEED, encodeWindTexture } from '../../services/weather/windField';
 
 // ── Constants ─────────────────────────────────────────────────────
-const PARTICLE_RES = 80;                    // 80×80 = 6400 particles
+const PARTICLE_RES = 80; // 80×80 = 6400 particles
 const NUM_PARTICLES = PARTICLE_RES * PARTICLE_RES;
 
 // ── GLSL Shaders ──────────────────────────────────────────────────
@@ -315,7 +315,7 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
         const globalT = Math.max(0, Math.min(1, (5 - zoom) / 3)); // 1.0 at zoom ≤ 2, 0.0 at zoom ≥ 5
 
         // Trail fade:  0.985 (zoomed in, long trails) → 0.80 (global, nearly instant decay)
-        const adaptiveFade = this.fadeOpacity * (1 - globalT) + 0.80 * globalT;
+        const adaptiveFade = this.fadeOpacity * (1 - globalT) + 0.8 * globalT;
         // Composite opacity: 1.0 (zoomed) → 0.4 (global, semi-transparent overlay)
         const adaptiveOpacity = 1.0 * (1 - globalT) + 0.4 * globalT;
         // Speed factor: 0.0002 (zoomed) → 0.00006 (global, slower drift)
@@ -334,11 +334,11 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
 
             gl.enable(gl.BLEND);
             gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-            gl.disable(gl.DEPTH_TEST);  // Mapbox leaves depth on — kills 2D particles
+            gl.disable(gl.DEPTH_TEST); // Mapbox leaves depth on — kills 2D particles
             gl.depthMask(false);
 
             // 1. Update particle positions (pass map bearing for wind rotation)
-            const bearingRad = this.map.getBearing() * Math.PI / 180;
+            const bearingRad = (this.map.getBearing() * Math.PI) / 180;
             this.stepUpdate(bearingRad, adaptiveSpeed);
 
             // 2. Fade trail + draw new particles (using MVP matrix)
@@ -351,9 +351,11 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
             gl.useProgram(prevProgram);
             gl.bindFramebuffer(gl.FRAMEBUFFER, prevFbo);
             gl.activeTexture(prevActiveTexture);
-            if (prevBlend) gl.enable(gl.BLEND); else gl.disable(gl.BLEND);
+            if (prevBlend) gl.enable(gl.BLEND);
+            else gl.disable(gl.BLEND);
             gl.blendFunc(prevBlendSrc, prevBlendDst);
-            if (prevDepthTest) gl.enable(gl.DEPTH_TEST); else gl.disable(gl.DEPTH_TEST);
+            if (prevDepthTest) gl.enable(gl.DEPTH_TEST);
+            else gl.disable(gl.DEPTH_TEST);
             gl.depthMask(prevDepthMask);
         } catch (e) {
             log.error('[WindGL] Render error:', e);
@@ -372,9 +374,9 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
             document.removeEventListener('visibilitychange', this._onVisibilityChange);
             this._onVisibilityChange = null;
         }
-        [this.updateProg, this.drawProg, this.screenProg, this.fadeProg].forEach(p => gl.deleteProgram(p));
-        [this.windTex, this.pState0, this.pState1, this.trail0, this.trail1].forEach(t => gl.deleteTexture(t));
-        [this.quadBuf, this.idxBuf].forEach(b => gl.deleteBuffer(b));
+        [this.updateProg, this.drawProg, this.screenProg, this.fadeProg].forEach((p) => gl.deleteProgram(p));
+        [this.windTex, this.pState0, this.pState1, this.trail0, this.trail1].forEach((t) => gl.deleteTexture(t));
+        [this.quadBuf, this.idxBuf].forEach((b) => gl.deleteBuffer(b));
         gl.deleteFramebuffer(this.fbo);
     }
 
@@ -435,7 +437,7 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
         // Float particle state textures
         const initData = new Float32Array(NUM_PARTICLES * 4);
         for (let i = 0; i < NUM_PARTICLES; i++) {
-            initData[i * 4] = Math.random();     // x [0,1]
+            initData[i * 4] = Math.random(); // x [0,1]
             initData[i * 4 + 1] = Math.random(); // y [0,1]
             initData[i * 4 + 2] = 0;
             initData[i * 4 + 3] = 1;
@@ -566,8 +568,7 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
         const gl = this.gl;
         const data = encodeWindTexture(this.grid, hour);
         gl.bindTexture(gl.TEXTURE_2D, this.windTex);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.grid.width, this.grid.height, 0,
-            gl.RGBA, gl.UNSIGNED_BYTE, data);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this.grid.width, this.grid.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, data);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);

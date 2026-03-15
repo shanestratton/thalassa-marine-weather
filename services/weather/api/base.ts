@@ -41,8 +41,8 @@ export const fetchSG = async <T>(
             url: PROXY_URL,
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-                'apikey': SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+                apikey: SUPABASE_ANON_KEY,
             },
             data: body,
         });
@@ -78,8 +78,8 @@ export const fetchSG = async <T>(
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-                    'apikey': SUPABASE_ANON_KEY,
+                    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+                    apikey: SUPABASE_ANON_KEY,
                 },
                 body,
             });
@@ -97,7 +97,7 @@ export const fetchSG = async <T>(
             if (quotaRemaining) {
             }
 
-            return await res.json() as T;
+            return (await res.json()) as T;
         } catch (fetchErr: unknown) {
             throw fetchErr;
         }

@@ -25,8 +25,14 @@ export interface PrecipHeatmapResult {
 
 const PERM = new Uint8Array(512);
 const GRAD: [number, number][] = [
-    [1, 0], [-1, 0], [0, 1], [0, -1],
-    [1, 1], [-1, 1], [1, -1], [-1, -1],
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+    [1, 1],
+    [-1, 1],
+    [1, -1],
+    [-1, -1],
 ];
 {
     const p = new Uint8Array(256);
@@ -60,7 +66,8 @@ function perlin2(x: number, y: number): number {
     const ab = PERM[PERM[xi] + yi + 1];
     const ba = PERM[PERM[xi + 1] + yi];
     const bb = PERM[PERM[xi + 1] + yi + 1];
-    const x1 = xf - 1, y1 = yf - 1;
+    const x1 = xf - 1,
+        y1 = yf - 1;
     return (
         (dotGrad(aa, xf, yf) * (1 - u) + dotGrad(ba, x1, yf) * u) * (1 - v) +
         (dotGrad(ab, xf, y1) * (1 - u) + dotGrad(bb, x1, y1) * u) * v
@@ -68,7 +75,10 @@ function perlin2(x: number, y: number): number {
 }
 
 function fbm(x: number, y: number): number {
-    let value = 0, amplitude = 1, frequency = 1, maxAmp = 0;
+    let value = 0,
+        amplitude = 1,
+        frequency = 1,
+        maxAmp = 0;
     for (let i = 0; i < 5; i++) {
         value += perlin2(x * frequency, y * frequency) * amplitude;
         maxAmp += amplitude;
@@ -82,12 +92,13 @@ function fbm(x: number, y: number): number {
 //  BILINEAR INTERPOLATION
 // ══════════════════════════════════════════════════════════════
 
-function sampleBilinear(
-    data: Float32Array, width: number, height: number, x: number, y: number,
-): number {
-    const x0 = Math.floor(x), y0 = Math.floor(y);
-    const x1 = Math.min(x0 + 1, width - 1), y1 = Math.min(y0 + 1, height - 1);
-    const fx = x - x0, fy = y - y0;
+function sampleBilinear(data: Float32Array, width: number, height: number, x: number, y: number): number {
+    const x0 = Math.floor(x),
+        y0 = Math.floor(y);
+    const x1 = Math.min(x0 + 1, width - 1),
+        y1 = Math.min(y0 + 1, height - 1);
+    const fx = x - x0,
+        fy = y - y0;
     return (
         data[y0 * width + x0] * (1 - fx) * (1 - fy) +
         data[y0 * width + x1] * fx * (1 - fy) +
@@ -139,7 +150,10 @@ function boxBlur(src: Float32Array, w: number, h: number, radius: number): Float
 
 interface ContourLayer {
     threshold: number;
-    fillR: number; fillG: number; fillB: number; fillA: number;
+    fillR: number;
+    fillG: number;
+    fillB: number;
+    fillA: number;
     mergeRadius: number;
     smoothRadius: number;
     minDensity: number;
@@ -151,41 +165,83 @@ interface ContourLayer {
 const CONTOUR_LAYERS: ContourLayer[] = [
     // 0: Cloud halo — warm amber-brown
     {
-        threshold: 0.3, fillR: 220, fillG: 190, fillB: 130, fillA: 55,
-        mergeRadius: 12, smoothRadius: 6, minDensity: 0.15,
+        threshold: 0.3,
+        fillR: 220,
+        fillG: 190,
+        fillB: 130,
+        fillA: 55,
+        mergeRadius: 12,
+        smoothRadius: 6,
+        minDensity: 0.15,
     },
     // 1: White outline ring — matches blue exactly, just 2px wider
     {
-        threshold: 1.0, fillR: 245, fillG: 245, fillB: 240, fillA: 140,
-        mergeRadius: 10, smoothRadius: 0, minDensity: 0.2,
+        threshold: 1.0,
+        fillR: 245,
+        fillG: 245,
+        fillB: 240,
+        fillA: 140,
+        mergeRadius: 10,
+        smoothRadius: 0,
+        minDensity: 0.2,
         outlineOf: 2,
     },
     // 2: Blue — light/moderate rain (intensity-shaded: light cyan edges, dark blue centres)
     {
-        threshold: 1.0, fillR: 0, fillG: 150, fillB: 255, fillA: 195,
-        mergeRadius: 8, smoothRadius: 4, minDensity: 0.2,
+        threshold: 1.0,
+        fillR: 0,
+        fillG: 150,
+        fillB: 255,
+        fillA: 195,
+        mergeRadius: 8,
+        smoothRadius: 4,
+        minDensity: 0.2,
         blueShading: true,
     },
     // 3: Dark green outline — near-black border defining yellow cores
     {
-        threshold: 4.5, fillR: 20, fillG: 70, fillB: 20, fillA: 210,
-        mergeRadius: 7, smoothRadius: 0, minDensity: 0.18,
+        threshold: 4.5,
+        fillR: 20,
+        fillG: 70,
+        fillB: 20,
+        fillA: 210,
+        mergeRadius: 7,
+        smoothRadius: 0,
+        minDensity: 0.18,
         outlineOf: 4, // yellow is now index 4
     },
     // 5: Yellow — heavy rain cores
     {
-        threshold: 5.0, fillR: 255, fillG: 225, fillB: 0, fillA: 230,
-        mergeRadius: 5, smoothRadius: 3, minDensity: 0.2,
+        threshold: 5.0,
+        fillR: 255,
+        fillG: 225,
+        fillB: 0,
+        fillA: 230,
+        mergeRadius: 5,
+        smoothRadius: 3,
+        minDensity: 0.2,
     },
     // 6: Orange — very heavy
     {
-        threshold: 10.0, fillR: 255, fillG: 160, fillB: 0, fillA: 235,
-        mergeRadius: 4, smoothRadius: 2, minDensity: 0.2,
+        threshold: 10.0,
+        fillR: 255,
+        fillG: 160,
+        fillB: 0,
+        fillA: 235,
+        mergeRadius: 4,
+        smoothRadius: 2,
+        minDensity: 0.2,
     },
     // 7: Red — extreme
     {
-        threshold: 20.0, fillR: 255, fillG: 30, fillB: 0, fillA: 240,
-        mergeRadius: 3, smoothRadius: 2, minDensity: 0.25,
+        threshold: 20.0,
+        fillR: 255,
+        fillG: 30,
+        fillB: 0,
+        fillA: 240,
+        mergeRadius: 3,
+        smoothRadius: 2,
+        minDensity: 0.25,
     },
 ];
 
@@ -202,10 +258,10 @@ interface DisaggParams {
 
 function getDisaggParams(mmh: number): DisaggParams {
     if (mmh < 0.5) return { bias: -0.35, gain: 2.5, maxMult: 2.5, noiseScale: 6.0 };
-    if (mmh < 1.5) return { bias: -0.20, gain: 2.2, maxMult: 2.2, noiseScale: 5.5 };
-    if (mmh < 4.0) return { bias: -0.10, gain: 1.8, maxMult: 2.0, noiseScale: 5.0 };
+    if (mmh < 1.5) return { bias: -0.2, gain: 2.2, maxMult: 2.2, noiseScale: 5.5 };
+    if (mmh < 4.0) return { bias: -0.1, gain: 1.8, maxMult: 2.0, noiseScale: 5.0 };
     if (mmh < 10.0) return { bias: 0.0, gain: 1.5, maxMult: 1.8, noiseScale: 4.5 };
-    if (mmh < 25.0) return { bias: 0.10, gain: 1.3, maxMult: 1.5, noiseScale: 4.0 };
+    if (mmh < 25.0) return { bias: 0.1, gain: 1.3, maxMult: 1.5, noiseScale: 4.0 };
     return { bias: 0.15, gain: 1.2, maxMult: 1.3, noiseScale: 3.0 };
 }
 
@@ -288,7 +344,10 @@ export function renderPrecipFrame(frame: PrecipFrame): PrecipHeatmapResult {
     const pixels = imageData.data;
 
     for (let i = 0; i < outW * outH; i++) {
-        let r = 0, g = 0, b = 0, a = 0;
+        let r = 0,
+            g = 0,
+            b = 0,
+            a = 0;
 
         for (let li = 0; li < CONTOUR_LAYERS.length; li++) {
             const layer = CONTOUR_LAYERS[li];
@@ -301,7 +360,10 @@ export function renderPrecipFrame(frame: PrecipFrame): PrecipHeatmapResult {
             }
 
             if (maskVal > 0.01) {
-                let lr = layer.fillR, lg = layer.fillG, lb = layer.fillB, la = layer.fillA;
+                let lr = layer.fillR,
+                    lg = layer.fillG,
+                    lb = layer.fillB,
+                    la = layer.fillA;
 
                 // Blue shading: vary colour based on precipitation intensity + noise
                 if (layer.blueShading) {
@@ -316,10 +378,7 @@ export function renderPrecipFrame(frame: PrecipFrame): PrecipHeatmapResult {
                     const depth = Math.min(1, Math.max(0, (precip - 1.0) / 3.5));
 
                     // Gentle noise for subtle organic variation
-                    const splotch = fbm(
-                        geoOffX + nfx * 2.0 + 100,
-                        geoOffY + nfy * 2.0 + 100
-                    );
+                    const splotch = fbm(geoOffX + nfx * 2.0 + 100, geoOffY + nfy * 2.0 + 100);
 
                     // Base: medium cyan-blue with gradual edge→centre gradient + noise
                     // edgeFade: 0 at threshold, 1 at depth=0.67 (gradual transition)
@@ -327,10 +386,10 @@ export function renderPrecipFrame(frame: PrecipFrame): PrecipHeatmapResult {
                     const noiseVar = splotch * 0.25; // ±25% organic noise for visible variation
 
                     // Light cyan edges → medium blue centres, with noise-driven patches
-                    lr = Math.round(25 + 50 * (1 - edgeFade));                     // 75→25
-                    lg = Math.round(120 + 60 * (1 - edgeFade) + noiseVar * -40);   // 180→120 ± noise
-                    lb = Math.round(225 + 25 * (1 - edgeFade) + noiseVar * -25);   // 250→225 ± noise
-                    la = Math.round(165 + 55 * edgeFade);                           // 165→220
+                    lr = Math.round(25 + 50 * (1 - edgeFade)); // 75→25
+                    lg = Math.round(120 + 60 * (1 - edgeFade) + noiseVar * -40); // 180→120 ± noise
+                    lb = Math.round(225 + 25 * (1 - edgeFade) + noiseVar * -25); // 250→225 ± noise
+                    la = Math.round(165 + 55 * edgeFade); // 165→220
                 }
 
                 const layerA = (la / 255) * maskVal;

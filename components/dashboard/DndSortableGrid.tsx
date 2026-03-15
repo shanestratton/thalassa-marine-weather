@@ -45,7 +45,7 @@ const SortableMetricTile: React.FC<{ id: string; children: React.ReactNode }> = 
 const DndSortableGrid: React.FC<DndSortableGridProps> = ({ items, onReorder, children }) => {
     const sensors = useSensors(
         useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
-        useSensor(TouchSensor, { activationConstraint: { delay: 100, tolerance: 5 } })
+        useSensor(TouchSensor, { activationConstraint: { delay: 100, tolerance: 5 } }),
     );
 
     const handleDragEnd = (event: any) => {
@@ -61,7 +61,7 @@ const DndSortableGrid: React.FC<DndSortableGridProps> = ({ items, onReorder, chi
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={items} strategy={rectSortingStrategy}>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {items.map(id => (
+                    {items.map((id) => (
                         <SortableMetricTile key={id} id={id}>
                             {children(id)}
                         </SortableMetricTile>

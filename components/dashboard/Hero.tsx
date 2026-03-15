@@ -4,7 +4,15 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 
 import { HeroSlide } from './HeroSlide';
 import { HeroSlideSkeleton } from './Skeletons';
-import { UnitPreferences, WeatherMetrics, ForecastDay, VesselProfile, Tide, TidePoint, HourlyForecast } from '../../types';
+import {
+    UnitPreferences,
+    WeatherMetrics,
+    ForecastDay,
+    VesselProfile,
+    Tide,
+    TidePoint,
+    HourlyForecast,
+} from '../../types';
 import { MinutelyRain } from '../../services/weather/api/weatherkit';
 import { TideGUIDetails } from '../../services/weather/api/tides';
 import { useSettings } from '../../context/SettingsContext';
@@ -35,36 +43,35 @@ export const HeroSection = ({
     onHourChange,
     onActiveDataChange,
     isEssentialMode,
-    minutelyRain
+    minutelyRain,
 }: {
-    current: WeatherMetrics,
-    forecasts: ForecastDay[],
-    units: UnitPreferences,
-    generatedAt: string,
-    vessel?: VesselProfile,
-    modelUsed?: string,
-    groundingSource?: string,
-    isLandlocked?: boolean,
-    locationName?: string,
-    tides?: Tide[],
-    tideHourly?: TidePoint[],
-    timeZone?: string,
-    hourly?: HourlyForecast[],
-    className?: string,
-    lat?: number,
-    guiDetails?: TideGUIDetails,
-    coordinates?: { lat: number, lon: number },
-    locationType?: 'coastal' | 'offshore' | 'inland',
-    onTimeSelect?: (time: number | undefined) => void,
-    customTime?: number,
-    utcOffset?: number,
-    onDayChange?: (day: number) => void,
-    onHourChange?: (hour: number) => void,
-    onActiveDataChange?: (data: WeatherMetrics) => void,
-    isEssentialMode?: boolean,
-    minutelyRain?: MinutelyRain[]
+    current: WeatherMetrics;
+    forecasts: ForecastDay[];
+    units: UnitPreferences;
+    generatedAt: string;
+    vessel?: VesselProfile;
+    modelUsed?: string;
+    groundingSource?: string;
+    isLandlocked?: boolean;
+    locationName?: string;
+    tides?: Tide[];
+    tideHourly?: TidePoint[];
+    timeZone?: string;
+    hourly?: HourlyForecast[];
+    className?: string;
+    lat?: number;
+    guiDetails?: TideGUIDetails;
+    coordinates?: { lat: number; lon: number };
+    locationType?: 'coastal' | 'offshore' | 'inland';
+    onTimeSelect?: (time: number | undefined) => void;
+    customTime?: number;
+    utcOffset?: number;
+    onDayChange?: (day: number) => void;
+    onHourChange?: (hour: number) => void;
+    onActiveDataChange?: (data: WeatherMetrics) => void;
+    isEssentialMode?: boolean;
+    minutelyRain?: MinutelyRain[];
 }) => {
-
     const { settings, updateSettings } = useSettings();
     const [activeIndex, setActiveIndex] = useState(0);
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -137,7 +144,7 @@ export const HeroSection = ({
                     if (fDate && fDate === yesterdayISO && fIdx === 0) return false;
                     return true;
                 })
-                .forEach(f => {
+                .forEach((f) => {
                     const targetDate = f.isoDate;
                     let dayHourly: HourlyForecast[] = [];
                     if (targetDate && hourly && Array.isArray(hourly)) {
@@ -163,19 +170,22 @@ export const HeroSection = ({
         return rows;
     }, [current, forecasts, hourly, timeZone]);
 
-    const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-        const y = e.currentTarget.scrollTop;
-        const h = e.currentTarget.clientHeight;
-        if (h > 0) {
-            const idx = Math.round(y / h);
-            if (idx !== activeIndexRef.current) {
-                activeIndexRef.current = idx;
-                setActiveIndex(idx);
-                if (onDayChange) onDayChange(idx);
-                if (onHourChange) onHourChange(0); // Reset to first hour of new day
+    const handleScroll = useCallback(
+        (e: React.UIEvent<HTMLDivElement>) => {
+            const y = e.currentTarget.scrollTop;
+            const h = e.currentTarget.clientHeight;
+            if (h > 0) {
+                const idx = Math.round(y / h);
+                if (idx !== activeIndexRef.current) {
+                    activeIndexRef.current = idx;
+                    setActiveIndex(idx);
+                    if (onDayChange) onDayChange(idx);
+                    if (onHourChange) onHourChange(0); // Reset to first hour of new day
+                }
             }
-        }
-    }, [onDayChange, onHourChange]);
+        },
+        [onDayChange, onHourChange],
+    );
 
     // Keyboard navigation for vertical day carousel
     const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -207,7 +217,7 @@ export const HeroSection = ({
     // completely defeating React.memo on HeroSlide. Now each handler is created once
     // and survives re-renders because callbacks are accessed via refs.
     const timeSelectHandlers = useMemo(() => {
-        return dayRows.map((_, rIdx) => (time: number | undefined) => {
+        return dayRows.map((_, _rIdx) => (time: number | undefined) => {
             // Forward to Dashboard (via ref — always latest)
             onTimeSelectRef.current?.(time);
 
@@ -224,8 +234,9 @@ export const HeroSection = ({
     }, [dayRows.length]);
 
     return (
-        <div className={`w-full h-full relative flex flex-col items-center justify-start overflow-hidden ${className || ''}`}>
-
+        <div
+            className={`w-full h-full relative flex flex-col items-center justify-start overflow-hidden ${className || ''}`}
+        >
             {/* VERTICAL SCROLL SNAP CONTAINER */}
             <div
                 ref={scrollRef}
@@ -270,7 +281,7 @@ export const HeroSection = ({
                                 vessel={vessel}
                                 // CRITICAL FIX: If this slide is active, allow the Dashboard's selected time (from horiz scroll) to override.
                                 // Otherwise, fall back to row defaults (Live for Today, Noon for Future).
-                                customTime={(activeIndex === rIdx && customTime) ? customTime : row.customTime}
+                                customTime={activeIndex === rIdx && customTime ? customTime : row.customTime}
                                 hourly={row.hourly}
                                 fullHourly={hourly}
                                 lat={lat}
@@ -295,7 +306,10 @@ export const HeroSection = ({
             {!isEssentialMode && dayRows.length > 1 && (
                 <div className="absolute right-1 top-1/2 -translate-y-1/2 flex flex-col gap-1.5 z-30 pointer-events-none pr-1">
                     {dayRows.map((_, i) => (
-                        <div key={i} className={`w-1 h-1 md:w-1.5 md:h-1.5 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-sky-400' : 'bg-white/20'} `} />
+                        <div
+                            key={i}
+                            className={`w-1 h-1 md:w-1.5 md:h-1.5 rounded-full transition-all duration-300 ${i === activeIndex ? 'bg-sky-400' : 'bg-white/20'} `}
+                        />
                     ))}
                 </div>
             )}

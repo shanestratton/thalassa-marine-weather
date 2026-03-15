@@ -21,8 +21,25 @@ const LIGHT_GRAY = '#e8eef4';
 
 /** 16-point compass rose: N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW */
 function degreesToCardinal16(deg: number): string {
-    const cardinals = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
-    const index = Math.round(((deg % 360) + 360) % 360 / 22.5) % 16;
+    const cardinals = [
+        'N',
+        'NNE',
+        'NE',
+        'ENE',
+        'E',
+        'ESE',
+        'SE',
+        'SSE',
+        'S',
+        'SSW',
+        'SW',
+        'WSW',
+        'W',
+        'WNW',
+        'NW',
+        'NNW',
+    ];
+    const index = Math.round((((deg % 360) + 360) % 360) / 22.5) % 16;
     return cardinals[index];
 }
 
@@ -36,13 +53,13 @@ function decodeHtmlEntities(text: string): string {
         .replace(/&#34;/g, '"')
         .replace(/&#39;/g, "'")
         .replace(/&nbsp;/g, ' ')
-        .replace(/&"/g, '')           // Broken entity
-        .replace(/&'/g, "'")          // Broken entity
-        .replace(/&#x27;/g, "'")      // Hex apostrophe
-        .replace(/&#x22;/g, '"')      // Hex quote
-        .replace(/\u2693/g, '>>')     // anchor emoji
-        .replace(/[\u2000-\u206F]/g, ' ')  // unicode spaces/control
-        .replace(/\s+/g, ' ')         // collapse multiple spaces
+        .replace(/&"/g, '') // Broken entity
+        .replace(/&'/g, "'") // Broken entity
+        .replace(/&#x27;/g, "'") // Hex apostrophe
+        .replace(/&#x22;/g, '"') // Hex quote
+        .replace(/\u2693/g, '>>') // anchor emoji
+        .replace(/[\u2000-\u206F]/g, ' ') // unicode spaces/control
+        .replace(/\s+/g, ' ') // collapse multiple spaces
         .trim();
 }
 
@@ -53,7 +70,8 @@ function decodeHtmlEntities(text: string): string {
 async function reverseGeocode(lat: number, lon: number): Promise<string> {
     try {
         const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
-        if (!mapboxToken) return `${Math.abs(lat).toFixed(2)}°${lat < 0 ? 'S' : 'N'}, ${Math.abs(lon).toFixed(2)}°${lon < 0 ? 'W' : 'E'}`;
+        if (!mapboxToken)
+            return `${Math.abs(lat).toFixed(2)}°${lat < 0 ? 'S' : 'N'}, ${Math.abs(lon).toFixed(2)}°${lon < 0 ? 'W' : 'E'}`;
 
         const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=neighborhood,locality,place,region&limit=5&access_token=${mapboxToken}`;
         const response = await fetch(url);
@@ -70,7 +88,11 @@ async function reverseGeocode(lat: number, lon: number): Promise<string> {
                 return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
             });
             const feature = sorted[0];
-            return feature.text || feature.place_name?.split(',')[0] || `${Math.abs(lat).toFixed(2)}°${lat < 0 ? 'S' : 'N'}`;
+            return (
+                feature.text ||
+                feature.place_name?.split(',')[0] ||
+                `${Math.abs(lat).toFixed(2)}°${lat < 0 ? 'S' : 'N'}`
+            );
         }
     } catch (err) {
         // Silently ignored — non-critical failure
@@ -86,9 +108,8 @@ async function reverseGeocode(lat: number, lon: number): Promise<string> {
 async function fetchMapboxStaticImage(
     entries: ShipLogEntry[],
     mapWidth: number,
-    mapHeight: number
+    mapHeight: number,
 ): Promise<string | null> {
-
     try {
         // Try multiple ways to get the token
         const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
@@ -99,15 +120,15 @@ async function fetchMapboxStaticImage(
             return null;
         }
 
-        const validEntries = entries.filter(e => e.latitude && e.longitude);
+        const validEntries = entries.filter((e) => e.latitude && e.longitude);
 
         if (validEntries.length < 2) {
             return null;
         }
 
         // Get chronologically sorted points
-        const sorted = [...validEntries].sort((a, b) =>
-            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        const sorted = [...validEntries].sort(
+            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
         );
 
         // Simplify to max 50 points for the track (keeps URL reasonable)
@@ -125,10 +146,9 @@ async function fetchMapboxStaticImage(
         const start = simplified[0];
         const end = simplified[simplified.length - 1];
 
-
         // Build path coordinates string: lon,lat;lon,lat;...
         // Also build coordinates array for polyline encoding
-        const coordsForPolyline = simplified.map(e => [e.latitude, e.longitude]);
+        const coordsForPolyline = simplified.map((e) => [e.latitude, e.longitude]);
 
         // Polyline encode function (Google Polyline Algorithm)
         const encodePolyline = (coords: number[][]): string => {
@@ -150,7 +170,7 @@ async function fetchMapboxStaticImage(
 
                 // Encode each delta
                 for (const delta of [dLat, dLng]) {
-                    let value = delta < 0 ? ~(delta << 1) : (delta << 1);
+                    let value = delta < 0 ? ~(delta << 1) : delta << 1;
                     while (value >= 0x20) {
                         result += String.fromCharCode((0x20 | (value & 0x1f)) + 63);
                         value >>= 5;
@@ -164,8 +184,8 @@ async function fetchMapboxStaticImage(
         const encodedPath = encodePolyline(coordsForPolyline);
 
         // Calculate bounds for zoom calculation
-        const lats = simplified.map(e => e.latitude);
-        const lons = simplified.map(e => e.longitude);
+        const lats = simplified.map((e) => e.latitude);
+        const lons = simplified.map((e) => e.longitude);
         const minLat = Math.min(...lats);
         const maxLat = Math.max(...lats);
         const minLon = Math.min(...lons);
@@ -191,7 +211,6 @@ async function fetchMapboxStaticImage(
         else if (maxSpan > 0.2) zoom = 9;
         else zoom = 10;
 
-
         // Path overlay with polyline encoding: path-{strokeWidth}+{strokeColor}({encoded_polyline})
         // Using navy blue (#1e3a5f) with 3px line for clean look
         const pathOverlay = `path-3+1e3a5f(${encodeURIComponent(encodedPath)})`;
@@ -201,11 +220,11 @@ async function fetchMapboxStaticImage(
         const endPin = `pin-l-b+ef4444(${end.longitude.toFixed(4)},${end.latitude.toFixed(4)})`;
 
         // Waypoint markers (orange, smaller pins)
-        const waypointEntries = sorted.filter(e => e.entryType === 'waypoint' && e !== start && e !== end);
-        const waypointPins = waypointEntries.slice(0, 10).map((wp, i) =>
-            `pin-s-${i + 1}+f59e0b(${wp.longitude!.toFixed(4)},${wp.latitude!.toFixed(4)})`
-        ).join(',');
-
+        const waypointEntries = sorted.filter((e) => e.entryType === 'waypoint' && e !== start && e !== end);
+        const waypointPins = waypointEntries
+            .slice(0, 10)
+            .map((wp, i) => `pin-s-${i + 1}+f59e0b(${wp.longitude!.toFixed(4)},${wp.latitude!.toFixed(4)})`)
+            .join(',');
 
         // Size - higher resolution
         const w = Math.min(1280, Math.round(mapWidth * 3));
@@ -222,7 +241,6 @@ async function fetchMapboxStaticImage(
         // Build URL with explicit center/zoom instead of auto (auto fails with markers)
         const url = `https://api.mapbox.com/styles/v1/${mapStyle}/static/${overlays}/${centerLon.toFixed(4)},${centerLat.toFixed(4)},${zoom}/${w}x${h}@2x?access_token=${mapboxToken}&logo=false&attribution=false`;
 
-
         const response = await fetch(url);
 
         if (!response.ok) {
@@ -236,7 +254,7 @@ async function fetchMapboxStaticImage(
             return null;
         }
 
-        return new Promise(resolve => {
+        return new Promise((resolve) => {
             const reader = new FileReader();
             reader.onloadend = () => {
                 const result = reader.result as string;
@@ -264,7 +282,7 @@ export async function exportToCSV(
         onProgress?: (message: string) => void;
         onSuccess?: () => void;
         onError?: (error: string) => void;
-    }
+    },
 ): Promise<void> {
     try {
         callbacks?.onProgress?.('Preparing CSV export...');
@@ -274,8 +292,8 @@ export async function exportToCSV(
         }
 
         // Sort entries chronologically (oldest first)
-        const sortedEntries = [...entries].sort((a, b) =>
-            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        const sortedEntries = [...entries].sort(
+            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
         );
 
         // GPS-compatible headers: Name, Latitude, Longitude, Description
@@ -285,10 +303,14 @@ export async function exportToCSV(
         const rows = sortedEntries.map((entry, index) => {
             const timestamp = new Date(entry.timestamp);
             const dateStr = timestamp.toLocaleDateString('en-AU', {
-                day: '2-digit', month: 'short', year: 'numeric'
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
             });
             const timeStr = timestamp.toLocaleTimeString('en-AU', {
-                hour: '2-digit', minute: '2-digit', hour12: false
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false,
             });
 
             // Generate name based on entry type
@@ -320,17 +342,12 @@ export async function exportToCSV(
             }
 
             // Quote fields that might contain commas or special characters
-            return [
-                `"${name}"`,
-                lat,
-                lon,
-                `"${description}"`
-            ];
+            return [`"${name}"`, lat, lon, `"${description}"`];
         });
 
         // Build CSV with UTF-8 BOM for Excel compatibility
         const BOM = '\uFEFF'; // UTF-8 Byte Order Mark
-        const csv = BOM + [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
+        const csv = BOM + [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
 
         // Create file blob with UTF-8 encoding
         const csvBlob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
@@ -338,7 +355,9 @@ export async function exportToCSV(
 
         // Generate filename based on voyage dates
         const startDate = sortedEntries[0] ? new Date(sortedEntries[0].timestamp) : new Date();
-        const endDate = sortedEntries[sortedEntries.length - 1] ? new Date(sortedEntries[sortedEntries.length - 1].timestamp) : new Date();
+        const endDate = sortedEntries[sortedEntries.length - 1]
+            ? new Date(sortedEntries[sortedEntries.length - 1].timestamp)
+            : new Date();
         const formatDateShort = (d: Date) => `${d.getDate()}-${d.getMonth() + 1}-${d.getFullYear()}`;
         const shareFilename = `voyage_${formatDateShort(startDate)}_to_${formatDateShort(endDate)}.csv`;
         const shareFile = new File([csvBlob], shareFilename, { type: 'text/csv' });
@@ -350,7 +369,7 @@ export async function exportToCSV(
                 await navigator.share({
                     title: 'Voyage Waypoints',
                     text: `${sortedEntries.length} waypoints from ${formatDateShort(startDate)} to ${formatDateShort(endDate)}`,
-                    files: [shareFile]
+                    files: [shareFile],
                 });
                 callbacks?.onSuccess?.();
             } catch (shareError) {
@@ -387,7 +406,7 @@ export async function exportToPDF(
         onError?: (error: string) => void;
     },
     vesselName?: string,
-    vesselData?: VesselData
+    vesselData?: VesselData,
 ): Promise<void> {
     try {
         callbacks?.onProgress?.('Generating PDF...');
@@ -419,7 +438,7 @@ export async function sharePDF(
         onError?: (error: string) => void;
     },
     vesselName?: string,
-    vesselData?: VesselData
+    vesselData?: VesselData,
 ): Promise<void> {
     try {
         callbacks?.onProgress?.('Generating PDF...');
@@ -429,11 +448,11 @@ export async function sharePDF(
         }
 
         // Get route info for professional filename
-        const sortedForRoute = [...entries].sort((a, b) =>
-            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        const sortedForRoute = [...entries].sort(
+            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
         );
-        const startEntry = sortedForRoute.find(e => e.latitude && e.longitude);
-        const endEntry = [...sortedForRoute].reverse().find(e => e.latitude && e.longitude);
+        const startEntry = sortedForRoute.find((e) => e.latitude && e.longitude);
+        const endEntry = [...sortedForRoute].reverse().find((e) => e.latitude && e.longitude);
 
         let startName = '';
         let endName = '';
@@ -472,7 +491,7 @@ export async function sharePDF(
                 await navigator.share({
                     title: shareTitle,
                     text: startName && endName ? `Voyage from ${startName} to ${endName}` : undefined,
-                    files: [pdfFile]
+                    files: [pdfFile],
                 });
                 callbacks?.onSuccess?.();
             } catch (shareError) {
@@ -499,16 +518,18 @@ export async function sharePDF(
  * Positioned coming in from the bottom-left at an angle
  */
 function drawCompassRoseWatermark(pdf: JsPDFType, pageWidth: number, pageHeight: number): void {
-    const centerX = 35;  // Coming in from left
-    const centerY = pageHeight - 40;  // Near bottom
+    const centerX = 35; // Coming in from left
+    const centerY = pageHeight - 40; // Near bottom
     const radius = 28;
-    const angle = -15 * (Math.PI / 180);  // 15 degrees rotation
+    const angle = -15 * (Math.PI / 180); // 15 degrees rotation
 
     // Set low opacity so watermark appears behind content
-    const gState = new (pdf as unknown as { GState: new (opts: { opacity: number }) => string }).GState({ opacity: 0.15 });
+    const gState = new (pdf as unknown as { GState: new (opts: { opacity: number }) => string }).GState({
+        opacity: 0.15,
+    });
     pdf.setGState(gState);
 
-    pdf.setDrawColor(180, 185, 190);  // Slightly darker since opacity is low
+    pdf.setDrawColor(180, 185, 190); // Slightly darker since opacity is low
     pdf.setLineWidth(0.3);
 
     // Helper to rotate a point around center
@@ -519,7 +540,7 @@ function drawCompassRoseWatermark(pdf: JsPDFType, pageWidth: number, pageHeight:
         const dy = y - centerY;
         return {
             x: centerX + dx * cos - dy * sin,
-            y: centerY + dx * sin + dy * cos
+            y: centerY + dx * sin + dy * cos,
         };
     };
 
@@ -581,7 +602,9 @@ function drawCompassRoseWatermark(pdf: JsPDFType, pageWidth: number, pageHeight:
     pdf.text('W', wPos.x, wPos.y + 2, { align: 'center' });
 
     // Reset opacity to 100% for subsequent drawing
-    const resetState = new (pdf as unknown as { GState: new (opts: { opacity: number }) => string }).GState({ opacity: 1.0 });
+    const resetState = new (pdf as unknown as { GState: new (opts: { opacity: number }) => string }).GState({
+        opacity: 1.0,
+    });
     pdf.setGState(resetState);
 }
 
@@ -606,9 +629,7 @@ function thinEntriesForPDF(entries: ShipLogEntry[]): ShipLogEntry[] {
     if (entries.length <= 30) return entries; // Already small enough
 
     // Sort chronologically
-    const sorted = [...entries].sort((a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-    );
+    const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
     // Calculate overall density (entries per hour)
     const firstTime = new Date(sorted[0].timestamp).getTime();
@@ -620,9 +641,10 @@ function thinEntriesForPDF(entries: ShipLogEntry[]): ShipLogEntry[] {
     if (entriesPerHour <= 6) return entries;
 
     // Determine sampling interval based on density
-    const samplingMs = entriesPerHour > 30
-        ? 2 * 60 * 1000   // >30/hr (5s intervals) → keep one per 2 min
-        : 5 * 60 * 1000;  // 6-30/hr → keep one per 5 min
+    const samplingMs =
+        entriesPerHour > 30
+            ? 2 * 60 * 1000 // >30/hr (5s intervals) → keep one per 2 min
+            : 5 * 60 * 1000; // 6-30/hr → keep one per 5 min
 
     const kept: ShipLogEntry[] = [];
     let lastKeptTime = 0;
@@ -698,12 +720,16 @@ function thinEntriesForPDF(entries: ShipLogEntry[]): ShipLogEntry[] {
 /**
  * Generate the Deck Log PDF using jsPDF
  */
-async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, vesselData?: VesselData): Promise<JsPDFType> {
+async function generateDeckLogPDF(
+    entries: ShipLogEntry[],
+    vesselName?: string,
+    vesselData?: VesselData,
+): Promise<JsPDFType> {
     const { jsPDF } = await import('jspdf');
     const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
-        format: 'a4'
+        format: 'a4',
     });
 
     const pageWidth = 210;
@@ -712,19 +738,21 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
     const contentWidth = pageWidth - margin * 2;
 
     // Sort entries (newest first for display, but we'll reverse for chronological)
-    const sortedEntries = [...entries].sort((a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    const sortedEntries = [...entries].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     );
 
     // Calculate statistics
-    const startTime = sortedEntries.length > 0 ? new Date(sortedEntries[sortedEntries.length - 1].timestamp) : new Date();
+    const startTime =
+        sortedEntries.length > 0 ? new Date(sortedEntries[sortedEntries.length - 1].timestamp) : new Date();
     const endTime = sortedEntries.length > 0 ? new Date(sortedEntries[0].timestamp) : new Date();
-    const totalDistance = sortedEntries.length > 0 ? Math.max(...sortedEntries.map(e => e.cumulativeDistanceNM || 0), 0) : 0;
+    const totalDistance =
+        sortedEntries.length > 0 ? Math.max(...sortedEntries.map((e) => e.cumulativeDistanceNM || 0), 0) : 0;
 
     const durationMs = endTime.getTime() - startTime.getTime();
     const durationHours = Math.round(durationMs / (1000 * 60 * 60));
 
-    const speeds = entries.filter(e => e.speedKts && e.speedKts > 0).map(e => e.speedKts!);
+    const speeds = entries.filter((e) => e.speedKts && e.speedKts > 0).map((e) => e.speedKts!);
     const avgSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0;
 
     // Format dates with times: "05 Feb 2026 (15:43)"
@@ -743,8 +771,8 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
 
     // Get start/end entries for route info
     const chronoEntriesForRoute = [...sortedEntries].reverse();
-    const startRouteEntry = chronoEntriesForRoute.find(e => e.latitude && e.longitude);
-    const endRouteEntry = [...chronoEntriesForRoute].reverse().find(e => e.latitude && e.longitude);
+    const startRouteEntry = chronoEntriesForRoute.find((e) => e.latitude && e.longitude);
+    const endRouteEntry = [...chronoEntriesForRoute].reverse().find((e) => e.latitude && e.longitude);
 
     // Reverse geocode start and end locations
     let startLocationName = '';
@@ -762,7 +790,9 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
     }
 
     // Reverse geocode waypoints (up to 5)
-    const waypointEntriesPreload = chronoEntriesForRoute.filter(e => e.entryType === 'waypoint' && e.latitude && e.longitude);
+    const waypointEntriesPreload = chronoEntriesForRoute.filter(
+        (e) => e.entryType === 'waypoint' && e.latitude && e.longitude,
+    );
     const waypointNames: Map<number, string> = new Map();
 
     for (let i = 0; i < Math.min(5, waypointEntriesPreload.length); i++) {
@@ -784,9 +814,11 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
     const thinnedEntries = thinEntriesForPDF([...sortedEntries].reverse());
     const chronoEntries = thinnedEntries;
 
-    chronoEntries.forEach(entry => {
+    chronoEntries.forEach((entry) => {
         const d = new Date(entry.timestamp);
-        const dateKey = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
+        const dateKey = d
+            .toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+            .toUpperCase();
         if (!entriesByDate.has(dateKey)) {
             entriesByDate.set(dateKey, []);
         }
@@ -811,9 +843,8 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
     // Subtitle with route
     pdf.setFontSize(11);
     pdf.setFont('helvetica', 'normal');
-    const routeText = startLocationName && endLocationName
-        ? `${startLocationName} to ${endLocationName}`
-        : 'Voyage Record';
+    const routeText =
+        startLocationName && endLocationName ? `${startLocationName} to ${endLocationName}` : 'Voyage Record';
     pdf.text(routeText, pageWidth / 2, 40, { align: 'center' });
 
     // Date range
@@ -860,13 +891,16 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
 
     // ===== DEPARTURE WEATHER HEADER =====
     // Add weather conditions at the start of the log for reader context
-    const sortedByTimeForWeather = [...entries].sort((a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    const sortedByTimeForWeather = [...entries].sort(
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
     );
     const departureForHeader = sortedByTimeForWeather[0];
     const waveUnit = vesselData?.units?.waveHeight || 'ft';
 
-    if (departureForHeader && (departureForHeader.windSpeed || departureForHeader.waveHeight || departureForHeader.pressure)) {
+    if (
+        departureForHeader &&
+        (departureForHeader.windSpeed || departureForHeader.waveHeight || departureForHeader.pressure)
+    ) {
         pdf.setFillColor(26, 42, 58); // Navy background
         pdf.roundedRect(margin, y, contentWidth, 18, 2, 2, 'F');
 
@@ -886,7 +920,9 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
         const wxParts: string[] = [];
         if (departureForHeader.windSpeed) {
             const gustStr = departureForHeader.windGust ? ` G${Math.round(departureForHeader.windGust)}` : '';
-            wxParts.push(`Wind: ${departureForHeader.windSpeed}kts${gustStr} ${departureForHeader.windDirection || ''}`);
+            wxParts.push(
+                `Wind: ${departureForHeader.windSpeed}kts${gustStr} ${departureForHeader.windDirection || ''}`,
+            );
         }
         if (departureForHeader.beaufortScale !== undefined) {
             wxParts.push(`Beaufort: F${departureForHeader.beaufortScale}`);
@@ -917,8 +953,11 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
     // Add weather conditions at the end of the log for arrival context
     const arrivalForHeader = sortedByTimeForWeather[sortedByTimeForWeather.length - 1];
 
-    if (arrivalForHeader && arrivalForHeader !== departureForHeader &&
-        (arrivalForHeader.windSpeed || arrivalForHeader.waveHeight || arrivalForHeader.pressure)) {
+    if (
+        arrivalForHeader &&
+        arrivalForHeader !== departureForHeader &&
+        (arrivalForHeader.windSpeed || arrivalForHeader.waveHeight || arrivalForHeader.pressure)
+    ) {
         pdf.setFillColor(26, 42, 58); // Navy background
         pdf.roundedRect(margin, y, contentWidth, 18, 2, 2, 'F');
 
@@ -969,7 +1008,14 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
     const vesselProfile = vesselData?.vessel;
     const vesselUnits = vesselData?.vesselUnits;
 
-    if (vesselProfile && (vesselProfile.length || vesselProfile.beam || vesselProfile.draft || vesselProfile.fuelCapacity || vesselProfile.waterCapacity)) {
+    if (
+        vesselProfile &&
+        (vesselProfile.length ||
+            vesselProfile.beam ||
+            vesselProfile.draft ||
+            vesselProfile.fuelCapacity ||
+            vesselProfile.waterCapacity)
+    ) {
         pdf.setDrawColor(200, 200, 200);
         pdf.setLineWidth(0.3);
         pdf.roundedRect(margin, y, contentWidth, 20, 3, 3, 'S');
@@ -995,19 +1041,19 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
         if (vesselProfile.length) {
             const lengthUnit = vesselUnits?.length || 'ft';
             // Length stored in feet, convert if needed
-            const lengthVal = lengthUnit === 'm' ? (vesselProfile.length * 0.3048) : vesselProfile.length;
+            const lengthVal = lengthUnit === 'm' ? vesselProfile.length * 0.3048 : vesselProfile.length;
             specs.push({ label: 'Length', value: `${lengthVal.toFixed(1)}${lengthUnit}` });
         }
         if (vesselProfile.beam) {
             const beamUnit = vesselUnits?.beam || 'ft';
             // Beam stored in feet, convert to meters if needed
-            const beamVal = beamUnit === 'm' ? (vesselProfile.beam * 0.3048) : vesselProfile.beam;
+            const beamVal = beamUnit === 'm' ? vesselProfile.beam * 0.3048 : vesselProfile.beam;
             specs.push({ label: 'Beam', value: `${beamVal.toFixed(1)}${beamUnit}` });
         }
         if (vesselProfile.draft) {
             const draftUnit = vesselUnits?.draft || 'ft';
             // Draft stored in feet, convert to meters if needed
-            const draftVal = draftUnit === 'm' ? (vesselProfile.draft * 0.3048) : vesselProfile.draft;
+            const draftVal = draftUnit === 'm' ? vesselProfile.draft * 0.3048 : vesselProfile.draft;
             specs.push({ label: 'Draft', value: `${draftVal.toFixed(1)}${draftUnit}` });
         }
         if (vesselProfile.fuelCapacity) {
@@ -1021,7 +1067,7 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
 
         // Render specs evenly across the box
         specs.forEach((spec, idx) => {
-            const xPos = margin + (specColWidth * (idx + 0.5));
+            const xPos = margin + specColWidth * (idx + 0.5);
             pdf.setFont('helvetica', 'bold');
             pdf.text(spec.value, xPos, specY, { align: 'center' });
             pdf.setFont('helvetica', 'normal');
@@ -1056,14 +1102,26 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
     pdf.setFont('helvetica', 'bold');
     pdf.text('Beaufort Wind Scale:', margin + 4, legendY);
     pdf.setFont('helvetica', 'normal');
-    pdf.text('F0-1: Calm  |  F2-3: Light  |  F4-5: Moderate  |  F6-7: Strong  |  F8+: Gale/Storm', margin + 4, legendY + 4);
-    pdf.text('Wind speed in knots: F3=7-10kts, F4=11-16kts, F5=17-21kts, F6=22-27kts, F7=28-33kts', margin + 4, legendY + 8);
+    pdf.text(
+        'F0-1: Calm  |  F2-3: Light  |  F4-5: Moderate  |  F6-7: Strong  |  F8+: Gale/Storm',
+        margin + 4,
+        legendY + 4,
+    );
+    pdf.text(
+        'Wind speed in knots: F3=7-10kts, F4=11-16kts, F5=17-21kts, F6=22-27kts, F7=28-33kts',
+        margin + 4,
+        legendY + 8,
+    );
 
     // Sea State (right half)
     pdf.setFont('helvetica', 'bold');
     pdf.text('Douglas Sea State:', margin + halfWidth + 4, legendY);
     pdf.setFont('helvetica', 'normal');
-    pdf.text('0: Calm (glassy)  |  1-2: Smooth  |  3-4: Slight/Moderate  |  5-6: Rough  |  7+: High/Very High', margin + halfWidth + 4, legendY + 4);
+    pdf.text(
+        '0: Calm (glassy)  |  1-2: Smooth  |  3-4: Slight/Moderate  |  5-6: Rough  |  7+: High/Very High',
+        margin + halfWidth + 4,
+        legendY + 4,
+    );
     // Convert sea state reference heights to user's preferred wave unit
     const legendWaveUnit = vesselData?.units?.waveHeight || 'ft';
     const ss3Lo = convertMetersTo(0.5, legendWaveUnit)?.toFixed(1) ?? '?';
@@ -1071,7 +1129,11 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
     const ss4Hi = convertMetersTo(2.5, legendWaveUnit)?.toFixed(1) ?? '?';
     const ss5Hi = convertMetersTo(4, legendWaveUnit)?.toFixed(1) ?? '?';
     const ss6Hi = convertMetersTo(6, legendWaveUnit)?.toFixed(1) ?? '?';
-    pdf.text(`Wave height: SS3=${ss3Lo}-${ss3Hi}${legendWaveUnit}, SS4=${ss3Hi}-${ss4Hi}${legendWaveUnit}, SS5=${ss4Hi}-${ss5Hi}${legendWaveUnit}, SS6=${ss5Hi}-${ss6Hi}${legendWaveUnit}`, margin + halfWidth + 4, legendY + 8);
+    pdf.text(
+        `Wave height: SS3=${ss3Lo}-${ss3Hi}${legendWaveUnit}, SS4=${ss3Hi}-${ss4Hi}${legendWaveUnit}, SS5=${ss4Hi}-${ss5Hi}${legendWaveUnit}, SS6=${ss5Hi}-${ss6Hi}${legendWaveUnit}`,
+        margin + halfWidth + 4,
+        legendY + 8,
+    );
 
     y += 28;
 
@@ -1081,7 +1143,7 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
         brg: 12,
         cogSog: 22,
         weather: 26,
-        notes: contentWidth - 18 - 40 - 12 - 22 - 26
+        notes: contentWidth - 18 - 40 - 12 - 22 - 26,
     };
 
     // Track which watch headers have been rendered to prevent duplicates in rapid mode
@@ -1168,7 +1230,7 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
 
             const time = new Date(entry.timestamp);
             // Show seconds for rapid GPS entries (not aligned to quarter-hour)
-            const isRapidEntry = time.getSeconds() !== 0 || (time.getMinutes() % 15 !== 0);
+            const isRapidEntry = time.getSeconds() !== 0 || time.getMinutes() % 15 !== 0;
             const timeStr = isRapidEntry
                 ? time.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
                 : time.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
@@ -1198,7 +1260,7 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
                     12: 'Afternoon Watch (1200-1500)',
                     15: 'First Dog Watch (1500-1800)',
                     18: 'Second Dog Watch (1800-2100)',
-                    21: 'First Watch (2100-0000)'
+                    21: 'First Watch (2100-0000)',
                 };
 
                 // Weather summary box
@@ -1385,13 +1447,13 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
     pdf.line(margin + 30, 40, pageWidth - margin - 30, 40);
 
     // Calculate map bounds from entries
-    const validEntries = entries.filter(e => e.latitude && e.longitude);
+    const validEntries = entries.filter((e) => e.latitude && e.longitude);
 
     // Map dimensions
     const mapX = margin;
     const mapY = 55;
     const mapWidth = contentWidth;
-    const mapHeight = 160;  // Larger map area for high-res image
+    const mapHeight = 160; // Larger map area for high-res image
 
     // Fetch high-res Mapbox static image with coastlines
     const mapImageDataUrl = await fetchMapboxStaticImage(entries, mapWidth, mapHeight);
@@ -1414,8 +1476,8 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
         pdf.rect(mapX, mapY, mapWidth, mapHeight, 'F');
 
         if (validEntries.length > 0) {
-            const sorted = [...validEntries].sort((a, b) =>
-                new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+            const sorted = [...validEntries].sort(
+                (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
             );
             const startPt = sorted[0];
             const endPt = sorted[sorted.length - 1];
@@ -1425,13 +1487,25 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
             pdf.text('Voyage Track', mapX + mapWidth / 2, mapY + 20, { align: 'center' });
 
             pdf.setFontSize(10);
-            pdf.text(`Start: ${startPt.latitude?.toFixed(4)}°, ${startPt.longitude?.toFixed(4)}°`, mapX + mapWidth / 2, mapY + 40, { align: 'center' });
-            pdf.text(`End: ${endPt.latitude?.toFixed(4)}°, ${endPt.longitude?.toFixed(4)}°`, mapX + mapWidth / 2, mapY + 55, { align: 'center' });
+            pdf.text(
+                `Start: ${startPt.latitude?.toFixed(4)}°, ${startPt.longitude?.toFixed(4)}°`,
+                mapX + mapWidth / 2,
+                mapY + 40,
+                { align: 'center' },
+            );
+            pdf.text(
+                `End: ${endPt.latitude?.toFixed(4)}°, ${endPt.longitude?.toFixed(4)}°`,
+                mapX + mapWidth / 2,
+                mapY + 55,
+                { align: 'center' },
+            );
             pdf.text(`Entries: ${sorted.length}`, mapX + mapWidth / 2, mapY + 70, { align: 'center' });
 
             pdf.setFontSize(8);
             pdf.setTextColor(100, 100, 100);
-            pdf.text('(High-res map requires Mapbox API)', mapX + mapWidth / 2, mapY + mapHeight - 10, { align: 'center' });
+            pdf.text('(High-res map requires Mapbox API)', mapX + mapWidth / 2, mapY + mapHeight - 10, {
+                align: 'center',
+            });
         }
     }
 
@@ -1476,14 +1550,14 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
     pdf.setTextColor(71, 85, 105);
 
     // Calculate stats from entries
-    const statsEntries = [...validEntries].sort((a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    const statsEntries = [...validEntries].sort(
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
     );
     const statsStart = statsEntries.length > 0 ? new Date(statsEntries[0].timestamp) : null;
     const statsEnd = statsEntries.length > 0 ? new Date(statsEntries[statsEntries.length - 1].timestamp) : null;
-    const totalDist = validEntries.length > 0 ? Math.max(...validEntries.map(e => e.cumulativeDistanceNM || 0)) : 0;
-    const statsSpeeds = validEntries.filter(e => e.speedKts && e.speedKts > 0).map(e => e.speedKts!);
-    const avgSpd = statsSpeeds.length > 0 ? (statsSpeeds.reduce((a, b) => a + b, 0) / statsSpeeds.length) : 0;
+    const totalDist = validEntries.length > 0 ? Math.max(...validEntries.map((e) => e.cumulativeDistanceNM || 0)) : 0;
+    const statsSpeeds = validEntries.filter((e) => e.speedKts && e.speedKts > 0).map((e) => e.speedKts!);
+    const avgSpd = statsSpeeds.length > 0 ? statsSpeeds.reduce((a, b) => a + b, 0) / statsSpeeds.length : 0;
 
     let durationStr = '';
     if (statsStart && statsEnd) {
@@ -1505,12 +1579,12 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
     y += 18;
 
     // Get sorted entries for location info
-    const sortedForInfo = [...validEntries].sort((a, b) =>
-        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    const sortedForInfo = [...validEntries].sort(
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
     );
     const startEntry = sortedForInfo[0];
     const endEntry = sortedForInfo[sortedForInfo.length - 1];
-    const waypointEntriesForInfo = sortedForInfo.filter(e => e.entryType === 'waypoint');
+    const waypointEntriesForInfo = sortedForInfo.filter((e) => e.entryType === 'waypoint');
 
     // Voyage Info Box
     const infoBoxHeight = 28 + (waypointEntriesForInfo.length > 0 ? Math.min(waypointEntriesForInfo.length, 5) * 6 : 0);
@@ -1566,16 +1640,14 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
             const wpName = waypointNames.get(i);
             const wpText = wpName ? `WP${i + 1}: ${wpCoords} (${wpName})` : `WP${i + 1}: ${wpCoords}`;
             pdf.setFillColor(245, 158, 11); // Orange - set inside loop
-            pdf.circle(margin + 8, wpY + (i * 6) - 1, 1.5, 'F');
-            pdf.text(wpText, margin + 38, wpY + (i * 6));
+            pdf.circle(margin + 8, wpY + i * 6 - 1, 1.5, 'F');
+            pdf.text(wpText, margin + 38, wpY + i * 6);
         });
 
         if (waypointEntriesForInfo.length > 5) {
             pdf.text(`... and ${waypointEntriesForInfo.length - 5} more waypoints`, margin + 38, wpY + 30);
         }
     }
-
-
 
     // ===== CERTIFICATION PAGE =====
     pdf.addPage();
@@ -1669,14 +1741,15 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
     pdf.setFontSize(7);
     pdf.setTextColor(100, 110, 120);
     pdf.setFont('helvetica', 'normal');
-    const complianceText = 'This log conforms to IMO Resolution A.916(22) and SOLAS Chapter V standards for ship logbook documentation. ' +
+    const complianceText =
+        'This log conforms to IMO Resolution A.916(22) and SOLAS Chapter V standards for ship logbook documentation. ' +
         'The original log entries are generated from GPS tracking data and may require verification.';
     const complianceLines = pdf.splitTextToSize(complianceText, contentWidth - 10);
     pdf.text(complianceLines, margin + 5, pageHeight - 22);
 
     // ========== R&M (REPAIRS & MAINTENANCE) LOG PAGE ==========
     // Filter entries that are equipment/R&M type
-    const rmEntries = sortedEntries.filter(e => e.eventCategory === 'equipment');
+    const rmEntries = sortedEntries.filter((e) => e.eventCategory === 'equipment');
 
     // Add R&M page (even if empty, to show the section exists)
     pdf.addPage();
@@ -1688,9 +1761,9 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
 
     // R&M page header - Gold bar with title
     pdf.setFillColor(201, 162, 39); // Gold GOLD constant
-    pdf.rect(0, 0, pageWidth, 28, 'F');  // Taller header (was 18)
+    pdf.rect(0, 0, pageWidth, 28, 'F'); // Taller header (was 18)
     pdf.setTextColor(255, 255, 255);
-    pdf.setFontSize(16);  // Slightly larger font
+    pdf.setFontSize(16); // Slightly larger font
     pdf.setFont('helvetica', 'bold');
     pdf.text('REPAIRS & MAINTENANCE LOG', pageWidth / 2, 18, { align: 'center' });
 
@@ -1714,7 +1787,9 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
         pdf.setFontSize(10);
         pdf.setTextColor(100, 110, 120);
         pdf.setFont('helvetica', 'normal');
-        pdf.text('No repairs or maintenance activities logged during this voyage.', pageWidth / 2, rmY + 12, { align: 'center' });
+        pdf.text('No repairs or maintenance activities logged during this voyage.', pageWidth / 2, rmY + 12, {
+            align: 'center',
+        });
     } else {
         // Table header
         pdf.setFillColor(26, 42, 58); // NAVY
@@ -1734,9 +1809,14 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
             const entryDate = new Date(entry.timestamp);
             const dateStr = entryDate.toLocaleDateString('en-AU', { day: '2-digit', month: 'short', year: 'numeric' });
             // Show seconds for rapid GPS entries
-            const isRapidEntry = entryDate.getSeconds() !== 0 || (entryDate.getMinutes() % 15 !== 0);
+            const isRapidEntry = entryDate.getSeconds() !== 0 || entryDate.getMinutes() % 15 !== 0;
             const timeStr = isRapidEntry
-                ? entryDate.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+                ? entryDate.toLocaleTimeString('en-AU', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit',
+                      hour12: false,
+                  })
                 : entryDate.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
 
             // Row background (alternating)

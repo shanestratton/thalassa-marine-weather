@@ -1,4 +1,3 @@
-
 // --- Specific Converters (Testable) ---
 
 export const ktsToMph = (kts: number) => kts * 1.15078;
@@ -11,8 +10,8 @@ export const mToFt = (m: number) => m * 3.28084;
 export const kgToLbs = (kg: number) => kg * 2.20462;
 export const lbsToKg = (lbs: number) => lbs * 0.453592;
 
-export const celsiusToFahrenheit = (c: number) => (c * 9 / 5) + 32;
-export const fahrenheitToCelsius = (f: number) => (f - 32) * 5 / 9;
+export const celsiusToFahrenheit = (c: number) => (c * 9) / 5 + 32;
+export const fahrenheitToCelsius = (f: number) => ((f - 32) * 5) / 9;
 
 // --- Generic "Model to View" Converters ---
 
@@ -52,8 +51,8 @@ export const convertTemp = (val: number | null | undefined, unit: string) => {
 export const convertDistance = (km: number | null | undefined, unit: string) => {
     if (km === undefined || km === null || isNaN(km)) return '--';
     let val = km;
-    if (unit === 'nm') val = km / 1.852;        // km → nautical miles
-    if (unit === 'mi') val = km / 1.60934;      // km → statute miles
+    if (unit === 'nm') val = km / 1.852; // km → nautical miles
+    if (unit === 'mi') val = km / 1.60934; // km → statute miles
     // if unit is 'km', val is already km
 
     // Marine practical cap: visibility >20nm is functionally unlimited
@@ -63,7 +62,7 @@ export const convertDistance = (km: number | null | undefined, unit: string) => 
 
     const result = val.toFixed(1);
     return result === 'NaN' ? '--' : result;
-}
+};
 
 export const convertMetersTo = (meters: number | null | undefined, targetUnit: string) => {
     if (meters === undefined || meters === null) return null;
@@ -75,7 +74,7 @@ export const convertPrecip = (mm: number | null | undefined, tempUnit: string) =
     // Filter noise: StormGlass often returns 0.1-0.2mm for "cloud condensation" or model noise.
     // User requested TRACE for < 0.25mm
     if (mm === undefined || mm === null) return null;
-    if (mm > 0 && mm < 0.25) return "TRACE";
+    if (mm > 0 && mm < 0.25) return 'TRACE';
     if (mm === 0) return null;
 
     if (tempUnit === 'F') {
@@ -84,4 +83,4 @@ export const convertPrecip = (mm: number | null | undefined, tempUnit: string) =
         return `${inches.toFixed(2)}"`;
     }
     return `${Math.round(mm)}`;
-}
+};

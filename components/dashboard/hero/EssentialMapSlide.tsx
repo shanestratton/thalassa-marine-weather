@@ -23,10 +23,24 @@ interface EssentialMapSlideProps {
     units?: UnitPreferences;
 }
 
-type EssentialFrame = { path: string; time: number; type: 'radar' | 'forecast'; forecastSecs?: number; snapshot?: number };
+type EssentialFrame = {
+    path: string;
+    time: number;
+    type: 'radar' | 'forecast';
+    forecastSecs?: number;
+    snapshot?: number;
+};
 
 export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
-    slideIdx, isGolden, isCardDay, coordinates, windSpeed, windDirection, windGust, condition, units,
+    slideIdx,
+    isGolden,
+    isCardDay,
+    coordinates,
+    windSpeed,
+    windDirection,
+    windGust,
+    condition,
+    units,
 }) => {
     const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
     const lon = coordinates?.lon ?? 151.2;
@@ -61,7 +75,9 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
         (async () => {
             try {
                 // 1. RainViewer radar + nowcast
-                const rvResp = await fetch('https://api.rainviewer.com/public/weather-maps.json', { cache: 'no-store' });
+                const rvResp = await fetch('https://api.rainviewer.com/public/weather-maps.json', {
+                    cache: 'no-store',
+                });
                 const data = await rvResp.json();
                 if (cancelled) return;
 
@@ -98,7 +114,9 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                                 }
                             }
                         }
-                    } catch (_) { /* Rainbow.ai optional — use radar only */ }
+                    } catch (_) {
+                        /* Rainbow.ai optional — use radar only */
+                    }
                 }
 
                 if (!cancelled) {
@@ -106,9 +124,13 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                     setNowIdx(ni);
                     setActiveFrame(ni);
                 }
-            } catch (_) { /* silent fail */ }
+            } catch (_) {
+                /* silent fail */
+            }
         })();
-        return () => { cancelled = true; };
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     // Auto-play loop: only runs when user presses play — saves battery
@@ -116,7 +138,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
         if (!isPlaying || radarFrames.length < 2) return;
         const timer = setInterval(() => {
             if (document.hidden) return;
-            setActiveFrame(prev => {
+            setActiveFrame((prev) => {
                 const next = (prev + 1) % radarFrames.length;
                 // Pause when looping back to start
                 if (next === 0) {
@@ -134,12 +156,13 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
         const n = Math.pow(2, zoom);
         const cx = ((lon + 180) / 360) * n;
         const latRad = (lat * Math.PI) / 180;
-        const cy = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
+        const cy = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
         const centerTileX = Math.floor(cx);
         const centerTileY = Math.floor(cy);
         const pxOffsetX = (cx - centerTileX) * tileSize;
         const pxOffsetY = (cy - centerTileY) * tileSize;
-        const containerW = 600, containerH = 400;
+        const containerW = 600,
+            containerH = 400;
         const tiles: { left: number; top: number; tx: number; ty: number; key: string }[] = [];
         for (let dy = -2; dy <= 2; dy++) {
             for (let dx = -2; dx <= 2; dx++) {
@@ -149,7 +172,9 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                 tiles.push({
                     left: containerW / 2 - pxOffsetX + dx * tileSize,
                     top: containerH / 2 - pxOffsetY + dy * tileSize,
-                    tx, ty, key: `${tx}-${ty}`,
+                    tx,
+                    ty,
+                    key: `${tx}-${ty}`,
                 });
             }
         }
@@ -184,19 +209,23 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
     const progress = radarFrames.length > 1 ? activeFrame / (radarFrames.length - 1) : 0;
 
     // Scrubber drag handler
-    const handleScrub = useCallback((clientX: number) => {
-        if (!scrubberRef.current || radarFrames.length < 2) return;
-        const rect = scrubberRef.current.getBoundingClientRect();
-        const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-        const idx = Math.round(pct * (radarFrames.length - 1));
-        setActiveFrame(idx);
-        setIsPlaying(false); // pause on manual scrub
-    }, [radarFrames.length]);
+    const handleScrub = useCallback(
+        (clientX: number) => {
+            if (!scrubberRef.current || radarFrames.length < 2) return;
+            const rect = scrubberRef.current.getBoundingClientRect();
+            const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+            const idx = Math.round(pct * (radarFrames.length - 1));
+            setActiveFrame(idx);
+            setIsPlaying(false); // pause on manual scrub
+        },
+        [radarFrames.length],
+    );
 
     return (
         <div className="relative w-full h-full flex flex-col">
-            <div className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}>
-
+            <div
+                className={`relative flex-1 min-h-0 w-full rounded-2xl overflow-hidden border bg-slate-900/60 ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}
+            >
                 {/* Layer 1: Dark basemap — fades in progressively when loaded */}
                 {staticUrl && (
                     <img
@@ -213,49 +242,58 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                     />
                 )}
 
-
                 {/* Layer 2: Looping rain radar + forecast */}
-                {radarFrames.length > 0 && tileGrid.length > 0 && (() => {
-                    const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-                    return (
-                        <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                            {radarFrames.map((frame, idx) => {
-                                const isForecst = frame.type === 'forecast';
-                                const frameKey = isForecst ? `fc-${frame.forecastSecs}` : frame.path;
-                                return (
-                                    <div
-                                        key={frameKey}
-                                        className="absolute inset-0"
-                                        style={{
-                                            opacity: idx === activeFrame ? 0.65 : 0,
-                                            transition: 'opacity 400ms ease',
-                                        }}
-                                    >
-                                        {/* Preload nearby frames for smooth scrubbing */}
-                                        {(Math.abs(idx - activeFrame) <= 3 || idx === activeFrame) && tileGrid.map(t => {
-                                            const src = isForecst
-                                                ? `${supabaseUrl}/functions/v1/proxy-rainbow?action=tile&snapshot=${frame.snapshot}&forecast=${frame.forecastSecs}&z=${zoom}&x=${t.tx}&y=${t.ty}&color=6`
-                                                : `https://tilecache.rainviewer.com${frame.path}/${tileSize}/${zoom}/${t.tx}/${t.ty}/7/1_1.png`;
-                                            return (
-                                                <img
-                                                    key={`${frameKey}-${t.key}`}
-                                                    src={src}
-                                                    alt=""
-                                                    className="absolute"
-                                                    style={{ left: t.left, top: t.top, width: tileSize, height: tileSize }}
-                                                    loading="lazy"
-                                                    draggable={false}
-                                                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                                                />
-                                            );
-                                        })}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    );
-                })()}
-
+                {radarFrames.length > 0 &&
+                    tileGrid.length > 0 &&
+                    (() => {
+                        const supabaseUrl =
+                            (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+                        return (
+                            <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                                {radarFrames.map((frame, idx) => {
+                                    const isForecst = frame.type === 'forecast';
+                                    const frameKey = isForecst ? `fc-${frame.forecastSecs}` : frame.path;
+                                    return (
+                                        <div
+                                            key={frameKey}
+                                            className="absolute inset-0"
+                                            style={{
+                                                opacity: idx === activeFrame ? 0.65 : 0,
+                                                transition: 'opacity 400ms ease',
+                                            }}
+                                        >
+                                            {/* Preload nearby frames for smooth scrubbing */}
+                                            {(Math.abs(idx - activeFrame) <= 3 || idx === activeFrame) &&
+                                                tileGrid.map((t) => {
+                                                    const src = isForecst
+                                                        ? `${supabaseUrl}/functions/v1/proxy-rainbow?action=tile&snapshot=${frame.snapshot}&forecast=${frame.forecastSecs}&z=${zoom}&x=${t.tx}&y=${t.ty}&color=6`
+                                                        : `https://tilecache.rainviewer.com${frame.path}/${tileSize}/${zoom}/${t.tx}/${t.ty}/7/1_1.png`;
+                                                    return (
+                                                        <img
+                                                            key={`${frameKey}-${t.key}`}
+                                                            src={src}
+                                                            alt=""
+                                                            className="absolute"
+                                                            style={{
+                                                                left: t.left,
+                                                                top: t.top,
+                                                                width: tileSize,
+                                                                height: tileSize,
+                                                            }}
+                                                            loading="lazy"
+                                                            draggable={false}
+                                                            onError={(e) => {
+                                                                (e.target as HTMLImageElement).style.display = 'none';
+                                                            }}
+                                                        />
+                                                    );
+                                                })}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
+                    })()}
 
                 {/* Layer 3: Vignette */}
                 <div
@@ -266,8 +304,14 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                 {/* Layer 4: Location dot */}
                 <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                     <div className="relative">
-                        <div className="w-2 h-2 rounded-full bg-sky-400" style={{ boxShadow: '0 0 8px rgba(56,189,248,0.5)' }} />
-                        <div className="absolute -inset-2 rounded-full border border-sky-400/25 animate-ping" style={{ animationDuration: '3s' }} />
+                        <div
+                            className="w-2 h-2 rounded-full bg-sky-400"
+                            style={{ boxShadow: '0 0 8px rgba(56,189,248,0.5)' }}
+                        />
+                        <div
+                            className="absolute -inset-2 rounded-full border border-sky-400/25 animate-ping"
+                            style={{ animationDuration: '3s' }}
+                        />
                     </div>
                 </div>
 
@@ -294,7 +338,11 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                                         <rect x="14" y="4" width="4" height="16" rx="1" />
                                     </svg>
                                 ) : (
-                                    <svg className="w-3 h-3 text-white/80 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                                    <svg
+                                        className="w-3 h-3 text-white/80 ml-0.5"
+                                        fill="currentColor"
+                                        viewBox="0 0 24 24"
+                                    >
                                         <path d="M8 5v14l11-7z" />
                                     </svg>
                                 )}
@@ -305,7 +353,10 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                                 ref={scrubberRef}
                                 className="flex-1 relative h-7 flex items-center cursor-pointer"
                                 onClick={(e) => handleScrub(e.clientX)}
-                                onTouchMove={(e) => { e.preventDefault(); handleScrub(e.touches[0].clientX); }}
+                                onTouchMove={(e) => {
+                                    e.preventDefault();
+                                    handleScrub(e.touches[0].clientX);
+                                }}
                                 onTouchStart={(e) => handleScrub(e.touches[0].clientX)}
                             >
                                 {/* Track background */}
@@ -315,7 +366,8 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                                         className="absolute inset-y-0 left-0 rounded-full"
                                         style={{
                                             width: `${progress * 100}%`,
-                                            background: 'linear-gradient(90deg, rgba(56,189,248,0.15) 0%, rgba(56,189,248,0.5) 100%)',
+                                            background:
+                                                'linear-gradient(90deg, rgba(56,189,248,0.15) 0%, rgba(56,189,248,0.5) 100%)',
                                             transition: isPlaying ? 'width 400ms ease' : 'width 100ms ease',
                                         }}
                                     />
@@ -341,7 +393,9 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
 
                             {/* Time label */}
                             <div className="shrink-0 min-w-[36px] text-right">
-                                <span className="text-[9px] text-white/40 font-mono font-semibold tabular-nums">{timeLabel}</span>
+                                <span className="text-[9px] text-white/40 font-mono font-semibold tabular-nums">
+                                    {timeLabel}
+                                </span>
                             </div>
                         </div>
                     </div>
@@ -364,7 +418,9 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                     )}
                     {timeLabel && !isLive && radarFrames[activeFrame]?.type !== 'forecast' && (
                         <div className="px-1.5 py-0.5 rounded-md bg-black/40 backdrop-blur-sm border border-white/[0.06]">
-                            <span className="text-[9px] text-white/50 font-mono font-semibold tabular-nums">{timeLabel}</span>
+                            <span className="text-[9px] text-white/50 font-mono font-semibold tabular-nums">
+                                {timeLabel}
+                            </span>
                         </div>
                     )}
                 </div>
@@ -373,14 +429,18 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                 {displaySpeed != null && (
                     <div className="absolute bottom-10 left-2.5 flex items-center gap-1.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm border border-white/[0.06]">
                         {windDirection != null && (
-                            <div className="w-3.5 h-3.5 flex items-center justify-center" style={{ transform: `rotate(${windDirection + 180}deg)` }}>
+                            <div
+                                className="w-3.5 h-3.5 flex items-center justify-center"
+                                style={{ transform: `rotate(${windDirection + 180}deg)` }}
+                            >
                                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                                     <path d="M5 0L3 8h4L5 0z" fill="rgba(56,189,248,0.9)" />
                                 </svg>
                             </div>
                         )}
                         <span className="text-[9px] text-white/70 font-semibold leading-none tracking-wide">
-                            {windLabel} {displaySpeed}<span className="text-white/35 ml-0.5">{speedUnit}</span>
+                            {windLabel} {displaySpeed}
+                            <span className="text-white/35 ml-0.5">{speedUnit}</span>
                         </span>
                     </div>
                 )}

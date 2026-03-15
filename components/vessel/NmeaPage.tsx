@@ -64,13 +64,16 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
             setConnStatus(NmeaListenerService.getStatus());
         }, 1000);
 
-        return () => { unsub(); clearInterval(poll); };
+        return () => {
+            unsub();
+            clearInterval(poll);
+        };
     }, []);
 
     const handleDeviceChange = useCallback((deviceId: string) => {
         setDevice(deviceId);
         localStorage.setItem('nmea_device', deviceId);
-        const preset = DEVICE_PRESETS.find(d => d.id === deviceId);
+        const preset = DEVICE_PRESETS.find((d) => d.id === deviceId);
         if (preset) {
             setPort(preset.port);
             localStorage.setItem('nmea_port', preset.port);
@@ -127,39 +130,50 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
     ];
 
     // Get the live metric for the active gauge (so it updates in real-time)
-    const liveActiveMetric = activeGauge ? state[activeGauge.id as keyof typeof state] as TimestampedMetric : null;
+    const liveActiveMetric = activeGauge ? (state[activeGauge.id as keyof typeof state] as TimestampedMetric) : null;
 
     return (
         <div className="relative h-full bg-slate-950 overflow-hidden">
             <div className="flex flex-col h-full">
-
                 <PageHeader
                     title="NMEA"
                     subtitle="Instrument Data"
                     onBack={onBack}
-                    breadcrumbs={['Ship\'s Office', 'NMEA']}
+                    breadcrumbs={["Ship's Office", 'NMEA']}
                     action={<NmeaStatusDot />}
                 />
 
                 {/* Content — fills viewport */}
-                <div className="flex-1 flex flex-col px-4 min-h-0 overflow-hidden" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}>
-
+                <div
+                    className="flex-1 flex flex-col px-4 min-h-0 overflow-hidden"
+                    style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}
+                >
                     {/* ═══ CONNECTION CARD ═══ */}
-                    <div className={`shrink-0 mb-3 p-4 rounded-2xl border transition-all ${isConnected
-                        ? 'bg-emerald-500/10 border-emerald-500/20'
-                        : 'bg-white/[0.03] border-white/[0.06]'
-                        }`}>
+                    <div
+                        className={`shrink-0 mb-3 p-4 rounded-2xl border transition-all ${
+                            isConnected
+                                ? 'bg-emerald-500/10 border-emerald-500/20'
+                                : 'bg-white/[0.03] border-white/[0.06]'
+                        }`}
+                    >
                         <div className="flex items-center gap-3 mb-3">
-                            <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-emerald-400' :
-                                isConnecting ? 'bg-amber-400 animate-pulse' :
-                                    'bg-gray-500'
-                                }`} />
+                            <div
+                                className={`w-3 h-3 rounded-full ${
+                                    isConnected
+                                        ? 'bg-emerald-400'
+                                        : isConnecting
+                                          ? 'bg-amber-400 animate-pulse'
+                                          : 'bg-gray-500'
+                                }`}
+                            />
                             <h3 className="text-sm font-black text-white">
                                 {isConnected ? 'Connected' : isConnecting ? 'Connecting...' : 'Disconnected'}
                             </h3>
                             {/* Show host:port when connected or connecting */}
                             {(isConnected || isConnecting) && (
-                                <span className="text-xs text-white/40 font-mono ml-auto">{host}:{port}</span>
+                                <span className="text-xs text-white/40 font-mono ml-auto">
+                                    {host}:{port}
+                                </span>
                             )}
                         </div>
 
@@ -170,9 +184,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                                     Reconnecting... attempt {reconnectAttempts}
                                 </p>
                                 {lastError && (
-                                    <p className="text-[11px] text-amber-200/50 mt-0.5 truncate">
-                                        {lastError}
-                                    </p>
+                                    <p className="text-[11px] text-amber-200/50 mt-0.5 truncate">{lastError}</p>
                                 )}
                             </div>
                         )}
@@ -181,25 +193,46 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                             <div className="space-y-3 mb-3">
                                 {/* Device preset selector */}
                                 <div>
-                                    <label className="block text-[11px] font-bold uppercase tracking-widest text-white/40 mb-1.5">Gateway Device</label>
+                                    <label className="block text-[11px] font-bold uppercase tracking-widest text-white/40 mb-1.5">
+                                        Gateway Device
+                                    </label>
                                     <select
                                         value={device}
-                                        onChange={e => handleDeviceChange(e.target.value)}
+                                        onChange={(e) => handleDeviceChange(e.target.value)}
                                         className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white font-medium outline-none appearance-none cursor-pointer transition-colors focus:border-sky-500/40"
-                                        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.4)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' }}
+                                        style={{
+                                            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.4)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+                                            backgroundRepeat: 'no-repeat',
+                                            backgroundPosition: 'right 12px center',
+                                        }}
                                     >
-                                        {DEVICE_PRESETS.map(d => (
-                                            <option key={d.id} value={d.id} className="bg-slate-900 text-white">{d.label}</option>
+                                        {DEVICE_PRESETS.map((d) => (
+                                            <option key={d.id} value={d.id} className="bg-slate-900 text-white">
+                                                {d.label}
+                                            </option>
                                         ))}
                                     </select>
                                 </div>
                                 {/* Host + Port */}
                                 <div className="flex gap-2">
                                     <div className="flex-1">
-                                        <FormField label="Host IP" value={host} onChange={setHost} placeholder="192.168.1.151" mono />
+                                        <FormField
+                                            label="Host IP"
+                                            value={host}
+                                            onChange={setHost}
+                                            placeholder="192.168.1.151"
+                                            mono
+                                        />
                                     </div>
                                     <div className="w-24">
-                                        <FormField label="Port" value={port} onChange={setPort} placeholder={DEVICE_PRESETS.find(d => d.id === device)?.port || '1456'} mono inputMode="numeric" />
+                                        <FormField
+                                            label="Port"
+                                            value={port}
+                                            onChange={setPort}
+                                            placeholder={DEVICE_PRESETS.find((d) => d.id === device)?.port || '1456'}
+                                            mono
+                                            inputMode="numeric"
+                                        />
                                     </div>
                                 </div>
                             </div>
@@ -249,10 +282,12 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                     </div>
 
                     {/* ═══ INSTRUMENT GRID ═══ */}
-                    <h3 className="shrink-0 text-label text-gray-500 font-bold uppercase tracking-widest mb-2">Live Instruments</h3>
+                    <h3 className="shrink-0 text-label text-gray-500 font-bold uppercase tracking-widest mb-2">
+                        Live Instruments
+                    </h3>
                     <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-4">
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                            {instruments.map(inst => (
+                            {instruments.map((inst) => (
                                 <button
                                     key={inst.id}
                                     onClick={() => openGauge(inst.id, inst.metric)}
@@ -261,7 +296,9 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                                 >
                                     <div className="flex items-center gap-2 mb-1">
                                         <span className="text-base">{inst.icon}</span>
-                                        <span className="text-label text-gray-500 font-bold uppercase tracking-widest leading-tight">{inst.label}</span>
+                                        <span className="text-label text-gray-500 font-bold uppercase tracking-widest leading-tight">
+                                            {inst.label}
+                                        </span>
                                     </div>
                                     <NmeaValue
                                         metric={inst.metric}
@@ -271,8 +308,18 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                                     />
                                     {/* Subtle chevron hint */}
                                     <div className="mt-1 flex justify-end opacity-20">
-                                        <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                        <svg
+                                            className="w-3.5 h-3.5 text-gray-400"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={2}
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M8.25 4.5l7.5 7.5-7.5 7.5"
+                                            />
                                         </svg>
                                     </div>
                                 </button>

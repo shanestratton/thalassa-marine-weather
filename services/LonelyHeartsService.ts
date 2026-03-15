@@ -1,10 +1,10 @@
 /**
  * Crew & Dating Service — Split Architecture
- * 
+ *
  * Two separate tables:
  * - sailor_crew_profiles: Find Crew listings (seeking crew / seeking berth)
  * - sailor_dating_profiles: Lonely Hearts dating profiles
- * 
+ *
  * Both use the same likes/matches system (sailor_likes).
  * Uses existing DM infrastructure for matched conversations.
  */
@@ -164,10 +164,21 @@ export interface SailorMatch {
 // ═══════════════════════════════════════════════════
 
 export const SKILL_OPTIONS = [
-    '🍳 Cooking', '🧹 Cleaning', '👁️ Watch Keeping', '🧭 Navigation',
-    '⚙️ Diesel Engines', '⚡ Electrical', '🪡 Sail Repair', '🏥 First Aid',
-    '⛵ Rigging', '🐟 Fishing', '🤿 Diving', '📻 Radio/Comms',
-    '🧰 Maintenance', '🎣 Provisioning', '📐 Passage Planning',
+    '🍳 Cooking',
+    '🧹 Cleaning',
+    '👁️ Watch Keeping',
+    '🧭 Navigation',
+    '⚙️ Diesel Engines',
+    '⚡ Electrical',
+    '🪡 Sail Repair',
+    '🏥 First Aid',
+    '⛵ Rigging',
+    '🐟 Fishing',
+    '🤿 Diving',
+    '📻 Radio/Comms',
+    '🧰 Maintenance',
+    '🎣 Provisioning',
+    '📐 Passage Planning',
 ];
 
 export const GENDER_OPTIONS = ['Male', 'Female'];
@@ -189,14 +200,25 @@ export const LISTING_TYPES: { key: ListingType; label: string; icon: string }[] 
 ];
 
 export const VIBE_OPTIONS = [
-    '🌴 Cruisy', '⚡ Adventurous', '🏁 Competitive Racer',
-    '🏠 Liveaboard Life', '🌅 Sundowner Vibes', '🧭 Explorer',
-    '🎉 Social Butterfly', '🧘 Zen Sailor',
+    '🌴 Cruisy',
+    '⚡ Adventurous',
+    '🏁 Competitive Racer',
+    '🏠 Liveaboard Life',
+    '🌅 Sundowner Vibes',
+    '🧭 Explorer',
+    '🎉 Social Butterfly',
+    '🧘 Zen Sailor',
 ];
 
 export const LANGUAGE_OPTIONS = [
-    '🇬🇧 English', '🇫🇷 French', '🇪🇸 Spanish', '🇮🇹 Italian',
-    '🇩🇪 German', '🇵🇹 Portuguese', '🇬🇷 Greek', '🇭🇷 Croatian',
+    '🇬🇧 English',
+    '🇫🇷 French',
+    '🇪🇸 Spanish',
+    '🇮🇹 Italian',
+    '🇩🇪 German',
+    '🇵🇹 Portuguese',
+    '🇬🇷 Greek',
+    '🇭🇷 Croatian',
 ];
 
 export const SMOKING_OPTIONS = ['Non-Smoker', 'Social Smoker', 'Smoker'];
@@ -206,28 +228,57 @@ export const PET_OPTIONS = ['No Pets', '🐕 Dog Aboard', '🐈 Cat Aboard', '�
 export const SUPER_LIKE_DAILY_LIMIT = 1;
 
 export const INTEREST_OPTIONS = [
-    '⛵ Sailing', '🌍 Exploring New Places', '🐟 Fishing',
-    '🤿 Diving', '🏝️ Island Hopping', '🏄 Surfing',
-    '🤿 Snorkelling', '🎯 Racing', '🪸 Reef Exploring',
-    '🏊 Swimming', '🔧 Boat Work', '🧭 Trekking',
-    '🍽️ Fine Dining', '☕ Coffee', '🍳 Cooking',
-    '🍷 Wine Time', '🍹 Cocktails', '🍺 Craft Beer',
-    '🌮 Street Food', '🎸 Live Music', '🎵 Music',
-    '🎬 Movies / TV', '💃 Dancing', '📺 Binge Watching',
-    '📸 Photography', '🎨 Art', '🎪 Festivals',
-    '📖 Reading', '🎮 Gaming', '🌅 Sunsets',
-    '🥾 Hiking', '🚶 Walking', '🏕️ Camping',
-    '🏔️ Adventure', '🗺️ Travel', '🧗 Rock Climbing',
-    '🪂 Skydiving', '🏍️ Motorbikes', '🚴 Cycling',
-    '🚗 Weekend Getaways', '🧘 Yoga', '🏋️ Gym',
-    '🌿 Nature', '🧘 Meditation', '💻 Coding', '🤖 AI',
-    '🐕 Dogs', '🐈 Cats',
+    '⛵ Sailing',
+    '🌍 Exploring New Places',
+    '🐟 Fishing',
+    '🤿 Diving',
+    '🏝️ Island Hopping',
+    '🏄 Surfing',
+    '🤿 Snorkelling',
+    '🎯 Racing',
+    '🪸 Reef Exploring',
+    '🏊 Swimming',
+    '🔧 Boat Work',
+    '🧭 Trekking',
+    '🍽️ Fine Dining',
+    '☕ Coffee',
+    '🍳 Cooking',
+    '🍷 Wine Time',
+    '🍹 Cocktails',
+    '🍺 Craft Beer',
+    '🌮 Street Food',
+    '🎸 Live Music',
+    '🎵 Music',
+    '🎬 Movies / TV',
+    '💃 Dancing',
+    '📺 Binge Watching',
+    '📸 Photography',
+    '🎨 Art',
+    '🎪 Festivals',
+    '📖 Reading',
+    '🎮 Gaming',
+    '🌅 Sunsets',
+    '🥾 Hiking',
+    '🚶 Walking',
+    '🏕️ Camping',
+    '🏔️ Adventure',
+    '🗺️ Travel',
+    '🧗 Rock Climbing',
+    '🪂 Skydiving',
+    '🏍️ Motorbikes',
+    '🚴 Cycling',
+    '🚗 Weekend Getaways',
+    '🧘 Yoga',
+    '🏋️ Gym',
+    '🌿 Nature',
+    '🧘 Meditation',
+    '💻 Coding',
+    '🤖 AI',
+    '🐕 Dogs',
+    '🐈 Cats',
 ];
 
-export const SEEKING_OPTIONS = [
-    'Crew Mate', 'Partner', 'Adventure Buddy',
-    'Someone to Sail With', 'Open to Anything',
-];
+export const SEEKING_OPTIONS = ['Crew Mate', 'Partner', 'Adventure Buddy', 'Someone to Sail With', 'Open to Anything'];
 
 // --- SEARCH FILTERS ---
 
@@ -254,7 +305,9 @@ class LonelyHeartsServiceClass {
         if (!supabase) return;
         // Try getUser (network call) first, fall back to getSession (local cache)
         try {
-            const { data: { user } } = await supabase.auth.getUser();
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
             if (user?.id) {
                 this.currentUserId = user.id;
                 console.log('[CrewFinder] Auth via getUser:', user.id.slice(0, 8));
@@ -265,7 +318,9 @@ class LonelyHeartsServiceClass {
         }
         // Fallback: getSession uses locally cached token
         try {
-            const { data: { session } } = await supabase.auth.getSession();
+            const {
+                data: { session },
+            } = await supabase.auth.getSession();
             this.currentUserId = session?.user?.id || null;
             console.log('[CrewFinder] Auth via getSession:', this.currentUserId?.slice(0, 8) || 'null');
         } catch (e) {
@@ -282,11 +337,7 @@ class LonelyHeartsServiceClass {
         const targetId = userId || this.currentUserId;
         if (!targetId) return null;
 
-        const { data } = await supabase
-            .from(CREW_PROFILES_TABLE)
-            .select('*')
-            .eq('user_id', targetId)
-            .single();
+        const { data } = await supabase.from(CREW_PROFILES_TABLE).select('*').eq('user_id', targetId).single();
 
         if (data) return this.normalizeCrewProfile(data);
         return null;
@@ -326,16 +377,19 @@ class LonelyHeartsServiceClass {
     }
 
     /** Update crew profile (upsert) */
-    async updateCrewProfile(updates: Partial<Omit<CrewProfile, 'user_id' | 'created_at' | 'updated_at'>>): Promise<boolean> {
+    async updateCrewProfile(
+        updates: Partial<Omit<CrewProfile, 'user_id' | 'created_at' | 'updated_at'>>,
+    ): Promise<boolean> {
         if (!supabase || !this.currentUserId) return false;
 
-        const { error } = await supabase
-            .from(CREW_PROFILES_TABLE)
-            .upsert({
+        const { error } = await supabase.from(CREW_PROFILES_TABLE).upsert(
+            {
                 user_id: this.currentUserId,
                 ...updates,
                 updated_at: new Date().toISOString(),
-            }, { onConflict: 'user_id' });
+            },
+            { onConflict: 'user_id' },
+        );
 
         return !error;
     }
@@ -359,9 +413,7 @@ class LonelyHeartsServiceClass {
                 .upload(path, blob, { contentType: 'image/webp', upsert: true });
             if (uploadError) return { success: false, error: uploadError.message };
 
-            const { data: urlData } = supabase.storage
-                .from('chat-avatars')
-                .getPublicUrl(path);
+            const { data: urlData } = supabase.storage.from('chat-avatars').getPublicUrl(path);
 
             const url = urlData.publicUrl;
             await this.updateCrewProfile({ photo_url: url });
@@ -380,10 +432,7 @@ class LonelyHeartsServiceClass {
     async deleteCrewProfile(): Promise<boolean> {
         if (!supabase || !this.currentUserId) return false;
 
-        const { error } = await supabase
-            .from(CREW_PROFILES_TABLE)
-            .delete()
-            .eq('user_id', this.currentUserId);
+        const { error } = await supabase.from(CREW_PROFILES_TABLE).delete().eq('user_id', this.currentUserId);
 
         return !error;
     }
@@ -396,11 +445,7 @@ class LonelyHeartsServiceClass {
         const targetId = userId || this.currentUserId;
         if (!targetId) return null;
 
-        const { data } = await supabase
-            .from(DATING_PROFILES_TABLE)
-            .select('*')
-            .eq('user_id', targetId)
-            .single();
+        const { data } = await supabase.from(DATING_PROFILES_TABLE).select('*').eq('user_id', targetId).single();
 
         if (data) return this.normalizeDatingProfile(data);
         return null;
@@ -425,22 +470,28 @@ class LonelyHeartsServiceClass {
     }
 
     /** Update dating profile (upsert) */
-    async updateDatingProfile(updates: Partial<Omit<DatingProfile, 'user_id' | 'created_at' | 'updated_at'>>): Promise<boolean> {
+    async updateDatingProfile(
+        updates: Partial<Omit<DatingProfile, 'user_id' | 'created_at' | 'updated_at'>>,
+    ): Promise<boolean> {
         if (!supabase || !this.currentUserId) return false;
 
-        const { error } = await supabase
-            .from(DATING_PROFILES_TABLE)
-            .upsert({
+        const { error } = await supabase.from(DATING_PROFILES_TABLE).upsert(
+            {
                 user_id: this.currentUserId,
                 ...updates,
                 updated_at: new Date().toISOString(),
-            }, { onConflict: 'user_id' });
+            },
+            { onConflict: 'user_id' },
+        );
 
         return !error;
     }
 
     /** Upload a dating photo at a given position (0-5) */
-    async uploadDatingPhoto(file: File, position: number = 0): Promise<{ success: boolean; url?: string; error?: string }> {
+    async uploadDatingPhoto(
+        file: File,
+        position: number = 0,
+    ): Promise<{ success: boolean; url?: string; error?: string }> {
         if (!supabase || !this.currentUserId) return { success: false, error: 'Not authenticated' };
         if (position < 0 || position > 5) return { success: false, error: 'Invalid photo position (0-5)' };
 
@@ -459,9 +510,7 @@ class LonelyHeartsServiceClass {
                 .upload(path, blob, { contentType: 'image/webp', upsert: true });
             if (uploadError) return { success: false, error: uploadError.message };
 
-            const { data: urlData } = supabase.storage
-                .from('chat-avatars')
-                .getPublicUrl(path);
+            const { data: urlData } = supabase.storage.from('chat-avatars').getPublicUrl(path);
             const url = urlData.publicUrl;
 
             // Update photos array in dating profile
@@ -512,10 +561,7 @@ class LonelyHeartsServiceClass {
 
         // 2. Fetch crew profiles for these users
         const userIds = chatProfiles.map((p: any) => p.user_id);
-        let query = supabase
-            .from(CREW_PROFILES_TABLE)
-            .select('*')
-            .in('user_id', userIds);
+        let query = supabase.from(CREW_PROFILES_TABLE).select('*').in('user_id', userIds);
 
         if (filters.listing_type) {
             query = query.eq('listing_type', filters.listing_type);
@@ -545,16 +591,40 @@ class LonelyHeartsServiceClass {
 
             // Client-side filters
             if (filters.skills && filters.skills.length > 0) {
-                const hasMatch = filters.skills.some(s => (card.skills || []).includes(s));
+                const hasMatch = filters.skills.some((s) => (card.skills || []).includes(s));
                 if (!hasMatch) continue;
             }
             if (filters.experience && card.sailing_experience !== filters.experience) continue;
-            if (filters.region && card.sailing_region && !card.sailing_region.toLowerCase().includes(filters.region.toLowerCase())) continue;
+            if (
+                filters.region &&
+                card.sailing_region &&
+                !card.sailing_region.toLowerCase().includes(filters.region.toLowerCase())
+            )
+                continue;
             if (filters.gender && card.gender !== filters.gender) continue;
-            if (filters.age_ranges && filters.age_ranges.length > 0 && !filters.age_ranges.includes(card.age_range || '')) continue;
-            if (filters.location_country && (!card.location_country || !card.location_country.toLowerCase().includes(filters.location_country.toLowerCase()))) continue;
-            if (filters.location_state && (!card.location_state || !card.location_state.toLowerCase().includes(filters.location_state.toLowerCase()))) continue;
-            if (filters.location_city && (!card.location_city || !card.location_city.toLowerCase().includes(filters.location_city.toLowerCase()))) continue;
+            if (
+                filters.age_ranges &&
+                filters.age_ranges.length > 0 &&
+                !filters.age_ranges.includes(card.age_range || '')
+            )
+                continue;
+            if (
+                filters.location_country &&
+                (!card.location_country ||
+                    !card.location_country.toLowerCase().includes(filters.location_country.toLowerCase()))
+            )
+                continue;
+            if (
+                filters.location_state &&
+                (!card.location_state ||
+                    !card.location_state.toLowerCase().includes(filters.location_state.toLowerCase()))
+            )
+                continue;
+            if (
+                filters.location_city &&
+                (!card.location_city || !card.location_city.toLowerCase().includes(filters.location_city.toLowerCase()))
+            )
+                continue;
 
             cards.push(card);
         }
@@ -586,11 +656,16 @@ class LonelyHeartsServiceClass {
             for (const cp of crewOnlyProfiles) {
                 const card = this.buildCrewCard(null, cp);
                 if (filters.skills && filters.skills.length > 0) {
-                    if (!filters.skills.some(s => (card.skills || []).includes(s))) continue;
+                    if (!filters.skills.some((s) => (card.skills || []).includes(s))) continue;
                 }
                 if (filters.experience && card.sailing_experience !== filters.experience) continue;
                 if (filters.gender && card.gender !== filters.gender) continue;
-                if (filters.age_ranges && filters.age_ranges.length > 0 && !filters.age_ranges.includes(card.age_range || '')) continue;
+                if (
+                    filters.age_ranges &&
+                    filters.age_ranges.length > 0 &&
+                    !filters.age_ranges.includes(card.age_range || '')
+                )
+                    continue;
                 cards.push(card);
             }
         }
@@ -611,7 +686,8 @@ class LonelyHeartsServiceClass {
             display_name: chat.display_name || cp.first_name || 'Anonymous Sailor',
             avatar_url: chat.avatar_url || cp.photo_url || null,
             vessel_name: chat.vessel_name || null,
-            home_port: chat.home_port || (cp.location_city ? `${cp.location_city}, ${cp.location_country || ''}` : null),
+            home_port:
+                chat.home_port || (cp.location_city ? `${cp.location_city}, ${cp.location_country || ''}` : null),
             listing_type: cp.listing_type || null,
             first_name: cp.first_name || null,
             photo_url: cp.photo_url || null,
@@ -656,10 +732,7 @@ class LonelyHeartsServiceClass {
         if (!chatProfiles || chatProfiles.length === 0) return [];
 
         const userIds = chatProfiles.map((p: any) => p.user_id);
-        const { data: datingProfiles } = await supabase
-            .from(DATING_PROFILES_TABLE)
-            .select('*')
-            .in('user_id', userIds);
+        const { data: datingProfiles } = await supabase.from(DATING_PROFILES_TABLE).select('*').in('user_id', userIds);
 
         const datingMap = new Map<string, SupabaseRow>();
         if (datingProfiles) {
@@ -704,13 +777,14 @@ class LonelyHeartsServiceClass {
     async recordLike(targetId: string, isLike: boolean): Promise<{ matched: boolean }> {
         if (!supabase || !this.currentUserId) return { matched: false };
 
-        const { error } = await supabase
-            .from(LIKES_TABLE)
-            .upsert({
+        const { error } = await supabase.from(LIKES_TABLE).upsert(
+            {
                 liker_id: this.currentUserId,
                 liked_id: targetId,
                 is_like: isLike,
-            }, { onConflict: 'liker_id,liked_id' });
+            },
+            { onConflict: 'liker_id,liked_id' },
+        );
 
         if (error) return { matched: false };
 
@@ -790,29 +864,31 @@ class LonelyHeartsServiceClass {
             for (const cp of crewProfiles) crewMap.set(cp.user_id, cp);
         }
 
-        return profiles.map((p: any) => {
-            const dp = datingMap.get(p.user_id);
-            const cp = crewMap.get(p.user_id);
-            return {
-                user_id: p.user_id,
-                display_name: p.display_name || 'Anonymous Sailor',
-                dating_first_name: dp?.first_name || dp?.dating_first_name || null,
-                dating_photos: dp?.photos || dp?.dating_photos || [],
-                avatar_url: p.avatar_url,
-                vessel_name: p.vessel_name,
-                home_port: p.home_port,
-                interests: cp?.interests || [],
-                vibe: cp?.vibe || [],
-                languages: cp?.languages || [],
-                smoking: cp?.smoking || null,
-                drinking: cp?.drinking || null,
-                pets: cp?.pets || null,
-                sailing_experience: cp?.sailing_experience || null,
-                matched_at: matchDates.get(p.user_id) || '',
-            };
-        }).sort((a: SailorMatch, b: SailorMatch) =>
-            new Date(b.matched_at).getTime() - new Date(a.matched_at).getTime()
-        );
+        return profiles
+            .map((p: any) => {
+                const dp = datingMap.get(p.user_id);
+                const cp = crewMap.get(p.user_id);
+                return {
+                    user_id: p.user_id,
+                    display_name: p.display_name || 'Anonymous Sailor',
+                    dating_first_name: dp?.first_name || dp?.dating_first_name || null,
+                    dating_photos: dp?.photos || dp?.dating_photos || [],
+                    avatar_url: p.avatar_url,
+                    vessel_name: p.vessel_name,
+                    home_port: p.home_port,
+                    interests: cp?.interests || [],
+                    vibe: cp?.vibe || [],
+                    languages: cp?.languages || [],
+                    smoking: cp?.smoking || null,
+                    drinking: cp?.drinking || null,
+                    pets: cp?.pets || null,
+                    sailing_experience: cp?.sailing_experience || null,
+                    matched_at: matchDates.get(p.user_id) || '',
+                };
+            })
+            .sort(
+                (a: SailorMatch, b: SailorMatch) => new Date(b.matched_at).getTime() - new Date(a.matched_at).getTime(),
+            );
     }
 
     /** Count of unviewed matches (for badge) */
@@ -846,24 +922,19 @@ class LonelyHeartsServiceClass {
     /** Get IDs of users this person has blocked */
     async getBlockedUserIds(): Promise<string[]> {
         if (!supabase || !this.currentUserId) return [];
-        const { data } = await supabase
-            .from(BLOCKS_TABLE)
-            .select('blocked_id')
-            .eq('blocker_id', this.currentUserId);
+        const { data } = await supabase.from(BLOCKS_TABLE).select('blocked_id').eq('blocker_id', this.currentUserId);
         return data?.map((d: any) => d.blocked_id) || [];
     }
 
     /** Report a user */
     async reportUser(targetId: string, reason: string): Promise<boolean> {
         if (!supabase || !this.currentUserId) return false;
-        const { error } = await supabase
-            .from(REPORTS_TABLE)
-            .insert({
-                reporter_id: this.currentUserId,
-                reported_id: targetId,
-                reason,
-                created_at: new Date().toISOString(),
-            });
+        const { error } = await supabase.from(REPORTS_TABLE).insert({
+            reporter_id: this.currentUserId,
+            reported_id: targetId,
+            reason,
+            created_at: new Date().toISOString(),
+        });
         return !error;
     }
 

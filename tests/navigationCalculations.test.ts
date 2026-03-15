@@ -13,7 +13,7 @@ import {
     toDegrees,
     calculateSpeed,
     isValidLatitude,
-    isValidLongitude
+    isValidLongitude,
 } from '../utils/navigationCalculations';
 
 describe('Navigation Calculations', () => {
@@ -98,7 +98,7 @@ describe('Navigation Calculations', () => {
         });
 
         it('should format northern hemisphere correctly', () => {
-            const dms = formatDMS(40.7128, -74.0060);
+            const dms = formatDMS(40.7128, -74.006);
             expect(dms).toContain('N');
             expect(dms).toContain('W');
         });

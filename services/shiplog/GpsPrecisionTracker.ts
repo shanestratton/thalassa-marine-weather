@@ -73,9 +73,7 @@ class GpsPrecisionTrackerClass {
         this.lastFeedTime = now;
 
         // Purge stale samples (older than 30s)
-        this.samples = this.samples.filter(
-            s => (now - s.timestamp) < GpsPrecisionTrackerClass.SAMPLE_MAX_AGE_MS
-        );
+        this.samples = this.samples.filter((s) => now - s.timestamp < GpsPrecisionTrackerClass.SAMPLE_MAX_AGE_MS);
 
         // Push to rolling window
         this.samples.push({ accuracy: accuracyMeters, timestamp: now });
@@ -94,11 +92,12 @@ class GpsPrecisionTrackerClass {
             if (detected === this.pendingQuality) {
                 this.confirmationCount++;
                 // Use lower threshold to ENTER precision, higher to LEAVE
-                const threshold = (detected === 'precision')
-                    ? HYSTERESIS_ENTER   // Easy to detect
-                    : (this.currentQuality === 'precision')
-                        ? HYSTERESIS_LEAVE  // Sticky — don't drop easily
-                        : HYSTERESIS_ENTER; // Other transitions are fast
+                const threshold =
+                    detected === 'precision'
+                        ? HYSTERESIS_ENTER // Easy to detect
+                        : this.currentQuality === 'precision'
+                          ? HYSTERESIS_LEAVE // Sticky — don't drop easily
+                          : HYSTERESIS_ENTER; // Other transitions are fast
                 if (this.confirmationCount >= threshold) {
                     this.currentQuality = detected;
                     this.pendingQuality = null;
@@ -197,8 +196,12 @@ class GpsPrecisionTrackerClass {
     }
 
     private notifyListeners(avgAccuracy: number): void {
-        this.listeners.forEach(cb => {
-            try { cb(this.currentQuality, avgAccuracy); } catch (e) { console.warn('[GpsPrecisionTracker] isolated:', e); }
+        this.listeners.forEach((cb) => {
+            try {
+                cb(this.currentQuality, avgAccuracy);
+            } catch (e) {
+                console.warn('[GpsPrecisionTracker] isolated:', e);
+            }
         });
     }
 }

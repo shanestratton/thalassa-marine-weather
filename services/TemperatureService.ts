@@ -1,4 +1,3 @@
-
 /**
  * CALCULATE AUSTRALIAN APPARENT TEMPERATURE (BOM Standard)
  * @param tempC - Air Temperature (Celsius)
@@ -19,7 +18,7 @@ export const calculateFeelsLike = (tempC: number, humidity: number, windKts: num
 
     // 3. The Australian Formula
     // AT = Ta + 0.33×e − 0.70×ws − 4.00
-    let apparentTemp = tempC + (0.33 * e) - (0.70 * windMs) - 4.00;
+    let apparentTemp = tempC + 0.33 * e - 0.7 * windMs - 4.0;
 
     // 4. SANITY CHECK (The "Mad Woman" Clamp)
     // Prevents the number from crashing if a gust hits 35kts.

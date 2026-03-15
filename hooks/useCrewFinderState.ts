@@ -7,13 +7,7 @@
  */
 
 import { useReducer } from 'react';
-import {
-    CrewCard,
-    SailorMatch,
-    CrewProfile,
-    CrewSearchFilters,
-    ListingType,
-} from '../services/LonelyHeartsService';
+import { CrewCard, SailorMatch, CrewProfile, CrewSearchFilters, ListingType } from '../services/LonelyHeartsService';
 
 // ── State shape ──────────────────────────────────────────────────
 
@@ -179,8 +173,7 @@ export type CrewFinderAction =
     | { type: 'SWIPE_ANIMATE'; payload: { direction: 'left' | 'right' } }
     | { type: 'SWIPE_COMPLETE'; payload: { newIndex: number } }
     | { type: 'GO_TO_START' }
-    | { type: 'REMOVE_LISTING'; payload: string }  // userId
-    ;
+    | { type: 'REMOVE_LISTING'; payload: string }; // userId
 
 // ── Initial state ────────────────────────────────────────────────
 
@@ -255,69 +248,132 @@ const initialState: CrewFinderState = {
 function crewFinderReducer(state: CrewFinderState, action: CrewFinderAction): CrewFinderState {
     switch (action.type) {
         // ── Simple setters (1:1 with old useState) ──
-        case 'SET_VIEW': return { ...state, view: action.payload };
-        case 'SET_LOADING': return { ...state, loading: action.payload };
-        case 'SET_LISTINGS': return { ...state, listings: action.payload };
-        case 'SET_FILTERS': return { ...state, filters: action.payload };
-        case 'SET_FILTER_LISTING_TYPE': return { ...state, filterListingType: action.payload };
-        case 'SET_FILTER_GENDER': return { ...state, filterGender: action.payload };
-        case 'SET_FILTER_AGE_RANGES': return { ...state, filterAgeRanges: action.payload };
-        case 'SET_FILTER_SKILLS': return { ...state, filterSkills: action.payload };
-        case 'SET_FILTER_EXPERIENCE': return { ...state, filterExperience: action.payload };
-        case 'SET_FILTER_REGION': return { ...state, filterRegion: action.payload };
-        case 'SET_FILTER_LOCATION_COUNTRY': return { ...state, filterLocationCountry: action.payload };
-        case 'SET_FILTER_LOCATION_STATE': return { ...state, filterLocationState: action.payload };
-        case 'SET_FILTER_LOCATION_CITY': return { ...state, filterLocationCity: action.payload };
-        case 'SET_SHOW_FILTERS': return { ...state, showFilters: action.payload };
-        case 'SET_SELECTED_CARD': return { ...state, selectedCard: action.payload };
-        case 'SET_MATCHES': return { ...state, matches: action.payload };
-        case 'SET_HAS_SEARCHED': return { ...state, hasSearched: action.payload };
-        case 'SET_BLOCKED_USER_IDS': return { ...state, blockedUserIds: action.payload };
-        case 'SET_SHOW_REPORT_MODAL': return { ...state, showReportModal: action.payload };
-        case 'SET_REPORT_REASON': return { ...state, reportReason: action.payload };
-        case 'SET_SHOW_ACTION_MENU': return { ...state, showActionMenu: action.payload };
-        case 'SET_SHOW_SUPER_LIKE_MODAL': return { ...state, showSuperLikeModal: action.payload };
-        case 'SET_SUPER_LIKE_MESSAGE': return { ...state, superLikeMessage: action.payload };
-        case 'SET_SUPER_LIKE_USED': return { ...state, superLikeUsed: action.payload };
-        case 'SET_PROFILE': return { ...state, profile: action.payload };
-        case 'SET_EDIT_LISTING_TYPE': return { ...state, editListingType: action.payload };
-        case 'SET_EDIT_FIRST_NAME': return { ...state, editFirstName: action.payload };
-        case 'SET_EDIT_GENDER': return { ...state, editGender: action.payload };
-        case 'SET_EDIT_AGE': return { ...state, editAge: action.payload };
-        case 'SET_EDIT_HAS_PARTNER': return { ...state, editHasPartner: action.payload };
-        case 'SET_EDIT_PARTNER_DETAILS': return { ...state, editPartnerDetails: action.payload };
-        case 'SET_EDIT_SKILLS': return { ...state, editSkills: action.payload };
-        case 'SET_EDIT_EXPERIENCE': return { ...state, editExperience: action.payload };
-        case 'SET_EDIT_REGION': return { ...state, editRegion: action.payload };
-        case 'SET_EDIT_AVAIL_FROM': return { ...state, editAvailFrom: action.payload };
-        case 'SET_EDIT_AVAIL_TO': return { ...state, editAvailTo: action.payload };
-        case 'SET_EDIT_BIO': return { ...state, editBio: action.payload };
-        case 'SET_EDIT_VIBE': return { ...state, editVibe: action.payload };
-        case 'SET_EDIT_LANGUAGES': return { ...state, editLanguages: action.payload };
-        case 'SET_EDIT_SMOKING': return { ...state, editSmoking: action.payload };
-        case 'SET_EDIT_DRINKING': return { ...state, editDrinking: action.payload };
-        case 'SET_EDIT_PETS': return { ...state, editPets: action.payload };
-        case 'SET_EDIT_INTERESTS': return { ...state, editInterests: action.payload };
-        case 'SET_EDIT_LOCATION_CITY': return { ...state, editLocationCity: action.payload };
-        case 'SET_EDIT_LOCATION_STATE': return { ...state, editLocationState: action.payload };
-        case 'SET_EDIT_LOCATION_COUNTRY': return { ...state, editLocationCountry: action.payload };
-        case 'SET_SAVING': return { ...state, saving: action.payload };
-        case 'SET_SAVED': return { ...state, saved: action.payload };
-        case 'SET_EDIT_PHOTOS': return { ...state, editPhotos: action.payload };
-        case 'SET_UPLOADING_PHOTO_IDX': return { ...state, uploadingPhotoIdx: action.payload };
-        case 'SET_PHOTO_ERROR': return { ...state, photoError: action.payload };
-        case 'SET_PENDING_PHOTO_IDX': return { ...state, pendingPhotoIdx: action.payload };
-        case 'SET_SHOW_DELETE_CONFIRM': return { ...state, showDeleteConfirm: action.payload };
-        case 'SET_DELETING': return { ...state, deleting: action.payload };
-        case 'SET_SHOW_PREVIEW': return { ...state, showPreview: action.payload };
-        case 'SET_KB_HEIGHT': return { ...state, kbHeight: action.payload };
-        case 'SET_CURRENT_CARD_INDEX': return { ...state, currentCardIndex: action.payload };
-        case 'SET_CARD_PHOTO_INDEX': return { ...state, cardPhotoIndex: action.payload };
-        case 'SET_SWIPE_X': return { ...state, swipeX: action.payload };
-        case 'SET_SWIPE_DIRECTION': return { ...state, swipeDirection: action.payload };
-        case 'SET_IS_ANIMATING': return { ...state, isAnimating: action.payload };
-        case 'SET_LIKED_USERS': return { ...state, likedUsers: action.payload };
-        case 'SET_MESSAGED_USERS': return { ...state, messagedUsers: action.payload };
+        case 'SET_VIEW':
+            return { ...state, view: action.payload };
+        case 'SET_LOADING':
+            return { ...state, loading: action.payload };
+        case 'SET_LISTINGS':
+            return { ...state, listings: action.payload };
+        case 'SET_FILTERS':
+            return { ...state, filters: action.payload };
+        case 'SET_FILTER_LISTING_TYPE':
+            return { ...state, filterListingType: action.payload };
+        case 'SET_FILTER_GENDER':
+            return { ...state, filterGender: action.payload };
+        case 'SET_FILTER_AGE_RANGES':
+            return { ...state, filterAgeRanges: action.payload };
+        case 'SET_FILTER_SKILLS':
+            return { ...state, filterSkills: action.payload };
+        case 'SET_FILTER_EXPERIENCE':
+            return { ...state, filterExperience: action.payload };
+        case 'SET_FILTER_REGION':
+            return { ...state, filterRegion: action.payload };
+        case 'SET_FILTER_LOCATION_COUNTRY':
+            return { ...state, filterLocationCountry: action.payload };
+        case 'SET_FILTER_LOCATION_STATE':
+            return { ...state, filterLocationState: action.payload };
+        case 'SET_FILTER_LOCATION_CITY':
+            return { ...state, filterLocationCity: action.payload };
+        case 'SET_SHOW_FILTERS':
+            return { ...state, showFilters: action.payload };
+        case 'SET_SELECTED_CARD':
+            return { ...state, selectedCard: action.payload };
+        case 'SET_MATCHES':
+            return { ...state, matches: action.payload };
+        case 'SET_HAS_SEARCHED':
+            return { ...state, hasSearched: action.payload };
+        case 'SET_BLOCKED_USER_IDS':
+            return { ...state, blockedUserIds: action.payload };
+        case 'SET_SHOW_REPORT_MODAL':
+            return { ...state, showReportModal: action.payload };
+        case 'SET_REPORT_REASON':
+            return { ...state, reportReason: action.payload };
+        case 'SET_SHOW_ACTION_MENU':
+            return { ...state, showActionMenu: action.payload };
+        case 'SET_SHOW_SUPER_LIKE_MODAL':
+            return { ...state, showSuperLikeModal: action.payload };
+        case 'SET_SUPER_LIKE_MESSAGE':
+            return { ...state, superLikeMessage: action.payload };
+        case 'SET_SUPER_LIKE_USED':
+            return { ...state, superLikeUsed: action.payload };
+        case 'SET_PROFILE':
+            return { ...state, profile: action.payload };
+        case 'SET_EDIT_LISTING_TYPE':
+            return { ...state, editListingType: action.payload };
+        case 'SET_EDIT_FIRST_NAME':
+            return { ...state, editFirstName: action.payload };
+        case 'SET_EDIT_GENDER':
+            return { ...state, editGender: action.payload };
+        case 'SET_EDIT_AGE':
+            return { ...state, editAge: action.payload };
+        case 'SET_EDIT_HAS_PARTNER':
+            return { ...state, editHasPartner: action.payload };
+        case 'SET_EDIT_PARTNER_DETAILS':
+            return { ...state, editPartnerDetails: action.payload };
+        case 'SET_EDIT_SKILLS':
+            return { ...state, editSkills: action.payload };
+        case 'SET_EDIT_EXPERIENCE':
+            return { ...state, editExperience: action.payload };
+        case 'SET_EDIT_REGION':
+            return { ...state, editRegion: action.payload };
+        case 'SET_EDIT_AVAIL_FROM':
+            return { ...state, editAvailFrom: action.payload };
+        case 'SET_EDIT_AVAIL_TO':
+            return { ...state, editAvailTo: action.payload };
+        case 'SET_EDIT_BIO':
+            return { ...state, editBio: action.payload };
+        case 'SET_EDIT_VIBE':
+            return { ...state, editVibe: action.payload };
+        case 'SET_EDIT_LANGUAGES':
+            return { ...state, editLanguages: action.payload };
+        case 'SET_EDIT_SMOKING':
+            return { ...state, editSmoking: action.payload };
+        case 'SET_EDIT_DRINKING':
+            return { ...state, editDrinking: action.payload };
+        case 'SET_EDIT_PETS':
+            return { ...state, editPets: action.payload };
+        case 'SET_EDIT_INTERESTS':
+            return { ...state, editInterests: action.payload };
+        case 'SET_EDIT_LOCATION_CITY':
+            return { ...state, editLocationCity: action.payload };
+        case 'SET_EDIT_LOCATION_STATE':
+            return { ...state, editLocationState: action.payload };
+        case 'SET_EDIT_LOCATION_COUNTRY':
+            return { ...state, editLocationCountry: action.payload };
+        case 'SET_SAVING':
+            return { ...state, saving: action.payload };
+        case 'SET_SAVED':
+            return { ...state, saved: action.payload };
+        case 'SET_EDIT_PHOTOS':
+            return { ...state, editPhotos: action.payload };
+        case 'SET_UPLOADING_PHOTO_IDX':
+            return { ...state, uploadingPhotoIdx: action.payload };
+        case 'SET_PHOTO_ERROR':
+            return { ...state, photoError: action.payload };
+        case 'SET_PENDING_PHOTO_IDX':
+            return { ...state, pendingPhotoIdx: action.payload };
+        case 'SET_SHOW_DELETE_CONFIRM':
+            return { ...state, showDeleteConfirm: action.payload };
+        case 'SET_DELETING':
+            return { ...state, deleting: action.payload };
+        case 'SET_SHOW_PREVIEW':
+            return { ...state, showPreview: action.payload };
+        case 'SET_KB_HEIGHT':
+            return { ...state, kbHeight: action.payload };
+        case 'SET_CURRENT_CARD_INDEX':
+            return { ...state, currentCardIndex: action.payload };
+        case 'SET_CARD_PHOTO_INDEX':
+            return { ...state, cardPhotoIndex: action.payload };
+        case 'SET_SWIPE_X':
+            return { ...state, swipeX: action.payload };
+        case 'SET_SWIPE_DIRECTION':
+            return { ...state, swipeDirection: action.payload };
+        case 'SET_IS_ANIMATING':
+            return { ...state, isAnimating: action.payload };
+        case 'SET_LIKED_USERS':
+            return { ...state, likedUsers: action.payload };
+        case 'SET_MESSAGED_USERS':
+            return { ...state, messagedUsers: action.payload };
 
         // ── Batch actions (perf: N re-renders → 1) ──
 
@@ -396,7 +452,11 @@ function crewFinderReducer(state: CrewFinderState, action: CrewFinderAction): Cr
                 editLocationCity: action.payload.location_city || '',
                 editLocationState: action.payload.location_state || '',
                 editLocationCountry: action.payload.location_country || '',
-                editPhotos: action.payload.photos?.length ? action.payload.photos : action.payload.photo_url ? [action.payload.photo_url] : [],
+                editPhotos: action.payload.photos?.length
+                    ? action.payload.photos
+                    : action.payload.photo_url
+                      ? [action.payload.photo_url]
+                      : [],
             };
 
         case 'SWIPE_ANIMATE':
@@ -416,7 +476,7 @@ function crewFinderReducer(state: CrewFinderState, action: CrewFinderAction): Cr
             return { ...state, currentCardIndex: 0, cardPhotoIndex: 0, swipeDirection: null, swipeX: 0 };
 
         case 'REMOVE_LISTING':
-            return { ...state, listings: state.listings.filter(l => l.user_id !== action.payload) };
+            return { ...state, listings: state.listings.filter((l) => l.user_id !== action.payload) };
 
         default:
             return state;
@@ -433,11 +493,15 @@ export function useCrewFinderState() {
         try {
             const saved = localStorage.getItem('crew_liked_users');
             if (saved) likedUsers = new Set(JSON.parse(saved));
-        } catch { /* empty */ }
+        } catch {
+            /* empty */
+        }
         try {
             const saved = localStorage.getItem('crew_messaged_users');
             if (saved) messagedUsers = new Set(JSON.parse(saved));
-        } catch { /* empty */ }
+        } catch {
+            /* empty */
+        }
         return { ...init, likedUsers, messagedUsers };
     });
 

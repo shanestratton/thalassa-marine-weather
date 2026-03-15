@@ -1,6 +1,6 @@
 /**
  * MarketplaceService — Thalassa Gear Exchange
- * 
+ *
  * Full CRUD for marketplace listings with:
  * - Supabase Realtime for live feed updates
  * - PostGIS RPC for geo-filtered search (within X nm)
@@ -22,22 +22,39 @@ const MAX_IMAGE_PX = 1200;
 
 // --- TYPES ---
 
-export type ListingCategory = 'Boats' | 'Outboards' | 'Electronics' | 'Sails' | 'Rigging' | 'Hardware' | 'Safety' | 'Misc';
+export type ListingCategory =
+    | 'Boats'
+    | 'Outboards'
+    | 'Electronics'
+    | 'Sails'
+    | 'Rigging'
+    | 'Hardware'
+    | 'Safety'
+    | 'Misc';
 export type ListingCondition = 'New' | 'Like New' | 'Used - Good' | 'Used - Fair' | 'Needs Repair';
 export type ListingStatus = 'available' | 'pending' | 'sold';
 
-export const LISTING_CATEGORIES: ListingCategory[] = ['Boats', 'Electronics', 'Hardware', 'Misc', 'Outboards', 'Rigging', 'Safety', 'Sails'];
+export const LISTING_CATEGORIES: ListingCategory[] = [
+    'Boats',
+    'Electronics',
+    'Hardware',
+    'Misc',
+    'Outboards',
+    'Rigging',
+    'Safety',
+    'Sails',
+];
 export const LISTING_CONDITIONS: ListingCondition[] = ['New', 'Like New', 'Used - Good', 'Used - Fair', 'Needs Repair'];
 
 export const CATEGORY_ICONS: Record<ListingCategory, string> = {
-    'Boats': '⛵',
-    'Outboards': '🚤',
-    'Electronics': '📡',
-    'Sails': '🪂',
-    'Rigging': '🔗',
-    'Hardware': '🔩',
-    'Safety': '🛱',
-    'Misc': '📦',
+    Boats: '⛵',
+    Outboards: '🚤',
+    Electronics: '📡',
+    Sails: '🪂',
+    Rigging: '🔗',
+    Hardware: '🔩',
+    Safety: '🛱',
+    Misc: '📦',
 };
 
 // ── Boat-specific types ──
@@ -46,38 +63,68 @@ export type HullMaterial = 'Fibreglass' | 'Aluminium' | 'Steel' | 'Timber' | 'Ca
 export type EngineType = 'Inboard' | 'Outboard' | 'Sail Only' | 'Jet';
 export type FuelType = 'Diesel' | 'Petrol' | 'Electric' | 'Hybrid';
 
-export const HULL_MATERIALS: HullMaterial[] = ['Fibreglass', 'Aluminium', 'Steel', 'Timber', 'Carbon', 'Ferro', 'Other'];
+export const HULL_MATERIALS: HullMaterial[] = [
+    'Fibreglass',
+    'Aluminium',
+    'Steel',
+    'Timber',
+    'Carbon',
+    'Ferro',
+    'Other',
+];
 export const ENGINE_TYPES: EngineType[] = ['Inboard', 'Outboard', 'Sail Only', 'Jet'];
 export const FUEL_TYPES: FuelType[] = ['Diesel', 'Petrol', 'Electric', 'Hybrid'];
 
 export const BOAT_FEATURES = [
-    'Autopilot', 'Watermaker', 'Solar Panels', 'Wind Generator', 'Davits',
-    'Tender', 'Bow Thruster', 'Air Conditioning', 'Generator', 'Inverter',
-    'Radar', 'AIS', 'Chartplotter', 'Windlass', 'Bimini', 'Dodger',
-    'Dinghy', 'Liferaft', 'EPIRB', 'Spinnaker', 'Furler', 'Lazy Jacks',
-    'Shore Power', 'Holding Tank', 'Watermaker', 'SSB Radio', 'Satellite Phone',
+    'Autopilot',
+    'Watermaker',
+    'Solar Panels',
+    'Wind Generator',
+    'Davits',
+    'Tender',
+    'Bow Thruster',
+    'Air Conditioning',
+    'Generator',
+    'Inverter',
+    'Radar',
+    'AIS',
+    'Chartplotter',
+    'Windlass',
+    'Bimini',
+    'Dodger',
+    'Dinghy',
+    'Liferaft',
+    'EPIRB',
+    'Spinnaker',
+    'Furler',
+    'Lazy Jacks',
+    'Shore Power',
+    'Holding Tank',
+    'Watermaker',
+    'SSB Radio',
+    'Satellite Phone',
 ] as const;
 
 export interface BoatDetails {
-    make?: string;           // e.g. "Beneteau"
-    model?: string;          // e.g. "Oceanis 40.1"
-    year?: number;           // e.g. 2019
-    loa_ft?: number;         // Length overall in feet
-    beam_ft?: number;        // Beam in feet
-    draft_ft?: number;       // Draft in feet
+    make?: string; // e.g. "Beneteau"
+    model?: string; // e.g. "Oceanis 40.1"
+    year?: number; // e.g. 2019
+    loa_ft?: number; // Length overall in feet
+    beam_ft?: number; // Beam in feet
+    draft_ft?: number; // Draft in feet
     hull_material?: HullMaterial;
     engine_type?: EngineType;
-    engine_make?: string;    // e.g. "Yanmar"
-    engine_hp?: number;      // Horsepower
-    engine_hours?: number;   // Hours on engine
+    engine_make?: string; // e.g. "Yanmar"
+    engine_hp?: number; // Horsepower
+    engine_hours?: number; // Hours on engine
     fuel_type?: FuelType;
     berths?: number;
     cabins?: number;
     heads?: number;
-    rego_state?: string;     // Registration state
-    rego_number?: string;    // Registration number
-    surveyed?: boolean;      // Recently surveyed?
-    features?: string[];     // Tag chips: Autopilot, Watermaker, etc.
+    rego_state?: string; // Registration state
+    rego_number?: string; // Registration number
+    surveyed?: boolean; // Recently surveyed?
+    features?: string[]; // Tag chips: Autopilot, Watermaker, etc.
     price_reduced?: boolean; // Price has been reduced
     original_price?: number; // Original price before reduction
 }
@@ -130,7 +177,9 @@ class MarketplaceServiceClass {
      */
     async initialize(): Promise<void> {
         if (!supabase) return;
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         this.userId = user?.id || null;
     }
 
@@ -144,11 +193,7 @@ class MarketplaceServiceClass {
      * Get paginated listings, optionally filtered by category.
      * Returns listings enriched with seller profile data.
      */
-    async getListings(
-        category?: ListingCategory | null,
-        limit = 30,
-        offset = 0
-    ): Promise<MarketplaceListing[]> {
+    async getListings(category?: ListingCategory | null, limit = 30, offset = 0): Promise<MarketplaceListing[]> {
         if (!supabase) return [];
 
         let query = supabase
@@ -189,7 +234,7 @@ class MarketplaceServiceClass {
         lat: number,
         lon: number,
         radiusNm = 50,
-        category?: ListingCategory | null
+        category?: ListingCategory | null,
     ): Promise<MarketplaceListing[]> {
         if (!supabase) return [];
 
@@ -212,11 +257,7 @@ class MarketplaceServiceClass {
     async getListing(id: string): Promise<MarketplaceListing | null> {
         if (!supabase) return null;
 
-        const { data } = await supabase
-            .from(LISTINGS_TABLE)
-            .select('*')
-            .eq('id', id)
-            .single();
+        const { data } = await supabase.from(LISTINGS_TABLE).select('*').eq('id', id).single();
 
         if (!data) return null;
 
@@ -259,9 +300,10 @@ class MarketplaceServiceClass {
         }
 
         // Build PostGIS point if coordinates provided
-        const locationValue = (input.latitude != null && input.longitude != null)
-            ? `SRID=4326;POINT(${input.longitude} ${input.latitude})`
-            : null;
+        const locationValue =
+            input.latitude != null && input.longitude != null
+                ? `SRID=4326;POINT(${input.longitude} ${input.latitude})`
+                : null;
 
         const { data, error } = await supabase
             .from(LISTINGS_TABLE)
@@ -296,14 +338,16 @@ class MarketplaceServiceClass {
      */
     async updateListing(
         id: string,
-        updates: Partial<Pick<MarketplaceListing, 'title' | 'description' | 'price' | 'currency' | 'category' | 'condition' | 'status' | 'location_name'>>
+        updates: Partial<
+            Pick<
+                MarketplaceListing,
+                'title' | 'description' | 'price' | 'currency' | 'category' | 'condition' | 'status' | 'location_name'
+            >
+        >,
     ): Promise<boolean> {
         if (!supabase) return false;
 
-        const { error } = await supabase
-            .from(LISTINGS_TABLE)
-            .update(updates)
-            .eq('id', id);
+        const { error } = await supabase.from(LISTINGS_TABLE).update(updates).eq('id', id);
 
         return !error;
     }
@@ -326,10 +370,7 @@ class MarketplaceServiceClass {
     async deleteListing(id: string): Promise<boolean> {
         if (!supabase) return false;
 
-        const { error } = await supabase
-            .from(LISTINGS_TABLE)
-            .delete()
-            .eq('id', id);
+        const { error } = await supabase.from(LISTINGS_TABLE).delete().eq('id', id);
 
         return !error;
     }
@@ -347,21 +388,17 @@ class MarketplaceServiceClass {
             const compressed = await compressImage(file);
             const fileName = `${this.userId}/listing-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jpg`;
 
-            const { error: uploadError } = await supabase.storage
-                .from(IMAGES_BUCKET)
-                .upload(fileName, compressed, {
-                    contentType: 'image/jpeg',
-                    upsert: false,
-                });
+            const { error: uploadError } = await supabase.storage.from(IMAGES_BUCKET).upload(fileName, compressed, {
+                contentType: 'image/jpeg',
+                upsert: false,
+            });
 
             if (uploadError) {
                 console.error('[Marketplace] Image upload failed:', uploadError.message);
                 return null;
             }
 
-            const { data: urlData } = supabase.storage
-                .from(IMAGES_BUCKET)
-                .getPublicUrl(fileName);
+            const { data: urlData } = supabase.storage.from(IMAGES_BUCKET).getPublicUrl(fileName);
 
             return urlData?.publicUrl || null;
         } catch (e) {
@@ -377,7 +414,7 @@ class MarketplaceServiceClass {
      * Returns an unsubscribe function.
      */
     subscribeToFeed(onListing: (listing: MarketplaceListing) => void): () => void {
-        if (!supabase) return () => { };
+        if (!supabase) return () => {};
 
         // Clean up existing subscription
         this.unsubscribeFeed();
@@ -396,7 +433,7 @@ class MarketplaceServiceClass {
                         const enriched = await this.enrichWithProfiles([payload.new]);
                         if (enriched[0]) onListing(enriched[0]);
                     }
-                }
+                },
             )
             .subscribe();
 
@@ -421,10 +458,13 @@ class MarketplaceServiceClass {
     private async enrichWithProfiles(rows: any[]): Promise<MarketplaceListing[]> {
         if (!supabase || rows.length === 0) return [];
 
-        const sellerIds = [...new Set(rows.map(r => r.seller_id).filter(Boolean))];
+        const sellerIds = [...new Set(rows.map((r) => r.seller_id).filter(Boolean))];
 
         // Batch fetch seller profiles
-        const profileMap = new Map<string, { display_name: string; avatar_url: string | null; vessel_name: string | null }>();
+        const profileMap = new Map<
+            string,
+            { display_name: string; avatar_url: string | null; vessel_name: string | null }
+        >();
 
         if (sellerIds.length > 0) {
             const { data: profiles } = await supabase
@@ -443,7 +483,7 @@ class MarketplaceServiceClass {
             }
         }
 
-        return rows.map(r => ({
+        return rows.map((r) => ({
             id: r.id,
             seller_id: r.seller_id,
             title: r.title,

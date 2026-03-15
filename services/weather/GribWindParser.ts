@@ -64,10 +64,17 @@ export function parseWindBin(buffer: ArrayBuffer): WindGrid {
     for (let c = 0; c < width; c++) lons.push(west + c * lonStep);
 
     return {
-        u, v, speed,
-        width, height,
-        lats, lons,
-        north, south, west, east,
+        u,
+        v,
+        speed,
+        width,
+        height,
+        lats,
+        lons,
+        north,
+        south,
+        west,
+        east,
         totalHours,
     };
 }

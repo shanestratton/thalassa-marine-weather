@@ -31,8 +31,8 @@ export interface CachedPosition {
     altitude: number | null;
     heading: number | null;
     speed: number;
-    timestamp: number;       // epoch-ms
-    receivedAt: number;      // epoch-ms — when WE received it (for staleness checks)
+    timestamp: number; // epoch-ms
+    receivedAt: number; // epoch-ms — when WE received it (for staleness checks)
 }
 
 export type LocationCallback = (pos: CachedPosition) => void;
@@ -49,7 +49,7 @@ const TRANSISTOR_LICENSE_KEY = import.meta.env.VITE_TRANSISTOR_LICENSE_KEY || ''
 class BgGeoManagerClass {
     private ready = false;
     private readyPromise: Promise<void> | null = null; // Prevent duplicate ready() calls
-    private startCount = 0;                            // Ref-count for start/stop balancing
+    private startCount = 0; // Ref-count for start/stop balancing
 
     // Cached position from the continuous onLocation stream
     private _lastPosition: CachedPosition | null = null;
@@ -101,7 +101,11 @@ class BgGeoManagerClass {
     async requestStop(): Promise<void> {
         this.startCount = Math.max(0, this.startCount - 1);
         if (this.startCount === 0) {
-            try { await BackgroundGeolocation.stop(); } catch (e) { console.warn('[BgGeo] may not be running:', e); }
+            try {
+                await BackgroundGeolocation.stop();
+            } catch (e) {
+                console.warn('[BgGeo] may not be running:', e);
+            }
         }
     }
 
@@ -110,7 +114,11 @@ class BgGeoManagerClass {
      */
     async forceStop(): Promise<void> {
         this.startCount = 0;
-        try { await BackgroundGeolocation.stop(); } catch (e) { console.warn('[BgGeo] ok:', e); }
+        try {
+            await BackgroundGeolocation.stop();
+        } catch (e) {
+            console.warn('[BgGeo] ok:', e);
+        }
     }
 
     // ---- SUBSCRIBE HELPERS ----
@@ -179,7 +187,11 @@ class BgGeoManagerClass {
     }
 
     async removeGeofence(id: string): Promise<void> {
-        try { await BackgroundGeolocation.removeGeofence(id); } catch (e) { console.warn('[BgGeo] may not exist:', e); }
+        try {
+            await BackgroundGeolocation.removeGeofence(id);
+        } catch (e) {
+            console.warn('[BgGeo] may not exist:', e);
+        }
     }
 
     // ---- INTERNAL ----
@@ -189,19 +201,19 @@ class BgGeoManagerClass {
             await BackgroundGeolocation.ready({
                 // Geolocation — high accuracy for marine navigation
                 desiredAccuracy: BackgroundGeolocation.DESIRED_ACCURACY_HIGH,
-                distanceFilter: 1,               // 1m — capture fine-grained positions for track buffer (RDP handles dedup)
-                locationUpdateInterval: 3000,     // 3s preferred (Android)
+                distanceFilter: 1, // 1m — capture fine-grained positions for track buffer (RDP handles dedup)
+                locationUpdateInterval: 3000, // 3s preferred (Android)
                 fastestLocationUpdateInterval: 1000,
 
                 // Activity recognition
-                stopTimeout: 0,                   // NEVER auto-stop — vessel may be anchored
-                isMoving: true,                   // Start in moving mode for immediate GPS
+                stopTimeout: 0, // NEVER auto-stop — vessel may be anchored
+                isMoving: true, // Start in moving mode for immediate GPS
 
                 // Background behavior — the premium features
-                stopOnTerminate: false,           // Keep tracking if app is killed
-                startOnBoot: false,               // Don't auto-start on device reboot
-                preventSuspend: true,             // iOS: prevent app suspension
-                heartbeatInterval: 60,            // Heartbeat every 60s when stationary
+                stopOnTerminate: false, // Keep tracking if app is killed
+                startOnBoot: false, // Don't auto-start on device reboot
+                preventSuspend: true, // iOS: prevent app suspension
+                heartbeatInterval: 60, // Heartbeat every 60s when stationary
 
                 // Geofencing
                 geofenceProximityRadius: 5000,
@@ -235,7 +247,7 @@ class BgGeoManagerClass {
 
     private _wireSubscriptions(): void {
         // Cleanup any previous (shouldn't exist, but defensive)
-        this.coreSubscriptions.forEach(s => s.remove());
+        this.coreSubscriptions.forEach((s) => s.remove());
         this.coreSubscriptions = [];
 
         // Location updates → cache + fan-out
@@ -243,21 +255,29 @@ class BgGeoManagerClass {
             (location) => {
                 const cached = this._locationToCache(location);
                 this._lastPosition = cached;
-                this.locationListeners.forEach(cb => {
-                    try { cb(cached); } catch (e) { console.warn('[BgGeo] listener error:', e); }
+                this.locationListeners.forEach((cb) => {
+                    try {
+                        cb(cached);
+                    } catch (e) {
+                        console.warn('[BgGeo] listener error:', e);
+                    }
                 });
             },
             (error) => {
                 // Location error — log but don't crash
                 log.warn('Location error:', error);
-            }
+            },
         );
         this.coreSubscriptions.push(locSub);
 
         // Geofence events → fan-out
         const geoSub = BackgroundGeolocation.onGeofence((event) => {
-            this.geofenceListeners.forEach(cb => {
-                try { cb(event); } catch (e) { console.warn('[BgGeo] listener error:', e); }
+            this.geofenceListeners.forEach((cb) => {
+                try {
+                    cb(event);
+                } catch (e) {
+                    console.warn('[BgGeo] listener error:', e);
+                }
             });
         });
         this.coreSubscriptions.push(geoSub);
@@ -269,16 +289,24 @@ class BgGeoManagerClass {
                 const cached = this._locationToCache(event.location);
                 this._lastPosition = cached;
             }
-            this.heartbeatListeners.forEach(cb => {
-                try { cb(event); } catch (e) { console.warn('[BgGeo] listener error:', e); }
+            this.heartbeatListeners.forEach((cb) => {
+                try {
+                    cb(event);
+                } catch (e) {
+                    console.warn('[BgGeo] listener error:', e);
+                }
             });
         });
         this.coreSubscriptions.push(hbSub);
 
         // Activity change → fan-out (moving ↔ stationary transitions)
         const actSub = BackgroundGeolocation.onActivityChange((event) => {
-            this.activityListeners.forEach(cb => {
-                try { cb(event); } catch (e) { console.warn('[BgGeo] listener error:', e); }
+            this.activityListeners.forEach((cb) => {
+                try {
+                    cb(event);
+                } catch (e) {
+                    console.warn('[BgGeo] listener error:', e);
+                }
             });
         });
         this.coreSubscriptions.push(actSub);

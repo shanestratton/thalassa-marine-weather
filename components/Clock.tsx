@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 
 interface ClockProps {
@@ -14,7 +13,9 @@ export const Clock: React.FC<ClockProps> = ({ timeZone, utcOffset, className, fo
 
     useEffect(() => {
         // Sync to the second
-        const timer = setInterval(() => { if (!document.hidden) setTime(new Date()); }, 1000);
+        const timer = setInterval(() => {
+            if (!document.hidden) setTime(new Date());
+        }, 1000);
         return () => clearInterval(timer);
     }, []);
 
@@ -29,7 +30,7 @@ export const Clock: React.FC<ClockProps> = ({ timeZone, utcOffset, className, fo
             const nowUTC = time.getTime();
             const nowOffset = time.getTimezoneOffset() * 60000; // Local offset in ms
             const utcTime = nowUTC + nowOffset; // Pure UTC
-            targetDate = new Date(utcTime + (utcOffset * 3600 * 1000));
+            targetDate = new Date(utcTime + utcOffset * 3600 * 1000);
             timeZoneOption = 'UTC'; // We shifted the time manually, so treat as UTC for formatting
         }
 
@@ -52,13 +53,13 @@ export const Clock: React.FC<ClockProps> = ({ timeZone, utcOffset, className, fo
                 ...options,
                 hour: 'numeric',
                 minute: '2-digit',
-                hour12: false
+                hour12: false,
             });
             const dateStr = targetDate.toLocaleDateString('en-US', {
                 ...options,
                 weekday: 'long',
                 month: 'long',
-                day: 'numeric'
+                day: 'numeric',
             });
             return `${timeStr} • ${dateStr}`;
         }
@@ -68,7 +69,7 @@ export const Clock: React.FC<ClockProps> = ({ timeZone, utcOffset, className, fo
             ...options,
             hour: 'numeric',
             minute: '2-digit',
-            hour12: false
+            hour12: false,
         });
     };
 

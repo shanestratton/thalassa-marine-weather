@@ -15,23 +15,18 @@ interface CurrentConditionsCardProps {
  * Single row of 5 key metrics — condition is already shown in the header card above,
  * so this card just provides complementary at-a-glance data.
  */
-export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = React.memo(({
-    data,
-    units,
-}) => {
+export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = React.memo(({ data, units }) => {
     const windRotation = data.windDegree ? data.windDegree : 0;
 
-    const windSpeed = data.windSpeed !== null && data.windSpeed !== undefined
-        ? Math.round(convertSpeed(data.windSpeed, units.speed) ?? 0)
-        : '--';
+    const windSpeed =
+        data.windSpeed !== null && data.windSpeed !== undefined
+            ? Math.round(convertSpeed(data.windSpeed, units.speed) ?? 0)
+            : '--';
     const windDir = data.windDirection || '--';
-    const rainChance = data.precipitation !== null && data.precipitation !== undefined
-        ? `${Math.round(data.precipitation)}%`
-        : '--';
+    const rainChance =
+        data.precipitation !== null && data.precipitation !== undefined ? `${Math.round(data.precipitation)}%` : '--';
     const uvIndex = data.uvIndex !== undefined ? Math.round(data.uvIndex) : '--';
-    const humidity = data.humidity !== null && data.humidity !== undefined
-        ? `${Math.round(data.humidity)}%`
-        : '--';
+    const humidity = data.humidity !== null && data.humidity !== undefined ? `${Math.round(data.humidity)}%` : '--';
     const visibility = (() => {
         if (data.visibility === null || data.visibility === undefined) return '--';
         const converted = convertDistance(data.visibility, units.visibility || 'nm');

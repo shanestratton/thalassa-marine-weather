@@ -1,6 +1,6 @@
 /**
  * Lightweight Logger Utility
- * 
+ *
  * Provides tagged, severity-aware logging for all services.
  * - Development: logs to console with module tags
  * - Production: console is stripped by esbuild (vite.config.ts drop: ['console'])
@@ -17,7 +17,7 @@ interface Logger {
 
 /**
  * Create a tagged logger for a specific module.
- * 
+ *
  * Usage:
  *   const log = createLogger('ShipLog');
  *   log.info('Tracking started', { voyageId });
