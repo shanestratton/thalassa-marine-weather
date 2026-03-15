@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('DiaryPage');
@@ -206,6 +206,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         [dispatch],
     );
     const setIsPlaying = useCallback((v: boolean) => dispatch({ type: 'SET_PLAYING', playing: v }), [dispatch]);
+    const [polishIntensity, setPolishIntensity] = useState(30); // 0=clean grammar, 100=shakespearean
 
     // Weather context
     const { weatherData } = useWeather();
@@ -525,7 +526,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         if (!body.trim() || polishing) return;
         setPolishing(true);
         triggerHaptic('light');
-        const enhanced = await DiaryService.enhanceWithGemini(body, { mood, location: locationName });
+        const enhanced = await DiaryService.enhanceWithGemini(body, {
+            mood,
+            location: locationName,
+            intensity: polishIntensity,
+        });
         if (enhanced) setBody(enhanced);
         setPolishing(false);
     };
@@ -1122,14 +1127,33 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                             </button>
                         </div>
 
+                        {/* Polish intensity slider */}
+                        <div className="flex items-center gap-2 px-1">
+                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider shrink-0 w-10">
+                                Clean
+                            </span>
+                            <input
+                                type="range"
+                                min={0}
+                                max={100}
+                                step={5}
+                                value={polishIntensity}
+                                onChange={(e) => setPolishIntensity(Number(e.target.value))}
+                                className="flex-1 h-1.5 appearance-none bg-gradient-to-r from-gray-600 via-purple-500 to-amber-500 rounded-full outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:cursor-pointer"
+                            />
+                            <span className="text-[9px] font-bold text-amber-400/70 uppercase tracking-wider shrink-0 w-12 text-right">
+                                Literary
+                            </span>
+                        </div>
+
                         {/* Location name input — below the row */}
                         <input
                             type="text"
-                            placeholder="Location name (e.g. Moreton Bay, Anchor in 4m)"
+                            placeholder="Location (e.g. Moreton Bay)"
                             value={locationName}
                             onChange={(e) => setLocationName(e.target.value)}
                             onFocus={scrollInputAboveKeyboard}
-                            className="w-full bg-white/5 border border-white/5 rounded-lg px-3 py-2 text-xs text-gray-300 placeholder-gray-500 outline-none focus:border-sky-500/30 transition-colors"
+                            className="w-full bg-white/5 border border-white/5 rounded-lg px-3 py-1.5 text-[11px] text-gray-300 placeholder-gray-500 outline-none focus:border-sky-500/30 transition-colors"
                         />
 
                         {/* Recording indicator */}

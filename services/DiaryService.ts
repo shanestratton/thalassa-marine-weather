@@ -654,6 +654,7 @@ class DiaryServiceClass {
             mood: DiaryMood;
             location?: string;
             weather?: string;
+            intensity?: number; // 0=clean grammar, 100=shakespearean
         },
     ): Promise<string | null> {
         if (!navigator.onLine) return null;
@@ -675,6 +676,7 @@ class DiaryServiceClass {
                     mood: context.mood,
                     location: context.location || '',
                     weather: context.weather || '',
+                    intensity: context.intensity ?? 30,
                 }),
             });
 
