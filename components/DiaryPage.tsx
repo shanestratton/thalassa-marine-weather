@@ -383,23 +383,16 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
     // ── Edit (existing) ────────────────────────────────────────
 
-    const openEdit = useCallback((entry: DiaryEntry) => {
-        setEditingId(entry.id);
-        setTitle(entry.title);
-        setBody(entry.body);
-        setMood(entry.mood);
-        setPhotos(entry.photos || []);
-        setAudioUrl(entry.audio_url || null);
-        setLat(entry.latitude);
-        setLon(entry.longitude);
-        setLocationName(
-            entry.location_name ||
-                (entry.latitude && entry.longitude ? formatCoord(entry.latitude, entry.longitude) : ''),
-        );
-        setSelectedEntry(null);
-        setShowCompose(true);
-        triggerHaptic('light');
-    }, []);
+    const openEdit = useCallback(
+        (entry: DiaryEntry) => {
+            const locationDisplay =
+                entry.location_name ||
+                (entry.latitude && entry.longitude ? formatCoord(entry.latitude, entry.longitude) : '');
+            dispatch({ type: 'OPEN_EDIT', entry, locationDisplay });
+            triggerHaptic('light');
+        },
+        [dispatch],
+    );
 
     // ── Audio Recording ────────────────────────────────────────
 
