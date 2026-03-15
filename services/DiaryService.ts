@@ -64,6 +64,8 @@ class DiaryServiceClass {
     // Buffer of recently-synced entries — prevents race condition where entry
     // vanishes between pending removal and server cache arrival
     private _recentlySynced: { entry: DiaryEntry; syncedAt: number }[] = [];
+    // In-memory cache of photo blobs keyed by blob: URL — avoids base64 in localStorage
+    private _pendingPhotoBlobs = new Map<string, Blob>();
 
     constructor() {
         // Auto-sync when connectivity resumes
@@ -244,8 +246,8 @@ class DiaryServiceClass {
     // ── Photos ─────────────────────────────────────────────────
 
     async uploadPhoto(file: File): Promise<string | null> {
-        // Compress to base64 first (works offline)
-        const dataUri = await this._fileToDataUri(file);
+        // Compress first
+        const compressed = await this._compressImage(file);
 
         // Try upload if online
         if (supabase && navigator.onLine) {
@@ -253,8 +255,11 @@ class DiaryServiceClass {
             if (url) return url;
         }
 
-        // Return data URI — will be uploaded during sync
-        return dataUri;
+        // Offline: create a blob URL (tiny string) instead of a massive base64 data URI.
+        // The blob displays the photo in the UI; the actual data stays in memory.
+        const blobUrl = URL.createObjectURL(compressed);
+        this._pendingPhotoBlobs.set(blobUrl, compressed);
+        return blobUrl;
     }
 
     private async _uploadPhotoToStorage(file: File): Promise<string | null> {
@@ -302,6 +307,19 @@ class DiaryServiceClass {
             // Convert data URI to blob
             const res = await fetch(dataUri);
             const blob = await res.blob();
+            return this._uploadBlob(blob);
+        } catch (e) {
+            console.error('[Diary] Data URI upload failed:', e);
+            return null;
+        }
+    }
+
+    private async _uploadBlob(blob: Blob): Promise<string | null> {
+        if (!supabase) return null;
+        const user = (await supabase.auth.getUser()).data.user;
+        if (!user) return null;
+
+        try {
             const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jpg`;
 
             const { error } = await supabase.storage
@@ -314,7 +332,7 @@ class DiaryServiceClass {
 
             return urlData?.publicUrl || null;
         } catch (e) {
-            console.error('[Diary] Data URI upload failed:', e);
+            console.error('[Diary] Blob upload failed:', e);
             return null;
         }
     }
@@ -365,10 +383,21 @@ class DiaryServiceClass {
 
             for (const entry of pending) {
                 try {
-                    // 1. Upload any pending photos (data: URIs → public URLs)
+                    // 1. Upload any pending photos (blob: URLs or data: URIs → public URLs)
                     const uploadedPhotos: string[] = [];
                     for (const photo of entry.photos) {
-                        if (photo.startsWith('data:')) {
+                        if (photo.startsWith('blob:')) {
+                            // Upload from in-memory blob cache
+                            const blob = this._pendingPhotoBlobs.get(photo);
+                            if (blob) {
+                                const url = await this._uploadBlob(blob);
+                                if (url) {
+                                    uploadedPhotos.push(url);
+                                    this._pendingPhotoBlobs.delete(photo);
+                                    URL.revokeObjectURL(photo);
+                                }
+                            }
+                        } else if (photo.startsWith('data:')) {
                             const url = await this._uploadDataUri(photo);
                             if (url) uploadedPhotos.push(url);
                             // If upload fails, skip this photo but save the entry
@@ -502,7 +531,13 @@ class DiaryServiceClass {
 
     private _savePending(entries: DiaryEntry[]): void {
         try {
-            localStorage.setItem(PENDING_KEY, JSON.stringify(entries));
+            // Strip blob: and data: photo URIs before saving — they'd overflow localStorage.
+            // Photos are kept in _pendingPhotoBlobs (memory) or React state for display.
+            const stripped = entries.map((e) => ({
+                ...e,
+                photos: e.photos.filter((p) => !p.startsWith('blob:') && !p.startsWith('data:')),
+            }));
+            localStorage.setItem(PENDING_KEY, JSON.stringify(stripped));
         } catch (e) {
             console.error('[Diary] Pending write failed — entries may be lost:', e);
         }
