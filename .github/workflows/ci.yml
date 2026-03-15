@@ -26,7 +26,7 @@ jobs:
         run: npm ci --legacy-peer-deps
 
       - name: Lint
-        run: npx eslint . --max-warnings 720
+        run: npx eslint . --max-warnings 650
 
       - name: TypeScript type check
         run: npx tsc --noEmit
