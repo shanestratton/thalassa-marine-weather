@@ -73,46 +73,9 @@ export async function fetchBathymetricRoute(
     via?: { lat: number; lon: number },
     region?: string,
 ): Promise<BathymetricResponse | null> {
-    try {
-        const { orchestrateRoute } = await import('./RouteOrchestrator');
-
-        const result = await orchestrateRoute(
-            origin.lat,
-            origin.lon,
-            destination.lat,
-            destination.lon,
-            vesselDraft,
-            region || 'se_queensland',
-        );
-
-        if (!result) {
-            return null;
-        }
-
-        // Convert orchestrator result to BathymetricResponse interface
-        const waypoints: BathymetricWaypoint[] = result.coordinates.map((coord, i) => ({
-            lat: coord[1],
-            lon: coord[0],
-            name: `WP-${String(i + 1).padStart(3, '0')}`,
-            depth_m: null,
-            safety: 'safe' as const,
-        }));
-
-        const response: BathymetricResponse = {
-            waypoints,
-            totalNM: result.totalNM,
-            elapsed_ms: result.computeMs,
-            router: `orchestrator:${result.engines.join('+')}`,
-            region: region || 'australia_se_qld',
-            vessel_draft: vesselDraft,
-            geojson: result.geojson,
-        };
-
-        return response;
-    } catch (err) {
-        console.error('[BathyRouter] Orchestrator error:', err);
-        return null;
-    }
+    // RouteOrchestrator was removed — return null to fall back to AI voyage plan
+    console.info('[BathyRouter] Client-side orchestrator unavailable — skipping bathymetric route');
+    return null;
 }
 
 /**
