@@ -32,6 +32,12 @@ export class LocalInventoryService {
         );
     }
 
+    /** Find an item by barcode (first match or null) */
+    static findByBarcode(barcode: string): InventoryItem | null {
+        const results = query<InventoryItem>(TABLE, (item) => item.barcode === barcode);
+        return results.length > 0 ? results[0] : null;
+    }
+
     /** Get items by category */
     static getByCategory(category: InventoryCategory): InventoryItem[] {
         return query<InventoryItem>(TABLE, (item) => item.category === category);
@@ -89,6 +95,7 @@ export class LocalInventoryService {
     /** Get inventory stats */
     static getStats(): {
         totalItems: number;
+        totalQuantity: number;
         lowStock: number;
         categories: Record<string, number>;
     } {
@@ -101,8 +108,23 @@ export class LocalInventoryService {
 
         return {
             totalItems: items.length,
+            totalQuantity: items.reduce((sum, i) => sum + i.quantity, 0),
             lowStock: items.filter((i) => i.quantity <= i.min_quantity).length,
             categories,
         };
+    }
+
+    // ── Aliases for API compatibility with cloud InventoryService ──
+
+    /** Alias for getItems — matches cloud InventoryService.getAll() */
+    static getAll(): InventoryItem[] {
+        return LocalInventoryService.getItems();
+    }
+
+    /** adjustQuantity — matches cloud InventoryService.adjustQuantity() */
+    static async adjustQuantity(id: string, delta: number): Promise<InventoryItem | null> {
+        if (delta > 0) return LocalInventoryService.incrementQuantity(id, delta);
+        if (delta < 0) return LocalInventoryService.decrementQuantity(id, Math.abs(delta));
+        return getById<InventoryItem>(TABLE, id);
     }
 }

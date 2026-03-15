@@ -10,12 +10,8 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('MaintenanceHub');
-import {
-    MaintenanceService,
-    calculateStatus,
-    type TaskWithStatus,
-    type TrafficLight,
-} from '../../services/MaintenanceService';
+import { LocalMaintenanceService as MaintenanceService } from '../../services/vessel/LocalMaintenanceService';
+import { calculateStatus, type TaskWithStatus, type TrafficLight } from '../../services/MaintenanceService';
 import type { MaintenanceTask, MaintenanceCategory, MaintenanceTriggerType, MaintenanceHistory } from '../../types';
 import { triggerHaptic } from '../../utils/system';
 import { exportChecklist, exportServiceHistory } from '../../services/MaintenancePdfService';
