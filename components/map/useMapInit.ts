@@ -163,6 +163,11 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         mapboxgl.accessToken = mapboxToken;
 
+        // ── Pacific Fence: seamless dateline panning without duplicates ──
+        // maxBounds crosses the dateline using longitude > 180.
+        // Southwest = Indian Ocean (90°E), Northeast = Americas (270°E = -90°W).
+        // renderWorldCopies must be true to allow the >180 coordinates to render.
+        // The bounds physically prevent dragging far enough to see a second Australia.
         const map = new mapboxgl.Map({
             container: containerRef.current,
             style: mapStyle,
@@ -171,7 +176,11 @@ export function useMapInit(opts: UseMapInitOptions) {
             attributionControl: false,
             maxZoom: 18,
             minZoom: embedded ? initialZoom : 2,
-            renderWorldCopies: false,
+            renderWorldCopies: true,
+            maxBounds: [
+                [90.0, -80.0],
+                [270.0, 80.0],
+            ],
             projection: 'mercator' as any,
             interactive: true,
             dragPan: true,
