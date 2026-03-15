@@ -22,18 +22,7 @@ import {
     CrewProfile,
     CrewSearchFilters,
     ListingType,
-    SKILL_OPTIONS,
-    GENDER_OPTIONS,
     AGE_RANGES,
-    EXPERIENCE_LEVELS,
-    LISTING_TYPES,
-    VIBE_OPTIONS,
-    LANGUAGE_OPTIONS,
-    SMOKING_OPTIONS,
-    DRINKING_OPTIONS,
-    PET_OPTIONS,
-    INTEREST_OPTIONS,
-    SUPER_LIKE_DAILY_LIMIT,
 } from '../services/LonelyHeartsService';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { toast } from './Toast';

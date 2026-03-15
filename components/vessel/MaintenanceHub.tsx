@@ -27,7 +27,6 @@ import { useSwipeable } from '../../hooks/useSwipeable';
 import { UndoToast } from '../ui/UndoToast';
 import { ModalSheet } from '../ui/ModalSheet';
 import { useMaintenanceForm } from '../../hooks/useMaintenanceForm';
-import { FormField } from '../ui/FormField';
 import { useRealtimeSyncMulti } from '../../hooks/useRealtimeSync';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { CATEGORIES, TRIGGER_LABELS } from './maintenance/constants';

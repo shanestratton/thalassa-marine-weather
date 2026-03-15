@@ -1,19 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import {
-    WindIcon,
-    WaveIcon,
-    GaugeIcon,
-    EyeIcon,
-    SunIcon,
-    SunriseIcon,
-    SunsetIcon,
-    ThermometerIcon,
-    ArrowUpIcon,
-    ArrowDownIcon,
-    MinusIcon,
-    CompassIcon,
-    DropletIcon,
-} from '../Icons';
+import { WindIcon, WaveIcon, GaugeIcon, EyeIcon, SunIcon, CompassIcon, DropletIcon } from '../Icons';
 import { AnimatedRainIcon } from '../ui/AnimatedIcons';
 import { WeatherMetrics, UnitPreferences, HourlyForecast } from '../../types';
 import { convertTemp, convertSpeed, convertLength, convertDistance } from '../../utils';

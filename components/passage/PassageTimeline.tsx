@@ -1,7 +1,6 @@
 import React from 'react';
-import { t } from '../../theme';
 import { VoyagePlan, VesselProfile, HourlyForecast } from '../../types';
-import { WindIcon, WaveIcon, SunIcon, MoonIcon } from '../Icons';
+import { SunIcon, MoonIcon } from '../Icons';
 
 interface PassageTimelineProps {
     voyagePlan: VoyagePlan;

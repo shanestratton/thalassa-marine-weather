@@ -34,13 +34,8 @@ const CACHE_VERSION = 'v19.2-WEATHERKIT-FIX';
 
 // Scheduling logic extracted to WeatherScheduler service
 import {
-    isBadWeather,
     getUpdateInterval,
     alignToNextInterval,
-    INLAND_INTERVAL,
-    COASTAL_INTERVAL,
-    BAD_WEATHER_INTERVAL,
-    SATELLITE_INTERVAL,
     AI_UPDATE_INTERVAL,
     LIVE_OVERLAY_INTERVAL,
 } from '../services/WeatherScheduler';

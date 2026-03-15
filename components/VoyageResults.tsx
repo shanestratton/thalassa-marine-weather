@@ -3,29 +3,21 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('VoyageResults');
 import { toast } from './Toast';
-import { VoyagePlan, VoyageHazard, Waypoint, DeepAnalysisReport, VesselProfile } from '../types';
+import { VoyagePlan, DeepAnalysisReport, VesselProfile } from '../types';
 import {
-    ArrowRightIcon,
     SailBoatIcon,
     PowerBoatIcon,
     MapPinIcon,
-    MapIcon,
     RouteIcon,
     CheckIcon,
-    XIcon,
     BellIcon,
     CompassIcon,
-    CalendarIcon,
     GearIcon,
     DiamondIcon,
-    LockIcon,
     BugIcon,
-    RadioTowerIcon,
     WaveIcon,
     WindIcon,
     ClockIcon,
-    CrosshairIcon,
-    BoatIcon,
     AlertTriangleIcon,
     FlagIcon,
     PhoneIcon,
@@ -35,10 +27,8 @@ import {
 import { calculateDistance } from '../utils/math';
 import { fmtLat, fmtLon, fmtCoord } from '../utils/coords';
 import { ResourceCalculator } from './passage/ResourceCalculator';
-import { PassageTimeline } from './passage/PassageTimeline';
 import { EmergencyPlan } from './passage/EmergencyPlan';
 import { AccordionSection } from './passage/AccordionSection';
-import { downloadRouteGPX } from '../utils/gpxRouteExport';
 import { DepthSummaryCard } from './passage/DepthSummaryCard';
 import { ModelComparisonCard } from './passage/ModelComparisonCard';
 import type { MultiModelResult } from '../services/weather/MultiModelWeatherService';

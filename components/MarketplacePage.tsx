@@ -11,43 +11,24 @@
  * - Seller trust badges (vessel name, avatar)
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { toast } from './Toast';
 import {
     MarketplaceService,
     MarketplaceListing,
     ListingCategory,
     LISTING_CATEGORIES,
-    LISTING_CONDITIONS,
     CATEGORY_ICONS,
-    CreateListingInput,
-    BoatDetails,
-    HullMaterial,
-    EngineType,
-    FuelType,
-    HULL_MATERIALS,
-    ENGINE_TYPES,
-    FUEL_TYPES,
-    BOAT_FEATURES,
 } from '../services/MarketplaceService';
 import { ChatService } from '../services/ChatService';
-import { BgGeoManager } from '../services/BgGeoManager';
 import { SellerRatingService, SellerReputation } from '../services/SellerRatingService';
-import { Capacitor } from '@capacitor/core';
 import { t } from '../theme';
 import { SlideToAction } from './ui/SlideToAction';
 import { UndoToast } from './ui/UndoToast';
 import { triggerHaptic } from '../utils/system';
 import { useSwipeable } from '../hooks/useSwipeable';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
-import {
-    haversineNm,
-    timeAgo,
-    formatPrice,
-    getConditionColor,
-    getAvatarGradient,
-    MAX_PHOTOS,
-} from './marketplace/helpers';
+import { timeAgo, formatPrice, getConditionColor, getAvatarGradient } from './marketplace/helpers';
 
 // --- CSS ANIMATIONS ---
 const STYLE_ID = 'marketplace-animations';
