@@ -536,7 +536,7 @@ class LonelyHeartsServiceClass {
             chatMap.set(cp.user_id, cp);
         }
 
-        let cards: CrewCard[] = [];
+        const cards: CrewCard[] = [];
         for (const [userId, crew] of crewMap) {
             const chat = chatMap.get(userId);
             if (!chat) continue;
@@ -668,7 +668,7 @@ class LonelyHeartsServiceClass {
             }
         }
 
-        let cards: DatingCard[] = [];
+        const cards: DatingCard[] = [];
         for (const cp of chatProfiles) {
             const dp = datingMap.get(cp.user_id) ?? null;
             cards.push(this.buildDatingCard(cp, dp));

@@ -153,13 +153,13 @@ export const mapStormGlassToReport = (
 
     // Cast properties to compatible types for helpers
     // StormGlassHour keys are string | number | StormGlassValue...
-    let wSpeed = getBest(currentHour.windSpeed as MultiSourceField) * 1.94384;
-    let wGust = getBest(currentHour.gust as MultiSourceField) * 1.94384;
-    let wDir = getBest(currentHour.windDirection as MultiSourceField);
-    let temp = getVal(currentHour.airTemperature as MultiSourceField) ?? 0;
-    let pressure = getVal(currentHour.pressure as MultiSourceField) ?? 0;
+    const wSpeed = getBest(currentHour.windSpeed as MultiSourceField) * 1.94384;
+    const wGust = getBest(currentHour.gust as MultiSourceField) * 1.94384;
+    const wDir = getBest(currentHour.windDirection as MultiSourceField);
+    const temp = getVal(currentHour.airTemperature as MultiSourceField) ?? 0;
+    const pressure = getVal(currentHour.pressure as MultiSourceField) ?? 0;
 
-    let vis = (getVal(currentHour.visibility as MultiSourceField) ?? 0) * 0.539957;
+    const vis = (getVal(currentHour.visibility as MultiSourceField) ?? 0) * 0.539957;
     const dew = getVal(currentHour.dewPointTemperature as MultiSourceField); // Dewpoint from StormGlass API
     const fogRisk = false;
     const cloudCover = getVal(currentHour.cloudCover as MultiSourceField) ?? 0;

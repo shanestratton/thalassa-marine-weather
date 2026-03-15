@@ -58,7 +58,7 @@ function sortBuoysToChains(buoys, sideName) {
 
     const chains = [];
     let currentChain = [buoys[0]];
-    let unsorted = buoys.slice(1);
+    const unsorted = buoys.slice(1);
 
     while (unsorted.length > 0) {
         const lastPoint = currentChain[currentChain.length - 1];

@@ -135,7 +135,7 @@ export const SolarArc = ({ sunrise: rawSunrise, sunset: rawSunset, showTimes = t
         if (!tStr || tStr === '--:--') return null;
         // Support 24h format (e.g. "14:30") or 12h (e.g. "2:30 PM")
         const parts = tStr.split(' ');
-        let [time, period] = parts;
+        const [time, period] = parts;
         let [h, m] = time.split(':').map(Number);
         if (isNaN(h) || isNaN(m)) return null;
 

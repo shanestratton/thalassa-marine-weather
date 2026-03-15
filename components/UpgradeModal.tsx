@@ -23,9 +23,10 @@ const FeatureRow = ({ icon, title, desc }: { icon: React.ReactNode, title: strin
 );
 
 export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onUpgrade }) => {
+    const focusTrapRef = useFocusTrap(isOpen);
+
     if (!isOpen) return null;
 
-    const focusTrapRef = useFocusTrap(isOpen);
 
     return (
         <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="upgrade-title" ref={focusTrapRef}>

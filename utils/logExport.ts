@@ -91,7 +91,7 @@ async function fetchMapboxStaticImage(
 
     try {
         // Try multiple ways to get the token
-        let mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
+        const mapboxToken = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
 
         // Debug: log what we got
 
@@ -1555,7 +1555,7 @@ async function generateDeckLogPDF(entries: ShipLogEntry[], vesselName?: string, 
 
     // Waypoints
     if (waypointEntriesForInfo.length > 0) {
-        let wpY = y + 29;
+        const wpY = y + 29;
         pdf.setFillColor(245, 158, 11);
         pdf.setFont('helvetica', 'bold');
         pdf.text('Waypoints:', margin + 14, wpY);

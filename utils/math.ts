@@ -91,7 +91,7 @@ export const calculateFeelsLike = (tempC: number, humidity: number, windSpeedKts
     const ws = windSpeedKts * 0.514444;
     // Adjusted: Removed -4.00 radiation baseline to better match user perception of "Heat"
     // (BOM standard assumes shade/shelter cooling, but users expect Humidity to strictly ADD heat)
-    let AT = tempC + (0.33 * e) - (0.70 * ws);
+    const AT = tempC + (0.33 * e) - (0.70 * ws);
     return parseFloat(AT.toFixed(1));
 };
 
