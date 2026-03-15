@@ -10,6 +10,8 @@ import React from 'react';
 import { DiaryEntry, MOOD_CONFIG } from '../../services/DiaryService';
 import { useSwipeable } from '../../hooks/useSwipeable';
 import { Share } from '@capacitor/share';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Capacitor } from '@capacitor/core';
 
 /** Format lat/lon to a human-readable coordinate string */
 const formatCoord = (lat: number, lon: number): string => {
@@ -33,8 +35,13 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
         const moodCfg = MOOD_CONFIG[entry.mood] || MOOD_CONFIG.neutral;
         const entryHasCoords = entry.latitude != null && entry.longitude != null;
 
+        const sharingRef = React.useRef(false);
         const handleShare = async (e: React.MouseEvent) => {
             e.stopPropagation();
+            e.preventDefault();
+            if (sharingRef.current) return; // Guard against double-tap
+            sharingRef.current = true;
+
             const lines: string[] = [];
             lines.push(`📓 ${entry.title}`);
             lines.push(`${moodCfg.emoji} ${moodCfg.label || entry.mood}`);
@@ -44,10 +51,56 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
             lines.push('', `🕐 ${new Date(entry.created_at).toLocaleString()}`);
             const text = lines.join('\n');
 
+            // Prepare photo file:// URIs for native share
+            const fileUris: string[] = [];
+            if (Capacitor.isNativePlatform()) {
+                const photoUrls = (entry.photos || []).filter(
+                    (p) => p.startsWith('http://') || p.startsWith('https://'),
+                );
+                // Download each photo to cache and collect file:// URIs
+                await Promise.all(
+                    photoUrls.map(async (url, i) => {
+                        try {
+                            const resp = await fetch(url);
+                            const blob = await resp.blob();
+                            const reader = new FileReader();
+                            const base64 = await new Promise<string>((resolve) => {
+                                reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
+                                reader.readAsDataURL(blob);
+                            });
+                            const ext = url.match(/\.(jpe?g|png|webp|gif)/i)?.[1] || 'jpg';
+                            const fileName = `diary_share_${i}.${ext}`;
+                            const result = await Filesystem.writeFile({
+                                path: fileName,
+                                data: base64,
+                                directory: Directory.Cache,
+                            });
+                            fileUris.push(result.uri);
+                        } catch {
+                            // Skip undownloadable photos — share text only
+                        }
+                    }),
+                );
+            }
+
             try {
-                await Share.share({ title: entry.title, text, dialogTitle: 'Share diary entry' });
+                await Share.share({
+                    title: entry.title,
+                    text,
+                    ...(fileUris.length > 0 ? { files: fileUris } : {}),
+                    dialogTitle: 'Share diary entry',
+                });
             } catch {
                 // User cancelled or share not available — silent
+            } finally {
+                sharingRef.current = false;
+                // Clean up cached files
+                for (const uri of fileUris) {
+                    const fileName = uri.split('/').pop();
+                    if (fileName) {
+                        Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {});
+                    }
+                }
             }
         };
 
