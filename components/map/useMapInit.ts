@@ -163,6 +163,12 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         mapboxgl.accessToken = mapboxToken;
 
+        // ── Dynamic minZoom: prevent more than one world copy from being visible ──
+        // World width at zoom N = 256 × 2^N pixels.
+        // We calculate the zoom where one copy exactly fills the viewport width.
+        const calcMinZoom = (width: number) => Math.log2(width / 256);
+        const dynamicMinZoom = embedded ? initialZoom : Math.max(calcMinZoom(containerRef.current.clientWidth), 0.5);
+
         const map = new mapboxgl.Map({
             container: containerRef.current,
             style: mapStyle,
@@ -170,7 +176,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             zoom: initialZoom,
             attributionControl: false,
             maxZoom: 18,
-            minZoom: embedded ? initialZoom : 2,
+            minZoom: dynamicMinZoom,
             projection: 'mercator' as any,
             interactive: true,
             dragPan: true,
@@ -180,19 +186,6 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         map.dragRotate.disable();
         map.touchZoomRotate.disableRotation();
-
-        // ── WorldCopyJump: normalise center longitude on pan end ──
-        // Tiles wrap seamlessly (renderWorldCopies is true by default),
-        // but after each pan we snap the center back to [-180, 180].
-        // This lets NZ/Pacific be centered without drifting into full
-        // duplicate continents — the same behaviour as Windy/Leaflet worldCopyJump.
-        map.on('moveend', () => {
-            const c = map.getCenter();
-            const wrapped = ((((c.lng + 180) % 360) + 360) % 360) - 180;
-            if (Math.abs(c.lng - wrapped) > 0.01) {
-                map.setCenter([wrapped, c.lat]);
-            }
-        });
 
         map.on('load', () => {
             const style = map.getStyle();
@@ -699,9 +692,13 @@ export function useMapInit(opts: UseMapInitOptions) {
         };
         window.addEventListener('map-recenter', handleRecenter);
 
-        // ResizeObserver
+        // ResizeObserver — also recalculate dynamic minZoom on resize
         const resizeObserver = new ResizeObserver(() => {
             map.resize();
+            if (!embedded && containerRef.current) {
+                const newMinZoom = Math.max(calcMinZoom(containerRef.current.clientWidth), 0.5);
+                map.setMinZoom(newMinZoom);
+            }
         });
         resizeObserver.observe(containerRef.current);
 
