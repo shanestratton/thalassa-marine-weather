@@ -586,8 +586,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
             }
         }
         setSaving(false);
-        // Re-fetch entries after a short delay to clear PENDING badges
-        setTimeout(refreshEntries, 2000);
+        // Don't eagerly refresh here — the 8s periodic poll handles it safely.
+        // An immediate refreshEntries() can race with the pending queue merge
+        // and cause entries to vanish when offline or on slow connections.
     };
 
     // ── Delete (soft-delete with undo) ─────────────────────────
