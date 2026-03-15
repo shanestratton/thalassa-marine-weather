@@ -164,12 +164,16 @@ export function useMapInit(opts: UseMapInitOptions) {
         mapboxgl.accessToken = mapboxToken;
 
         // ── Dynamic minZoom: prevent seeing duplicate continents ──
-        // World width at zoom N = 256 × 2^N pixels.
-        // We calculate the zoom where one world copy fills the viewport,
-        // plus a buffer so the viewport is always narrower than the world.
+        // Mapbox GL renders one world copy at 512px wide at zoom 0.
+        // Each zoom level doubles the width: z1=1024, z2=2048, z3=4096.
+        // We calculate the zoom where one copy fills the viewport,
+        // plus a 0.5 buffer so the viewport is always narrower than the world.
         // renderWorldCopies defaults to true (seamless Pacific panning).
-        const calcMinZoom = (width: number) => Math.log2(width / 256) + 0.2;
-        const dynamicMinZoom = embedded ? initialZoom : Math.max(calcMinZoom(containerRef.current.clientWidth), 0.5);
+        const calcMinZoom = (width: number) => {
+            const z = Math.log2(width / 512);
+            return z > 0 ? z + 0.5 : 1;
+        };
+        const dynamicMinZoom = embedded ? initialZoom : calcMinZoom(containerRef.current.clientWidth);
 
         const map = new mapboxgl.Map({
             container: containerRef.current,
@@ -698,7 +702,7 @@ export function useMapInit(opts: UseMapInitOptions) {
         const resizeObserver = new ResizeObserver(() => {
             map.resize();
             if (!embedded && containerRef.current) {
-                const newMinZoom = Math.max(calcMinZoom(containerRef.current.clientWidth), 0.5);
+                const newMinZoom = calcMinZoom(containerRef.current.clientWidth);
                 map.setMinZoom(newMinZoom);
             }
         });
