@@ -140,16 +140,22 @@ export default tseslint.config(
         rules: {
             // ── Errors (must fix) ──
             'no-unused-vars': 'off', // Use TS version instead
-            '@typescript-eslint/no-unused-vars': ['warn', {
-                argsIgnorePattern: '^_',
-                varsIgnorePattern: '^_',
-                caughtErrorsIgnorePattern: '^_|^e$|^err$|^error$',
-                destructuredArrayIgnorePattern: '^_',
-                ignoreRestSiblings: true,
-            }],
-            'no-console': ['warn', {
-                allow: ['warn', 'error', 'info', 'debug'],
-            }],
+            '@typescript-eslint/no-unused-vars': [
+                'warn',
+                {
+                    argsIgnorePattern: '^_|^e$|^ev$|^event$|^err$|^error$|^req$|^res$|^ctx$',
+                    varsIgnorePattern: '^_',
+                    caughtErrorsIgnorePattern: '^_|^e$|^err$|^error$',
+                    destructuredArrayIgnorePattern: '^_',
+                    ignoreRestSiblings: true,
+                },
+            ],
+            'no-console': [
+                'warn',
+                {
+                    allow: ['warn', 'error', 'info', 'debug'],
+                },
+            ],
 
             // ── Warnings (tech debt markers) ──
             '@typescript-eslint/no-explicit-any': 'warn',
