@@ -170,8 +170,8 @@ export function useMapInit(opts: UseMapInitOptions) {
             zoom: initialZoom,
             attributionControl: false,
             maxZoom: 18,
-            minZoom: embedded ? initialZoom : 1.5,
-            projection: 'globe' as any,
+            minZoom: embedded ? initialZoom : 2,
+            projection: 'mercator' as any,
             interactive: true,
             dragPan: true,
             scrollZoom: true,
@@ -180,6 +180,19 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         map.dragRotate.disable();
         map.touchZoomRotate.disableRotation();
+
+        // ── WorldCopyJump: normalise center longitude on pan end ──
+        // Tiles wrap seamlessly (renderWorldCopies is true by default),
+        // but after each pan we snap the center back to [-180, 180].
+        // This lets NZ/Pacific be centered without drifting into full
+        // duplicate continents — the same behaviour as Windy/Leaflet worldCopyJump.
+        map.on('moveend', () => {
+            const c = map.getCenter();
+            const wrapped = ((((c.lng + 180) % 360) + 360) % 360) - 180;
+            if (Math.abs(c.lng - wrapped) > 0.01) {
+                map.setCenter([wrapped, c.lat]);
+            }
+        });
 
         map.on('load', () => {
             const style = map.getStyle();
