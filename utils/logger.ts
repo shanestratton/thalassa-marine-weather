@@ -29,13 +29,17 @@ export function createLogger(module: string): Logger {
     return {
         info(msg: string, data?: unknown) {
             if (data !== undefined) {
+                console.info(tag, msg, data);
             } else {
+                console.info(tag, msg);
             }
         },
 
         warn(msg: string, data?: unknown) {
             if (data !== undefined) {
+                console.warn(tag, msg, data);
             } else {
+                console.warn(tag, msg);
             }
         },
 
