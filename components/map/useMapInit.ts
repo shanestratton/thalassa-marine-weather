@@ -164,14 +164,14 @@ export function useMapInit(opts: UseMapInitOptions) {
         mapboxgl.accessToken = mapboxToken;
 
         // ── Dynamic minZoom: prevent seeing duplicate continents ──
-        // Mapbox GL renders one world copy at 512px wide at zoom 0.
-        // Each zoom level doubles the width: z1=1024, z2=2048, z3=4096.
-        // We calculate the zoom where one copy fills the viewport,
-        // plus a 0.5 buffer so the viewport is always narrower than the world.
+        // Use 256px tile base (safest baseline across all map engines).
+        // Calculate the zoom where one world copy fills the viewport,
+        // plus a +1.0 buffer to aggressively prevent edge-duplication
+        // on 4K/ultrawide monitors.
         // renderWorldCopies defaults to true (seamless Pacific panning).
         const calcMinZoom = (width: number) => {
-            const z = Math.log2(width / 512);
-            return z > 0 ? z + 0.5 : 1;
+            const z = Math.log2(width / 256);
+            return z > 0 ? z + 1.0 : 1;
         };
         const dynamicMinZoom = embedded ? initialZoom : calcMinZoom(containerRef.current.clientWidth);
 
