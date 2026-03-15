@@ -83,19 +83,33 @@ class DiaryServiceClass {
     // ── Read ───────────────────────────────────────────────────
 
     async getEntries(limit = 50): Promise<DiaryEntry[]> {
-        // 1. Merge cached remote entries + pending offline entries
+        // 1. Merge cached remote entries + pending offline entries + recently-synced buffer
         const cached = this._getCachedEntries();
         const pending = this._getPendingEntries();
 
-        // Combine: pending first (newest), then cached (remove dups)
-        const pendingIds = new Set(pending.map((e) => e.id));
-        const merged = [...pending, ...cached.filter((e) => !pendingIds.has(e.id))]
+        // Purge stale entries from recently-synced buffer (>30s)
+        const now = Date.now();
+        this._recentlySynced = this._recentlySynced.filter((r) => now - r.syncedAt < 30_000);
+        const recentlySyncedEntries = this._recentlySynced.map((r) => r.entry);
+
+        // Combine: pending first, then recently-synced, then cached (deduped)
+        // This closes the gap where an entry has exited pending (sync succeeded)
+        // but hasn't yet appeared in the cache (server refresh pending).
+        const seenIds = new Set<string>();
+        const allSources = [...pending, ...recentlySyncedEntries, ...cached];
+        const deduped: DiaryEntry[] = [];
+        for (const e of allSources) {
+            if (!seenIds.has(e.id)) {
+                seenIds.add(e.id);
+                deduped.push(e);
+            }
+        }
+        const merged = deduped
             .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
             .slice(0, limit);
 
         // Background refresh from Supabase (non-blocking) — but throttle to max once per 5s
         // to prevent stale overwrites during rapid create/read cycles
-        const now = Date.now();
         if (now - this._lastRefreshTime > 5000) {
             this._refreshFromServer(limit);
         }
