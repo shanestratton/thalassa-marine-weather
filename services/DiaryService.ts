@@ -89,7 +89,7 @@ class DiaryServiceClass {
 
         // Purge stale entries from recently-synced buffer (>30s)
         const now = Date.now();
-        this._recentlySynced = this._recentlySynced.filter((r) => now - r.syncedAt < 30_000);
+        this._recentlySynced = this._recentlySynced.filter((r) => now - r.syncedAt < 120_000);
         const recentlySyncedEntries = this._recentlySynced.map((r) => r.entry);
 
         // Combine: pending first, then recently-synced, then cached (deduped)
@@ -559,7 +559,7 @@ class DiaryServiceClass {
 
                 // Purge stale entries from recently-synced buffer (>30s)
                 const now = Date.now();
-                this._recentlySynced = this._recentlySynced.filter((r) => now - r.syncedAt < 30_000);
+                this._recentlySynced = this._recentlySynced.filter((r) => now - r.syncedAt < 120_000);
 
                 // Collect all IDs already in server data
                 const serverIds = new Set((data as DiaryEntry[]).map((e) => e.id));
