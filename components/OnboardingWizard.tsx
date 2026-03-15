@@ -246,7 +246,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
             }
         }
 
-        let ad_ft = airDraft ? (airDraftUnit === 'm' ? parseFloat(airDraft) * 3.28084 : parseFloat(airDraft)) : undefined;
+        const ad_ft = airDraft ? (airDraftUnit === 'm' ? parseFloat(airDraft) * 3.28084 : parseFloat(airDraft)) : undefined;
 
         const vesselData: VesselProfile = {
             name: (finalVesselType === 'observer' ? 'Observer' : name) || (finalVesselType === 'sail' ? 'S/Y Ocean' : 'M/Y Ocean'),

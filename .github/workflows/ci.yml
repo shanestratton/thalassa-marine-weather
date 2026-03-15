@@ -23,7 +23,10 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
+
+      - name: Lint
+        run: npx eslint . --max-warnings 900
 
       - name: TypeScript type check
         run: npx tsc --noEmit

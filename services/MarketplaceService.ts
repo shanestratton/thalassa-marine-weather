@@ -424,7 +424,7 @@ class MarketplaceServiceClass {
         const sellerIds = [...new Set(rows.map(r => r.seller_id).filter(Boolean))];
 
         // Batch fetch seller profiles
-        let profileMap = new Map<string, { display_name: string; avatar_url: string | null; vessel_name: string | null }>();
+        const profileMap = new Map<string, { display_name: string; avatar_url: string | null; vessel_name: string | null }>();
 
         if (sellerIds.length > 0) {
             const { data: profiles } = await supabase

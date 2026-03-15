@@ -26,9 +26,10 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
         }
     }, [entry]);
 
+    const focusTrapRef = useFocusTrap(isOpen);
+
     if (!isOpen || !entry) return null;
 
-    const focusTrapRef = useFocusTrap(isOpen);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

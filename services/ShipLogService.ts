@@ -1169,7 +1169,7 @@ class ShipLogServiceClass {
             // For auto entries in OFFSHORE mode, snap timestamp to exact quarter hour (00, 15, 30, 45)
             // Nearshore/Coastal entries use shorter intervals so keep exact timestamps
             // Rapid mode entries also keep exact timestamps
-            let entryTime = new Date(bestPos?.timestamp ?? Date.now());
+            const entryTime = new Date(bestPos?.timestamp ?? Date.now());
             const isOffshoreMode = !this.trackingState.isRapidMode && this.trackingState.loggingZone === 'offshore';
             if (entryType === 'auto' && isOffshoreMode) {
                 const minutes = entryTime.getMinutes();

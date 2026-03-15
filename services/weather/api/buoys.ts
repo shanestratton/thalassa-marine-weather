@@ -3,7 +3,7 @@ import { MAJOR_BUOYS } from '../config';
 import { BuoyStation } from '../../../types';
 
 export const fetchActiveBuoys = async (centerLat?: number, centerLon?: number): Promise<BuoyStation[]> => {
-    let buoys = [...MAJOR_BUOYS];
+    const buoys = [...MAJOR_BUOYS];
 
     if (centerLat !== undefined && centerLon !== undefined) {
         buoys.sort((a, b) => {

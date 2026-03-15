@@ -451,7 +451,7 @@ export async function computeIsochrones(
                     sinLat1 * cosD +
                     cosLat1 * sinD * Math.cos(brngRad)
                 );
-                let lon2Rad = lon1Rad + Math.atan2(
+                const lon2Rad = lon1Rad + Math.atan2(
                     Math.sin(brngRad) * sinD * cosLat1,
                     cosD - sinLat1 * Math.sin(lat2Rad)
                 );
