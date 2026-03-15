@@ -252,6 +252,7 @@ const ThalassaMap: React.FC<ThalassaMapProps> = ({
             onMoveEnd={onMoveEnd}
             onLoad={onLoad}
             mapStyle={OFFLINE_STYLE}
+            renderWorldCopies={false}
             style={{ width: '100%', height: '100%' }}
             attributionControl={false}
         >
