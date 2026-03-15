@@ -183,7 +183,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             attributionControl: false,
             maxZoom: 18,
             minZoom: fillMinZoom,
-            renderWorldCopies: false,
+            renderWorldCopies: true,
             projection: 'mercator' as any,
             interactive: true,
             dragPan: true,
