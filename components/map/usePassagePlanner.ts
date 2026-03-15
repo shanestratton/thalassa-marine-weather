@@ -28,87 +28,13 @@ import { preloadBathymetry } from '../../services/BathymetryCache';
 import { createWindFieldFromGrid } from '../../services/weather/WindFieldAdapter';
 import { DEFAULT_CRUISING_POLAR } from '../../services/defaultPolar';
 import { SmartPolarStore } from '../../services/SmartPolarStore';
-import { findSeaBuoy } from '../../services/seaBuoyFinder';
-import { SeamarkService } from '../../services/SeamarkService';
-import { routeChannel, type ChannelRouteResult } from '../../services/ChannelRouter';
+
 import { WindStore } from '../../stores/WindStore';
 import { WindDataController } from '../../services/weather/WindDataController';
 import { triggerHaptic } from '../../utils/system';
 import { Preferences } from '@capacitor/preferences';
 import type { ComfortParams } from '../../types/settings';
 import { generateComfortZoneOverlay, hasActiveComfortLimits } from '../../services/ComfortZoneEngine';
-
-// ── Helper: Convert channel route to depth-coloured GeoJSON features ──
-
-function buildChannelLegFeatures(
-    channelRoute: ChannelRouteResult | null,
-    start: { lat: number; lon: number },
-    end: { lat: number; lon: number },
-    _label: 'departure' | 'arrival',
-): any[] {
-    // Fallback: straight dashed line (legacy behaviour)
-    if (!channelRoute || !channelRoute.seamarkAssisted || channelRoute.waypoints.length < 2) {
-        return [
-            {
-                type: 'Feature',
-                properties: { safety: 'harbour', dashed: true },
-                geometry: {
-                    type: 'LineString',
-                    coordinates: [
-                        [start.lon, start.lat],
-                        [end.lon, end.lat],
-                    ],
-                },
-            },
-        ];
-    }
-
-    // Build depth-coloured segments — group consecutive waypoints by safety class
-    const features: any[] = [];
-    const wps = channelRoute.waypoints;
-    let segStart = 0;
-
-    for (let i = 1; i <= wps.length; i++) {
-        const prevSafety = wps[i - 1].safety;
-        const currSafety = i < wps.length ? wps[i].safety : null;
-
-        if (currSafety !== prevSafety || i === wps.length) {
-            // End of a segment — emit GeoJSON feature
-            const coords = wps.slice(segStart, i).map((wp) => [wp.lon, wp.lat]);
-            // Need at least 2 points for a LineString
-            if (coords.length >= 2) {
-                features.push({
-                    type: 'Feature',
-                    properties: {
-                        safety: prevSafety === 'land' ? 'danger' : prevSafety,
-                        channelRouted: true,
-                    },
-                    geometry: { type: 'LineString', coordinates: coords },
-                });
-            }
-            segStart = i > 0 ? i - 1 : 0; // Overlap by 1 point for continuity
-        }
-    }
-
-    // If no features were generated, fall back to straight line
-    if (features.length === 0) {
-        return [
-            {
-                type: 'Feature',
-                properties: { safety: 'harbour', dashed: true },
-                geometry: {
-                    type: 'LineString',
-                    coordinates: [
-                        [start.lon, start.lat],
-                        [end.lon, end.lat],
-                    ],
-                },
-            },
-        ];
-    }
-
-    return features;
-}
 
 export interface PassageState {
     departure: { lat: number; lon: number; name: string } | null;
@@ -212,162 +138,41 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             const a = Math.sin(dLat / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dLonH / 2) ** 2;
             return R_NM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         })();
+        // ── Too-short route detection: passage planning is for deep water only ──
+        const TOO_SHORT_NM = 15;
+        if (straightLineNM < TOO_SHORT_NM) {
+            log.info(
+                `[Passage] Route too short (${Math.round(straightLineNM)} NM) — not suitable for passage planning`,
+            );
+            try {
+                window.dispatchEvent(
+                    new CustomEvent('thalassa:passage-too-short', {
+                        detail: {
+                            distanceNM: Math.round(straightLineNM),
+                            message:
+                                'This route is too short for passage planning. Check Community Routes for local harbour exits and coastal routes.',
+                        },
+                    }),
+                );
+            } catch (_) {}
+            return;
+        }
+
         const isShortRoute = straightLineNM < 100;
         const VESSEL_DRAFT_M = 2.5; // IsochroneConfig default
         const minDepthM = isShortRoute ? VESSEL_DRAFT_M + 1 : null;
 
         log.info(
-            `[Passage] Distance: ${Math.round(straightLineNM)} NM — ${isShortRoute ? 'SHORT (coastal mode, minDepth=' + minDepthM + 'm)' : 'LONG (ocean mode, trip sandwich)'}`,
+            `[Passage] Distance: ${Math.round(straightLineNM)} NM — ${isShortRoute ? 'SHORT (coastal, minDepth=' + minDepthM + 'm)' : 'LONG (ocean)'}`,
         );
 
-        // Find deep-water gates (skip for short routes)
-        let depGate: { lat: number; lon: number };
-        let arrGate: { lat: number; lon: number };
+        // ── Deep water only: route directly from departure to arrival ──
+        // No sea buoy gates, no harbour exit routing.
+        const depGate = { lat: departure.lat, lon: departure.lon };
+        const arrGate = { lat: arrival.lat, lon: arrival.lon };
 
-        if (isShortRoute) {
-            // Short route: use departure/arrival directly (no sea buoy gates)
-            depGate = { lat: departure.lat, lon: departure.lon };
-            arrGate = { lat: arrival.lat, lon: arrival.lon };
-        } else {
-            const FALLBACK_NM = 5;
-            const SEA_BUOY_TIMEOUT_MS = 10_000; // 10s max for sea buoy search
-            try {
-                const seaBuoyPromise = Promise.all([
-                    findSeaBuoy(departure.lat, departure.lon, arrival.lat, arrival.lon),
-                    findSeaBuoy(arrival.lat, arrival.lon, departure.lat, departure.lon),
-                ]);
-                const timeoutPromise = new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error('SeaBuoy search timeout')), SEA_BUOY_TIMEOUT_MS),
-                );
-                const [depBuoy, arrBuoy] = await Promise.race([seaBuoyPromise, timeoutPromise]);
-                console.info(
-                    `[SeaBuoy] Dep: ${depBuoy.alreadyDeep ? 'already deep' : depBuoy.offsetNM > 0 ? `${depBuoy.offsetNM}NM → ${depBuoy.depth_m}m` : 'FAILED'}`,
-                    `| Arr: ${arrBuoy.alreadyDeep ? 'already deep' : arrBuoy.offsetNM > 0 ? `${arrBuoy.offsetNM}NM → ${arrBuoy.depth_m}m` : 'FAILED'}`,
-                );
-                depGate =
-                    depBuoy.offsetNM > 0 || depBuoy.alreadyDeep
-                        ? { lat: depBuoy.lat, lon: depBuoy.lon }
-                        : project(departure.lat, departure.lon, fwdBearing, FALLBACK_NM);
-                arrGate =
-                    arrBuoy.offsetNM > 0 || arrBuoy.alreadyDeep
-                        ? { lat: arrBuoy.lat, lon: arrBuoy.lon }
-                        : project(arrival.lat, arrival.lon, revBearing, FALLBACK_NM);
-            } catch (err) {
-                log.warn('[SeaBuoy] Search failed or timed out, using geometric fallback:', err);
-                // Project 50NM in 3 directions: perpendicular left, perpendicular right, and reverse.
-                // Pick the one farthest from the coast (farthest from BOTH departure and arrival).
-                const FALLBACK_DIST_NM = 50;
-                const findOffshoreGate = (
-                    lat: number,
-                    lon: number,
-                    routeBearing: number,
-                    otherLat: number,
-                    otherLon: number,
-                ) => {
-                    const candidates = [
-                        { ...project(lat, lon, (routeBearing - 90 + 360) % 360, FALLBACK_DIST_NM), dir: 'perp-left' },
-                        { ...project(lat, lon, (routeBearing + 90) % 360, FALLBACK_DIST_NM), dir: 'perp-right' },
-                        { ...project(lat, lon, (routeBearing + 180) % 360, FALLBACK_DIST_NM), dir: 'reverse' },
-                    ];
-                    // Pick the candidate farthest from the OTHER end (most likely open ocean)
-                    let best = candidates[0],
-                        bestDist = 0;
-                    for (const c of candidates) {
-                        const dLat = c.lat - otherLat;
-                        const dLon = c.lon - otherLon;
-                        const dist = dLat * dLat + dLon * dLon;
-                        if (dist > bestDist) {
-                            bestDist = dist;
-                            best = c;
-                        }
-                    }
-                    log.info(`[SeaBuoy] Geometric fallback: ${best.dir} at ${FALLBACK_DIST_NM}NM`);
-                    return { lat: best.lat, lon: best.lon };
-                };
-                depGate = findOffshoreGate(departure.lat, departure.lon, fwdBearing, arrival.lat, arrival.lon);
-                arrGate = findOffshoreGate(arrival.lat, arrival.lon, revBearing, departure.lat, departure.lon);
-            }
-        }
-
-        log.info(`[Passage] Departure gate: ${depGate.lat.toFixed(3)}, ${depGate.lon.toFixed(3)}`);
-        log.info(`[Passage] Arrival gate: ${arrGate.lat.toFixed(3)}, ${arrGate.lon.toFixed(3)}`);
-
-        // ── Smart Harbour Approach: Channel routing for harbour legs ──
-        let depChannelRoute: ChannelRouteResult | null = null;
-        let arrChannelRoute: ChannelRouteResult | null = null;
-        const seamarkFeaturesRef: { dep: any[]; arr: any[] } = { dep: [], arr: [] };
-
-        if (!isShortRoute) {
-            const CHANNEL_TIMEOUT_MS = 15_000;
-            try {
-                log.info('[ChannelRouter] Fetching seamarks for harbour approaches...');
-                const channelPromise = (async () => {
-                    // Fetch seamarks for departure and arrival areas in parallel
-                    const [depMarks, arrMarks] = await Promise.all([
-                        SeamarkService.fetchNearby(departure.lat, departure.lon, 5),
-                        SeamarkService.fetchNearby(arrival.lat, arrival.lon, 5),
-                    ]);
-                    seamarkFeaturesRef.dep = depMarks.features;
-                    seamarkFeaturesRef.arr = arrMarks.features;
-
-                    log.info(
-                        `[ChannelRouter] Dep seamarks: ${depMarks.features.length}, Arr seamarks: ${arrMarks.features.length}`,
-                    );
-
-                    // Run channel routing for both legs in parallel
-                    const [depRoute, arrRoute] = await Promise.all([
-                        depMarks.features.length > 0
-                            ? routeChannel(
-                                  departure.lat,
-                                  departure.lon,
-                                  depGate.lat,
-                                  depGate.lon,
-                                  VESSEL_DRAFT_M,
-                                  depMarks,
-                              )
-                            : null,
-                        arrMarks.features.length > 0
-                            ? routeChannel(arrGate.lat, arrGate.lon, arrival.lat, arrival.lon, VESSEL_DRAFT_M, arrMarks)
-                            : null,
-                    ]);
-
-                    return { depRoute, arrRoute };
-                })();
-
-                const timeoutPromise = new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error('Channel routing timeout')), CHANNEL_TIMEOUT_MS),
-                );
-
-                const result = await Promise.race([channelPromise, timeoutPromise]);
-                depChannelRoute = result.depRoute;
-                arrChannelRoute = result.arrRoute;
-
-                if (depChannelRoute?.seamarkAssisted) {
-                    log.info(
-                        `[ChannelRouter] Dep channel: ${depChannelRoute.waypoints.length} waypoints, ${depChannelRoute.totalDistanceNM.toFixed(1)} NM, min depth ${depChannelRoute.minDepth_m}m`,
-                    );
-                }
-                if (arrChannelRoute?.seamarkAssisted) {
-                    log.info(
-                        `[ChannelRouter] Arr channel: ${arrChannelRoute.waypoints.length} waypoints, ${arrChannelRoute.totalDistanceNM.toFixed(1)} NM, min depth ${arrChannelRoute.minDepth_m}m`,
-                    );
-                }
-            } catch (err) {
-                log.warn('[ChannelRouter] Channel routing failed, using straight-line harbour legs:', err);
-                // Graceful degradation — straight lines still work
-            }
-
-            // Add seamark data to map (non-blocking)
-            try {
-                const seamarkSrc = map.getSource('harbour-seamarks') as mapboxgl.GeoJSONSource;
-                if (seamarkSrc && (seamarkFeaturesRef.dep.length > 0 || seamarkFeaturesRef.arr.length > 0)) {
-                    const allMarks = [...seamarkFeaturesRef.dep, ...seamarkFeaturesRef.arr];
-                    seamarkSrc.setData({ type: 'FeatureCollection', features: allMarks } as any);
-                }
-            } catch {
-                /* seamark source may not exist yet */
-            }
-        }
+        log.info(`[Passage] Departure: ${depGate.lat.toFixed(3)}, ${depGate.lon.toFixed(3)}`);
+        log.info(`[Passage] Arrival: ${arrGate.lat.toFixed(3)}, ${arrGate.lon.toFixed(3)}`);
 
         // Great-circle passage
         const gcCoords: number[][] = [];
@@ -454,24 +259,13 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 ];
             }
 
-            // ── Long route: Trip Sandwich (harbour → safe → harbour) ──
-            // Build harbour legs — use channel-routed legs if available, else straight lines
-            const depLegFeatures = buildChannelLegFeatures(depChannelRoute, departure, depGate, 'departure');
-            const arrLegFeatures = buildChannelLegFeatures(
-                arrChannelRoute,
-                { lat: arrGate.lat, lon: arrGate.lon },
-                { lat: arrival.lat, lon: arrival.lon },
-                'arrival',
-            );
-
+            // ── Long route: single deep-water feature ──
             return [
-                ...depLegFeatures,
                 {
                     type: 'Feature',
                     properties: { safety: 'safe' },
                     geometry: { type: 'LineString', coordinates: passageCoords },
                 },
-                ...arrLegFeatures,
             ];
         };
 
