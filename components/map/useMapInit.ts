@@ -209,6 +209,15 @@ export function useMapInit(opts: UseMapInitOptions) {
                     if (layer.type === 'symbol' && layer.id.match(/road|motorway|highway|shield|trunk/i)) {
                         map.setLayoutProperty(layer.id, 'visibility', 'none');
                     }
+                    // Boost place labels so they're readable under wind particles
+                    if (
+                        layer.type === 'symbol' &&
+                        layer.id.match(/country-label|state-label|continent-label|place-label|settlement|water-point/)
+                    ) {
+                        map.setPaintProperty(layer.id, 'text-color', '#ffffff');
+                        map.setPaintProperty(layer.id, 'text-halo-color', 'rgba(0, 0, 0, 0.9)');
+                        map.setPaintProperty(layer.id, 'text-halo-width', 2);
+                    }
                 }
             }
 
