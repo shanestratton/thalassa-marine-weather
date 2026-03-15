@@ -36,12 +36,8 @@ import {
     getWeatherSnapshot,
     determineLoggingZone,
     getIntervalForZone,
-    getZoneLabel,
     getIntervalForSpeed,
     SHIP_LOGS_TABLE,
-    NEARSHORE_INTERVAL_MS,
-    COASTAL_INTERVAL_MS,
-    OFFSHORE_INTERVAL_MS,
     type LoggingZone,
     type SpeedTier,
 } from './shiplog/helpers';

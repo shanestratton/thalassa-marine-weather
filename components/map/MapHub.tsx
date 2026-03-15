@@ -43,7 +43,7 @@ import { usePassagePlanner } from './usePassagePlanner';
 import { useRouteNudge } from './useRouteNudge';
 import { SynopticScrubber } from './SynopticScrubber';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
-import { PointInput, ResultCard, LayerLegendStrip, LayerFABMenu } from './MapHubOverlays';
+import { LayerLegendStrip, LayerFABMenu } from './MapHubOverlays';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 import { PassageDataPanel } from './PassageDataPanel';
 import { WeatherInspectPopup } from './WeatherInspectPopup';

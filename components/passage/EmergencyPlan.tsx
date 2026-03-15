@@ -1,7 +1,7 @@
 import React from 'react';
 import { t } from '../../theme';
 import { VoyagePlan, VesselProfile } from '../../types';
-import { MapPinIcon, PhoneIcon, RadioTowerIcon, AlertTriangleIcon, WindIcon, CrosshairIcon } from '../Icons';
+import { MapPinIcon, PhoneIcon, RadioTowerIcon, AlertTriangleIcon, WindIcon } from '../Icons';
 import { fmtCoord } from '../../utils/coords';
 
 interface EmergencyPlanProps {

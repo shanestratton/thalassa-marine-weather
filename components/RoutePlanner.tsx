@@ -16,7 +16,6 @@ import {
     CompassIcon,
     PowerBoatIcon,
     SailBoatIcon,
-    AnchorIcon,
 } from './Icons';
 import { MapHub } from './map/MapHub';
 import { SlideToAction } from './ui/SlideToAction';

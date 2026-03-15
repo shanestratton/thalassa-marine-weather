@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
     convertSpeed,
     convertLength,
-    convertTemp,
     calculateWindChill,
     expandCompassDirection,
     getBeaufort,
