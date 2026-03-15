@@ -40,13 +40,11 @@ export const useLeafletMap = (
             bounceAtZoomLimits: true,
 
             maxBoundsViscosity: 1.0,
-            worldCopyJump: enableWrapping, // Loop the world markers
-            maxBounds: enableWrapping
-                ? undefined
-                : [
-                      [-90, -180],
-                      [90, 180],
-                  ], // Constrain ONLY if wrapping disabled
+            worldCopyJump: false,
+            maxBounds: [
+                [-90, -180],
+                [90, 180],
+            ],
         });
 
         // Priority: Prop > Env Var
@@ -61,13 +59,11 @@ export const useLeafletMap = (
                     zoomOffset: -1,
                     attribution: '© Mapbox',
                     maxZoom: 20,
-                    noWrap: !enableWrapping,
-                    bounds: enableWrapping
-                        ? undefined
-                        : [
-                              [-90, -180],
-                              [90, 180],
-                          ],
+                    noWrap: true,
+                    bounds: [
+                        [-90, -180],
+                        [90, 180],
+                    ],
                 },
             ).addTo(map);
         } else {
@@ -75,13 +71,11 @@ export const useLeafletMap = (
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
                 maxZoom: 20,
                 attribution: '© OpenStreetMap, © CartoDB',
-                noWrap: !enableWrapping,
-                bounds: enableWrapping
-                    ? undefined
-                    : [
-                          [-90, -180],
-                          [90, 180],
-                      ],
+                noWrap: true,
+                bounds: [
+                    [-90, -180],
+                    [90, 180],
+                ],
             }).addTo(map);
         }
 

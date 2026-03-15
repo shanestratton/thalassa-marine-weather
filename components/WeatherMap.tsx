@@ -293,8 +293,11 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
         // Unlocked Mode: Active if on Buoys/Global-Wind layer OR explicitly unrestricted
         if (activeLayer === 'buoys' || activeLayer === 'global-wind' || activeLayer === 'velocity' || !restrictBounds) {
             // --- UNLOCKED MODE (Global Selection / Global Wind) ---
-            // Infinite Wrapping: MaxBounds is NULL (disabled)
-            map.setMaxBounds(undefined); // Allow infinite scroll
+            // Constrain to single world copy to prevent wrapping
+            map.setMaxBounds([
+                [-85, -180],
+                [85, 180],
+            ]);
             map.setMinZoom(2);
             map.setMaxZoom(18);
 
