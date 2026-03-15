@@ -163,11 +163,18 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         mapboxgl.accessToken = mapboxToken;
 
-        // ── Dynamic WorldCopies: one Earth at world view, seamless at nav zoom ──
-        // At low zoom (z<4): renderWorldCopies OFF → single Earth, no duplicates.
-        // At high zoom (z≥4): renderWorldCopies ON → seamless Pacific panning.
-        // The user navigates at z5+ where dateline crossing works. Zooming out
-        // to world view shows one clean Earth.
+        // ── Windy-style: world fills screen, no duplicates, free panning ──
+        // 1. Calculate the zoom where one world copy exactly fills the container width.
+        //    Mapbox GL: world width at zoom z = 512 × 2^z pixels.
+        // 2. Set that as minZoom so the user can never zoom out to see blank edges.
+        // 3. renderWorldCopies: false — tiles only render once (-180 to 180).
+        // At minZoom: the entire world fills the screen (NZ visible at right edge).
+        // At zoom 4+: world is wider than screen, free panning (including past NZ).
+        const calcMinZoomForFill = (width: number) => Math.log2(width / 512);
+        const fillMinZoom = embedded
+            ? initialZoom
+            : Math.max(calcMinZoomForFill(containerRef.current.clientWidth), 0.5);
+
         const map = new mapboxgl.Map({
             container: containerRef.current,
             style: mapStyle,
@@ -175,7 +182,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             zoom: initialZoom,
             attributionControl: false,
             maxZoom: 18,
-            minZoom: embedded ? initialZoom : 2,
+            minZoom: fillMinZoom,
             renderWorldCopies: false,
             projection: 'mercator' as any,
             interactive: true,
@@ -186,15 +193,6 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         map.dragRotate.disable();
         map.touchZoomRotate.disableRotation();
-
-        // Toggle world copies based on zoom level
-        const WORLD_COPY_THRESHOLD = 4;
-        map.on('zoom', () => {
-            const shouldWrap = map.getZoom() >= WORLD_COPY_THRESHOLD;
-            if (map.getRenderWorldCopies() !== shouldWrap) {
-                map.setRenderWorldCopies(shouldWrap);
-            }
-        });
 
         map.on('load', () => {
             const style = map.getStyle();
@@ -701,9 +699,13 @@ export function useMapInit(opts: UseMapInitOptions) {
         };
         window.addEventListener('map-recenter', handleRecenter);
 
-        // ResizeObserver
+        // ResizeObserver — recalculate fill-width minZoom on resize
         const resizeObserver = new ResizeObserver(() => {
             map.resize();
+            if (!embedded && containerRef.current) {
+                const newMinZoom = Math.max(calcMinZoomForFill(containerRef.current.clientWidth), 0.5);
+                map.setMinZoom(newMinZoom);
+            }
         });
         resizeObserver.observe(containerRef.current);
 
