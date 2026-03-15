@@ -18,9 +18,11 @@
 
 import { Preferences } from '@capacitor/preferences';
 import { App } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
 import { supabase } from './supabase';
 import { ShipLogEntry } from '../types';
 import { BgGeoManager, CachedPosition } from './BgGeoManager';
+import { GpsService } from './GpsService';
 import { NmeaGpsProvider } from './NmeaGpsProvider';
 import { EnvironmentService } from './EnvironmentService';
 import { createLogger } from '../utils/logger';
@@ -130,11 +132,16 @@ interface StoredPosition {
 // --- MAIN SERVICE CLASS ---
 
 class ShipLogServiceClass {
+    // Platform detection: native (iOS/Android) uses Transistorsoft BgGeo;
+    // web uses navigator.geolocation + setInterval fallbacks.
+    private readonly isNative = Capacitor.isNativePlatform();
     private intervalId?: NodeJS.Timeout;
     private quarterTimeoutId?: NodeJS.Timeout; // For initial quarter-hour alignment
     private syncIntervalId?: NodeJS.Timeout;
     private rapidModeTimeoutId?: NodeJS.Timeout; // 15-minute auto-disable for rapid mode
     private envCheckIntervalId?: NodeJS.Timeout; // 60s environment polling (water/land + zone)
+    private webWatchId?: number; // navigator.geolocation.watchPosition ID (web only)
+    private webHeartbeatId?: NodeJS.Timeout; // 60s setInterval heartbeat (web only)
     private trackingState: TrackingState = { isTracking: false, isPaused: false, isRapidMode: false };
 
     // Cached water detection status — updated every 60s by environment polling.
@@ -464,13 +471,12 @@ class ShipLogServiceClass {
             return;
         }
 
-        // Initialize shared BackgroundGeolocation engine
-        await BgGeoManager.ensureReady();
-
-        // Start Transistorsoft continuous background tracking FIRST (ref-counted).
-        // If this fails (permission denied, plugin crash), we never set isTracking=true
-        // and the error bubbles up to the UI via the calling function's catch block.
-        await BgGeoManager.requestStart();
+        // Initialize GPS engine (native-only: Transistorsoft BgGeo).
+        // On web, GPS is started via navigator.geolocation in wireGpsSubscriptions().
+        if (this.isNative) {
+            await BgGeoManager.ensureReady();
+            await BgGeoManager.requestStart();
+        }
 
         // GPS engine confirmed running — NOW commit tracking state.
         // Determine voyage ID:
@@ -575,8 +581,8 @@ class ShipLogServiceClass {
         // Cleanup any stale subscriptions first
         this.cleanupGpsSubscriptions();
 
-        // 1. LOCATION STREAM — Cache every GPS fix + buffer for track thinning.
-        const unsubLoc = BgGeoManager.subscribeLocation((pos) => {
+        // ── Shared position handler (used by both native and web GPS) ──
+        const onGpsFix = (pos: CachedPosition) => {
             this.lastBgLocation = pos;
 
             // Feed accuracy into precision tracker (detects Bad Elf Pro+ etc.)
@@ -585,13 +591,10 @@ class ShipLogServiceClass {
             // Buffer fix for high-fidelity track thinning
             // COLD-START GUARD: Skip buffering during the first 5 seconds after
             // GPS engine start to filter out stale cached "teleport" fixes.
-            // The position is still cached above (for UI display) — we just don't
-            // commit it to the track buffer (which feeds speed/distance calculations).
             const warmupElapsed = Date.now() - this.gpsWarmupStartTime;
             if (warmupElapsed < ShipLogServiceClass.GPS_WARMUP_MS) return;
 
             // SPEED-ADAPTIVE INTERVAL: Check if speed tier has changed.
-            // Debounce with 3 consecutive confirmations to prevent flip-flopping.
             if (pos.speed != null && pos.speed >= 0 && !this.trackingState.isRapidMode) {
                 const { tier } = getIntervalForSpeed(pos.speed);
                 if (tier !== this.currentSpeedTier) {
@@ -601,7 +604,6 @@ class ShipLogServiceClass {
                             this.currentSpeedTier = tier;
                             this.pendingSpeedTier = null;
                             this.speedTierConfirmCount = 0;
-                            // Trigger reschedule (fire-and-forget)
                             this.rescheduleAdaptiveInterval().catch(() => {});
                         }
                     } else {
@@ -609,15 +611,12 @@ class ShipLogServiceClass {
                         this.speedTierConfirmCount = 1;
                     }
                 } else {
-                    // Still in same tier — reset pending
                     this.pendingSpeedTier = null;
                     this.speedTierConfirmCount = 0;
                 }
             }
 
-            // ACCURACY GATE: Drop fixes with >100m horizontal accuracy — these
-            // create zig-zag artifacts, especially on water in bad weather where
-            // phone GPS degrades without WiFi/cell-tower assist.
+            // ACCURACY GATE: Drop fixes with >100m horizontal accuracy
             if (this.trackingState.isTracking && !this.trackingState.isPaused) {
                 if (pos.accuracy <= 100) {
                     this.trackBuffer.push(pos);
@@ -628,12 +627,41 @@ class ShipLogServiceClass {
             if (pos.altitude !== null && pos.altitude !== undefined) {
                 EnvironmentService.updateFromGPS({ altitude: pos.altitude });
             }
-        });
-        this.bgUnsubscribers.push(unsubLoc);
+        };
 
-        // 1b. NMEA/EXTERNAL GPS — Higher-accuracy positions from the vessel's
-        //     chartplotter, Bad Elf GPS Pro Plus, or any NMEA TCP source.
-        //     When active, these override the phone GPS (better accuracy).
+        // ── 1a. Native GPS stream (BgGeoManager / Transistorsoft) ──
+        if (this.isNative) {
+            const unsubLoc = BgGeoManager.subscribeLocation(onGpsFix);
+            this.bgUnsubscribers.push(unsubLoc);
+        } else {
+            // ── 1a-WEB. Browser geolocation.watchPosition ──
+            if (navigator.geolocation) {
+                this.webWatchId = navigator.geolocation.watchPosition(
+                    (geoPos) => {
+                        onGpsFix({
+                            latitude: geoPos.coords.latitude,
+                            longitude: geoPos.coords.longitude,
+                            accuracy: geoPos.coords.accuracy,
+                            altitude: geoPos.coords.altitude,
+                            heading: geoPos.coords.heading ?? 0,
+                            speed: geoPos.coords.speed ?? 0,
+                            timestamp: geoPos.timestamp,
+                            receivedAt: Date.now(),
+                        } as CachedPosition);
+                    },
+                    (err) => console.warn('[ShipLog] web GPS error:', err.message),
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 },
+                );
+                this.bgUnsubscribers.push(() => {
+                    if (this.webWatchId != null) {
+                        navigator.geolocation.clearWatch(this.webWatchId);
+                        this.webWatchId = undefined;
+                    }
+                });
+            }
+        }
+
+        // ── 1b. NMEA/External GPS — works on ALL platforms ──
         const unsubNmea = NmeaGpsProvider.onPosition((nmeaPos) => {
             // Convert NmeaGpsPosition to CachedPosition shape for compatibility
             this.lastBgLocation = {
@@ -647,45 +675,56 @@ class ShipLogServiceClass {
                 altitude: null,
             } as CachedPosition;
 
-            // Feed accuracy into precision tracker
             GpsPrecision.feed(nmeaPos.accuracy);
 
-            // Buffer for track thinning (NMEA is always high accuracy)
             if (this.trackingState.isTracking && !this.trackingState.isPaused) {
                 this.trackBuffer.push(this.lastBgLocation);
             }
         });
         this.bgUnsubscribers.push(unsubNmea);
 
-        // 2. HEARTBEAT — Fires every 60s when stationary (even backgrounded).
-        //    Check if a log entry is due and capture it. This is the safety net
-        //    that fires even when JS timers are suspended by iOS.
-        const unsubHb = BgGeoManager.subscribeHeartbeat((_event) => {
-            if (!this.trackingState.isTracking || this.trackingState.isPaused) return;
-
-            // Check if we've missed a scheduled entry
-            const lastEntry = this.trackingState.lastEntryTime;
-            if (lastEntry) {
-                const elapsed = Date.now() - new Date(lastEntry).getTime();
-                const currentInterval = this.trackingState.currentIntervalMs || TRACKING_INTERVAL_MS;
-                if (elapsed >= currentInterval) {
-                    // We missed a scheduled entry (timer was suspended) — flush buffer now
-                    this.flushBufferedTrack().catch(() => {});
+        // ── 2. HEARTBEAT — 60s safety net for missed entries ──
+        if (this.isNative) {
+            const unsubHb = BgGeoManager.subscribeHeartbeat((_event) => {
+                if (!this.trackingState.isTracking || this.trackingState.isPaused) return;
+                const lastEntry = this.trackingState.lastEntryTime;
+                if (lastEntry) {
+                    const elapsed = Date.now() - new Date(lastEntry).getTime();
+                    const currentInterval = this.trackingState.currentIntervalMs || TRACKING_INTERVAL_MS;
+                    if (elapsed >= currentInterval) {
+                        this.flushBufferedTrack().catch(() => {});
+                    }
                 }
-            }
-        });
-        this.bgUnsubscribers.push(unsubHb);
+            });
+            this.bgUnsubscribers.push(unsubHb);
+        } else {
+            // WEB: setInterval heartbeat (no native background wake-up on web)
+            this.webHeartbeatId = setInterval(() => {
+                if (!this.trackingState.isTracking || this.trackingState.isPaused) return;
+                const lastEntry = this.trackingState.lastEntryTime;
+                if (lastEntry) {
+                    const elapsed = Date.now() - new Date(lastEntry).getTime();
+                    const currentInterval = this.trackingState.currentIntervalMs || TRACKING_INTERVAL_MS;
+                    if (elapsed >= currentInterval) {
+                        this.flushBufferedTrack().catch(() => {});
+                    }
+                }
+            }, 60_000);
+            this.bgUnsubscribers.push(() => {
+                if (this.webHeartbeatId) {
+                    clearInterval(this.webHeartbeatId);
+                    this.webHeartbeatId = undefined;
+                }
+            });
+        }
 
-        // 3. ACTIVITY CHANGE — Detect stationary ↔ moving transitions.
-        //    Inform adaptive interval logic (if vessel stops moving for extended period,
-        //    the auto-pause in captureLogEntry will handle it via STATIONARY_TIMEOUT_MS).
-        const unsubAct = BgGeoManager.subscribeActivity((_event) => {
-            // Currently, auto-pause is handled by distance-based detection in captureLogEntry.
-            // The activity change event gives us an earlier signal that the vessel has stopped,
-            // which we can use for future enhancements. For now, just ensure zone re-evaluation
-            // happens on the next log entry.
-        });
-        this.bgUnsubscribers.push(unsubAct);
+        // ── 3. ACTIVITY CHANGE — native only (desktop has no motion sensors) ──
+        if (this.isNative) {
+            const unsubAct = BgGeoManager.subscribeActivity((_event) => {
+                // Activity-based detection; auto-pause handled by distance in captureLogEntry
+            });
+            this.bgUnsubscribers.push(unsubAct);
+        }
     }
 
     /**
@@ -819,7 +858,41 @@ class ShipLogServiceClass {
         }
 
         // Cache is stale or empty — fetch fresh (blocking, but only as fallback)
-        return BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 15);
+        if (this.isNative) {
+            return BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 15);
+        }
+        // Web: use GpsService (navigator.geolocation with permission prompt)
+        const webPos = await GpsService.getCurrentPosition({ staleLimitMs: GPS_STALE_LIMIT_MS, timeoutSec: 15 });
+        if (!webPos) return null;
+        return {
+            latitude: webPos.latitude,
+            longitude: webPos.longitude,
+            accuracy: webPos.accuracy,
+            altitude: webPos.altitude,
+            heading: webPos.heading ?? 0,
+            speed: webPos.speed,
+            timestamp: webPos.timestamp,
+            receivedAt: Date.now(),
+        } as CachedPosition;
+    }
+
+    /**
+     * Web fallback for BgGeoManager.getFreshPosition() — uses GpsService
+     * which calls navigator.geolocation.getCurrentPosition with permission prompt.
+     */
+    private async _webGetFreshPosition(): Promise<CachedPosition | null> {
+        const pos = await GpsService.getCurrentPosition({ staleLimitMs: 10_000, timeoutSec: 10 });
+        if (!pos) return null;
+        return {
+            latitude: pos.latitude,
+            longitude: pos.longitude,
+            accuracy: pos.accuracy,
+            altitude: pos.altitude,
+            heading: pos.heading ?? 0,
+            speed: pos.speed,
+            timestamp: pos.timestamp,
+            receivedAt: Date.now(),
+        } as CachedPosition;
     }
 
     /**
@@ -830,7 +903,7 @@ class ShipLogServiceClass {
      *   'none'    — no fix ever received, or older than 5min (red)
      */
     getGpsStatus(): 'locked' | 'stale' | 'none' {
-        const pos = this.lastBgLocation || BgGeoManager.getLastPosition();
+        const pos = this.lastBgLocation || (this.isNative ? BgGeoManager.getLastPosition() : null);
         if (!pos) return 'none';
 
         const ageMs = Date.now() - pos.receivedAt;
@@ -844,7 +917,7 @@ class ShipLogServiceClass {
      * Returns speed over ground in knots and course over ground in degrees.
      */
     getGpsNavData(): { sogKts: number | null; cogDeg: number | null } {
-        const pos = this.lastBgLocation || BgGeoManager.getLastPosition();
+        const pos = this.lastBgLocation || (this.isNative ? BgGeoManager.getLastPosition() : null);
         if (!pos) return { sogKts: null, cogDeg: null };
 
         const ageMs = Date.now() - pos.receivedAt;
@@ -943,7 +1016,9 @@ class ShipLogServiceClass {
         await Preferences.remove({ key: VOYAGE_START_KEY });
 
         // Stop Transistorsoft background tracking (ref-counted — only stops if no other consumer)
-        await BgGeoManager.requestStop();
+        if (this.isNative) {
+            await BgGeoManager.requestStop();
+        }
     }
 
     /**
@@ -997,7 +1072,9 @@ class ShipLogServiceClass {
                 }
                 // Also try getCurrentPosition as a final fallback on last attempt
                 if (i === GPS_WARMUP_ATTEMPTS - 1) {
-                    bestPos = await BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 10);
+                    bestPos = this.isNative
+                        ? await BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 10)
+                        : await this._webGetFreshPosition();
                 }
             }
         }
@@ -1097,8 +1174,10 @@ class ShipLogServiceClass {
             await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
 
             try {
-                // Use BgGeoManager fresh position (force a new sample for retry)
-                const pos = await BgGeoManager.getFreshPosition(5000, 10);
+                // Use fresh position (native: BgGeoManager, web: GpsService)
+                const pos = this.isNative
+                    ? await BgGeoManager.getFreshPosition(5000, 10)
+                    : await this._webGetFreshPosition();
                 if (!pos) continue; // No GPS yet, retry
 
                 const { latitude, longitude, heading } = pos;
