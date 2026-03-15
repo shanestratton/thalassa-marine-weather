@@ -341,6 +341,16 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
         async (id: string) => {
             const entry = entries.find((e) => e.id === id);
             if (!entry) return;
+
+            // Guard: don't delete headings that still have items
+            if (entry.type === 'heading') {
+                const children = entries.filter((e) => e.type === 'detail' && e.heading_id === id);
+                if (children.length > 0) {
+                    toast.error('Remove all items from this section first');
+                    return;
+                }
+            }
+
             triggerHaptic('medium');
             try {
                 await LocalChecklistService.delete(id);
@@ -785,6 +795,37 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                         >
                             {editEntry ? 'Save Changes' : formType === 'heading' ? 'Add Section' : 'Add Item'}
                         </button>
+
+                        {/* Delete button — only in edit mode */}
+                        {editEntry &&
+                            (() => {
+                                const isHeading = editEntry.type === 'heading';
+                                const childCount = isHeading
+                                    ? entries.filter((e) => e.type === 'detail' && e.heading_id === editEntry.id).length
+                                    : 0;
+                                const canDelete = !isHeading || childCount === 0;
+
+                                return (
+                                    <>
+                                        <button
+                                            onClick={() => {
+                                                handleDelete(editEntry.id);
+                                                setShowForm(false);
+                                                resetForm();
+                                            }}
+                                            disabled={!canDelete}
+                                            className="w-full py-3 mt-2 rounded-xl text-sm font-black uppercase tracking-[0.15em] transition-all active:scale-[0.97] bg-red-500/15 border border-red-500/20 text-red-400 hover:bg-red-500/25 disabled:opacity-30"
+                                        >
+                                            Delete {isHeading ? 'Section' : 'Item'}
+                                        </button>
+                                        {isHeading && childCount > 0 && (
+                                            <p className="text-micro text-amber-400/80 text-center mt-1.5">
+                                                Remove all {childCount} item{childCount !== 1 ? 's' : ''} first
+                                            </p>
+                                        )}
+                                    </>
+                                );
+                            })()}
                     </ModalSheet>
                 )}
 
