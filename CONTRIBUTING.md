@@ -1,131 +1,153 @@
 # Contributing to Thalassa
 
+## Development Setup
+
+```bash
+git clone <repo-url>
+cd thalassa-marine-weather
+npm install          # Also runs `husky` via prepare script
+cp .env.example .env # Add your API keys
+npm run dev          # Start dev server at localhost:5173
+```
+
+## Code Quality
+
+### Pre-commit Hooks
+
+Husky + lint-staged runs automatically on every commit:
+
+- **ESLint** checks staged `.ts/.tsx` files (0 errors enforced)
+- **Prettier** checks formatting on staged files
+
+### Running Checks Manually
+
+```bash
+npm run lint         # ESLint (entire project)
+npm run lint:fix     # Auto-fix what's possible
+npm run format       # Reformat all files
+npx tsc --noEmit     # TypeScript check
+npm test             # Vitest (watch mode)
+npx vitest run       # Vitest (CI mode, single run)
+```
+
 ## Code Conventions
-
-### TypeScript
-
-- **Zero `as any`** — All production code is fully typed
-- **Zero `@ts-ignore`** — Use proper type narrowing instead
-- **Centralized types** — Add domain interfaces to `types.ts`
-- **Strict mode** — `tsc --noEmit` must pass with zero errors
-
-### Component Patterns
-
-```tsx
-// ✅ Good: Hook extraction for complex logic
-const { data, loading, actions } = useDashboardController();
-
-// ✅ Good: Service layer for business logic  
-await ShipLogService.createEntry(entry);
-
-// ❌ Bad: Fetch calls directly in components
-// ❌ Bad: Business logic in event handlers
-```
-
-### Error Handling
-
-- All `catch {}` blocks must have an inline comment explaining **why** silence is appropriate
-- Use `log.error()` or `log.warn()` for unexpected failures
-- Use silent catches only for: GPS fallbacks, localStorage corruption, platform polyfills, non-critical persistence
-- Use `getErrorMessage(error)` to safely extract error messages
-
-```typescript
-// ✅ Good: Documented silent catch
-} catch {
-    /* Reverse geocode failed — fall back to coordinate-based name */
-    name = `WP ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
-}
-
-// ❌ Bad: Undocumented silent catch
-} catch { }
-```
-
-### Accessibility
-
-- All interactive elements must be `<button>` or `<a>`, never clickable `<div>`s
-- Modal overlays require `role="dialog"`, `aria-modal="true"`, and `aria-label`
-- Loading states use `role="alert"` + `aria-live="assertive"`
-- Toggle buttons use `aria-pressed`
-- Icon-only buttons require `aria-label`
 
 ### File Organization
 
-| Directory | Purpose |
-|-----------|---------|
-| `components/` | React UI components, organized by feature |
-| `services/` | Business logic services (no React dependencies) |
-| `hooks/` | Custom React hooks (bridge between services and UI) |
-| `utils/` | Pure functions (unit conversions, math, formatting) |
-| `context/` | React Context providers for global state |
-| `types.ts` | Centralized TypeScript interfaces |
+| Type       | Location      | Naming                                                 |
+| ---------- | ------------- | ------------------------------------------------------ |
+| Components | `components/` | PascalCase (e.g., `AnchorWatchPage.tsx`)               |
+| Hooks      | `hooks/`      | camelCase with `use` prefix (`useKeyboardScroll.ts`)   |
+| Services   | `services/`   | PascalCase (`WeatherScheduler.ts`)                     |
+| Utilities  | `utils/`      | camelCase (`logger.ts`)                                |
+| Tests      | `tests/`      | camelCase matching source (`weatherScheduler.test.ts`) |
+| Types      | `types.ts`    | Centralized — add here, not in component files         |
 
----
+### TypeScript
 
-## Development Workflow
-
-### Branch Strategy
-
-1. Create a feature branch from `main`
-2. Make changes with passing types (`npx tsc --noEmit`)
-3. Run tests (`npm run test`)
-4. Submit PR with description of changes
-
-### Before Committing
-
-```bash
-npx tsc --noEmit           # TypeScript must be clean
-npm run test               # All 325+ tests must pass
-```
-
-### Adding a New Feature
-
-1. **Types first** — Define interfaces in `types.ts`
-2. **Service layer** — Create a service in `services/` if needed
-3. **Hook** — Extract complex logic into `hooks/`
-4. **Component** — Build the UI component
-5. **Tests** — Add unit tests for any pure functions or service logic
-
-### Adding Tests
-
-Place test files adjacent to the module they test:
-
-```
-utils/
-├── units.ts         # Implementation
-├── units.test.ts    # Tests
-├── math.ts
-├── math.test.ts
-└── ...
-```
-
-Use Vitest with Testing Library:
+- **Strict mode** — no `// @ts-ignore` without justification
+- **Avoid `any`** — use `unknown` + type guards, or `Record<string, unknown>`
+- **Prefix unused params** with `_` (e.g., `_event`, `_unused`)
+- **Use `createLogger`** instead of `console.log` in services
 
 ```typescript
-import { describe, it, expect } from 'vitest';
-import { myFunction } from './myModule';
+// ✅ Good
+import { createLogger } from '../utils/logger';
+const log = createLogger('MyService');
+log.info('Operation complete', { id });
 
-describe('myFunction', () => {
-    it('handles the happy path', () => {
-        expect(myFunction(input)).toBe(expected);
-    });
+// ❌ Bad
+console.log('Operation complete', id);
+```
 
-    it('returns null for null input', () => {
-        expect(myFunction(null)).toBeNull();
+### React Patterns
+
+- **Hooks before early returns** — never call hooks conditionally
+- **Use `useMemo`/`useCallback`** for expensive computations and callback props
+- **Ref-stabilize callbacks** that are passed to memoized children
+- **Extract hooks** when component state logic exceeds ~50 lines
+
+### CSS
+
+- TailwindCSS utility classes for all styling
+- Design tokens in `theme.ts` — use `t.border.subtle`, `t.bg.card`, etc.
+- Minimum touch target: 44×44px on interactive elements
+- Typography floor: 11px minimum font size
+
+## Testing
+
+### Writing Tests
+
+```bash
+# Create test file matching the source
+# services/WeatherScheduler.ts → tests/weatherScheduler.test.ts
+
+npx vitest run tests/weatherScheduler.test.ts  # Run single file
+```
+
+### Test Structure
+
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+
+describe('ModuleName', () => {
+    describe('functionName()', () => {
+        it('should handle the happy path', () => {
+            // Arrange → Act → Assert
+        });
+
+        it('should handle edge case X', () => {
+            // Test boundary conditions
+        });
     });
 });
 ```
 
----
+### Mock Patterns
 
-## API Keys
+- Mock Supabase at module level with `vi.mock()`
+- Use `vi.hoisted()` for mock variables referenced in `vi.mock()` factories
+- Mock Capacitor plugins (`@capacitor/preferences`, etc.)
 
-| Service | Purpose | Required |
-|---------|---------|----------|
-| StormGlass | Primary weather data | Yes |
-| Mapbox | Map tiles and geocoding | Yes |
-| Gemini | AI voyage analysis | Optional |
-| Supabase | Auth, database, sync | Optional |
-| WorldTides | Tide predictions | Optional |
-| OpenMeteo | Fallback weather | Optional |
+## Git Workflow
 
-Keys are set via `.env` file with `VITE_` prefix for Vite bundling.
+```bash
+# Feature work
+git checkout -b feature/my-feature
+# ... make changes ...
+git add -p                    # Stage selectively
+git commit -m "feat: description"  # Pre-commit hook runs lint
+git push origin feature/my-feature
+# Open PR → CI runs lint + typecheck + tests + build
+```
+
+### Commit Messages
+
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+- `feat:` — New feature
+- `fix:` — Bug fix
+- `refactor:` — Code change that neither fixes a bug nor adds a feature
+- `test:` — Adding or updating tests
+- `docs:` — Documentation only
+- `chore:` — Build process, CI, dependencies
+
+## Architecture Notes
+
+### Service Layer
+
+Business logic lives in `services/`, never in components. Services are stateless singletons or static classes that can be tested independently.
+
+### Weather Pipeline
+
+```
+WeatherKit (primary) → StormGlass (fallback) → OpenMeteo (fallback)
+     ↓
+WeatherContext (orchestration, caching, smart polling)
+     ↓
+WeatherScheduler (pure functions: interval selection, storm detection)
+```
+
+### Offline Support
+
+All mutations go through an offline queue (`services/shiplog/OfflineQueue.ts`). When the device comes back online, queued operations sync automatically.
