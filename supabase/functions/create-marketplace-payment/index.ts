@@ -44,7 +44,8 @@ serve(async (req) => {
         const authHeader = req.headers.get('Authorization');
         if (!authHeader) {
             return new Response(JSON.stringify({ error: 'Not authenticated' }), {
-                status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 401,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
         }
 
@@ -53,17 +54,22 @@ serve(async (req) => {
         const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
         const token = authHeader.replace('Bearer ', '');
-        const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+        const {
+            data: { user },
+            error: authError,
+        } = await supabase.auth.getUser(token);
         if (authError || !user) {
             return new Response(JSON.stringify({ error: 'Invalid token' }), {
-                status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 401,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
         }
 
         const { listing_id } = await req.json();
         if (!listing_id) {
             return new Response(JSON.stringify({ error: 'listing_id is required' }), {
-                status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
         }
 
@@ -77,13 +83,15 @@ serve(async (req) => {
 
         if (listingError || !listing) {
             return new Response(JSON.stringify({ error: 'Listing not found or no longer available' }), {
-                status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 404,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
         }
 
         if (listing.seller_id === user.id) {
             return new Response(JSON.stringify({ error: 'Cannot purchase your own listing' }), {
-                status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
         }
 
@@ -96,13 +104,14 @@ serve(async (req) => {
 
         if (!sellerProfile?.stripe_account_id) {
             return new Response(JSON.stringify({ error: 'Seller has not set up Stripe payments' }), {
-                status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
         }
 
         // Calculate fees
         const amountCents = Math.round(parseFloat(listing.price) * 100);
-        const platformFeeCents = Math.round(amountCents * PLATFORM_FEE_PERCENT / 100);
+        const platformFeeCents = Math.round((amountCents * PLATFORM_FEE_PERCENT) / 100);
         const sellerPayoutCents = amountCents - platformFeeCents;
         const stripeCurrency = (listing.currency || 'AUD').toLowerCase();
 
@@ -116,7 +125,7 @@ serve(async (req) => {
         const paymentIntent = await stripe.paymentIntents.create({
             amount: amountCents,
             currency: stripeCurrency,
-            capture_method: 'manual',  // ← AUTH ONLY, no immediate capture
+            capture_method: 'manual', // ← AUTH ONLY, no immediate capture
             application_fee_amount: platformFeeCents,
             transfer_data: {
                 destination: sellerProfile.stripe_account_id,
@@ -159,30 +168,27 @@ serve(async (req) => {
         }
 
         // Mark listing as pending
-        await supabase
-            .from('marketplace_listings')
-            .update({ status: 'pending' })
-            .eq('id', listing.id);
+        await supabase.from('marketplace_listings').update({ status: 'pending' }).eq('id', listing.id);
 
         return new Response(
             JSON.stringify({
                 clientSecret: paymentIntent.client_secret,
                 paymentIntentId: paymentIntent.id,
                 escrowId: escrow.id,
-                escrowPin: escrowPin,  // Only visible to buyer
+                escrowPin: escrowPin, // Only visible to buyer
                 expiresAt,
                 amountCents,
                 platformFeeCents,
                 sellerPayoutCents,
                 currency: stripeCurrency,
             }),
-            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         );
     } catch (err) {
         console.error('Marketplace payment error:', err);
-        return new Response(
-            JSON.stringify({ error: err instanceof Error ? err.message : 'Internal server error' }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Internal server error' }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
     }
 });

@@ -208,7 +208,7 @@ export const loadLargeData = async (key: string) => {
 
     // 2. Not Found in Filesystem? Check Legacy Storage...
     // Use warn only if it's NOT just a missing file (which we know it is now)
-    // console.log(`[Filesystem] ${key} not in file. Checking Legacy...`);
+    // console.info(`[Filesystem] ${key} not in file. Checking Legacy...`);
 
     const legacyData = localStorage.getItem(key);
     if (legacyData) {

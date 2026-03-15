@@ -21,9 +21,9 @@ declare const Deno: { serve: (handler: (req: Request) => Promise<Response> | Res
 // ── CORS ──────────────────────────────────────────────────────
 
 const CORS: Record<string, string> = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey, x-client-info",
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey, x-client-info',
 };
 
 function corsResponse(body: BodyInit | null, status: number, extra?: Record<string, string>) {
@@ -52,12 +52,12 @@ function getLatestGfsCycle(): { date: string; cycle: string } {
     }
 
     const yyyy = cycleDate.getUTCFullYear();
-    const mm = String(cycleDate.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(cycleDate.getUTCDate()).padStart(2, "0");
+    const mm = String(cycleDate.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(cycleDate.getUTCDate()).padStart(2, '0');
 
     return {
         date: `${yyyy}${mm}${dd}`,
-        cycle: String(selectedCycle).padStart(2, "0"),
+        cycle: String(selectedCycle).padStart(2, '0'),
     };
 }
 
@@ -81,12 +81,12 @@ function selectResolution(north: number, south: number, east: number, west: numb
     const areaDeg2 = latSpan * lonSpan;
 
     if (areaDeg2 > 10_000) {
-        return { filter: "filter_gfs_1p00.pl", file: "pgrb2.1p00.f000", label: "1.00°" };
+        return { filter: 'filter_gfs_1p00.pl', file: 'pgrb2.1p00.f000', label: '1.00°' };
     }
     if (areaDeg2 > 2_500) {
-        return { filter: "filter_gfs_0p50.pl", file: "pgrb2full.0p50.f000", label: "0.50°" };
+        return { filter: 'filter_gfs_0p50.pl', file: 'pgrb2full.0p50.f000', label: '0.50°' };
     }
-    return { filter: "filter_gfs_0p25.pl", file: "pgrb2.0p25.f000", label: "0.25°" };
+    return { filter: 'filter_gfs_0p25.pl', file: 'pgrb2.0p25.f000', label: '0.25°' };
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -103,17 +103,12 @@ function getSignedGrib(dv: DataView, offset: number): number {
     const raw = dv.getUint32(offset);
     if (raw & 0x80000000) {
         // Negative: strip sign bit, negate
-        return -(raw & 0x7FFFFFFF);
+        return -(raw & 0x7fffffff);
     }
     return raw;
 }
 
-function extractBits(
-    dv: DataView,
-    byteOffset: number,
-    totalBits: number,
-    bitsPerValue: number,
-): number[] {
+function extractBits(dv: DataView, byteOffset: number, totalBits: number, bitsPerValue: number): number[] {
     const count = Math.floor(totalBits / bitsPerValue);
     const values: number[] = new Array(count);
     let bitPos = 0;
@@ -153,10 +148,18 @@ function parseGrib2Message(buf: ArrayBuffer, offset: number): { msg: GridMessage
     const totalLen = Number(dv.getBigUint64(offset + 8));
     let pos = offset + 16;
 
-    let nx = 0, ny = 0;
-    let lat1 = 0, lat2 = 0, lon1 = 0, lon2 = 0;
-    let dx = 0, dy = 0;
-    let R = 0, E = 0, D = 0, bitsPerVal = 0;
+    let nx = 0,
+        ny = 0;
+    let lat1 = 0,
+        lat2 = 0,
+        lon1 = 0,
+        lon2 = 0;
+    let dx = 0,
+        dy = 0;
+    let R = 0,
+        E = 0,
+        D = 0,
+        bitsPerVal = 0;
     let numPoints = 0;
     let data = new Float32Array(0);
 
@@ -196,17 +199,17 @@ function parseGrib2Message(buf: ArrayBuffer, offset: number): { msg: GridMessage
                     lon2 = lo2Raw;
                 } else {
                     // Infer from grid dimensions
-                    const dLat = (nx > 1 && ny > 1) ? 180.0 / (ny - 1) : 1.0;
-                    const dLon = (nx > 1) ? 360.0 / nx : 1.0;
-                    lat2 = la2Valid ? la2Raw : (lat1 - (ny - 1) * dLat);
-                    lon2 = lo2Valid ? lo2Raw : (lon1 + (nx - 1) * dLon);
+                    const dLat = nx > 1 && ny > 1 ? 180.0 / (ny - 1) : 1.0;
+                    const dLon = nx > 1 ? 360.0 / nx : 1.0;
+                    lat2 = la2Valid ? la2Raw : lat1 - (ny - 1) * dLat;
+                    lon2 = lo2Valid ? lo2Raw : lon1 + (nx - 1) * dLon;
                 }
 
                 // Extract dx/dy — try standard offsets, fall back to inference
                 const dxRaw = dv.getUint32(pos + 63) / 1e6;
                 const dyRaw = dv.getUint32(pos + 67) / 1e6;
-                dx = (dxRaw > 0 && dxRaw < 10) ? dxRaw : Math.abs(lon2 - lon1) / Math.max(nx - 1, 1);
-                dy = (dyRaw > 0 && dyRaw < 10) ? dyRaw : Math.abs(lat1 - lat2) / Math.max(ny - 1, 1);
+                dx = dxRaw > 0 && dxRaw < 10 ? dxRaw : Math.abs(lon2 - lon1) / Math.max(nx - 1, 1);
+                dy = dyRaw > 0 && dyRaw < 10 ? dyRaw : Math.abs(lat1 - lat2) / Math.max(ny - 1, 1);
                 break;
             }
             case 5: {
@@ -324,33 +327,31 @@ interface VelocityRequest {
 }
 
 Deno.serve(async (req: Request) => {
-    if (req.method === "OPTIONS") {
+    if (req.method === 'OPTIONS') {
         return corsResponse(null, 204);
     }
 
     try {
         let north: number, south: number, east: number, west: number;
 
-        if (req.method === "GET") {
+        if (req.method === 'GET') {
             // GET: ?lat=-24.5&lon=159.5&radius=10
             const url = new URL(req.url);
-            const lat = parseFloat(url.searchParams.get("lat") || "");
-            const lon = parseFloat(url.searchParams.get("lon") || "");
-            const radius = parseFloat(url.searchParams.get("radius") || "15");
+            const lat = parseFloat(url.searchParams.get('lat') || '');
+            const lon = parseFloat(url.searchParams.get('lon') || '');
+            const radius = parseFloat(url.searchParams.get('radius') || '15');
 
             if (isNaN(lat) || isNaN(lon)) {
-                return corsResponse(
-                    JSON.stringify({ error: "Missing lat/lon query params" }),
-                    400,
-                    { "Content-Type": "application/json" },
-                );
+                return corsResponse(JSON.stringify({ error: 'Missing lat/lon query params' }), 400, {
+                    'Content-Type': 'application/json',
+                });
             }
 
             north = lat + radius;
             south = lat - radius;
             east = lon + radius;
             west = lon - radius;
-        } else if (req.method === "POST") {
+        } else if (req.method === 'POST') {
             // POST: { north, south, east, west }
             const body: VelocityRequest = await req.json();
             north = body.north;
@@ -358,23 +359,24 @@ Deno.serve(async (req: Request) => {
             east = body.east;
             west = body.west;
         } else {
-            return corsResponse(
-                JSON.stringify({ error: "GET or POST required" }),
-                405,
-                { "Content-Type": "application/json" },
-            );
+            return corsResponse(JSON.stringify({ error: 'GET or POST required' }), 405, {
+                'Content-Type': 'application/json',
+            });
         }
 
         if (
-            typeof north !== "number" || typeof south !== "number" ||
-            typeof east !== "number" || typeof west !== "number" ||
-            isNaN(north) || isNaN(south) || isNaN(east) || isNaN(west)
+            typeof north !== 'number' ||
+            typeof south !== 'number' ||
+            typeof east !== 'number' ||
+            typeof west !== 'number' ||
+            isNaN(north) ||
+            isNaN(south) ||
+            isNaN(east) ||
+            isNaN(west)
         ) {
-            return corsResponse(
-                JSON.stringify({ error: "Invalid bounds" }),
-                400,
-                { "Content-Type": "application/json" },
-            );
+            return corsResponse(JSON.stringify({ error: 'Invalid bounds' }), 400, {
+                'Content-Type': 'application/json',
+            });
         }
 
         // Convert longitudes to NOAA 0-360 format
@@ -397,10 +399,10 @@ Deno.serve(async (req: Request) => {
         const params = new URLSearchParams({
             dir: `/gfs.${date}/${cycle}/atmos`,
             file: `gfs.t${cycle}z.${res.file}`,
-            var_UGRD: "on",
-            var_VGRD: "on",
-            lev_10_m_above_ground: "on",
-            subregion: "",
+            var_UGRD: 'on',
+            var_VGRD: 'on',
+            lev_10_m_above_ground: 'on',
+            subregion: '',
             leftlon: leftLon.toFixed(2),
             rightlon: rightLon.toFixed(2),
             toplat: north.toFixed(2),
@@ -408,7 +410,7 @@ Deno.serve(async (req: Request) => {
         });
 
         const noaaUrl = `https://nomads.ncep.noaa.gov/cgi-bin/${res.filter}?${params.toString()}`;
-        console.log(`[fetch-wind-velocity] GFS ${date}/${cycle}z @ ${res.label} → ${noaaUrl}`);
+        console.info(`[fetch-wind-velocity] GFS ${date}/${cycle}z @ ${res.label} → ${noaaUrl}`);
 
         // Fetch raw GRIB2 from NOAA
         const upstream = await fetch(noaaUrl);
@@ -422,7 +424,7 @@ Deno.serve(async (req: Request) => {
                     detail: errText.substring(0, 500),
                 }),
                 502,
-                { "Content-Type": "application/json" },
+                { 'Content-Type': 'application/json' },
             );
         }
 
@@ -433,9 +435,9 @@ Deno.serve(async (req: Request) => {
             const text = new TextDecoder().decode(gribData);
             console.error(`[fetch-wind-velocity] Tiny response (${gribData.byteLength}B): ${text}`);
             return corsResponse(
-                JSON.stringify({ error: "NOAA returned empty or invalid data", detail: text.substring(0, 300) }),
+                JSON.stringify({ error: 'NOAA returned empty or invalid data', detail: text.substring(0, 300) }),
                 502,
-                { "Content-Type": "application/json" },
+                { 'Content-Type': 'application/json' },
             );
         }
 
@@ -446,26 +448,22 @@ Deno.serve(async (req: Request) => {
         const jsonStr = JSON.stringify(velocityJson);
         const sizeKB = (jsonStr.length / 1024).toFixed(1);
 
-        console.log(
+        console.info(
             `[fetch-wind-velocity] Decoded ${gribData.byteLength}B GRIB2 → ${sizeKB}KB JSON ` +
-            `(${velocityJson[0].data.length} points, GFS ${date}/${cycle}z @ ${res.label})`,
+                `(${velocityJson[0].data.length} points, GFS ${date}/${cycle}z @ ${res.label})`,
         );
 
         return corsResponse(jsonStr, 200, {
-            "Content-Type": "application/json",
-            "Cache-Control": "public, max-age=3600",
-            "X-GFS-Date": date,
-            "X-GFS-Cycle": `${cycle}z`,
-            "X-Grid-Resolution": res.label,
-            "X-Grid-Points": String(velocityJson[0].data.length),
-            "X-Bounds": `${south},${north},${west},${east}`,
+            'Content-Type': 'application/json',
+            'Cache-Control': 'public, max-age=3600',
+            'X-GFS-Date': date,
+            'X-GFS-Cycle': `${cycle}z`,
+            'X-Grid-Resolution': res.label,
+            'X-Grid-Points': String(velocityJson[0].data.length),
+            'X-Bounds': `${south},${north},${west},${east}`,
         });
     } catch (err) {
-        console.error("[fetch-wind-velocity] Error:", err);
-        return corsResponse(
-            JSON.stringify({ error: String(err) }),
-            500,
-            { "Content-Type": "application/json" },
-        );
+        console.error('[fetch-wind-velocity] Error:', err);
+        return corsResponse(JSON.stringify({ error: String(err) }), 500, { 'Content-Type': 'application/json' });
     }
 });

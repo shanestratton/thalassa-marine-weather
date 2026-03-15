@@ -81,7 +81,7 @@ interface NDBCRawData {
  * ```typescript
  * const data = await fetchNDBCBuoy("46086");
  * if (data) {
- *   console.log(`Wind: ${data.windSpeed} m/s from ${data.windDirection}°`);
+ *   console.info(`Wind: ${data.windSpeed} m/s from ${data.windDirection}°`);
  * }
  * ```
  */
@@ -517,8 +517,8 @@ async function fetchBuoyData(buoy: BuoyStation): Promise<NDBCRawData | null> {
  * ```typescript
  * const beacon = await findAndFetchNearestBeacon(-27.3, 153.3, 10);
  * if (beacon) {
- *   console.log(`Found ${beacon.name} at ${beacon.distance}nm`);
- *   console.log(`Wave height: ${beacon.waveHeight}m`);
+ *   console.info(`Found ${beacon.name} at ${beacon.distance}nm`);
+ *   console.info(`Wave height: ${beacon.waveHeight}m`);
  * }
  * ```
  */

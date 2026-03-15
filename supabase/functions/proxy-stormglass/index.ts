@@ -20,61 +20,69 @@ declare const Deno: {
  */
 
 const CORS: Record<string, string> = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey",
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
 };
 
 function corsResponse(body: BodyInit | null, status: number, extra?: Record<string, string>) {
-    return new Response(body, { status, headers: { ...CORS, "Content-Type": "application/json", ...extra } });
+    return new Response(body, { status, headers: { ...CORS, 'Content-Type': 'application/json', ...extra } });
 }
 
-const BASE_URL = "https://api.stormglass.io/v2";
+const BASE_URL = 'https://api.stormglass.io/v2';
 
 Deno.serve(async (req: Request) => {
-    if (req.method === "OPTIONS") {
+    if (req.method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: CORS });
     }
 
-    if (req.method !== "POST") {
-        return corsResponse(JSON.stringify({ error: "POST required" }), 405);
+    if (req.method !== 'POST') {
+        return corsResponse(JSON.stringify({ error: 'POST required' }), 405);
     }
 
-    const key = Deno.env.get("STORMGLASS_API_KEY");
+    const key = Deno.env.get('STORMGLASS_API_KEY');
     if (!key) {
-        return corsResponse(JSON.stringify({ error: "STORMGLASS_API_KEY not configured" }), 500);
+        return corsResponse(JSON.stringify({ error: 'STORMGLASS_API_KEY not configured' }), 500);
     }
 
     try {
         const { path, params } = await req.json();
 
-        if (!path || typeof path !== "string") {
-            return corsResponse(JSON.stringify({ error: "path is required" }), 400);
+        if (!path || typeof path !== 'string') {
+            return corsResponse(JSON.stringify({ error: 'path is required' }), 400);
         }
 
         // Sanitize: only allow known StormGlass paths
-        const allowedPaths = ["weather/point", "bio/point", "tide/extremes/point", "tide/sea-level/point", "astronomy/point"];
-        if (!allowedPaths.some(p => path.startsWith(p))) {
-            return corsResponse(JSON.stringify({ error: "Invalid path" }), 400);
+        const allowedPaths = [
+            'weather/point',
+            'bio/point',
+            'tide/extremes/point',
+            'tide/sea-level/point',
+            'astronomy/point',
+        ];
+        if (!allowedPaths.some((p) => path.startsWith(p))) {
+            return corsResponse(JSON.stringify({ error: 'Invalid path' }), 400);
         }
 
         // Build query string from params
         const queryString = params
-            ? Object.entries(params).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join("&")
-            : "";
+            ? Object.entries(params)
+                  .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+                  .join('&')
+            : '';
 
-        const url = `${BASE_URL}/${path}${queryString ? `?${queryString}` : ""}`;
+        const url = `${BASE_URL}/${path}${queryString ? `?${queryString}` : ''}`;
 
         const res = await fetch(url, {
             headers: { Authorization: key },
         });
 
         // Forward rate limit headers so the client can track quota
-        const quotaRemaining = res.headers.get("x-quota-remaining");
-        const quotaTotal = res.headers.get("x-quota-total");
+        const quotaRemaining = res.headers.get('x-quota-remaining');
+        const quotaTotal = res.headers.get('x-quota-total');
         const extraHeaders: Record<string, string> = {};
-        if (quotaRemaining) extraHeaders["x-quota-remaining"] = quotaRemaining;
-        if (quotaTotal) extraHeaders["x-quota-total"] = quotaTotal;
+        if (quotaRemaining) extraHeaders['x-quota-remaining'] = quotaRemaining;
+        if (quotaTotal) extraHeaders['x-quota-total'] = quotaTotal;
 
         const data = await res.json();
 
@@ -84,7 +92,7 @@ Deno.serve(async (req: Request) => {
 
         return corsResponse(JSON.stringify(data), res.status, extraHeaders);
     } catch (e) {
-        console.error("[proxy-stormglass] Error:", e);
-        return corsResponse(JSON.stringify({ error: "Internal proxy error" }), 500);
+        console.error('[proxy-stormglass] Error:', e);
+        return corsResponse(JSON.stringify({ error: 'Internal proxy error' }), 500);
     }
 });

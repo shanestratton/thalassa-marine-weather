@@ -26,9 +26,9 @@ declare const Deno: {
 // ── CORS ──────────────────────────────────────────────────────────
 
 const CORS: Record<string, string> = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
 function corsResponse(body: BodyInit | null, status: number, extra?: Record<string, string>) {
@@ -36,7 +36,7 @@ function corsResponse(body: BodyInit | null, status: number, extra?: Record<stri
 }
 
 function jsonResponse(data: unknown, status = 200) {
-    return corsResponse(JSON.stringify(data), status, { "Content-Type": "application/json" });
+    return corsResponse(JSON.stringify(data), status, { 'Content-Type': 'application/json' });
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -52,51 +52,51 @@ interface CenterlineWaypoint {
 
 interface VesselParams {
     type: 'sail' | 'power';
-    cruising_speed_kts: number;       // Target speed in knots
-    max_wind_kts: number;             // Absolute wind limit
-    max_wave_m: number;               // Absolute wave limit
-    polar_data?: PolarData | null;    // Optional polar performance matrix
+    cruising_speed_kts: number; // Target speed in knots
+    max_wind_kts: number; // Absolute wind limit
+    max_wave_m: number; // Absolute wave limit
+    polar_data?: PolarData | null; // Optional polar performance matrix
 }
 
 interface PolarData {
-    windSpeeds: number[];   // TWS columns (kts)
-    angles: number[];       // TWA rows (degrees, 0-180)
-    matrix: number[][];     // matrix[angleIdx][windSpeedIdx] = boat speed (kts)
+    windSpeeds: number[]; // TWS columns (kts)
+    angles: number[]; // TWA rows (degrees, 0-180)
+    matrix: number[][]; // matrix[angleIdx][windSpeedIdx] = boat speed (kts)
 }
 
 interface WeatherRouteRequest {
-    centerline: CenterlineWaypoint[];  // From bathymetric router
-    departure_time: string;            // ISO 8601 timestamp
+    centerline: CenterlineWaypoint[]; // From bathymetric router
+    departure_time: string; // ISO 8601 timestamp
     vessel: VesselParams;
-    corridor_width_nm?: number;        // Default 30 NM each side
-    lateral_steps?: number;            // Default 2 (±15, ±30 NM)
+    corridor_width_nm?: number; // Default 30 NM each side
+    lateral_steps?: number; // Default 2 (±15, ±30 NM)
 }
 
 /** A single node in the corridor mesh */
 interface MeshNode {
-    id: number;             // Unique node ID
+    id: number; // Unique node ID
     lat: number;
     lon: number;
-    centerIdx: number;      // Which centerline segment this belongs to
-    lateralOffset: number;  // -2, -1, 0, +1, +2 (port to starboard)
+    centerIdx: number; // Which centerline segment this belongs to
+    lateralOffset: number; // -2, -1, 0, +1, +2 (port to starboard)
     depth_m?: number;
-    isLand?: boolean;       // True if node is above sea level (GEBCO)
+    isLand?: boolean; // True if node is above sea level (GEBCO)
 }
 
 /** Weather sample at a point in spacetime */
 interface WeatherSample {
-    windSpeed: number;      // True wind speed (kts)
-    windDir: number;        // True wind direction (degrees, FROM)
-    waveHeight: number;     // Significant wave height (m)
-    swellPeriod?: number;   // Swell period (s)
+    windSpeed: number; // True wind speed (kts)
+    windDir: number; // True wind direction (degrees, FROM)
+    waveHeight: number; // Significant wave height (m)
+    swellPeriod?: number; // Swell period (s)
 }
 
 /** A* node in the priority queue */
 interface AStarNode4D {
-    nodeId: number;         // MeshNode id
-    gCost: number;          // Accumulated cost (hours * penalty)
-    gTime: number;          // Accumulated time (hours from departure)
-    fCost: number;          // gCost + heuristic
+    nodeId: number; // MeshNode id
+    gCost: number; // Accumulated cost (hours * penalty)
+    gTime: number; // Accumulated time (hours from departure)
+    fCost: number; // gCost + heuristic
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -109,21 +109,21 @@ const RAD_TO_DEG = 180 / Math.PI;
 
 // Default corridor parameters
 const DEFAULT_CORRIDOR_WIDTH_NM = 30;
-const DEFAULT_LATERAL_STEPS = 2;   // ±15 NM, ±30 NM
+const DEFAULT_LATERAL_STEPS = 2; // ±15 NM, ±30 NM
 
 // Penalty weights
-const HEADWIND_PENALTY_POWER = 1.4;     // 40% slower in strong headwind (power)
-const BEAM_WIND_BONUS_SAIL = 0.85;      // 15% faster on beam reach (sail)
-const UPWIND_PENALTY_SAIL = 1.6;        // 60% slower going upwind (sail < 45°)
-const LIGHT_AIR_PENALTY_SAIL = 1.5;     // 50% slower in < 5 kts (sail)
-const GALE_PENALTY = 3.0;              // Massive penalty near limits
-const IMPASSABLE = 999999;              // Effectively blocks the node
+const HEADWIND_PENALTY_POWER = 1.4; // 40% slower in strong headwind (power)
+const BEAM_WIND_BONUS_SAIL = 0.85; // 15% faster on beam reach (sail)
+const UPWIND_PENALTY_SAIL = 1.6; // 60% slower going upwind (sail < 45°)
+const LIGHT_AIR_PENALTY_SAIL = 1.5; // 50% slower in < 5 kts (sail)
+const GALE_PENALTY = 3.0; // Massive penalty near limits
+const IMPASSABLE = 999999; // Effectively blocks the node
 
 // Coastal pilotage corridor constants
 const SEAMARK_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h — chart data rarely changes
-const CHANNEL_BUFFER_DEG = 0.00005;  // ~5.5m safety buffer for vessel beam
-const CHANNEL_BBOX_RADIUS_NM = 5;   // How far from marina to search for seamarks
-const OVERPASS_TIMEOUT = 25;         // Overpass API timeout in seconds
+const CHANNEL_BUFFER_DEG = 0.00005; // ~5.5m safety buffer for vessel beam
+const CHANNEL_BBOX_RADIUS_NM = 5; // How far from marina to search for seamarks
+const OVERPASS_TIMEOUT = 25; // Overpass API timeout in seconds
 
 // ══════════════════════════════════════════════════════════════════════
 // SAFE-WATER CORRIDOR — Maritime Pilotage (Law of the Sea)
@@ -152,8 +152,8 @@ interface SeamarkElement {
 interface NavMark {
     lat: number;
     lon: number;
-    type: string;        // seamark:type (e.g. 'beacon_lateral', 'buoy_lateral')
-    category: string;    // 'port' | 'starboard' | 'cardinal' | 'safe_water' | 'unknown'
+    type: string; // seamark:type (e.g. 'beacon_lateral', 'buoy_lateral')
+    category: string; // 'port' | 'starboard' | 'cardinal' | 'safe_water' | 'unknown'
     name: string;
     distFromOrigin: number; // nm from marina — computed after ingestion
 }
@@ -170,7 +170,7 @@ interface ChannelGate {
 
 /** The navigable polygon + ordered gates for A* constraint */
 interface SafeWaterCorridor {
-    polygon: [number, number][];  // [lon, lat][] ring (closed)
+    polygon: [number, number][]; // [lon, lat][] ring (closed)
     gates: ChannelGate[];
     handshakePoint: { lat: number; lon: number }; // Where channel meets open water
     valid: boolean;
@@ -192,15 +192,15 @@ async function fetchSeamarks(
     radiusNM: number = CHANNEL_BBOX_RADIUS_NM,
 ): Promise<SeamarkElement[]> {
     // Build bounding box (~5nm around the marina)
-    const latDelta = radiusNM / 60;    // 1nm ≈ 1 minute of latitude
+    const latDelta = radiusNM / 60; // 1nm ≈ 1 minute of latitude
     const lonDelta = radiusNM / (60 * Math.cos(lat * DEG_TO_RAD));
     const bbox = `${(lat - latDelta).toFixed(4)},${(lon - lonDelta).toFixed(4)},${(lat + latDelta).toFixed(4)},${(lon + lonDelta).toFixed(4)}`;
 
     // Check cache
     const cacheKey = bbox;
     const cached = seamarkCache.get(cacheKey);
-    if (cached && (Date.now() - cached.fetchedAt) < SEAMARK_CACHE_TTL_MS) {
-        console.log(`[Pilotage] Seamark cache HIT: ${cached.data.length} elements`);
+    if (cached && Date.now() - cached.fetchedAt < SEAMARK_CACHE_TTL_MS) {
+        console.info(`[Pilotage] Seamark cache HIT: ${cached.data.length} elements`);
         return cached.data;
     }
 
@@ -215,7 +215,7 @@ async function fetchSeamarks(
     `;
 
     try {
-        console.log(`[Pilotage] Fetching seamarks for bbox ${bbox}...`);
+        console.info(`[Pilotage] Fetching seamarks for bbox ${bbox}...`);
         const res = await fetch('https://overpass-api.de/api/interpreter', {
             method: 'POST',
             body: query,
@@ -228,7 +228,7 @@ async function fetchSeamarks(
 
         const data = await res.json();
         const elements: SeamarkElement[] = data.elements || [];
-        console.log(`[Pilotage] ✅ Fetched ${elements.length} seamark elements`);
+        console.info(`[Pilotage] ✅ Fetched ${elements.length} seamark elements`);
 
         // Cache it
         seamarkCache.set(cacheKey, { data: elements, fetchedAt: Date.now() });
@@ -320,18 +320,17 @@ function classifyMark(tags: Record<string, string>, region: IALARegion): string 
     // Lateral marks — colour depends on IALA region
     if (seamarkType.includes('lateral')) {
         // Check explicit category tags first (these are authoritative)
-        const category = tags['seamark:beacon_lateral:category']
-            || tags['seamark:buoy_lateral:category']
-            || '';
+        const category = tags['seamark:beacon_lateral:category'] || tags['seamark:buoy_lateral:category'] || '';
 
         if (category === 'port') return 'port';
         if (category === 'starboard') return 'starboard';
 
         // Fall back to colour + IALA region mapping
-        const colour = tags['seamark:beacon_lateral:colour']
-            || tags['seamark:buoy_lateral:colour']
-            || tags['seamark:lateral:colour']
-            || '';
+        const colour =
+            tags['seamark:beacon_lateral:colour'] ||
+            tags['seamark:buoy_lateral:colour'] ||
+            tags['seamark:lateral:colour'] ||
+            '';
 
         if (colour) {
             if (region === 'A') {
@@ -347,9 +346,7 @@ function classifyMark(tags: Record<string, string>, region: IALARegion): string 
 
         // Fallback: detect from shape (same meaning in both regions)
         // Cylinder/Can = Port, Cone/Triangle = Starboard
-        const shape = tags['seamark:beacon_lateral:shape']
-            || tags['seamark:buoy_lateral:shape']
-            || '';
+        const shape = tags['seamark:beacon_lateral:shape'] || tags['seamark:buoy_lateral:shape'] || '';
         if (shape === 'cylinder' || shape === 'can') return 'port';
         if (shape === 'cone' || shape === 'conical') return 'starboard';
     }
@@ -363,7 +360,7 @@ function classifyMark(tags: Record<string, string>, region: IALARegion): string 
  */
 function parseNavMarks(elements: SeamarkElement[], originLat: number, originLon: number): NavMark[] {
     const region = determineIALARegion(originLat, originLon);
-    console.log(`[Pilotage] IALA Region: ${region} (${region === 'A' ? 'Red=Port' : 'Red=Starboard "RRR"'})`);
+    console.info(`[Pilotage] IALA Region: ${region} (${region === 'A' ? 'Red=Port' : 'Red=Starboard "RRR"'})`);
 
     const marks: NavMark[] = [];
 
@@ -372,9 +369,12 @@ function parseNavMarks(elements: SeamarkElement[], originLat: number, originLon:
         const seamarkType = tags['seamark:type'] || '';
 
         // Only process navigational marks (lateral, cardinal, safe_water)
-        if (!seamarkType.includes('lateral') &&
+        if (
+            !seamarkType.includes('lateral') &&
             !seamarkType.includes('cardinal') &&
-            !seamarkType.includes('safe_water')) continue;
+            !seamarkType.includes('safe_water')
+        )
+            continue;
 
         // Get position
         let lat = el.lat;
@@ -417,15 +417,13 @@ function parseNavMarks(elements: SeamarkElement[], originLat: number, originLon:
  * The "handshake point" is the center of the outermost gate —
  * where pilotage ends and open-ocean routing begins.
  */
-function buildSafeWaterCorridor(
-    marks: NavMark[],
-    originLat: number,
-    originLon: number,
-): SafeWaterCorridor {
-    const portMarks = marks.filter(m => m.category === 'port').sort((a, b) => a.distFromOrigin - b.distFromOrigin);
-    const stbMarks = marks.filter(m => m.category === 'starboard').sort((a, b) => a.distFromOrigin - b.distFromOrigin);
+function buildSafeWaterCorridor(marks: NavMark[], originLat: number, originLon: number): SafeWaterCorridor {
+    const portMarks = marks.filter((m) => m.category === 'port').sort((a, b) => a.distFromOrigin - b.distFromOrigin);
+    const stbMarks = marks
+        .filter((m) => m.category === 'starboard')
+        .sort((a, b) => a.distFromOrigin - b.distFromOrigin);
 
-    console.log(`[Pilotage] Port marks: ${portMarks.length}, Starboard marks: ${stbMarks.length}`);
+    console.info(`[Pilotage] Port marks: ${portMarks.length}, Starboard marks: ${stbMarks.length}`);
 
     // Need at least 2 pairs to form a meaningful channel
     if (portMarks.length < 2 || stbMarks.length < 2) {
@@ -482,8 +480,10 @@ function buildSafeWaterCorridor(
     const lastGate = gates[gates.length - 1];
     const handshakePoint = { lat: lastGate.centerLat, lon: lastGate.centerLon };
 
-    console.log(`[Pilotage] ✅ Channel polygon: ${polygonPoints.length} vertices, ${gates.length} gates`);
-    console.log(`[Pilotage] Handshake point: ${handshakePoint.lat.toFixed(4)}, ${handshakePoint.lon.toFixed(4)} (${lastGate.distFromOrigin.toFixed(2)} nm from marina)`);
+    console.info(`[Pilotage] ✅ Channel polygon: ${polygonPoints.length} vertices, ${gates.length} gates`);
+    console.info(
+        `[Pilotage] Handshake point: ${handshakePoint.lat.toFixed(4)}, ${handshakePoint.lon.toFixed(4)} (${lastGate.distFromOrigin.toFixed(2)} nm from marina)`,
+    );
 
     return {
         polygon: polygonPoints,
@@ -506,10 +506,11 @@ function pointInPolygon(lon: number, lat: number, polygon: [number, number][]): 
     let inside = false;
     const n = polygon.length;
     for (let i = 0, j = n - 1; i < n; j = i++) {
-        const xi = polygon[i][0], yi = polygon[i][1];
-        const xj = polygon[j][0], yj = polygon[j][1];
-        if (((yi > lat) !== (yj > lat)) &&
-            (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) {
+        const xi = polygon[i][0],
+            yi = polygon[i][1];
+        const xj = polygon[j][0],
+            yj = polygon[j][1];
+        if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) {
             inside = !inside;
         }
     }
@@ -571,18 +572,18 @@ async function buildCoastalCorridor(
     lon: number,
     label: string = 'departure',
 ): Promise<{ corridor: SafeWaterCorridor; centerline: CenterlineWaypoint[]; marks: NavMark[] }> {
-    console.log(`[Pilotage] Building ${label} corridor at ${lat.toFixed(4)}, ${lon.toFixed(4)}...`);
+    console.info(`[Pilotage] Building ${label} corridor at ${lat.toFixed(4)}, ${lon.toFixed(4)}...`);
 
     const elements = await fetchSeamarks(lat, lon);
     const marks = parseNavMarks(elements, lat, lon);
 
-    console.log(`[Pilotage] ${marks.length} navigational marks classified:`);
+    console.info(`[Pilotage] ${marks.length} navigational marks classified:`);
     const categoryCounts: Record<string, number> = {};
     for (const m of marks) {
         categoryCounts[m.category] = (categoryCounts[m.category] || 0) + 1;
     }
     for (const [cat, count] of Object.entries(categoryCounts)) {
-        console.log(`  ${cat}: ${count}`);
+        console.info(`  ${cat}: ${count}`);
     }
 
     const corridor = buildSafeWaterCorridor(marks, lat, lon);
@@ -619,7 +620,7 @@ function stitchThreeLegCenterline(
         for (const wp of departureCorridor.centerline) {
             stitched.push(wp);
         }
-        console.log(`[Stitcher] Departure leg: ${departureCorridor.centerline.length} waypoints`);
+        console.info(`[Stitcher] Departure leg: ${departureCorridor.centerline.length} waypoints`);
     }
 
     const departureEndIdx = stitched.length;
@@ -642,10 +643,12 @@ function stitchThreeLegCenterline(
         for (const wp of reversed) {
             stitched.push(wp);
         }
-        console.log(`[Stitcher] Arrival leg: ${arrivalCorridor.centerline.length} waypoints`);
+        console.info(`[Stitcher] Arrival leg: ${arrivalCorridor.centerline.length} waypoints`);
     }
 
-    console.log(`[Stitcher] ✅ Stitched route: ${stitched.length} total waypoints (D:${departureEndIdx}/A:${arrivalStartIdx})`);
+    console.info(
+        `[Stitcher] ✅ Stitched route: ${stitched.length} total waypoints (D:${departureEndIdx}/A:${arrivalStartIdx})`,
+    );
 
     return {
         centerline: stitched,
@@ -663,9 +666,8 @@ function stitchThreeLegCenterline(
 function haversineNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const dLat = (lat2 - lat1) * DEG_TO_RAD;
     const dLon = (lon2 - lon1) * DEG_TO_RAD;
-    const a = Math.sin(dLat / 2) ** 2 +
-        Math.cos(lat1 * DEG_TO_RAD) * Math.cos(lat2 * DEG_TO_RAD) *
-        Math.sin(dLon / 2) ** 2;
+    const a =
+        Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * DEG_TO_RAD) * Math.cos(lat2 * DEG_TO_RAD) * Math.sin(dLon / 2) ** 2;
     return 2 * EARTH_RADIUS_NM * Math.asin(Math.sqrt(a));
 }
 
@@ -673,9 +675,10 @@ function haversineNM(lat1: number, lon1: number, lat2: number, lon2: number): nu
 function bearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const dLon = (lon2 - lon1) * DEG_TO_RAD;
     const y = Math.sin(dLon) * Math.cos(lat2 * DEG_TO_RAD);
-    const x = Math.cos(lat1 * DEG_TO_RAD) * Math.sin(lat2 * DEG_TO_RAD) -
+    const x =
+        Math.cos(lat1 * DEG_TO_RAD) * Math.sin(lat2 * DEG_TO_RAD) -
         Math.sin(lat1 * DEG_TO_RAD) * Math.cos(lat2 * DEG_TO_RAD) * Math.cos(dLon);
-    return ((Math.atan2(y, x) * RAD_TO_DEG) + 360) % 360;
+    return (Math.atan2(y, x) * RAD_TO_DEG + 360) % 360;
 }
 
 /**
@@ -688,16 +691,15 @@ function destinationPoint(lat: number, lon: number, bearingDeg: number, distNM: 
     const latR = lat * DEG_TO_RAD;
     const lonR = lon * DEG_TO_RAD;
 
-    const lat2 = Math.asin(
-        Math.sin(latR) * Math.cos(angDist) +
-        Math.cos(latR) * Math.sin(angDist) * Math.cos(brng)
-    );
-    const lon2 = lonR + Math.atan2(
-        Math.sin(brng) * Math.sin(angDist) * Math.cos(latR),
-        Math.cos(angDist) - Math.sin(latR) * Math.sin(lat2)
-    );
+    const lat2 = Math.asin(Math.sin(latR) * Math.cos(angDist) + Math.cos(latR) * Math.sin(angDist) * Math.cos(brng));
+    const lon2 =
+        lonR +
+        Math.atan2(
+            Math.sin(brng) * Math.sin(angDist) * Math.cos(latR),
+            Math.cos(angDist) - Math.sin(latR) * Math.sin(lat2),
+        );
 
-    return { lat: lat2 * RAD_TO_DEG, lon: ((lon2 * RAD_TO_DEG) + 540) % 360 - 180 };
+    return { lat: lat2 * RAD_TO_DEG, lon: ((lon2 * RAD_TO_DEG + 540) % 360) - 180 };
 }
 
 /** Alias for Trip Sandwich handshake projection */
@@ -787,7 +789,9 @@ function generateCorridorMesh(
         }
     }
 
-    console.log(`[WeatherRouter] Generated corridor mesh: ${nodes.length} nodes (${centerline.length} rows × ${2 * lateralSteps + 1} cols)`);
+    console.info(
+        `[WeatherRouter] Generated corridor mesh: ${nodes.length} nodes (${centerline.length} rows × ${2 * lateralSteps + 1} cols)`,
+    );
     return nodes;
 }
 
@@ -855,8 +859,10 @@ function generateCorridorMeshVariable(
     }
 
     // Log row widths for debugging
-    const coastalRows = perRowCorridorWidth.filter(w => w < DEFAULT_CORRIDOR_WIDTH_NM).length;
-    console.log(`[WeatherRouter] Generated variable mesh: ${nodes.length} nodes (${centerline.length} rows × ${2 * lateralSteps + 1} cols, ${coastalRows} coastal rows)`);
+    const coastalRows = perRowCorridorWidth.filter((w) => w < DEFAULT_CORRIDOR_WIDTH_NM).length;
+    console.info(
+        `[WeatherRouter] Generated variable mesh: ${nodes.length} nodes (${centerline.length} rows × ${2 * lateralSteps + 1} cols, ${coastalRows} coastal rows)`,
+    );
     return nodes;
 }
 
@@ -872,9 +878,9 @@ function generateCorridorMeshVariable(
 // ══════════════════════════════════════════════════════════════════════
 
 // @ts-ignore: Deno ESM import
-import { fromUrl } from "https://esm.sh/geotiff@2.1.3?bundle-deps&target=deno";
+import { fromUrl } from 'https://esm.sh/geotiff@2.1.3?bundle-deps&target=deno';
 
-const SUPABASE_URL_ENV = Deno.env.get("SUPABASE_URL") || "";
+const SUPABASE_URL_ENV = Deno.env.get('SUPABASE_URL') || '';
 const LANDMASK_COG_URL = `${SUPABASE_URL_ENV}/storage/v1/object/public/gebco-tiles/thalassa_bathymetry_global.tif`;
 const LANDMASK_MAX_GRID = 300;
 
@@ -886,8 +892,10 @@ const LANDMASK_MAX_GRID = 300;
  * tiles covering the bounding box, not the entire global file.
  */
 async function fetchElevationGrid(
-    minLat: number, maxLat: number,
-    minLon: number, maxLon: number,
+    minLat: number,
+    maxLat: number,
+    minLon: number,
+    maxLon: number,
 ): Promise<{ elevation: Int16Array; rows: number; cols: number; lats: number[]; lons: number[] } | null> {
     try {
         const tiff = await fromUrl(LANDMASK_COG_URL);
@@ -903,11 +911,15 @@ async function fetchElevationGrid(
             const tp = image.fileDirectory.ModelTiepoint;
             const ps = image.fileDirectory.ModelPixelScale;
             if (tp && ps) {
-                west = tp[3]; north = tp[4];
+                west = tp[3];
+                north = tp[4];
                 east = tp[3] + ps[0] * imgWidth;
                 south = tp[4] - ps[1] * imgHeight;
             } else {
-                west = -180; south = -80; east = 180; north = 80;
+                west = -180;
+                south = -80;
+                east = 180;
+                north = 80;
             }
         }
 
@@ -956,7 +968,9 @@ async function fetchElevationGrid(
         for (let r = 0; r < outRows; r++) lats[r] = winNorth - (r + 0.5) * pxLat;
         for (let c = 0; c < outCols; c++) lons[c] = winWest + (c + 0.5) * pxLon;
 
-        console.log(`[LandMask] GEBCO grid ${outCols}×${outRows} (${ds}× ds) for [${minLat.toFixed(2)},${minLon.toFixed(2)}]→[${maxLat.toFixed(2)},${maxLon.toFixed(2)}]`);
+        console.info(
+            `[LandMask] GEBCO grid ${outCols}×${outRows} (${ds}× ds) for [${minLat.toFixed(2)},${minLon.toFixed(2)}]→[${maxLat.toFixed(2)},${maxLon.toFixed(2)}]`,
+        );
         return { elevation, rows: outRows, cols: outCols, lats, lons };
     } catch (err) {
         console.warn(`[LandMask] Failed to fetch GEBCO elevation:`, err);
@@ -974,8 +988,10 @@ async function applyLandMask(nodes: MeshNode[]): Promise<number> {
     if (nodes.length === 0) return 0;
 
     // Compute bounding box of all mesh nodes
-    let minLat = Infinity, maxLat = -Infinity;
-    let minLon = Infinity, maxLon = -Infinity;
+    let minLat = Infinity,
+        maxLat = -Infinity;
+    let minLon = Infinity,
+        maxLon = -Infinity;
     for (const node of nodes) {
         if (node.lat < minLat) minLat = node.lat;
         if (node.lat > maxLat) maxLat = node.lat;
@@ -983,8 +999,10 @@ async function applyLandMask(nodes: MeshNode[]): Promise<number> {
         if (node.lon > maxLon) maxLon = node.lon;
     }
     // Add 0.1° buffer (~11km) to ensure edge nodes are covered
-    minLat -= 0.1; maxLat += 0.1;
-    minLon -= 0.1; maxLon += 0.1;
+    minLat -= 0.1;
+    maxLat += 0.1;
+    minLon -= 0.1;
+    maxLon += 0.1;
 
     const grid = await fetchElevationGrid(minLat, maxLat, minLon, maxLon);
     if (!grid) {
@@ -1000,15 +1018,23 @@ async function applyLandMask(nodes: MeshNode[]): Promise<number> {
 
     for (const node of nodes) {
         // Find nearest grid cell (simple nearest-neighbor lookup)
-        let bestRow = 0, bestRowDist = Infinity;
+        let bestRow = 0,
+            bestRowDist = Infinity;
         for (let r = 0; r < rows; r++) {
             const d = Math.abs(lats[r] - node.lat);
-            if (d < bestRowDist) { bestRow = r; bestRowDist = d; }
+            if (d < bestRowDist) {
+                bestRow = r;
+                bestRowDist = d;
+            }
         }
-        let bestCol = 0, bestColDist = Infinity;
+        let bestCol = 0,
+            bestColDist = Infinity;
         for (let c = 0; c < cols; c++) {
             const d = Math.abs(lons[c] - node.lon);
-            if (d < bestColDist) { bestCol = c; bestColDist = d; }
+            if (d < bestColDist) {
+                bestCol = c;
+                bestColDist = d;
+            }
         }
 
         const elev = elevation[bestRow * cols + bestCol];
@@ -1018,7 +1044,9 @@ async function applyLandMask(nodes: MeshNode[]): Promise<number> {
         }
     }
 
-    console.log(`[LandMask] ⛰️  ${landCount} land nodes blocked out of ${nodes.length} total (${(landCount / nodes.length * 100).toFixed(1)}%)`);
+    console.info(
+        `[LandMask] ⛰️  ${landCount} land nodes blocked out of ${nodes.length} total (${((landCount / nodes.length) * 100).toFixed(1)}%)`,
+    );
     return landCount;
 }
 
@@ -1041,10 +1069,7 @@ let _elevationCache: {
  * This is the "line of sight" check that prevents A* from
  * connecting two water nodes via a path that crosses land.
  */
-function segmentCrossesLand(
-    lat1: number, lon1: number,
-    lat2: number, lon2: number,
-): boolean {
+function segmentCrossesLand(lat1: number, lon1: number, lat2: number, lon2: number): boolean {
     if (!_elevationCache) return false;
 
     const { elevation, rows, cols, lats, lons } = _elevationCache;
@@ -1052,11 +1077,13 @@ function segmentCrossesLand(
     // Skip very short edges — node checks are sufficient
     const dLat = Math.abs(lat2 - lat1);
     const dLon = Math.abs(lon2 - lon1);
-    if (dLat < 0.001 && dLon < 0.001) return false;  // < ~110m
+    if (dLat < 0.001 && dLon < 0.001) return false; // < ~110m
 
     // Use grid bounds for O(1) index lookup instead of linear search
-    const latMax = lats[0], latMin = lats[rows - 1];  // lats are N→S
-    const lonMin = lons[0], lonMax = lons[cols - 1];
+    const latMax = lats[0],
+        latMin = lats[rows - 1]; // lats are N→S
+    const lonMin = lons[0],
+        lonMax = lons[cols - 1];
     const latRange = latMax - latMin;
     const lonRange = lonMax - lonMin;
     if (latRange <= 0 || lonRange <= 0) return false;
@@ -1071,14 +1098,14 @@ function segmentCrossesLand(
         const sLon = lon1 + (lon2 - lon1) * t;
 
         // Direct index computation (O(1) instead of O(N))
-        const ri = Math.round((latMax - sLat) / latRange * (rows - 1));
-        const ci = Math.round((sLon - lonMin) / lonRange * (cols - 1));
+        const ri = Math.round(((latMax - sLat) / latRange) * (rows - 1));
+        const ci = Math.round(((sLon - lonMin) / lonRange) * (cols - 1));
 
         // Bounds check
         if (ri < 0 || ri >= rows || ci < 0 || ci >= cols) continue;
 
         if (elevation[ri * cols + ci] > 0) {
-            return true;  // 🔴 Crosses land!
+            return true; // 🔴 Crosses land!
         }
     }
     return false;
@@ -1136,7 +1163,7 @@ function densifyCenterline(
     }
 
     if (dense.length !== centerline.length) {
-        console.log(`[WeatherRouter] Densified centerline: ${centerline.length} → ${dense.length} waypoints`);
+        console.info(`[WeatherRouter] Densified centerline: ${centerline.length} → ${dense.length} waypoints`);
     }
     return dense;
 }
@@ -1145,7 +1172,7 @@ function densifyCenterline(
 function averageBearing(b1: number, b2: number): number {
     const x = Math.cos(b1 * DEG_TO_RAD) + Math.cos(b2 * DEG_TO_RAD);
     const y = Math.sin(b1 * DEG_TO_RAD) + Math.sin(b2 * DEG_TO_RAD);
-    return ((Math.atan2(y, x) * RAD_TO_DEG) + 360) % 360;
+    return (Math.atan2(y, x) * RAD_TO_DEG + 360) % 360;
 }
 
 /**
@@ -1160,11 +1187,7 @@ function averageBearing(b1: number, b2: number): number {
  * This creates a DAG (Directed Acyclic Graph) which guarantees
  * the A* terminates and prevents cycling.
  */
-function buildAdjacencyList(
-    nodes: MeshNode[],
-    nodesPerRow: number,
-    numRows: number,
-): Map<number, number[]> {
+function buildAdjacencyList(nodes: MeshNode[], nodesPerRow: number, numRows: number): Map<number, number[]> {
     const adj = new Map<number, number[]>();
 
     for (let row = 0; row < numRows - 1; row++) {
@@ -1206,7 +1229,10 @@ interface WeatherGrid {
     /** Hours of forecast available */
     hoursAvailable: number;
     /** Bounding box */
-    minLat: number; maxLat: number; minLon: number; maxLon: number;
+    minLat: number;
+    maxLat: number;
+    minLon: number;
+    maxLon: number;
 }
 
 /**
@@ -1222,14 +1248,12 @@ interface WeatherGrid {
  *   Each grid point = 1 WeatherKit API call (hourly, 240h forecast)
  *   Total: ~60 calls, parallelized in batches of 10
  */
-async function fetchWeatherGrid(
-    nodes: MeshNode[],
-    departureTime: Date,
-    _maxHours: number = 240,
-): Promise<WeatherGrid> {
+async function fetchWeatherGrid(nodes: MeshNode[], departureTime: Date, _maxHours: number = 240): Promise<WeatherGrid> {
     // Compute bounding box of all mesh nodes
-    let minLat = Infinity, maxLat = -Infinity;
-    let minLon = Infinity, maxLon = -Infinity;
+    let minLat = Infinity,
+        maxLat = -Infinity;
+    let minLon = Infinity,
+        maxLon = -Infinity;
     for (const n of nodes) {
         minLat = Math.min(minLat, n.lat);
         maxLat = Math.max(maxLat, n.lat);
@@ -1243,7 +1267,10 @@ async function fetchWeatherGrid(
         resolution,
         startTime: departureTime.getTime(),
         hoursAvailable: 0,
-        minLat, maxLat, minLon, maxLon,
+        minLat,
+        maxLat,
+        minLon,
+        maxLon,
     };
 
     // Generate grid sample points
@@ -1254,11 +1281,13 @@ async function fetchWeatherGrid(
         }
     }
 
-    console.log(`[WeatherRouter] Fetching weather for ${samplePoints.length} grid points (${(maxLat - minLat).toFixed(1)}° × ${(maxLon - minLon).toFixed(1)}°)`);
+    console.info(
+        `[WeatherRouter] Fetching weather for ${samplePoints.length} grid points (${(maxLat - minLat).toFixed(1)}° × ${(maxLon - minLon).toFixed(1)}°)`,
+    );
 
     // Fetch in parallel batches of 10
     const BATCH_SIZE = 10;
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') || '';
 
     for (let i = 0; i < samplePoints.length; i += BATCH_SIZE) {
         const batch = samplePoints.slice(i, i + BATCH_SIZE);
@@ -1272,7 +1301,7 @@ async function fetchWeatherGrid(
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY") || ""}`,
+                            Authorization: `Bearer ${Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || Deno.env.get('SUPABASE_ANON_KEY') || ''}`,
                         },
                         body: JSON.stringify({
                             lat: pt.lat,
@@ -1287,23 +1316,25 @@ async function fetchWeatherGrid(
                     const data = await resp.json();
                     const hourly = data?.forecastHourly?.hours || [];
 
-                    const samples: WeatherSample[] = hourly.map((h: {
-                        forecastStart: string;
-                        windSpeed?: number;      // km/h from WeatherKit
-                        windDirection?: number;   // degrees
-                    }) => ({
-                        windSpeed: ((h.windSpeed || 0) / 1.852), // km/h → kts
-                        windDir: h.windDirection || 0,
-                        waveHeight: 0, // Will be filled from Pierson-Moskowitz model
-                        swellPeriod: undefined,
-                    }));
+                    const samples: WeatherSample[] = hourly.map(
+                        (h: {
+                            forecastStart: string;
+                            windSpeed?: number; // km/h from WeatherKit
+                            windDirection?: number; // degrees
+                        }) => ({
+                            windSpeed: (h.windSpeed || 0) / 1.852, // km/h → kts
+                            windDir: h.windDirection || 0,
+                            waveHeight: 0, // Will be filled from Pierson-Moskowitz model
+                            swellPeriod: undefined,
+                        }),
+                    );
 
                     return { key: `${pt.lat},${pt.lon}`, samples };
                 } catch (e) {
                     console.warn('[index]', e);
                     return null;
                 }
-            })
+            }),
         );
 
         for (const result of results) {
@@ -1314,7 +1345,7 @@ async function fetchWeatherGrid(
         }
     }
 
-    console.log(`[WeatherRouter] WeatherKit grid loaded: ${grid.data.size} points, ${grid.hoursAvailable}h forecast`);
+    console.info(`[WeatherRouter] WeatherKit grid loaded: ${grid.data.size} points, ${grid.hoursAvailable}h forecast`);
 
     // ── NOMADS WaveWatch III — Swell data enrichment ──
     // Fetches significant wave height + peak swell period from NOAA
@@ -1368,16 +1399,16 @@ async function enrichGridWithWaveData(grid: WeatherGrid): Promise<void> {
 
         // Request specific variables and subregion
         const params = new URLSearchParams({
-            'file': file,
-            'var_HTSGW': 'on',
-            'var_PERPW': 'on',
-            'lev_surface': 'on',
-            'subregion': '',
-            'leftlon': String(Math.floor(ww3LonMin)),
-            'rightlon': String(Math.ceil(ww3LonMax)),
-            'toplat': String(Math.ceil(maxLat)),
-            'bottomlat': String(Math.floor(minLat)),
-            'dir': dir,
+            file: file,
+            var_HTSGW: 'on',
+            var_PERPW: 'on',
+            lev_surface: 'on',
+            subregion: '',
+            leftlon: String(Math.floor(ww3LonMin)),
+            rightlon: String(Math.ceil(ww3LonMax)),
+            toplat: String(Math.ceil(maxLat)),
+            bottomlat: String(Math.floor(minLat)),
+            dir: dir,
         });
 
         try {
@@ -1394,8 +1425,7 @@ async function enrichGridWithWaveData(grid: WeatherGrid): Promise<void> {
 
             // Simple estimation: use the average wave height for the region
             // A proper implementation would decode the GRIB2 binary
-            console.log(`[WeatherRouter] WW3 f${fStr}: ${blob.byteLength} bytes received`);
-
+            console.info(`[WeatherRouter] WW3 f${fStr}: ${blob.byteLength} bytes received`);
         } catch (e) {
             console.warn('[index]', e);
             // Individual forecast hour failed — continue
@@ -1404,7 +1434,7 @@ async function enrichGridWithWaveData(grid: WeatherGrid): Promise<void> {
 
     // Fallback: use a simple climatological wave estimation
     // based on latitude and wind speed from the existing grid
-    console.log(`[WeatherRouter] Enriching wave data from wind-wave relationship model`);
+    console.info(`[WeatherRouter] Enriching wave data from wind-wave relationship model`);
 
     for (const [key, samples] of grid.data.entries()) {
         const [latStr] = key.split(',');
@@ -1432,7 +1462,7 @@ async function enrichGridWithWaveData(grid: WeatherGrid): Promise<void> {
         }
     }
 
-    console.log(`[WeatherRouter] Wave data enriched for ${grid.data.size} grid points`);
+    console.info(`[WeatherRouter] Wave data enriched for ${grid.data.size} grid points`);
 }
 
 /**
@@ -1441,12 +1471,7 @@ async function enrichGridWithWaveData(grid: WeatherGrid): Promise<void> {
  * Uses bilinear spatial interpolation between the 4 nearest grid points,
  * then linear temporal interpolation between the bounding hours.
  */
-function interpolateWeather(
-    grid: WeatherGrid,
-    lat: number,
-    lon: number,
-    hourFromDeparture: number,
-): WeatherSample {
+function interpolateWeather(grid: WeatherGrid, lat: number, lon: number, hourFromDeparture: number): WeatherSample {
     // Snap to grid
     const res = grid.resolution;
     const gLat0 = Math.floor(lat / res) * res;
@@ -1478,11 +1503,7 @@ function interpolateWeather(
     return lerpSample(top, bot, fLat);
 }
 
-function getSample(
-    grid: WeatherGrid,
-    lat: number, lon: number,
-    h0: number, h1: number, fH: number,
-): WeatherSample {
+function getSample(grid: WeatherGrid, lat: number, lon: number, h0: number, h1: number, fH: number): WeatherSample {
     const key = `${Math.round(lat * 100) / 100},${Math.round(lon * 100) / 100}`;
     const samples = grid.data.get(key);
 
@@ -1500,9 +1521,10 @@ function lerpSample(a: WeatherSample, b: WeatherSample, t: number): WeatherSampl
         windSpeed: a.windSpeed + (b.windSpeed - a.windSpeed) * t,
         windDir: lerpAngle(a.windDir, b.windDir, t),
         waveHeight: a.waveHeight + (b.waveHeight - a.waveHeight) * t,
-        swellPeriod: (a.swellPeriod && b.swellPeriod)
-            ? a.swellPeriod + (b.swellPeriod - a.swellPeriod) * t
-            : a.swellPeriod || b.swellPeriod,
+        swellPeriod:
+            a.swellPeriod && b.swellPeriod
+                ? a.swellPeriod + (b.swellPeriod - a.swellPeriod) * t
+                : a.swellPeriod || b.swellPeriod,
     };
 }
 
@@ -1511,7 +1533,7 @@ function lerpAngle(a: number, b: number, t: number): number {
     let diff = b - a;
     if (diff > 180) diff -= 360;
     if (diff < -180) diff += 360;
-    return ((a + diff * t) + 360) % 360;
+    return (a + diff * t + 360) % 360;
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1571,11 +1593,7 @@ const TAYANA55_POLARS: PolarData = {
     ],
 };
 
-function estimateSpeed(
-    vessel: VesselParams,
-    weather: WeatherSample,
-    courseBearing: number,
-): number {
+function estimateSpeed(vessel: VesselParams, weather: WeatherSample, courseBearing: number): number {
     const twa = trueWindAngle(courseBearing, weather.windDir);
     const tws = weather.windSpeed;
     const waveH = weather.waveHeight;
@@ -1637,7 +1655,6 @@ function estimateSpeed(
             const excess = (tws - vessel.max_wind_kts * 0.75) / (vessel.max_wind_kts * 0.25);
             speed *= Math.max(0.3, 1 - excess * 0.7);
         }
-
     } else {
         // ── POWER ROUTING ──
 
@@ -1669,8 +1686,6 @@ function estimateSpeed(
     return Math.max(speed, 0.1);
 }
 
-
-
 /**
  * Bilinear interpolation of polar performance data.
  */
@@ -1684,19 +1699,25 @@ function interpolatePolar(polar: PolarData, twa: number, tws: number): number {
     // Find bounding indices
     let ai = 0;
     for (let i = 0; i < angles.length - 1; i++) {
-        if (angles[i + 1] >= clampedTWA) { ai = i; break; }
+        if (angles[i + 1] >= clampedTWA) {
+            ai = i;
+            break;
+        }
     }
     let wi = 0;
     for (let i = 0; i < windSpeeds.length - 1; i++) {
-        if (windSpeeds[i + 1] >= clampedTWS) { wi = i; break; }
+        if (windSpeeds[i + 1] >= clampedTWS) {
+            wi = i;
+            break;
+        }
     }
 
     const ai2 = Math.min(ai + 1, angles.length - 1);
     const wi2 = Math.min(wi + 1, windSpeeds.length - 1);
 
     // Fractions
-    const fA = (ai === ai2) ? 0 : (clampedTWA - angles[ai]) / (angles[ai2] - angles[ai]);
-    const fW = (wi === wi2) ? 0 : (clampedTWS - windSpeeds[wi]) / (windSpeeds[wi2] - windSpeeds[wi]);
+    const fA = ai === ai2 ? 0 : (clampedTWA - angles[ai]) / (angles[ai2] - angles[ai]);
+    const fW = wi === wi2 ? 0 : (clampedTWS - windSpeeds[wi]) / (windSpeeds[wi2] - windSpeeds[wi]);
 
     // Bilinear
     const v00 = matrix[ai][wi];
@@ -1728,8 +1749,8 @@ function interpolatePolar(polar: PolarData, twa: number, tws: number): number {
 function corridorAStar(
     nodes: MeshNode[],
     adjacency: Map<number, number[]>,
-    startIds: number[],          // Usually just the first row's center node
-    goalIds: Set<number>,        // All nodes in the last row
+    startIds: number[], // Usually just the first row's center node
+    goalIds: Set<number>, // All nodes in the last row
     vessel: VesselParams,
     weatherGrid: WeatherGrid,
     goalLat: number,
@@ -1773,7 +1794,9 @@ function corridorAStar(
 
         // Check if we've reached a goal
         if (goalIds.has(current.nodeId)) {
-            console.log(`[WeatherRouter] A* found path: ${expanded} expansions, ${current.gTime.toFixed(1)}h, cost=${current.gCost.toFixed(2)}`);
+            console.info(
+                `[WeatherRouter] A* found path: ${expanded} expansions, ${current.gTime.toFixed(1)}h, cost=${current.gCost.toFixed(2)}`,
+            );
             return reconstructPath(nodes, parent, current.nodeId, current.gTime, current.gCost);
         }
 
@@ -1812,11 +1835,7 @@ function corridorAStar(
             const courseBrg = bearing(fromNode.lat, fromNode.lon, toNode.lat, toNode.lon);
 
             // Weather at the CURRENT node and time
-            const weather = interpolateWeather(
-                weatherGrid,
-                fromNode.lat, fromNode.lon,
-                current.gTime,
-            );
+            const weather = interpolateWeather(weatherGrid, fromNode.lat, fromNode.lon, current.gTime);
 
             // ── LAND DETECTION: GEBCO elevation-based landmask ──
             // 1. Node check: is the destination node above sea level?
@@ -1861,7 +1880,8 @@ function corridorAStar(
                 const fCost = newGCost + heuristic;
                 const node4d: AStarNode4D = { nodeId: nid, gCost: newGCost, gTime: newGTime, fCost };
 
-                let lo = 0, hi = heap.length;
+                let lo = 0,
+                    hi = heap.length;
                 while (lo < hi) {
                     const mid = (lo + hi) >> 1;
                     if (heap[mid].fCost < fCost) lo = mid + 1;
@@ -1971,8 +1991,8 @@ function perpendicularDistanceNM(point: MeshNode, lineStart: MeshNode, lineEnd: 
 // ══════════════════════════════════════════════════════════════════════
 
 Deno.serve(async (req: Request) => {
-    if (req.method === "OPTIONS") return corsResponse(null, 204);
-    if (req.method !== "POST") return jsonResponse({ error: "POST only" }, 405);
+    if (req.method === 'OPTIONS') return corsResponse(null, 204);
+    if (req.method !== 'POST') return jsonResponse({ error: 'POST only' }, 405);
 
     try {
         const body: WeatherRouteRequest = await req.json();
@@ -1980,13 +2000,16 @@ Deno.serve(async (req: Request) => {
 
         // ── Validate ──
         if (!centerline || centerline.length < 2) {
-            return jsonResponse({ error: "centerline must have ≥ 2 waypoints" }, 400);
+            return jsonResponse({ error: 'centerline must have ≥ 2 waypoints' }, 400);
         }
         if (!departure_time) {
-            return jsonResponse({ error: "departure_time (ISO 8601) required" }, 400);
+            return jsonResponse({ error: 'departure_time (ISO 8601) required' }, 400);
         }
         if (!vessel || !vessel.type || !vessel.cruising_speed_kts) {
-            return jsonResponse({ error: "vessel { type, cruising_speed_kts, max_wind_kts, max_wave_m } required" }, 400);
+            return jsonResponse(
+                { error: 'vessel { type, cruising_speed_kts, max_wind_kts, max_wave_m } required' },
+                400,
+            );
         }
 
         // Scale corridor width with passage distance for meaningful weather routing
@@ -2002,10 +2025,12 @@ Deno.serve(async (req: Request) => {
         const nodesPerRow = 2 * lateralSteps + 1;
         const departureDate = new Date(departure_time);
 
-        console.log(`[WeatherRouter] ── START ────────────────────────────────`);
-        console.log(`[WeatherRouter] ${centerline.length} centerline WPs, ${vessel.type} @ ${vessel.cruising_speed_kts} kts`);
-        console.log(`[WeatherRouter] Corridor: ±${corridorWidth} NM, ${lateralSteps} lateral steps`);
-        console.log(`[WeatherRouter] Departure: ${departureDate.toISOString()}`);
+        console.info(`[WeatherRouter] ── START ────────────────────────────────`);
+        console.info(
+            `[WeatherRouter] ${centerline.length} centerline WPs, ${vessel.type} @ ${vessel.cruising_speed_kts} kts`,
+        );
+        console.info(`[WeatherRouter] Corridor: ±${corridorWidth} NM, ${lateralSteps} lateral steps`);
+        console.info(`[WeatherRouter] Departure: ${departureDate.toISOString()}`);
 
         const t0 = Date.now();
 
@@ -2014,7 +2039,7 @@ Deno.serve(async (req: Request) => {
         //
         // Instead of Overpass API seamarks (unreliable), we project
         // a point 15 NM from each berth along the bearing to the
-        // destination. The dotted exit/entry legs connect berth → 
+        // destination. The dotted exit/entry legs connect berth →
         // handshake point. The A* only runs between the two
         // handshake points (the "ocean passage" filling).
         // ══════════════════════════════════════════════════════════════
@@ -2031,9 +2056,13 @@ Deno.serve(async (req: Request) => {
         const arrToDepBearing = bearing(arrivalWp.lat, arrivalWp.lon, departureWp.lat, departureWp.lon);
         const arrHandshakePt = projectPoint(arrivalWp.lat, arrivalWp.lon, arrToDepBearing, HANDSHAKE_OFFSET_NM);
 
-        console.log(`[WeatherRouter] ⏱ Step 0 (Handshakes): ${Date.now() - t0}ms`);
-        console.log(`[WeatherRouter] Departure handshake: ${depHandshakePt.lat.toFixed(4)}, ${depHandshakePt.lon.toFixed(4)} (${HANDSHAKE_OFFSET_NM} NM from berth)`);
-        console.log(`[WeatherRouter] Arrival handshake: ${arrHandshakePt.lat.toFixed(4)}, ${arrHandshakePt.lon.toFixed(4)} (${HANDSHAKE_OFFSET_NM} NM from destination)`);
+        console.info(`[WeatherRouter] ⏱ Step 0 (Handshakes): ${Date.now() - t0}ms`);
+        console.info(
+            `[WeatherRouter] Departure handshake: ${depHandshakePt.lat.toFixed(4)}, ${depHandshakePt.lon.toFixed(4)} (${HANDSHAKE_OFFSET_NM} NM from berth)`,
+        );
+        console.info(
+            `[WeatherRouter] Arrival handshake: ${arrHandshakePt.lat.toFixed(4)}, ${arrHandshakePt.lon.toFixed(4)} (${HANDSHAKE_OFFSET_NM} NM from destination)`,
+        );
 
         // ══════════════════════════════════════════════════════════════
         // STEP 1: Build Ocean-Only Centerline
@@ -2056,7 +2085,7 @@ Deno.serve(async (req: Request) => {
             legBoundaries: { departureEndIdx: 0, arrivalStartIdx: routeCenterline.length },
         };
 
-        console.log(`[WeatherRouter] Ocean centerline: ${routeCenterline.length} waypoints`);
+        console.info(`[WeatherRouter] Ocean centerline: ${routeCenterline.length} waypoints`);
 
         // ══════════════════════════════════════════════════════════════
         // STEP 2: Generate Corridor Mesh (ocean passage only)
@@ -2079,9 +2108,9 @@ Deno.serve(async (req: Request) => {
         // ══════════════════════════════════════════════════════════════
 
         const landNodeCount = await applyLandMask(meshNodes);
-        console.log(`[WeatherRouter] ⏱ Step 2b (GEBCO): ${Date.now() - t0}ms — ${landNodeCount} land nodes`);
+        console.info(`[WeatherRouter] ⏱ Step 2b (GEBCO): ${Date.now() - t0}ms — ${landNodeCount} land nodes`);
         if (landNodeCount > 0) {
-            console.log(`[WeatherRouter] Land mask applied: ${landNodeCount} impassable nodes`);
+            console.info(`[WeatherRouter] Land mask applied: ${landNodeCount} impassable nodes`);
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -2098,11 +2127,13 @@ Deno.serve(async (req: Request) => {
             if (i === 0) return 0;
             return sum + haversineNM(routeCenterline[i - 1].lat, routeCenterline[i - 1].lon, wp.lat, wp.lon);
         }, 0);
-        const maxHours = Math.min(240, Math.ceil(totalDistNM / vessel.cruising_speed_kts * 1.5));
+        const maxHours = Math.min(240, Math.ceil((totalDistNM / vessel.cruising_speed_kts) * 1.5));
 
         const weatherGrid = await fetchWeatherGrid(meshNodes, departureDate, maxHours);
-        console.log(`[WeatherRouter] ⏱ Step 4 (Weather): ${Date.now() - t0}ms`);
-        console.log(`[WeatherRouter] 🌤️ Weather grid: ${weatherGrid.data.size} points with data, ${weatherGrid.hoursAvailable}h forecast`);
+        console.info(`[WeatherRouter] ⏱ Step 4 (Weather): ${Date.now() - t0}ms`);
+        console.info(
+            `[WeatherRouter] 🌤️ Weather grid: ${weatherGrid.data.size} points with data, ${weatherGrid.hoursAvailable}h forecast`,
+        );
 
         // ══════════════════════════════════════════════════════════════
         // STEP 5: Run 4D A* with Pilotage Constraints
@@ -2125,8 +2156,10 @@ Deno.serve(async (req: Request) => {
         const goalWp = routeCenterline[routeCenterline.length - 1];
 
         // ── Diagnostic logging ──
-        const landNodes = meshNodes.filter(n => n.isLand).length;
-        console.log(`[WeatherRouter] Mesh: ${meshNodes.length} nodes, ${landNodes} land (${(landNodes / meshNodes.length * 100).toFixed(1)}%), weather grid: ${weatherGrid.data.size} pts, ${weatherGrid.hoursAvailable}h`);
+        const landNodes = meshNodes.filter((n) => n.isLand).length;
+        console.info(
+            `[WeatherRouter] Mesh: ${meshNodes.length} nodes, ${landNodes} land (${((landNodes / meshNodes.length) * 100).toFixed(1)}%), weather grid: ${weatherGrid.data.size} pts, ${weatherGrid.hoursAvailable}h`,
+        );
 
         // ── A* Attempt 1: Full pilotage constraints ──
         let result = corridorAStar(
@@ -2139,20 +2172,28 @@ Deno.serve(async (req: Request) => {
             goalWp.lat,
             goalWp.lon,
             // Pilotage constraints — only if we have channel data
-            (stitched.departureCorridor || stitched.arrivalCorridor) ? {
-                departureCorridor: stitched.departureCorridor,
-                arrivalCorridor: stitched.arrivalCorridor,
-                legBoundaries: stitched.legBoundaries,
-                nodesPerRow,
-            } : undefined,
+            stitched.departureCorridor || stitched.arrivalCorridor
+                ? {
+                      departureCorridor: stitched.departureCorridor,
+                      arrivalCorridor: stitched.arrivalCorridor,
+                      legBoundaries: stitched.legBoundaries,
+                      nodesPerRow,
+                  }
+                : undefined,
         );
 
         // ── A* Attempt 2: Drop pilotage constraints ──
         if (!result && (stitched.departureCorridor || stitched.arrivalCorridor)) {
             console.warn(`[WeatherRouter] A* failed with pilotage — retrying ocean-only`);
             result = corridorAStar(
-                meshNodes, adjacency, startIds, goalIds,
-                vessel, weatherGrid, goalWp.lat, goalWp.lon,
+                meshNodes,
+                adjacency,
+                startIds,
+                goalIds,
+                vessel,
+                weatherGrid,
+                goalWp.lat,
+                goalWp.lon,
             );
         }
 
@@ -2161,8 +2202,14 @@ Deno.serve(async (req: Request) => {
             console.warn(`[WeatherRouter] A* failed with land mask — retrying with land disabled`);
             for (const node of meshNodes) node.isLand = false;
             result = corridorAStar(
-                meshNodes, adjacency, startIds, goalIds,
-                vessel, weatherGrid, goalWp.lat, goalWp.lon,
+                meshNodes,
+                adjacency,
+                startIds,
+                goalIds,
+                vessel,
+                weatherGrid,
+                goalWp.lat,
+                goalWp.lon,
             );
         }
 
@@ -2175,8 +2222,14 @@ Deno.serve(async (req: Request) => {
                 max_wave_m: vessel.max_wave_m * 2,
             };
             result = corridorAStar(
-                meshNodes, adjacency, startIds, goalIds,
-                relaxedVessel, weatherGrid, goalWp.lat, goalWp.lon,
+                meshNodes,
+                adjacency,
+                startIds,
+                goalIds,
+                relaxedVessel,
+                weatherGrid,
+                goalWp.lat,
+                goalWp.lon,
             );
         }
 
@@ -2194,10 +2247,15 @@ Deno.serve(async (req: Request) => {
             // Build synthetic path from centerline
             result = {
                 path: routeCenterline.map((wp, i) => ({
-                    ...meshNodes[i * nodesPerRow + lateralSteps] || {
-                        lat: wp.lat, lon: wp.lon, row: i, col: lateralSteps,
-                        lateralOffset: 0, isLand: false, depth_m: undefined,
-                    },
+                    ...(meshNodes[i * nodesPerRow + lateralSteps] || {
+                        lat: wp.lat,
+                        lon: wp.lon,
+                        row: i,
+                        col: lateralSteps,
+                        lateralOffset: 0,
+                        isLand: false,
+                        depth_m: undefined,
+                    }),
                 })),
                 totalTimeH: estTimeH,
                 totalCost: estTimeH,
@@ -2259,9 +2317,12 @@ Deno.serve(async (req: Request) => {
         if (exitDistNM > 0.5) {
             cumulativeDistNM += exitDistNM;
             track.push({
-                coordinates: [Math.round(depHandshake.lon * 10000) / 10000, Math.round(depHandshake.lat * 10000) / 10000],
+                coordinates: [
+                    Math.round(depHandshake.lon * 10000) / 10000,
+                    Math.round(depHandshake.lat * 10000) / 10000,
+                ],
                 distance_from_start_nm: Math.round(cumulativeDistNM * 10) / 10,
-                time_offset_hours: Math.round(exitDistNM / vessel.cruising_speed_kts * 10) / 10,
+                time_offset_hours: Math.round((exitDistNM / vessel.cruising_speed_kts) * 10) / 10,
                 name: 'Safe Water',
                 leg_type: 'harbour',
                 lateral_offset_nm: 0,
@@ -2275,33 +2336,27 @@ Deno.serve(async (req: Request) => {
         for (let i = 0; i < simplified.length; i++) {
             const node = simplified[i];
             if (i > 0) {
-                cumulativeDistNM += haversineNM(
-                    simplified[i - 1].lat, simplified[i - 1].lon,
-                    node.lat, node.lon,
-                );
+                cumulativeDistNM += haversineNM(simplified[i - 1].lat, simplified[i - 1].lon, node.lat, node.lon);
             } else {
                 // First passage point — add distance from handshake
-                cumulativeDistNM += haversineNM(
-                    depHandshake.lat, depHandshake.lon,
-                    node.lat, node.lon,
-                );
+                cumulativeDistNM += haversineNM(depHandshake.lat, depHandshake.lon, node.lat, node.lon);
             }
 
-            const timeFraction = (simplified.length <= 1) ? 0 : i / (simplified.length - 1);
+            const timeFraction = simplified.length <= 1 ? 0 : i / (simplified.length - 1);
             const timeOffsetH = exitTimeH + result.totalTimeH * timeFraction;
 
             const wx = interpolateWeather(weatherGrid, node.lat, node.lon, result.totalTimeH * timeFraction);
 
             track.push({
-                coordinates: [
-                    Math.round(node.lon * 10000) / 10000,
-                    Math.round(node.lat * 10000) / 10000,
-                ],
+                coordinates: [Math.round(node.lon * 10000) / 10000, Math.round(node.lat * 10000) / 10000],
                 distance_from_start_nm: Math.round(cumulativeDistNM * 10) / 10,
                 time_offset_hours: Math.round(timeOffsetH * 10) / 10,
-                name: i === 0 ? 'Ocean Start'
-                    : i === simplified.length - 1 ? 'Ocean End'
-                        : `WP-${String(i).padStart(2, '0')}`,
+                name:
+                    i === 0
+                        ? 'Ocean Start'
+                        : i === simplified.length - 1
+                          ? 'Ocean End'
+                          : `WP-${String(i).padStart(2, '0')}`,
                 leg_type: 'ocean',
                 lateral_offset_nm: node.lateralOffset * (corridorWidth / lateralSteps),
                 conditions: {
@@ -2321,11 +2376,16 @@ Deno.serve(async (req: Request) => {
         // Deep water end (only add if different from last passage point)
         if (entryDistNM > 0.5) {
             cumulativeDistNM += haversineNM(
-                simplified[simplified.length - 1].lat, simplified[simplified.length - 1].lon,
-                arrHandshake.lat, arrHandshake.lon,
+                simplified[simplified.length - 1].lat,
+                simplified[simplified.length - 1].lon,
+                arrHandshake.lat,
+                arrHandshake.lon,
             );
             track.push({
-                coordinates: [Math.round(arrHandshake.lon * 10000) / 10000, Math.round(arrHandshake.lat * 10000) / 10000],
+                coordinates: [
+                    Math.round(arrHandshake.lon * 10000) / 10000,
+                    Math.round(arrHandshake.lat * 10000) / 10000,
+                ],
                 distance_from_start_nm: Math.round(cumulativeDistNM * 10) / 10,
                 time_offset_hours: Math.round(totalPassageTimeH * 10) / 10,
                 name: 'Safe Water',
@@ -2351,8 +2411,10 @@ Deno.serve(async (req: Request) => {
         const routeDistNM = cumulativeDistNM;
 
         // Bounding box for instant map camera framing [minLon, minLat, maxLon, maxLat]
-        let bbMinLat = Infinity, bbMaxLat = -Infinity;
-        let bbMinLon = Infinity, bbMaxLon = -Infinity;
+        let bbMinLat = Infinity,
+            bbMaxLat = -Infinity;
+        let bbMinLon = Infinity,
+            bbMaxLon = -Infinity;
         for (const pt of track) {
             bbMinLon = Math.min(bbMinLon, pt.coordinates[0]);
             bbMaxLon = Math.max(bbMaxLon, pt.coordinates[0]);
@@ -2360,10 +2422,12 @@ Deno.serve(async (req: Request) => {
             bbMaxLat = Math.max(bbMaxLat, pt.coordinates[1]);
         }
 
-        console.log(`[WeatherRouter] ── COMPLETE ─────────────────────────────`);
-        console.log(`[WeatherRouter] ${track.length} track points (${track.filter(t => t.leg_type === 'harbour').length} harbour, ${track.filter(t => t.leg_type === 'ocean').length} ocean), ${routeDistNM.toFixed(1)} NM`);
-        console.log(`[WeatherRouter] ETA: ${result.totalTimeH.toFixed(1)}h, Cost: ${result.totalCost.toFixed(2)}`);
-        console.log(`[WeatherRouter] Computed in ${computeMs}ms`);
+        console.info(`[WeatherRouter] ── COMPLETE ─────────────────────────────`);
+        console.info(
+            `[WeatherRouter] ${track.length} track points (${track.filter((t) => t.leg_type === 'harbour').length} harbour, ${track.filter((t) => t.leg_type === 'ocean').length} ocean), ${routeDistNM.toFixed(1)} NM`,
+        );
+        console.info(`[WeatherRouter] ETA: ${result.totalTimeH.toFixed(1)}h, Cost: ${result.totalCost.toFixed(2)}`);
+        console.info(`[WeatherRouter] Computed in ${computeMs}ms`);
 
         return jsonResponse({
             summary: {
@@ -2403,9 +2467,8 @@ Deno.serve(async (req: Request) => {
                 },
             },
         });
-
     } catch (err) {
-        console.error("[WeatherRouter] Fatal:", err);
+        console.error('[WeatherRouter] Fatal:', err);
         return jsonResponse({ error: String(err) }, 500);
     }
 });

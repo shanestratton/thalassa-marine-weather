@@ -13,9 +13,9 @@ declare const Deno: { serve: (handler: (req: Request) => Promise<Response> | Res
  */
 
 const CORS: Record<string, string> = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
 function corsResponse(body: BodyInit | null, status: number, extra?: Record<string, string>) {
@@ -28,7 +28,10 @@ function getLatestGfsCycle(): { date: string; cycle: string } {
     const cycles = [18, 12, 6, 0];
     let selectedCycle = 0;
     for (const c of cycles) {
-        if (utcHour >= c + 5) { selectedCycle = c; break; }
+        if (utcHour >= c + 5) {
+            selectedCycle = c;
+            break;
+        }
     }
     let cycleDate = now;
     if (utcHour < 5) {
@@ -36,9 +39,9 @@ function getLatestGfsCycle(): { date: string; cycle: string } {
         cycleDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     }
     const yyyy = cycleDate.getUTCFullYear();
-    const mm = String(cycleDate.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(cycleDate.getUTCDate()).padStart(2, "0");
-    return { date: `${yyyy}${mm}${dd}`, cycle: String(selectedCycle).padStart(2, "0") };
+    const mm = String(cycleDate.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(cycleDate.getUTCDate()).padStart(2, '0');
+    return { date: `${yyyy}${mm}${dd}`, cycle: String(selectedCycle).padStart(2, '0') };
 }
 
 function toNoaaLon(lon: number): number {
@@ -77,12 +80,12 @@ function extractBitsServer(data: DataView, byteOffset: number, totalBits: number
 
 interface DecodedFrame {
     pressure: number[]; // hPa values, row-major N→S, W→E
-    width: number;      // Ni = longitude count
-    height: number;     // Nj = latitude count
-    lat1: number;       // First latitude (typically north)
-    lat2: number;       // Last latitude (typically south)
-    lon1: number;       // First longitude (west)
-    lon2: number;       // Last longitude (east)
+    width: number; // Ni = longitude count
+    height: number; // Nj = latitude count
+    lat1: number; // First latitude (typically north)
+    lat2: number; // Last latitude (typically south)
+    lon1: number; // First longitude (west)
+    lon2: number; // Last longitude (east)
 }
 
 function decodeGrib2PressureServer(buffer: ArrayBuffer): DecodedFrame[] {
@@ -92,22 +95,37 @@ function decodeGrib2PressureServer(buffer: ArrayBuffer): DecodedFrame[] {
 
     while (offset < buffer.byteLength - 16) {
         const magic = view.getUint32(offset, false);
-        if (magic !== GRIB_MAGIC) { offset++; continue; }
+        if (magic !== GRIB_MAGIC) {
+            offset++;
+            continue;
+        }
 
         const lenHi = view.getUint32(offset + 8, false);
         const lenLo = view.getUint32(offset + 12, false);
         const totalLength = lenHi > 0 ? lenHi * 0x100000000 + lenLo : lenLo;
 
         let pos = offset + 16;
-        let width = 0, height = 0;
-        let la1 = 0, la2 = 0, lo1 = 0, lo2 = 0;
-        let refValue = 0, binaryScale = 0, decimalScale = 0, bitsPerValue = 0;
+        let width = 0,
+            height = 0;
+        let la1 = 0,
+            la2 = 0,
+            lo1 = 0,
+            lo2 = 0;
+        let refValue = 0,
+            binaryScale = 0,
+            decimalScale = 0,
+            bitsPerValue = 0;
         let packedData: number[] = [];
         const endOfMessage = offset + totalLength;
 
         while (pos < endOfMessage - 4) {
-            if (view.getUint8(pos) === 0x37 && view.getUint8(pos + 1) === 0x37 &&
-                view.getUint8(pos + 2) === 0x37 && view.getUint8(pos + 3) === 0x37) break;
+            if (
+                view.getUint8(pos) === 0x37 &&
+                view.getUint8(pos + 1) === 0x37 &&
+                view.getUint8(pos + 2) === 0x37 &&
+                view.getUint8(pos + 3) === 0x37
+            )
+                break;
 
             const sectionLength = view.getUint32(pos, false);
             const sectionNum = view.getUint8(pos + 4);
@@ -126,7 +144,7 @@ function decodeGrib2PressureServer(buffer: ArrayBuffer): DecodedFrame[] {
                     la2 = view.getInt32(pos + 56, false) / 1e6;
                     lo2 = view.getInt32(pos + 60, false) / 1e6;
                 }
-                console.log(`[GRIB2-Server] Grid ${width}×${height}: La1=${la1} Lo1=${lo1} La2=${la2} Lo2=${lo2}`);
+                console.info(`[GRIB2-Server] Grid ${width}×${height}: La1=${la1} Lo1=${lo1} La2=${la2} Lo2=${lo2}`);
             }
 
             if (sectionNum === 5) {
@@ -161,10 +179,12 @@ function decodeGrib2PressureServer(buffer: ArrayBuffer): DecodedFrame[] {
         let sum = 0;
         const sampleCount = Math.min(100, pressure.length);
         for (let i = 0; i < sampleCount; i++) {
-            sum += pressure[Math.floor(i * pressure.length / sampleCount)];
+            sum += pressure[Math.floor((i * pressure.length) / sampleCount)];
         }
         const avg = sum / sampleCount;
-        console.log(`[GRIB2-Server] Frame avg pressure: ${avg.toFixed(1)} hPa (${numValues} values, ${bitsPerValue} bpv, D=${decimalScale})`);
+        console.info(
+            `[GRIB2-Server] Frame avg pressure: ${avg.toFixed(1)} hPa (${numValues} values, ${bitsPerValue} bpv, D=${decimalScale})`,
+        );
 
         if (avg > 900 && avg < 1100 && width > 0 && height > 0) {
             frames.push({ pressure, width, height, lat1: la1, lat2: la2, lon1: lo1, lon2: lo2 });
@@ -181,9 +201,9 @@ function decodeGrib2PressureServer(buffer: ArrayBuffer): DecodedFrame[] {
 // ── Main Handler ──────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
-    if (req.method === "OPTIONS") return corsResponse(null, 204);
-    if (req.method !== "POST") {
-        return corsResponse(JSON.stringify({ error: "POST required" }), 405, { "Content-Type": "application/json" });
+    if (req.method === 'OPTIONS') return corsResponse(null, 204);
+    if (req.method !== 'POST') {
+        return corsResponse(JSON.stringify({ error: 'POST required' }), 405, { 'Content-Type': 'application/json' });
     }
 
     try {
@@ -191,15 +211,23 @@ Deno.serve(async (req: Request) => {
         const { north, south, east, west } = body;
         const forecastHours: number[] = body.hours || [0, 3, 6, 9, 12];
 
-        if (typeof north !== "number" || typeof south !== "number" ||
-            typeof east !== "number" || typeof west !== "number") {
-            return corsResponse(JSON.stringify({ error: "Missing bounds" }), 400, { "Content-Type": "application/json" });
+        if (
+            typeof north !== 'number' ||
+            typeof south !== 'number' ||
+            typeof east !== 'number' ||
+            typeof west !== 'number'
+        ) {
+            return corsResponse(JSON.stringify({ error: 'Missing bounds' }), 400, {
+                'Content-Type': 'application/json',
+            });
         }
 
         const lonSpan = east - west;
         let leftLon: number, rightLon: number;
-        if (lonSpan >= 360) { leftLon = 0; rightLon = 360; }
-        else {
+        if (lonSpan >= 360) {
+            leftLon = 0;
+            rightLon = 360;
+        } else {
             leftLon = toNoaaLon(west);
             rightLon = toNoaaLon(east);
             if (rightLon <= leftLon) rightLon += 360;
@@ -208,18 +236,18 @@ Deno.serve(async (req: Request) => {
         const { date, cycle } = getLatestGfsCycle();
 
         // Always use 1° resolution for synoptic scale
-        const filter = "filter_gfs_1p00.pl";
-        const filePrefix = "pgrb2.1p00";
+        const filter = 'filter_gfs_1p00.pl';
+        const filePrefix = 'pgrb2.1p00';
 
         // Fetch all forecast hours in parallel
         const fetches = forecastHours.map(async (fh) => {
-            const fhStr = String(fh).padStart(3, "0");
+            const fhStr = String(fh).padStart(3, '0');
             const params = new URLSearchParams({
                 dir: `/gfs.${date}/${cycle}/atmos`,
                 file: `gfs.t${cycle}z.${filePrefix}.f${fhStr}`,
-                var_PRMSL: "on",
-                lev_mean_sea_level: "on",
-                subregion: "",
+                var_PRMSL: 'on',
+                lev_mean_sea_level: 'on',
+                subregion: '',
                 leftlon: leftLon.toFixed(2),
                 rightlon: rightLon.toFixed(2),
                 toplat: north.toFixed(2),
@@ -227,7 +255,7 @@ Deno.serve(async (req: Request) => {
             });
 
             const noaaUrl = `https://nomads.ncep.noaa.gov/cgi-bin/${filter}?${params.toString()}`;
-            console.log(`[fetch-pressure-grid] f${fhStr}: ${noaaUrl}`);
+            console.info(`[fetch-pressure-grid] f${fhStr}: ${noaaUrl}`);
 
             try {
                 const upstream = await fetch(noaaUrl);
@@ -235,7 +263,10 @@ Deno.serve(async (req: Request) => {
                 const buf = await upstream.arrayBuffer();
                 if (buf.byteLength < 100) return null;
                 return buf;
-            } catch (e) { console.warn('[index]', e); return null; }
+            } catch (e) {
+                console.warn('[index]', e);
+                return null;
+            }
         });
 
         const results = await Promise.all(fetches);
@@ -249,11 +280,13 @@ Deno.serve(async (req: Request) => {
         }
 
         if (allFrames.length === 0) {
-            return corsResponse(JSON.stringify({ error: "No valid frames decoded" }), 502, { "Content-Type": "application/json" });
+            return corsResponse(JSON.stringify({ error: 'No valid frames decoded' }), 502, {
+                'Content-Type': 'application/json',
+            });
         }
 
         const f0 = allFrames[0];
-        const normLon = (lon: number) => lon > 180 ? lon - 360 : lon;
+        const normLon = (lon: number) => (lon > 180 ? lon - 360 : lon);
 
         // ── Build lat/lon arrays from REQUEST BOUNDS + grid dimensions ──
         // GRIB2 La2/Lo2 parsing is unreliable (byte offset alignment varies
@@ -270,7 +303,9 @@ Deno.serve(async (req: Request) => {
         // Use La1 as a sanity check — if it's reasonable, log for debugging
         const la1Check = f0.lat1;
         if (Math.abs(la1Check) <= 90) {
-            console.log(`[GRIB2] La1=${la1Check.toFixed(2)} (GRIB), using request bounds: ${gridSouth}→${gridNorth}, ${gridWest}→${gridEast}`);
+            console.info(
+                `[GRIB2] La1=${la1Check.toFixed(2)} (GRIB), using request bounds: ${gridSouth}→${gridNorth}, ${gridWest}→${gridEast}`,
+            );
         } else {
             console.warn(`[GRIB2] La1=${la1Check} is out of range, ignoring GRIB coords`);
         }
@@ -285,7 +320,7 @@ Deno.serve(async (req: Request) => {
         for (let i = 0; i < f0.width; i++) lons.push(gridWest + i * dx);
 
         // Convert each frame's N→S data to S→N row-major 2D arrays
-        const frames = allFrames.map(frame => {
+        const frames = allFrames.map((frame) => {
             const rows: number[][] = [];
             for (let r = 0; r < frame.height; r++) {
                 const row: number[] = [];
@@ -300,9 +335,9 @@ Deno.serve(async (req: Request) => {
         });
 
         const responseBody = {
-            frames,      // [frameIdx][row_S_to_N][col_W_to_E] in hPa
-            lats,        // S→N
-            lons,        // W→E
+            frames, // [frameIdx][row_S_to_N][col_W_to_E] in hPa
+            lats, // S→N
+            lons, // W→E
             width: f0.width,
             height: f0.height,
             north: gridNorth,
@@ -311,15 +346,15 @@ Deno.serve(async (req: Request) => {
             west: gridWest,
         };
 
-        console.log(`[fetch-pressure-grid] Returning ${frames.length} frames, ${f0.width}×${f0.height} grid`);
+        console.info(`[fetch-pressure-grid] Returning ${frames.length} frames, ${f0.width}×${f0.height} grid`);
 
         return corsResponse(JSON.stringify(responseBody), 200, {
-            "Content-Type": "application/json",
-            "X-GFS-Date": date,
-            "X-GFS-Cycle": `${cycle}z`,
+            'Content-Type': 'application/json',
+            'X-GFS-Date': date,
+            'X-GFS-Cycle': `${cycle}z`,
         });
     } catch (err) {
-        console.error("[fetch-pressure-grid] Error:", err);
-        return corsResponse(JSON.stringify({ error: String(err) }), 500, { "Content-Type": "application/json" });
+        console.error('[fetch-pressure-grid] Error:', err);
+        return corsResponse(JSON.stringify({ error: String(err) }), 500, { 'Content-Type': 'application/json' });
     }
 });

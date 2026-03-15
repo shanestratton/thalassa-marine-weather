@@ -12,7 +12,7 @@
  *
  *   // One-shot position
  *   const pos = await GpsService.getCurrentPosition();
- *   if (pos) console.log(pos.latitude, pos.longitude);
+ *   if (pos) console.info(pos.latitude, pos.longitude);
  *
  *   // Watch position (returns unsubscribe function)
  *   const unsub = GpsService.watchPosition((pos) => { ... });

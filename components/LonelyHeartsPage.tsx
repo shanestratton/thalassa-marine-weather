@@ -535,12 +535,12 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
     // --- SAVE PROFILE ---
     const handleSaveProfile = async () => {
         let uid = (LonelyHeartsService as any).currentUserId as string | null;
-        console.log('[CrewFinder Save] uid from service:', uid?.slice(0, 8) || 'null');
+        log.info('[CrewFinder Save] uid from service:', uid?.slice(0, 8) || 'null');
         if (!uid) {
             // Auth might not have been ready at mount — retry init
             await LonelyHeartsService.init();
             uid = (LonelyHeartsService as any).currentUserId as string | null;
-            console.log('[CrewFinder Save] uid after re-init:', uid?.slice(0, 8) || 'null');
+            log.info('[CrewFinder Save] uid after re-init:', uid?.slice(0, 8) || 'null');
         }
         if (!uid) {
             // Last resort: check supabase directly
@@ -550,14 +550,14 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                     const {
                         data: { session },
                     } = await supabase.auth.getSession();
-                    console.log('[CrewFinder Save] direct session check:', session?.user?.id?.slice(0, 8) || 'null');
+                    log.info('[CrewFinder Save] direct session check:', session?.user?.id?.slice(0, 8) || 'null');
                     if (session?.user?.id) {
                         uid = session.user.id;
                         // Fix the service state too
                         (LonelyHeartsService as any).currentUserId = uid;
                     }
                 } else {
-                    console.log('[CrewFinder Save] supabase is null (not configured)');
+                    log.info('[CrewFinder Save] supabase is null (not configured)');
                 }
             } catch (e) {
                 console.warn('[CrewFinder Save] direct session check failed:', e);

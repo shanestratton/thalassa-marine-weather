@@ -18,60 +18,60 @@ declare const Deno: {
  */
 
 const CORS: Record<string, string> = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey",
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
 };
 
-const RAINBOW_BASE = "https://api.rainbow.ai/tiles/v1";
+const RAINBOW_BASE = 'https://api.rainbow.ai/tiles/v1';
 
 Deno.serve(async (req: Request) => {
-    if (req.method === "OPTIONS") {
+    if (req.method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: CORS });
     }
 
-    if (req.method !== "GET") {
-        return new Response(JSON.stringify({ error: "GET required" }), {
+    if (req.method !== 'GET') {
+        return new Response(JSON.stringify({ error: 'GET required' }), {
             status: 405,
-            headers: { ...CORS, "Content-Type": "application/json" },
+            headers: { ...CORS, 'Content-Type': 'application/json' },
         });
     }
 
-    const key = Deno.env.get("RAINBOW_API_KEY");
+    const key = Deno.env.get('RAINBOW_API_KEY');
     if (!key) {
-        return new Response(JSON.stringify({ error: "RAINBOW_API_KEY not configured" }), {
+        return new Response(JSON.stringify({ error: 'RAINBOW_API_KEY not configured' }), {
             status: 500,
-            headers: { ...CORS, "Content-Type": "application/json" },
+            headers: { ...CORS, 'Content-Type': 'application/json' },
         });
     }
 
     const url = new URL(req.url);
-    const action = url.searchParams.get("action");
+    const action = url.searchParams.get('action');
 
     try {
-        if (action === "snapshot") {
+        if (action === 'snapshot') {
             // Fetch latest snapshot ID
             const res = await fetch(`${RAINBOW_BASE}/snapshot?token=${key}`);
             const data = await res.json();
             return new Response(JSON.stringify(data), {
                 status: res.status,
-                headers: { ...CORS, "Content-Type": "application/json" },
+                headers: { ...CORS, 'Content-Type': 'application/json' },
             });
         }
 
-        if (action === "tile") {
+        if (action === 'tile') {
             // Proxy tile request
-            const snapshot = url.searchParams.get("snapshot");
-            const forecast = url.searchParams.get("forecast");
-            const z = url.searchParams.get("z");
-            const x = url.searchParams.get("x");
-            const y = url.searchParams.get("y");
-            const color = url.searchParams.get("color") || "dbz_u8";
+            const snapshot = url.searchParams.get('snapshot');
+            const forecast = url.searchParams.get('forecast');
+            const z = url.searchParams.get('z');
+            const x = url.searchParams.get('x');
+            const y = url.searchParams.get('y');
+            const color = url.searchParams.get('color') || 'dbz_u8';
 
             if (!snapshot || !forecast || !z || !x || !y) {
-                return new Response(JSON.stringify({ error: "Missing tile params" }), {
+                return new Response(JSON.stringify({ error: 'Missing tile params' }), {
                     status: 400,
-                    headers: { ...CORS, "Content-Type": "application/json" },
+                    headers: { ...CORS, 'Content-Type': 'application/json' },
                 });
             }
 
@@ -81,32 +81,32 @@ Deno.serve(async (req: Request) => {
             if (!res.ok) {
                 return new Response(JSON.stringify({ error: `Rainbow API: ${res.status}` }), {
                     status: res.status,
-                    headers: { ...CORS, "Content-Type": "application/json" },
+                    headers: { ...CORS, 'Content-Type': 'application/json' },
                 });
             }
 
             // Forward tile PNG/image
             const body = await res.arrayBuffer();
-            const contentType = res.headers.get("Content-Type") || "image/png";
+            const contentType = res.headers.get('Content-Type') || 'image/png';
             return new Response(body, {
                 status: 200,
                 headers: {
                     ...CORS,
-                    "Content-Type": contentType,
-                    "Cache-Control": "public, max-age=300", // Cache tiles 5 min
+                    'Content-Type': contentType,
+                    'Cache-Control': 'public, max-age=300', // Cache tiles 5 min
                 },
             });
         }
 
-        return new Response(JSON.stringify({ error: "Unknown action. Use action=snapshot or action=tile" }), {
+        return new Response(JSON.stringify({ error: 'Unknown action. Use action=snapshot or action=tile' }), {
             status: 400,
-            headers: { ...CORS, "Content-Type": "application/json" },
+            headers: { ...CORS, 'Content-Type': 'application/json' },
         });
     } catch (e) {
-        console.error("[proxy-rainbow] Error:", e);
-        return new Response(JSON.stringify({ error: "Internal proxy error" }), {
+        console.error('[proxy-rainbow] Error:', e);
+        return new Response(JSON.stringify({ error: 'Internal proxy error' }), {
             status: 500,
-            headers: { ...CORS, "Content-Type": "application/json" },
+            headers: { ...CORS, 'Content-Type': 'application/json' },
         });
     }
 });

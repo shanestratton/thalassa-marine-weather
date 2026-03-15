@@ -26,32 +26,32 @@ declare const Deno: {
  */
 
 const CORS: Record<string, string> = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey",
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
 };
 
 function corsResponse(body: BodyInit | null, status: number, extra?: Record<string, string>) {
-    return new Response(body, { status, headers: { ...CORS, "Content-Type": "application/json", ...extra } });
+    return new Response(body, { status, headers: { ...CORS, 'Content-Type': 'application/json', ...extra } });
 }
 
 Deno.serve(async (req: Request) => {
-    if (req.method === "OPTIONS") {
+    if (req.method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: CORS });
     }
 
-    if (req.method !== "POST") {
-        return corsResponse(JSON.stringify({ error: "POST required" }), 405);
+    if (req.method !== 'POST') {
+        return corsResponse(JSON.stringify({ error: 'POST required' }), 405);
     }
 
-    const key = Deno.env.get("GEMINI_API_KEY");
+    const key = Deno.env.get('GEMINI_API_KEY');
     if (!key) {
-        return corsResponse(JSON.stringify({ error: "GEMINI_API_KEY not configured" }), 500);
+        return corsResponse(JSON.stringify({ error: 'GEMINI_API_KEY not configured' }), 500);
     }
 
     try {
         const {
-            model = "gemini-2.5-flash",
+            model = 'gemini-2.5-flash',
             prompt,
             systemInstruction,
             temperature = 0.7,
@@ -59,8 +59,8 @@ Deno.serve(async (req: Request) => {
             responseMimeType,
         } = await req.json();
 
-        if (!prompt || typeof prompt !== "string") {
-            return corsResponse(JSON.stringify({ error: "prompt is required" }), 400);
+        if (!prompt || typeof prompt !== 'string') {
+            return corsResponse(JSON.stringify({ error: 'prompt is required' }), 400);
         }
 
         // Build the Gemini API request body
@@ -83,8 +83,8 @@ Deno.serve(async (req: Request) => {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 
         const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody),
         });
 
@@ -96,11 +96,11 @@ Deno.serve(async (req: Request) => {
         }
 
         // Extract the generated text from Gemini's response
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
         return corsResponse(JSON.stringify({ text, model, usage: data?.usageMetadata }), 200);
     } catch (e) {
-        console.error("[proxy-gemini] Error:", e);
-        return corsResponse(JSON.stringify({ error: "Internal proxy error" }), 500);
+        console.error('[proxy-gemini] Error:', e);
+        return corsResponse(JSON.stringify({ error: 'Internal proxy error' }), 500);
     }
 });

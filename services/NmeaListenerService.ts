@@ -171,7 +171,7 @@ class NmeaListenerServiceClass {
             this.reconnectAttempts = 0;
             this.firstAttemptTime = null; // Reset give-up timer on success
             this.setStatus('connected');
-            console.log(`[NmeaListener] TCP connected to ${this.host}:${this.port} (client ${this.tcpClientId})`);
+            console.info(`[NmeaListener] TCP connected to ${this.host}:${this.port} (client ${this.tcpClientId})`);
 
             // Start continuous read loop
             this.tcpReadLoop = true;
@@ -246,7 +246,7 @@ class NmeaListenerServiceClass {
             try {
                 const { TcpSocket } = await import('capacitor-tcp-socket');
                 await TcpSocket.disconnect({ client: this.tcpClientId });
-                console.log(`[NmeaListener] TCP disconnected (client ${this.tcpClientId})`);
+                console.info(`[NmeaListener] TCP disconnected (client ${this.tcpClientId})`);
             } catch (e) {
                 console.warn('[NmeaListener] TCP disconnect error:', e);
             }
@@ -306,7 +306,7 @@ class NmeaListenerServiceClass {
 
         // Give up after 5 minutes of continuous failed attempts
         if (this.firstAttemptTime && Date.now() - this.firstAttemptTime > RECONNECT_GIVE_UP_MS) {
-            console.log('[NmeaListener] Giving up after 5 minutes of failed reconnects');
+            console.info('[NmeaListener] Giving up after 5 minutes of failed reconnects');
             this.stop();
             return;
         }

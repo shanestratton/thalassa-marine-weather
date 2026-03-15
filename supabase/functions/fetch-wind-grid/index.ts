@@ -20,15 +20,13 @@ declare const Deno: { serve: (handler: (req: Request) => Promise<Response> | Res
  * custom DataView decoder).
  */
 
-
-
 // ── CORS ──────────────────────────────────────────────────────
 
 const CORS: Record<string, string> = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey",
-    "Access-Control-Expose-Headers": "X-GFS-Date, X-GFS-Cycle, X-Frames, X-Hours, X-Bounds",
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
+    'Access-Control-Expose-Headers': 'X-GFS-Date, X-GFS-Cycle, X-Frames, X-Hours, X-Bounds',
 };
 
 function corsResponse(body: BodyInit | null, status: number, extra?: Record<string, string>) {
@@ -67,12 +65,12 @@ function getLatestGfsCycle(): { date: string; cycle: string } {
     }
 
     const yyyy = cycleDate.getUTCFullYear();
-    const mm = String(cycleDate.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(cycleDate.getUTCDate()).padStart(2, "0");
+    const mm = String(cycleDate.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(cycleDate.getUTCDate()).padStart(2, '0');
 
     return {
         date: `${yyyy}${mm}${dd}`,
-        cycle: String(selectedCycle).padStart(2, "0"),
+        cycle: String(selectedCycle).padStart(2, '0'),
     };
 }
 
@@ -88,7 +86,12 @@ function toNoaaLon(lon: number): number {
 // ── Resolution selection ──────────────────────────────────────
 
 /** Pick the GFS grid resolution based on requested area size. */
-function selectResolution(north: number, south: number, east: number, west: number): {
+function selectResolution(
+    north: number,
+    south: number,
+    east: number,
+    west: number,
+): {
     filter: string;
     fileBase: string;
     label: string;
@@ -99,12 +102,12 @@ function selectResolution(north: number, south: number, east: number, west: numb
     const areaDeg2 = latSpan * lonSpan;
 
     if (areaDeg2 > 10_000) {
-        return { filter: "filter_gfs_1p00.pl", fileBase: "pgrb2.1p00", label: "1.00°" };
+        return { filter: 'filter_gfs_1p00.pl', fileBase: 'pgrb2.1p00', label: '1.00°' };
     }
     if (areaDeg2 > 2_500) {
-        return { filter: "filter_gfs_0p50.pl", fileBase: "pgrb2full.0p50", label: "0.50°" };
+        return { filter: 'filter_gfs_0p50.pl', fileBase: 'pgrb2full.0p50', label: '0.50°' };
     }
-    return { filter: "filter_gfs_0p25.pl", fileBase: "pgrb2.0p25", label: "0.25°" };
+    return { filter: 'filter_gfs_0p25.pl', fileBase: 'pgrb2.0p25', label: '0.25°' };
 }
 
 // ── Types ─────────────────────────────────────────────────────
@@ -125,16 +128,12 @@ interface WindRequest {
 // ── Main handler ──────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
-    if (req.method === "OPTIONS") {
+    if (req.method === 'OPTIONS') {
         return corsResponse(null, 204);
     }
 
-    if (req.method !== "POST") {
-        return corsResponse(
-            JSON.stringify({ error: "POST required" }),
-            405,
-            { "Content-Type": "application/json" },
-        );
+    if (req.method !== 'POST') {
+        return corsResponse(JSON.stringify({ error: 'POST required' }), 405, { 'Content-Type': 'application/json' });
     }
 
     try {
@@ -142,14 +141,14 @@ Deno.serve(async (req: Request) => {
         const { north, south, east, west } = body;
 
         if (
-            typeof north !== "number" || typeof south !== "number" ||
-            typeof east !== "number" || typeof west !== "number"
+            typeof north !== 'number' ||
+            typeof south !== 'number' ||
+            typeof east !== 'number' ||
+            typeof west !== 'number'
         ) {
-            return corsResponse(
-                JSON.stringify({ error: "Missing bounds (north, south, east, west)" }),
-                400,
-                { "Content-Type": "application/json" },
-            );
+            return corsResponse(JSON.stringify({ error: 'Missing bounds (north, south, east, west)' }), 400, {
+                'Content-Type': 'application/json',
+            });
         }
 
         const lonSpan = east - west;
@@ -170,14 +169,14 @@ Deno.serve(async (req: Request) => {
 
         // Fetch all forecast hours in parallel
         const fetchPromises = FORECAST_HOURS.map(async (fhr) => {
-            const fhrStr = String(fhr).padStart(3, "0");
+            const fhrStr = String(fhr).padStart(3, '0');
             const params = new URLSearchParams({
                 dir: `/gfs.${date}/${cycle}/atmos`,
                 file: `gfs.t${cycle}z.${res.fileBase}.f${fhrStr}`,
-                var_UGRD: "on",
-                var_VGRD: "on",
-                lev_10_m_above_ground: "on",
-                subregion: "",
+                var_UGRD: 'on',
+                var_VGRD: 'on',
+                lev_10_m_above_ground: 'on',
+                subregion: '',
                 leftlon: leftLon.toFixed(2),
                 rightlon: rightLon.toFixed(2),
                 toplat: north.toFixed(2),
@@ -185,7 +184,7 @@ Deno.serve(async (req: Request) => {
             });
 
             const noaaUrl = `https://nomads.ncep.noaa.gov/cgi-bin/${res.filter}?${params.toString()}`;
-            console.log(`[fetch-wind-grid] f${fhrStr}: ${noaaUrl}`);
+            console.info(`[fetch-wind-grid] f${fhrStr}: ${noaaUrl}`);
 
             try {
                 const upstream = await fetch(noaaUrl);
@@ -217,11 +216,9 @@ Deno.serve(async (req: Request) => {
         }
 
         if (validChunks.length === 0) {
-            return corsResponse(
-                JSON.stringify({ error: "No valid GRIB data from NOAA" }),
-                502,
-                { "Content-Type": "application/json" },
-            );
+            return corsResponse(JSON.stringify({ error: 'No valid GRIB data from NOAA' }), 502, {
+                'Content-Type': 'application/json',
+            });
         }
 
         // Concatenate all valid chunks
@@ -233,26 +230,22 @@ Deno.serve(async (req: Request) => {
             offset += chunk.byteLength;
         }
 
-        console.log(
+        console.info(
             `[fetch-wind-grid] ${validChunks.length}/${FORECAST_HOURS.length} hours, ` +
-            `${totalSize} bytes (GFS ${date}/${cycle}z @ ${res.label})`,
+                `${totalSize} bytes (GFS ${date}/${cycle}z @ ${res.label})`,
         );
 
         return corsResponse(concatenated as unknown as BodyInit, 200, {
-            "Content-Type": "application/octet-stream",
-            "Content-Length": String(totalSize),
-            "X-GFS-Date": date,
-            "X-GFS-Cycle": `${cycle}z`,
-            "X-Frames": String(validChunks.length),
-            "X-Hours": validHours.join(","),
-            "X-Bounds": `${south},${north},${west},${east}`,
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': String(totalSize),
+            'X-GFS-Date': date,
+            'X-GFS-Cycle': `${cycle}z`,
+            'X-Frames': String(validChunks.length),
+            'X-Hours': validHours.join(','),
+            'X-Bounds': `${south},${north},${west},${east}`,
         });
     } catch (err) {
-        console.error("[fetch-wind-grid] Error:", err);
-        return corsResponse(
-            JSON.stringify({ error: String(err) }),
-            500,
-            { "Content-Type": "application/json" },
-        );
+        console.error('[fetch-wind-grid] Error:', err);
+        return corsResponse(JSON.stringify({ error: String(err) }), 500, { 'Content-Type': 'application/json' });
     }
 });
