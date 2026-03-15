@@ -9,6 +9,7 @@
 import React from 'react';
 import { DiaryEntry, MOOD_CONFIG } from '../../services/DiaryService';
 import { useSwipeable } from '../../hooks/useSwipeable';
+import { Share } from '@capacitor/share';
 
 /** Format lat/lon to a human-readable coordinate string */
 const formatCoord = (lat: number, lon: number): string => {
@@ -31,6 +32,24 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
         const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
         const moodCfg = MOOD_CONFIG[entry.mood] || MOOD_CONFIG.neutral;
         const entryHasCoords = entry.latitude != null && entry.longitude != null;
+
+        const handleShare = async (e: React.MouseEvent) => {
+            e.stopPropagation();
+            const lines: string[] = [];
+            lines.push(`📓 ${entry.title}`);
+            lines.push(`${moodCfg.emoji} ${moodCfg.label || entry.mood}`);
+            if (entry.body) lines.push('', entry.body);
+            if (entry.location_name) lines.push('', `📍 ${entry.location_name}`);
+            else if (entryHasCoords) lines.push('', `📍 ${formatCoord(entry.latitude!, entry.longitude!)}`);
+            lines.push('', `🕐 ${new Date(entry.created_at).toLocaleString()}`);
+            const text = lines.join('\n');
+
+            try {
+                await Share.share({ title: entry.title, text, dialogTitle: 'Share diary entry' });
+            } catch {
+                // User cancelled or share not available — silent
+            }
+        };
 
         return (
             <div className="relative overflow-hidden rounded-2xl">
@@ -175,29 +194,50 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                                 )}
                             </div>
 
-                            {/* Edit button — vertically centered */}
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    onEdit();
-                                }}
-                                className="shrink-0 p-2 rounded-lg hover:bg-white/10 transition-colors self-center"
-                                aria-label="Edit entry"
-                            >
-                                <svg
-                                    className="w-4 h-4 text-slate-400"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={1.5}
+                            {/* Share + Edit buttons — vertically centered */}
+                            <div className="shrink-0 flex flex-col items-center gap-1 self-center">
+                                <button
+                                    onClick={handleShare}
+                                    className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                                    aria-label="Share entry"
                                 >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
-                                    />
-                                </svg>
-                            </button>
+                                    <svg
+                                        className="w-4 h-4 text-sky-400/60"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={1.5}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
+                                        />
+                                    </svg>
+                                </button>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onEdit();
+                                    }}
+                                    className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                                    aria-label="Edit entry"
+                                >
+                                    <svg
+                                        className="w-4 h-4 text-slate-400"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={1.5}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z"
+                                        />
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>
