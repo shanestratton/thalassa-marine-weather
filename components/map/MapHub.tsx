@@ -265,7 +265,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                 closeOnClick: true,
                 className: 'weather-inspect-popup',
                 maxWidth: '300px',
-                anchor: 'bottom',
                 offset: 8,
             })
                 .setLngLat([lon, lat])
