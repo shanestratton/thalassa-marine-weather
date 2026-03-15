@@ -71,6 +71,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
     const [prefWaveHeight, setPrefWaveHeight] = useState<LengthUnit>('m'); // Default to Meters per user request
     const [preferredModel, setPreferredModel] = useState<WeatherModel>('best_match');
 
+    // Display preferences
+    const [prefAlwaysOn, setPrefAlwaysOn] = useState(false);
+    const [prefOrientation, setPrefOrientation] = useState<'auto' | 'portrait' | 'landscape'>('portrait');
+
     // Dimension Data - Initialize as Strings to detect empty vs 0
     const [length, setLength] = useState<string>('');
     const [beam, setBeam] = useState<string>('');
@@ -339,6 +343,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
             },
             preferredModel: preferredModel,
             savedLocations: [homePort],
+            alwaysOn: prefAlwaysOn,
+            screenOrientation: prefOrientation,
             // Include polar data if a yacht was selected
             ...(selectedPolar
                 ? {
@@ -970,6 +976,105 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                         </div>
 
                         <button
+                            onClick={handleNext}
+                            className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
+                        >
+                            Next
+                        </button>
+                    </div>
+                )}
+
+                {/* STEP 6: DISPLAY PREFERENCES */}
+                {step === 6 && (
+                    <div className="animate-in fade-in slide-in-from-right-8 duration-500">
+                        <h2 className="text-2xl font-bold text-white mb-6 text-center">Display Preferences</h2>
+
+                        <div className="space-y-6 mb-8">
+                            {/* Always On */}
+                            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h3 className="text-sm font-bold text-white mb-1">Always On Display</h3>
+                                        <p className="text-xs text-gray-400 leading-relaxed">
+                                            Keep the screen awake while the app is open. Ideal for cockpit or helm use.
+                                        </p>
+                                    </div>
+                                    <button
+                                        onClick={() => setPrefAlwaysOn(!prefAlwaysOn)}
+                                        className={`relative w-12 h-7 rounded-full transition-all duration-300 shrink-0 ml-4 ${
+                                            prefAlwaysOn ? 'bg-sky-500' : 'bg-white/15'
+                                        }`}
+                                    >
+                                        <div
+                                            className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow-md transition-all duration-300 ${
+                                                prefAlwaysOn ? 'left-[22px]' : 'left-0.5'
+                                            }`}
+                                        />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Screen Orientation */}
+                            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
+                                <h3 className="text-sm font-bold text-white mb-1">Screen Orientation</h3>
+                                <p className="text-xs text-gray-400 mb-4">
+                                    Lock your screen orientation, or let it rotate freely.
+                                </p>
+                                <div className="grid grid-cols-3 gap-2">
+                                    {[
+                                        { value: 'auto' as const, label: 'Auto', icon: '🔄', desc: 'Rotates freely' },
+                                        {
+                                            value: 'portrait' as const,
+                                            label: 'Portrait',
+                                            icon: '📱',
+                                            desc: 'Recommended',
+                                            recommended: true,
+                                        },
+                                        {
+                                            value: 'landscape' as const,
+                                            label: 'Landscape',
+                                            icon: '🖥️',
+                                            desc: 'Wide view',
+                                        },
+                                    ].map((opt) => {
+                                        const isActive = prefOrientation === opt.value;
+                                        return (
+                                            <button
+                                                key={opt.value}
+                                                onClick={() => setPrefOrientation(opt.value)}
+                                                className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-300 active:scale-95 ${
+                                                    isActive
+                                                        ? 'bg-gradient-to-br from-sky-500/20 to-sky-600/20 border-sky-500/40 shadow-lg shadow-sky-500/20'
+                                                        : 'bg-white/5 border-transparent hover:bg-white/10 hover:border-white/10'
+                                                }`}
+                                            >
+                                                <span className="text-2xl">{opt.icon}</span>
+                                                <span
+                                                    className={`text-xs font-black uppercase tracking-wider ${
+                                                        isActive ? 'text-white' : 'text-gray-400'
+                                                    }`}
+                                                >
+                                                    {opt.label}
+                                                </span>
+                                                <span
+                                                    className={`text-[11px] ${
+                                                        isActive
+                                                            ? 'text-white/70'
+                                                            : opt.recommended
+                                                              ? 'text-emerald-400/70'
+                                                              : 'text-gray-500'
+                                                    }`}
+                                                >
+                                                    {opt.desc}
+                                                </span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+
+                        <button
                             onClick={handleFinish}
                             className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20"
                         >
@@ -980,7 +1085,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                 {/* Progress Dots */}
                 <div className="flex justify-center gap-2 mt-8">
-                    {[1, 2, 3, 4, 5].map((i) => (
+                    {[1, 2, 3, 4, 5, 6].map((i) => (
                         <div
                             key={i}
                             className={`w-2 h-2 rounded-full transition-all ${step >= i ? 'bg-sky-500 w-4' : 'bg-gray-700'}`}
