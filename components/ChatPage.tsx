@@ -219,7 +219,7 @@ export const ChatPage: React.FC = () => {
         setShowTyping(true);
         const timer = setTimeout(() => setShowTyping(false), 2500);
         return () => clearTimeout(timer);
-    }, [activeChannel?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [activeChannel?.id]);
     useEffect(() => {
         // Only track keyboard when compose bar is visible
         if (view !== 'messages' && view !== 'dm_thread') {
@@ -376,7 +376,6 @@ export const ChatPage: React.FC = () => {
             cleanupMessages();
             ChatService.destroy();
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const loadChannels = async (): Promise<ChatChannel[]> => {

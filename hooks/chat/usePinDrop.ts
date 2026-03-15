@@ -197,7 +197,7 @@ export function usePinDrop(options: UsePinDropOptions) {
             });
             poiMapInstance.current = map;
         });
-    }, [showPoiSheet, pinLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [showPoiSheet, pinLoading]);
 
     useEffect(() => {
         if (!showPoiSheet && poiMapInstance.current) {
