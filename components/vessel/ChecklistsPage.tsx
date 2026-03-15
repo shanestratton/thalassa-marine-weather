@@ -318,6 +318,8 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     heading_id: formType === 'detail' ? formHeadingId : null,
                 });
                 toast.success('Updated');
+                setShowForm(false);
+                resetForm();
             } else {
                 await LocalChecklistService.create({
                     type: formType,
@@ -325,9 +327,9 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     heading_id: formType === 'detail' ? formHeadingId : null,
                 });
                 toast.success(formType === 'heading' ? 'Section added' : 'Item added');
+                // Keep form open — just clear text so user can add more
+                setFormText('');
             }
-            setShowForm(false);
-            resetForm();
             loadEntries();
         } catch (e) {
             log.error('Failed to save:', e);
