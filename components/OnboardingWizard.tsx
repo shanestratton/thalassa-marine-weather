@@ -35,7 +35,7 @@ import { reverseGeocode } from '../services/weatherService';
 import { fetchWeatherByStrategy } from '../services/weather';
 import { WeatherMap } from './WeatherMap';
 import { getSystemUnits } from '../utils';
-import { GpsService } from '../services/GpsService';
+import { Geolocation } from '@capacitor/geolocation';
 import { YachtDatabaseSearch } from './settings/YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../data/polarDatabase';
 
@@ -131,30 +131,43 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
     const handleLocate = () => {
         setIsLocating(true);
-        GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then(async (pos) => {
-            if (!pos) {
+        (async () => {
+            try {
+                // Request permission first — triggers the iOS dialog on fresh install
+                const perm = await Geolocation.requestPermissions();
+                if (perm.location === 'denied') {
+                    setIsLocating(false);
+                    toast.error('Location permission denied. Please enable in Settings.');
+                    return;
+                }
+
+                const position = await Geolocation.getCurrentPosition({
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                });
+                const latitude = position.coords.latitude;
+                const longitude = position.coords.longitude;
+                setTempLocation({ lat: latitude, lon: longitude, name: 'Current Location' });
+                try {
+                    const niceName = await reverseGeocode(latitude, longitude);
+                    const finalName =
+                        niceName ||
+                        `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
+                    setHomePort(finalName);
+                    setTempLocation({ lat: latitude, lon: longitude, name: finalName });
+                    // Prefetch weather in background while user continues onboarding
+                    prefetchWeather(latitude, longitude, finalName);
+                } catch (e) {
+                    const wpName = `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
+                    setHomePort(wpName);
+                    prefetchWeather(latitude, longitude, wpName);
+                }
+                setIsLocating(false);
+            } catch (e) {
                 setIsLocating(false);
                 toast.error('Could not access location. Please enter manually.');
-                return;
             }
-            const { latitude, longitude } = pos;
-            setTempLocation({ lat: latitude, lon: longitude, name: 'Current Location' });
-            try {
-                const niceName = await reverseGeocode(latitude, longitude);
-                const finalName =
-                    niceName ||
-                    `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
-                setHomePort(finalName);
-                setTempLocation({ lat: latitude, lon: longitude, name: finalName });
-                // Prefetch weather in background while user continues onboarding
-                prefetchWeather(latitude, longitude, finalName);
-            } catch (e) {
-                const wpName = `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
-                setHomePort(wpName);
-                prefetchWeather(latitude, longitude, wpName);
-            }
-            setIsLocating(false);
-        });
+        })();
     };
 
     // UPDATE: Instant feedback + async resolution
