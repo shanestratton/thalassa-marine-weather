@@ -171,7 +171,10 @@ export function useMapInit(opts: UseMapInitOptions) {
             attributionControl: false,
             maxZoom: 18,
             minZoom: embedded ? initialZoom : 2,
-            renderWorldCopies: false,
+            maxBounds: [
+                [-220, -85],
+                [220, 85],
+            ],
             projection: 'mercator' as any,
             interactive: true,
             dragPan: true,
