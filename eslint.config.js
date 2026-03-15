@@ -202,4 +202,14 @@ export default tseslint.config(
             'no-console': 'off',
         },
     },
+
+    // Build scripts + dev tools — full console access
+    {
+        files: ['scripts/**/*.{js,mjs,ts}'],
+        rules: {
+            'no-console': 'off',
+            '@typescript-eslint/no-explicit-any': 'off',
+            '@typescript-eslint/no-unused-vars': 'off',
+        },
+    },
 );
