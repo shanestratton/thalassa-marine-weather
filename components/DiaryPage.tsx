@@ -674,14 +674,14 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         });
     }, []);
 
-    const toggleEntrySelection = useCallback((id: string) => {
-        setSelectedIds((prev) => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
-    }, []);
+    const toggleEntrySelection = useCallback(
+        (id: string) => {
+            // Enter select mode on first selection
+            if (!state.selectMode) dispatch({ type: 'ENTER_SELECT_MODE' });
+            dispatch({ type: 'TOGGLE_ENTRY_SELECTION', id });
+        },
+        [dispatch, state.selectMode],
+    );
 
     const exitSelectMode = useCallback(() => {
         setSelectMode(false);
