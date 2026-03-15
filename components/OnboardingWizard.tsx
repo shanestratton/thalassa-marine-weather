@@ -32,6 +32,7 @@ import {
     AnchorIcon,
 } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
+import { fetchWeatherByStrategy } from '../services/weather';
 import { WeatherMap } from './WeatherMap';
 import { getSystemUnits } from '../utils';
 import { GpsService } from '../services/GpsService';
@@ -117,6 +118,17 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
         setStep((s) => Math.max(1, s - 1));
     };
 
+    // Background weather prefetch — fire-and-forget when we have coords
+    const prefetchRef = React.useRef(false);
+    const prefetchWeather = (lat: number, lon: number, name: string) => {
+        if (prefetchRef.current) return; // Only prefetch once
+        prefetchRef.current = true;
+        log.info(`Prefetching weather for ${name} (${lat.toFixed(2)}, ${lon.toFixed(2)})`);
+        fetchWeatherByStrategy(lat, lon, name).catch(() => {
+            prefetchRef.current = false; // Allow retry on failure
+        });
+    };
+
     const handleLocate = () => {
         setIsLocating(true);
         GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then(async (pos) => {
@@ -134,10 +146,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                     `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
                 setHomePort(finalName);
                 setTempLocation({ lat: latitude, lon: longitude, name: finalName });
+                // Prefetch weather in background while user continues onboarding
+                prefetchWeather(latitude, longitude, finalName);
             } catch (e) {
-                setHomePort(
-                    `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`,
-                );
+                const wpName = `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
+                setHomePort(wpName);
+                prefetchWeather(latitude, longitude, wpName);
             }
             setIsLocating(false);
         });
@@ -191,6 +205,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
         if (tempLocation) {
             setHomePort(tempLocation.name);
             setShowMap(false);
+            // Prefetch weather in background while user continues onboarding
+            prefetchWeather(tempLocation.lat, tempLocation.lon, tempLocation.name);
         }
     };
 
