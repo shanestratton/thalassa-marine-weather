@@ -200,8 +200,8 @@ function linkProgram(gl: WebGLRenderingContext, vs: WebGLShader, fs: WebGLShader
 
 export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     readonly id: string;
-    readonly type: 'custom' = 'custom';
-    readonly renderingMode: '2d' = '2d';
+    readonly type = 'custom' as const;
+    readonly renderingMode = '2d' as const;
 
     private map: mapboxgl.Map | null = null;
     private gl: WebGLRenderingContext | null = null;
