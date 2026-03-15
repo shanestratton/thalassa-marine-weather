@@ -164,17 +164,6 @@ export function useMapInit(opts: UseMapInitOptions) {
         mapboxgl.accessToken = mapboxToken;
 
         // ── Windy-style: world fills screen, no duplicates, free panning ──
-        // 1. Calculate the zoom where one world copy exactly fills the container width.
-        //    Mapbox GL: world width at zoom z = 512 × 2^z pixels.
-        // 2. Set that as minZoom so the user can never zoom out to see blank edges.
-        // 3. renderWorldCopies: false — tiles only render once (-180 to 180).
-        // At minZoom: the entire world fills the screen (NZ visible at right edge).
-        // At zoom 4+: world is wider than screen, free panning (including past NZ).
-        const calcMinZoomForFill = (width: number) => Math.log2(width / 512);
-        const fillMinZoom = embedded
-            ? initialZoom
-            : Math.max(calcMinZoomForFill(containerRef.current.clientWidth), 0.5);
-
         const map = new mapboxgl.Map({
             container: containerRef.current,
             style: mapStyle,
@@ -182,7 +171,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             zoom: initialZoom,
             attributionControl: false,
             maxZoom: 18,
-            minZoom: fillMinZoom,
+            minZoom: embedded ? initialZoom : 1,
             renderWorldCopies: true,
             projection: 'mercator' as any,
             interactive: true,
@@ -193,6 +182,18 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         map.dragRotate.disable();
         map.touchZoomRotate.disableRotation();
+
+        // Measure actual world width via map.project(), set minZoom so
+        // one world copy fills the container. No tile-size guessing.
+        const calcFillMinZoom = () => {
+            if (embedded || !containerRef.current) return;
+            const cw = containerRef.current.clientWidth;
+            const z = map.getZoom();
+            const worldPx = map.project([180, 0]).x - map.project([-180, 0]).x;
+            const target = z + Math.log2(cw / worldPx);
+            map.setMinZoom(Math.max(target, 0.5));
+        };
+        map.once('idle', calcFillMinZoom);
 
         map.on('load', () => {
             const style = map.getStyle();
@@ -702,10 +703,7 @@ export function useMapInit(opts: UseMapInitOptions) {
         // ResizeObserver — recalculate fill-width minZoom on resize
         const resizeObserver = new ResizeObserver(() => {
             map.resize();
-            if (!embedded && containerRef.current) {
-                const newMinZoom = Math.max(calcMinZoomForFill(containerRef.current.clientWidth), 0.5);
-                map.setMinZoom(newMinZoom);
-            }
+            calcFillMinZoom();
         });
         resizeObserver.observe(containerRef.current);
 
