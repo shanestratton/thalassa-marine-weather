@@ -390,7 +390,7 @@ const HeroSlideComponent = ({
     }, [effectiveData, fullHourly, visualTime]);
 
     // Debug Log for Trends
-    // console.log('[TRENDS DEBUG]', { index, hasFullHourly: !!fullHourly, len: fullHourly?.length, trends });
+    // console.info('[TRENDS DEBUG]', { index, hasFullHourly: !!fullHourly, len: fullHourly?.length, trends });
 
     // Vertical Scroll Reset Logic
     // Horizontal Scroll Reset Logic (Inner Axis is now Horizontal)

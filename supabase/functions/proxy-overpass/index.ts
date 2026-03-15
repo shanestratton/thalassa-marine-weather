@@ -20,16 +20,16 @@ declare const Deno: {
  */
 
 const CORS: Record<string, string> = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey",
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
 };
 
 function corsResponse(body: BodyInit | null, status: number) {
-    return new Response(body, { status, headers: { ...CORS, "Content-Type": "application/json" } });
+    return new Response(body, { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 }
 
-const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 
 // NM → metres
 const NM_TO_M = 1852;
@@ -91,7 +91,8 @@ function deriveClass(seamarkType: string, props: Record<string, string>): string
     if (seamarkType.includes('berth')) return 'berth';
     if (seamarkType.includes('anchorage')) return 'anchorage';
     if (seamarkType.includes('harbour')) return 'harbour';
-    if (seamarkType.includes('rock') || seamarkType.includes('wreck') || seamarkType.includes('obstruction')) return 'danger';
+    if (seamarkType.includes('rock') || seamarkType.includes('wreck') || seamarkType.includes('obstruction'))
+        return 'danger';
     if (seamarkType.includes('fairway')) return 'fairway';
     if (seamarkType.includes('gate')) return 'gate';
     return 'other';
@@ -100,19 +101,19 @@ function deriveClass(seamarkType: string, props: Record<string, string>): string
 // ── Main Handler ───────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
-    if (req.method === "OPTIONS") {
+    if (req.method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: CORS });
     }
 
-    if (req.method !== "POST") {
-        return corsResponse(JSON.stringify({ error: "POST required" }), 405);
+    if (req.method !== 'POST') {
+        return corsResponse(JSON.stringify({ error: 'POST required' }), 405);
     }
 
     try {
         const { lat, lon, radiusNM = 5 } = await req.json();
 
         if (typeof lat !== 'number' || typeof lon !== 'number') {
-            return corsResponse(JSON.stringify({ error: "lat and lon are required numbers" }), 400);
+            return corsResponse(JSON.stringify({ error: 'lat and lon are required numbers' }), 400);
         }
 
         // Clamp radius to prevent abuse (max 15 NM = ~28 km)
@@ -125,21 +126,26 @@ node["seamark:type"](around:${radiusM},${lat},${lon});
 out body;
 `;
 
-        console.log(`[proxy-overpass] Fetching seamarks within ${radiusNM}NM of [${lat.toFixed(3)}, ${lon.toFixed(3)}]`);
+        console.info(
+            `[proxy-overpass] Fetching seamarks within ${radiusNM}NM of [${lat.toFixed(3)}, ${lon.toFixed(3)}]`,
+        );
 
         const res = await fetch(OVERPASS_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: `data=${encodeURIComponent(query)}`,
         });
 
         if (!res.ok) {
             const text = await res.text();
             console.error(`[proxy-overpass] Overpass error ${res.status}:`, text);
-            return corsResponse(JSON.stringify({
-                error: `Overpass API returned ${res.status}`,
-                detail: text.slice(0, 500),
-            }), 502);
+            return corsResponse(
+                JSON.stringify({
+                    error: `Overpass API returned ${res.status}`,
+                    detail: text.slice(0, 500),
+                }),
+                502,
+            );
         }
 
         const data = await res.json();
@@ -168,11 +174,10 @@ out body;
             },
         };
 
-        console.log(`[proxy-overpass] Found ${features.length} seamarks`);
+        console.info(`[proxy-overpass] Found ${features.length} seamarks`);
         return corsResponse(JSON.stringify(geojson), 200);
-
     } catch (e) {
-        console.error("[proxy-overpass] Error:", e);
-        return corsResponse(JSON.stringify({ error: "Internal proxy error" }), 500);
+        console.error('[proxy-overpass] Error:', e);
+        return corsResponse(JSON.stringify({ error: 'Internal proxy error' }), 500);
     }
 });

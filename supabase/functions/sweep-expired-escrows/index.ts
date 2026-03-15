@@ -75,13 +75,13 @@ serve(async (req) => {
                 expired_count: expired?.length || 0,
                 canceled_count: canceledCount,
             }),
-            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         );
     } catch (err) {
         console.error('Sweep error:', err);
-        return new Response(
-            JSON.stringify({ error: err instanceof Error ? err.message : 'Internal server error' }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Internal server error' }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
     }
 });

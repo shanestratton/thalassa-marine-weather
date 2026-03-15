@@ -19,35 +19,35 @@ declare const Deno: {
  */
 
 const CORS: Record<string, string> = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey",
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
 };
 
 function corsResponse(body: BodyInit | null, status: number, extra?: Record<string, string>) {
-    return new Response(body, { status, headers: { ...CORS, "Content-Type": "application/json", ...extra } });
+    return new Response(body, { status, headers: { ...CORS, 'Content-Type': 'application/json', ...extra } });
 }
 
 Deno.serve(async (req: Request) => {
     // Handle CORS preflight
-    if (req.method === "OPTIONS") {
+    if (req.method === 'OPTIONS') {
         return new Response(null, { status: 204, headers: CORS });
     }
 
-    if (req.method !== "POST") {
-        return corsResponse(JSON.stringify({ error: "POST required" }), 405);
+    if (req.method !== 'POST') {
+        return corsResponse(JSON.stringify({ error: 'POST required' }), 405);
     }
 
-    const key = Deno.env.get("WORLDTIDES_API_KEY");
+    const key = Deno.env.get('WORLDTIDES_API_KEY');
     if (!key) {
-        return corsResponse(JSON.stringify({ error: "WORLDTIDES_API_KEY not configured" }), 500);
+        return corsResponse(JSON.stringify({ error: 'WORLDTIDES_API_KEY not configured' }), 500);
     }
 
     try {
         const { lat, lon, days = 14 } = await req.json();
 
-        if (typeof lat !== "number" || typeof lon !== "number") {
-            return corsResponse(JSON.stringify({ error: "lat and lon are required numbers" }), 400);
+        if (typeof lat !== 'number' || typeof lon !== 'number') {
+            return corsResponse(JSON.stringify({ error: 'lat and lon are required numbers' }), 400);
         }
 
         // Build WorldTides URL — extremes only (saves credits vs heights)
@@ -68,7 +68,7 @@ Deno.serve(async (req: Request) => {
 
         return corsResponse(JSON.stringify(data), 200);
     } catch (e) {
-        console.error("[proxy-tides] Error:", e);
-        return corsResponse(JSON.stringify({ error: "Internal proxy error" }), 500);
+        console.error('[proxy-tides] Error:', e);
+        return corsResponse(JSON.stringify({ error: 'Internal proxy error' }), 500);
     }
 });

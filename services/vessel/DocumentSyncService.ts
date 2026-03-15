@@ -52,7 +52,7 @@ class DocumentSyncServiceClass {
         // Auto-sync when connectivity resumes
         if (typeof window !== 'undefined') {
             window.addEventListener('online', () => {
-                console.log('[DocSync] Online — triggering sync');
+                console.info('[DocSync] Online — triggering sync');
                 this.syncAll();
             });
             // Attempt sync on init
@@ -258,7 +258,7 @@ class DocumentSyncServiceClass {
             // Also sync deletions — check cloud for docs not present locally
             await this._syncDeletions();
 
-            console.log(`[DocSync] Sync complete: ${synced} synced, ${failed} failed`);
+            console.info(`[DocSync] Sync complete: ${synced} synced, ${failed} failed`);
         } catch (e) {
             console.error('[DocSync] Sync error:', e);
         } finally {
@@ -347,7 +347,7 @@ class DocumentSyncServiceClass {
                 await bulkUpsert(TABLE.replace('ship_', ''), toUpsert);
             }
 
-            console.log(`[DocSync] Pulled ${restored} documents from cloud`);
+            console.info(`[DocSync] Pulled ${restored} documents from cloud`);
             return restored;
         } catch (e) {
             console.error('[DocSync] Pull error:', e);

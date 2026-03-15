@@ -27,9 +27,9 @@ declare const Deno: {
 // ── CORS ──────────────────────────────────────────────────────
 
 const CORS: Record<string, string> = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
 };
 
 function corsResponse(body: BodyInit | null, status: number, extra?: Record<string, string>) {
@@ -39,9 +39,9 @@ function corsResponse(body: BodyInit | null, status: number, extra?: Record<stri
 // ── Base64url encoding ────────────────────────────────────────
 
 function base64url(data: Uint8Array): string {
-    let binary = "";
+    let binary = '';
     for (const byte of data) binary += String.fromCharCode(byte);
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function base64urlEncode(str: string): string {
@@ -53,9 +53,9 @@ function base64urlEncode(str: string): string {
 async function importP8Key(pem: string): Promise<CryptoKey> {
     // Strip PEM headers/footers and whitespace
     const pemBody = pem
-        .replace(/-----BEGIN PRIVATE KEY-----/g, "")
-        .replace(/-----END PRIVATE KEY-----/g, "")
-        .replace(/\s/g, "");
+        .replace(/-----BEGIN PRIVATE KEY-----/g, '')
+        .replace(/-----END PRIVATE KEY-----/g, '')
+        .replace(/\s/g, '');
 
     // Decode base64 to binary
     const binaryStr = atob(pemBody);
@@ -65,13 +65,9 @@ async function importP8Key(pem: string): Promise<CryptoKey> {
     }
 
     // Import as ECDSA P-256 private key
-    return await crypto.subtle.importKey(
-        "pkcs8",
-        bytes.buffer,
-        { name: "ECDSA", namedCurve: "P-256" },
-        false,
-        ["sign"],
-    );
+    return await crypto.subtle.importKey('pkcs8', bytes.buffer, { name: 'ECDSA', namedCurve: 'P-256' }, false, [
+        'sign',
+    ]);
 }
 
 // ── JWT Generation ────────────────────────────────────────────
@@ -86,7 +82,7 @@ async function generateWeatherKitJWT(
 
     // Apple WeatherKit JWT Header
     const header = {
-        alg: "ES256",
+        alg: 'ES256',
         kid: keyId,
         id: `${teamId}.${serviceId}`,
     };
@@ -106,7 +102,7 @@ async function generateWeatherKitJWT(
 
     // Sign with ES256 (ECDSA P-256 + SHA-256)
     const signature = await crypto.subtle.sign(
-        { name: "ECDSA", hash: "SHA-256" },
+        { name: 'ECDSA', hash: 'SHA-256' },
         privateKey,
         new TextEncoder().encode(signingInput),
     );
@@ -145,48 +141,49 @@ async function getOrCreateJWT(
 interface WeatherKitRequest {
     lat: number;
     lon: number;
-    language?: string;   // e.g. "en-AU", defaults to "en"
+    language?: string; // e.g. "en-AU", defaults to "en"
     dataSets?: string[]; // defaults to currentWeather + forecastHourly + forecastDaily + forecastNextHour
 }
 
 // ── Main handler ──────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
-    if (req.method === "OPTIONS") {
+    if (req.method === 'OPTIONS') {
         return corsResponse(null, 204);
     }
 
-    if (req.method !== "POST") {
-        return corsResponse(
-            JSON.stringify({ error: "POST required" }),
-            405,
-            { "Content-Type": "application/json" },
-        );
+    if (req.method !== 'POST') {
+        return corsResponse(JSON.stringify({ error: 'POST required' }), 405, { 'Content-Type': 'application/json' });
     }
 
     try {
         // ── Read secrets (try both naming conventions) ──
-        const p8Key = Deno.env.get("APPLE_WEATHERKIT_P8_KEY") || Deno.env.get("WEATHERKIT_PRIVATE_KEY");
-        const keyId = Deno.env.get("APPLE_WEATHERKIT_KEY_ID") || Deno.env.get("WEATHERKIT_KEY_ID");
-        const teamId = Deno.env.get("APPLE_WEATHERKIT_TEAM_ID") || Deno.env.get("WEATHERKIT_TEAM_ID");
-        const serviceId = Deno.env.get("APPLE_WEATHERKIT_SERVICE_ID") || Deno.env.get("WEATHERKIT_SERVICE_ID") || (teamId ? `com.thalassa.weatherkit` : undefined);
+        const p8Key = Deno.env.get('APPLE_WEATHERKIT_P8_KEY') || Deno.env.get('WEATHERKIT_PRIVATE_KEY');
+        const keyId = Deno.env.get('APPLE_WEATHERKIT_KEY_ID') || Deno.env.get('WEATHERKIT_KEY_ID');
+        const teamId = Deno.env.get('APPLE_WEATHERKIT_TEAM_ID') || Deno.env.get('WEATHERKIT_TEAM_ID');
+        const serviceId =
+            Deno.env.get('APPLE_WEATHERKIT_SERVICE_ID') ||
+            Deno.env.get('WEATHERKIT_SERVICE_ID') ||
+            (teamId ? `com.thalassa.weatherkit` : undefined);
 
-        console.log(`[fetch-weatherkit] Secrets check: P8=${p8Key ? 'YES' : 'MISSING'}, KeyID=${keyId ? 'YES' : 'MISSING'}, TeamID=${teamId ? 'YES' : 'MISSING'}, ServiceID=${serviceId ? 'YES' : 'MISSING'}`);
+        console.info(
+            `[fetch-weatherkit] Secrets check: P8=${p8Key ? 'YES' : 'MISSING'}, KeyID=${keyId ? 'YES' : 'MISSING'}, TeamID=${teamId ? 'YES' : 'MISSING'}, ServiceID=${serviceId ? 'YES' : 'MISSING'}`,
+        );
 
         if (!p8Key || !keyId || !teamId || !serviceId) {
-            console.error("[fetch-weatherkit] Missing required secrets");
+            console.error('[fetch-weatherkit] Missing required secrets');
             return corsResponse(
                 JSON.stringify({
-                    error: "WeatherKit not configured",
+                    error: 'WeatherKit not configured',
                     missing: [
-                        !p8Key && "APPLE_WEATHERKIT_P8_KEY / WEATHERKIT_PRIVATE_KEY",
-                        !keyId && "APPLE_WEATHERKIT_KEY_ID / WEATHERKIT_KEY_ID",
-                        !teamId && "APPLE_WEATHERKIT_TEAM_ID / WEATHERKIT_TEAM_ID",
-                        !serviceId && "APPLE_WEATHERKIT_SERVICE_ID / WEATHERKIT_SERVICE_ID",
+                        !p8Key && 'APPLE_WEATHERKIT_P8_KEY / WEATHERKIT_PRIVATE_KEY',
+                        !keyId && 'APPLE_WEATHERKIT_KEY_ID / WEATHERKIT_KEY_ID',
+                        !teamId && 'APPLE_WEATHERKIT_TEAM_ID / WEATHERKIT_TEAM_ID',
+                        !serviceId && 'APPLE_WEATHERKIT_SERVICE_ID / WEATHERKIT_SERVICE_ID',
                     ].filter(Boolean),
                 }),
                 500,
-                { "Content-Type": "application/json" },
+                { 'Content-Type': 'application/json' },
             );
         }
 
@@ -194,31 +191,24 @@ Deno.serve(async (req: Request) => {
         const body: WeatherKitRequest = await req.json();
         const { lat, lon } = body;
 
-        if (typeof lat !== "number" || typeof lon !== "number") {
-            return corsResponse(
-                JSON.stringify({ error: "lat and lon are required numbers" }),
-                400,
-                { "Content-Type": "application/json" },
-            );
+        if (typeof lat !== 'number' || typeof lon !== 'number') {
+            return corsResponse(JSON.stringify({ error: 'lat and lon are required numbers' }), 400, {
+                'Content-Type': 'application/json',
+            });
         }
 
-        const language = body.language || "en";
-        const dataSets = body.dataSets || [
-            "currentWeather",
-            "forecastHourly",
-            "forecastDaily",
-            "forecastNextHour",
-        ];
+        const language = body.language || 'en';
+        const dataSets = body.dataSets || ['currentWeather', 'forecastHourly', 'forecastDaily', 'forecastNextHour'];
 
         // ── Generate JWT ──
         const privateKey = await importP8Key(p8Key);
         const jwt = await getOrCreateJWT(privateKey, keyId, teamId, serviceId);
 
         // ── Fetch from Apple WeatherKit ──
-        const dataSetsParam = dataSets.join(",");
+        const dataSetsParam = dataSets.join(',');
         const url = `https://weatherkit.apple.com/api/v1/weather/${language}/${lat}/${lon}?dataSets=${dataSetsParam}`;
 
-        console.log(`[fetch-weatherkit] Fetching: ${url}`);
+        console.info(`[fetch-weatherkit] Fetching: ${url}`);
 
         const upstream = await fetch(url, {
             headers: {
@@ -227,7 +217,7 @@ Deno.serve(async (req: Request) => {
         });
 
         if (!upstream.ok) {
-            const errText = await upstream.text().catch(() => "");
+            const errText = await upstream.text().catch(() => '');
             console.error(`[fetch-weatherkit] Apple API error ${upstream.status}: ${errText}`);
 
             // If 401, invalidate cached token
@@ -241,26 +231,18 @@ Deno.serve(async (req: Request) => {
                     detail: errText.substring(0, 200),
                 }),
                 upstream.status,
-                { "Content-Type": "application/json" },
+                { 'Content-Type': 'application/json' },
             );
         }
 
         const weatherData = await upstream.json();
 
-        return corsResponse(
-            JSON.stringify(weatherData),
-            200,
-            {
-                "Content-Type": "application/json",
-                "Cache-Control": "public, max-age=300", // 5 min cache
-            },
-        );
+        return corsResponse(JSON.stringify(weatherData), 200, {
+            'Content-Type': 'application/json',
+            'Cache-Control': 'public, max-age=300', // 5 min cache
+        });
     } catch (err) {
-        console.error("[fetch-weatherkit] Error:", err);
-        return corsResponse(
-            JSON.stringify({ error: String(err) }),
-            500,
-            { "Content-Type": "application/json" },
-        );
+        console.error('[fetch-weatherkit] Error:', err);
+        return corsResponse(JSON.stringify({ error: String(err) }), 500, { 'Content-Type': 'application/json' });
     }
 });

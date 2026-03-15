@@ -171,7 +171,7 @@ async function fetchPressureGridGfs(
         const interpTotal = interpPressure.length;
         const emptyGridInterp: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
 
-        console.log('[ISOBAR] GFS lats ordering:', lats[0], '→', lats[lats.length - 1], '(passing through as-is)');
+        console.info('[ISOBAR] GFS lats ordering:', lats[0], '→', lats[lats.length - 1], '(passing through as-is)');
 
         return {
             allHourlyPressure: interpPressure,
@@ -611,7 +611,7 @@ function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 
     }
 
     const all = [...lows, ...highs];
-    console.log(
+    console.info(
         '[ISOBAR] Centers detected:',
         all.map((c) => `${c.type} ${c.pressure} @ ${c.lat.toFixed(1)},${c.lon.toFixed(1)}`).join(', '),
     );

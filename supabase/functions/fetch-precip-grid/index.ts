@@ -21,10 +21,10 @@ declare const Deno: {
 // ── CORS ──────────────────────────────────────────────────────
 
 const CORS: Record<string, string> = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey",
-    "Access-Control-Expose-Headers": "X-GFS-Date, X-GFS-Cycle, X-Frames, X-Hours, X-Model",
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
+    'Access-Control-Expose-Headers': 'X-GFS-Date, X-GFS-Cycle, X-Frames, X-Hours, X-Model',
 };
 
 function corsResponse(body: BodyInit | null, status: number, extra?: Record<string, string>) {
@@ -53,12 +53,12 @@ function getLatestGfsCycle(): { date: string; cycle: string } {
     }
 
     const yyyy = cycleDate.getUTCFullYear();
-    const mm = String(cycleDate.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(cycleDate.getUTCDate()).padStart(2, "0");
+    const mm = String(cycleDate.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(cycleDate.getUTCDate()).padStart(2, '0');
 
     return {
         date: `${yyyy}${mm}${dd}`,
-        cycle: String(selectedCycle).padStart(2, "0"),
+        cycle: String(selectedCycle).padStart(2, '0'),
     };
 }
 
@@ -71,9 +71,9 @@ function getLatestHrrrCycle(): { date: string; cycle: string } {
     const cycleDate = new Date(now.getTime() - 60 * 60 * 1000);
 
     const yyyy = cycleDate.getUTCFullYear();
-    const mm = String(cycleDate.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(cycleDate.getUTCDate()).padStart(2, "0");
-    const cycle = String(cycleDate.getUTCHours()).padStart(2, "0");
+    const mm = String(cycleDate.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(cycleDate.getUTCDate()).padStart(2, '0');
+    const cycle = String(cycleDate.getUTCHours()).padStart(2, '0');
 
     return {
         date: `${yyyy}${mm}${dd}`,
@@ -90,7 +90,12 @@ function toNoaaLon(lon: number): number {
 
 // ── Resolution selection ──────────────────────────────────────
 
-function selectResolution(north: number, south: number, east: number, west: number): {
+function selectResolution(
+    north: number,
+    south: number,
+    east: number,
+    west: number,
+): {
     filter: string;
     filePrefix: string;
     label: string;
@@ -101,12 +106,12 @@ function selectResolution(north: number, south: number, east: number, west: numb
     const areaDeg2 = latSpan * lonSpan;
 
     if (areaDeg2 > 10_000) {
-        return { filter: "filter_gfs_1p00.pl", filePrefix: "pgrb2.1p00", label: "1.00°" };
+        return { filter: 'filter_gfs_1p00.pl', filePrefix: 'pgrb2.1p00', label: '1.00°' };
     }
     if (areaDeg2 > 2_500) {
-        return { filter: "filter_gfs_0p50.pl", filePrefix: "pgrb2full.0p50", label: "0.50°" };
+        return { filter: 'filter_gfs_0p50.pl', filePrefix: 'pgrb2full.0p50', label: '0.50°' };
     }
-    return { filter: "filter_gfs_0p25.pl", filePrefix: "pgrb2.0p25", label: "0.25°" };
+    return { filter: 'filter_gfs_0p25.pl', filePrefix: 'pgrb2.0p25', label: '0.25°' };
 }
 
 // ── Default forecast hours ────────────────────────────────────
@@ -126,16 +131,12 @@ interface PrecipRequest {
 // ── Main handler ──────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
-    if (req.method === "OPTIONS") {
+    if (req.method === 'OPTIONS') {
         return corsResponse(null, 204);
     }
 
-    if (req.method !== "POST") {
-        return corsResponse(
-            JSON.stringify({ error: "POST required" }),
-            405,
-            { "Content-Type": "application/json" },
-        );
+    if (req.method !== 'POST') {
+        return corsResponse(JSON.stringify({ error: 'POST required' }), 405, { 'Content-Type': 'application/json' });
     }
 
     try {
@@ -144,14 +145,14 @@ Deno.serve(async (req: Request) => {
         const hours = body.hours ?? DEFAULT_HOURS;
 
         if (
-            typeof north !== "number" || typeof south !== "number" ||
-            typeof east !== "number" || typeof west !== "number"
+            typeof north !== 'number' ||
+            typeof south !== 'number' ||
+            typeof east !== 'number' ||
+            typeof west !== 'number'
         ) {
-            return corsResponse(
-                JSON.stringify({ error: "Missing bounds (north, south, east, west)" }),
-                400,
-                { "Content-Type": "application/json" },
-            );
+            return corsResponse(JSON.stringify({ error: 'Missing bounds (north, south, east, west)' }), 400, {
+                'Content-Type': 'application/json',
+            });
         }
 
         // Convert longitudes to 0-360 for NOAA GFS
@@ -179,26 +180,26 @@ Deno.serve(async (req: Request) => {
         if (normalizedEast < normalizedWest) normalizedEast += 360; // handle wrap
 
         // Loose CONUS overlap check (allowing for coastal offshore regions)
-        const isConus = (south < 52 && north > 20) && (normalizedWest < -60 && normalizedEast > -130);
+        const isConus = south < 52 && north > 20 && normalizedWest < -60 && normalizedEast > -130;
 
         if (isConus) {
             const { date, cycle } = getLatestHrrrCycle();
-            console.log(`[fetch-precip-grid] Routing to HRRR ${date}/${cycle}z (${hours.length} hours)`);
+            console.info(`[fetch-precip-grid] Routing to HRRR ${date}/${cycle}z (${hours.length} hours)`);
 
             // HRRR model limits: max forecast is usually 18h (except 00z/06z/12z/18z which go 48h)
             // For safety, we only fetch what HRRR provides, clamping the array.
             const isExtendedHrrr = [0, 6, 12, 18].includes(parseInt(cycle));
             const maxHrrrHour = isExtendedHrrr ? 48 : 18;
-            const hrrrHours = hours.filter(h => h <= maxHrrrHour);
+            const hrrrHours = hours.filter((h) => h <= maxHrrrHour);
 
             const fetches = hrrrHours.map(async (h) => {
-                const fHour = String(h).padStart(2, "0"); // HRRR uses 2 digits for hours (e.g., f00, f18)
+                const fHour = String(h).padStart(2, '0'); // HRRR uses 2 digits for hours (e.g., f00, f18)
                 const params = new URLSearchParams({
                     dir: `/hrrr.${date}/conus`,
                     file: `hrrr.t${cycle}z.wrfsfcf${fHour}.grib2`,
-                    var_PRATE: "on",
-                    lev_surface: "on",
-                    subregion: "",
+                    var_PRATE: 'on',
+                    lev_surface: 'on',
+                    subregion: '',
                     // HRRR native lon is -180 to 180 or 0-360.NOMADS HRRR subsetter uses -180 to 180.
                     leftlon: normalizedWest.toFixed(2),
                     rightlon: normalizedEast.toFixed(2),
@@ -229,11 +230,9 @@ Deno.serve(async (req: Request) => {
             if (validBuffers.length === 0) {
                 // If HRRR fails (e.g. recent hour not fully uploaded), we should fallback to GFS/Open-Meteo
                 // For now, return an error so the client knows it failed.
-                return corsResponse(
-                    JSON.stringify({ error: "No precipitation data available from NOAA HRRR" }),
-                    502,
-                    { "Content-Type": "application/json" }
-                );
+                return corsResponse(JSON.stringify({ error: 'No precipitation data available from NOAA HRRR' }), 502, {
+                    'Content-Type': 'application/json',
+                });
             }
 
             const totalSize = validBuffers.reduce((sum, b) => sum + b.byteLength, 0);
@@ -245,13 +244,13 @@ Deno.serve(async (req: Request) => {
             }
 
             return corsResponse(combined as unknown as BodyInit, 200, {
-                "Content-Type": "application/octet-stream",
-                "Content-Length": String(combined.byteLength),
-                "X-GFS-Date": date,
-                "X-GFS-Cycle": `${cycle}z`,
-                "X-Frames": String(validBuffers.length),
-                "X-Model": "HRRR",
-                "X-Hours": hrrrHours.filter((_, i) => results[i] !== null).join(","),
+                'Content-Type': 'application/octet-stream',
+                'Content-Length': String(combined.byteLength),
+                'X-GFS-Date': date,
+                'X-GFS-Cycle': `${cycle}z`,
+                'X-Frames': String(validBuffers.length),
+                'X-Model': 'HRRR',
+                'X-Hours': hrrrHours.filter((_, i) => results[i] !== null).join(','),
             });
         }
 
@@ -263,18 +262,18 @@ Deno.serve(async (req: Request) => {
         // GFS 0.25° via NOMADS is the only free GRIB source with server-side subregion clipping.
         const gfs = getLatestGfsCycle();
         const { filter, filePrefix, label } = selectResolution(north, south, east, west);
-        console.log(`[fetch-precip-grid] Routing to GFS ${label} ${gfs.date}/${gfs.cycle}z (${hours.length} hours)`);
+        console.info(`[fetch-precip-grid] Routing to GFS ${label} ${gfs.date}/${gfs.cycle}z (${hours.length} hours)`);
 
-        const gfsHours = hours.filter(h => h <= 384); // GFS goes up to 384h
+        const gfsHours = hours.filter((h) => h <= 384); // GFS goes up to 384h
 
         const fetches = gfsHours.map(async (h) => {
-            const fHour = String(h).padStart(3, "0");
+            const fHour = String(h).padStart(3, '0');
             const params = new URLSearchParams({
                 dir: `/gfs.${gfs.date}/${gfs.cycle}/atmos`,
                 file: `gfs.t${gfs.cycle}z.${filePrefix}.f${fHour}`,
-                var_PRATE: "on",
-                lev_surface: "on",
-                subregion: "",
+                var_PRATE: 'on',
+                lev_surface: 'on',
+                subregion: '',
                 leftlon: leftLon.toFixed(2),
                 rightlon: rightLon.toFixed(2),
                 toplat: north.toFixed(2),
@@ -301,11 +300,9 @@ Deno.serve(async (req: Request) => {
         const validBuffers = results.filter((b): b is ArrayBuffer => b !== null);
 
         if (validBuffers.length === 0) {
-            return corsResponse(
-                JSON.stringify({ error: "No precipitation data available from NOAA GFS" }),
-                502,
-                { "Content-Type": "application/json" }
-            );
+            return corsResponse(JSON.stringify({ error: 'No precipitation data available from NOAA GFS' }), 502, {
+                'Content-Type': 'application/json',
+            });
         }
 
         const totalSize = validBuffers.reduce((sum, b) => sum + b.byteLength, 0);
@@ -317,21 +314,18 @@ Deno.serve(async (req: Request) => {
         }
 
         return corsResponse(combined as unknown as BodyInit, 200, {
-            "Content-Type": "application/octet-stream",
-            "Content-Length": String(combined.byteLength),
-            "X-GFS-Date": gfs.date,
-            "X-GFS-Cycle": `${gfs.cycle}z`,
-            "X-Frames": String(validBuffers.length),
-            "X-Model": "GFS",
-            "X-Hours": gfsHours.filter((_, i) => results[i] !== null).join(","),
+            'Content-Type': 'application/octet-stream',
+            'Content-Length': String(combined.byteLength),
+            'X-GFS-Date': gfs.date,
+            'X-GFS-Cycle': `${gfs.cycle}z`,
+            'X-Frames': String(validBuffers.length),
+            'X-Model': 'GFS',
+            'X-Hours': gfsHours.filter((_, i) => results[i] !== null).join(','),
         });
-
     } catch (err: any) {
-        console.error("[fetch-precip-grid] Error:", err.message, err.stack);
-        return corsResponse(
-            JSON.stringify({ error: err.message || String(err), stack: err.stack }),
-            500,
-            { "Content-Type": "application/json" }
-        );
+        console.error('[fetch-precip-grid] Error:', err.message, err.stack);
+        return corsResponse(JSON.stringify({ error: err.message || String(err), stack: err.stack }), 500, {
+            'Content-Type': 'application/json',
+        });
     }
 });

@@ -35,7 +35,8 @@ serve(async (req) => {
         const authHeader = req.headers.get('Authorization');
         if (!authHeader) {
             return new Response(JSON.stringify({ error: 'Not authenticated' }), {
-                status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 401,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
         }
 
@@ -52,7 +53,8 @@ serve(async (req) => {
 
         if (!escrow_id || !pin) {
             return new Response(JSON.stringify({ error: 'escrow_id and pin are required' }), {
-                status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
         }
 
@@ -64,13 +66,15 @@ serve(async (req) => {
 
         if (rpcError) {
             return new Response(JSON.stringify({ error: `Verification failed: ${rpcError.message}` }), {
-                status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
         }
 
         if (!verifyResult?.success) {
             return new Response(JSON.stringify({ error: verifyResult?.error || 'PIN verification failed' }), {
-                status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
         }
 
@@ -81,7 +85,8 @@ serve(async (req) => {
 
         if (capturedPI.status !== 'succeeded') {
             return new Response(JSON.stringify({ error: `Capture failed: ${capturedPI.status}` }), {
-                status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                status: 500,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
         }
 
@@ -116,13 +121,13 @@ serve(async (req) => {
                 sellerPayoutCents: verifyResult.seller_payout_cents,
                 platformFeeCents: verifyResult.platform_fee_cents,
             }),
-            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
         );
     } catch (err) {
         console.error('Escrow capture error:', err);
-        return new Response(
-            JSON.stringify({ error: err instanceof Error ? err.message : 'Internal server error' }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+        return new Response(JSON.stringify({ error: err instanceof Error ? err.message : 'Internal server error' }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
     }
 });

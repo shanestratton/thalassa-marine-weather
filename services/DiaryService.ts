@@ -319,7 +319,7 @@ class DiaryServiceClass {
             const pending = this._getPendingEntries();
             if (pending.length === 0) return;
 
-            console.log(`[Diary] Syncing ${pending.length} pending entries…`);
+            console.info(`[Diary] Syncing ${pending.length} pending entries…`);
 
             // Try getUser first, fall back to getSession, then try refreshSession
             // (Capacitor can have stale user cache / expired JWT)
@@ -337,7 +337,7 @@ class DiaryServiceClass {
                     const refreshResp = await supabase.auth.refreshSession();
                     userId = refreshResp.data.session?.user?.id;
                     if (userId) {
-                        console.log('[Diary] Token refresh succeeded — resuming sync');
+                        console.info('[Diary] Token refresh succeeded — resuming sync');
                     }
                 } catch (refreshErr) {
                     console.warn('[Diary] Token refresh failed:', refreshErr);
@@ -400,7 +400,7 @@ class DiaryServiceClass {
                         // survives the gap between pending removal and server cache refresh
                         this._recentlySynced.push({ entry: data as DiaryEntry, syncedAt: Date.now() });
                         syncedCount++;
-                        console.log(`[Diary] ✅ Synced entry: ${entry.title || entry.id}`);
+                        console.info(`[Diary] ✅ Synced entry: ${entry.title || entry.id}`);
                     } else if (error) {
                         console.error(
                             `[Diary] ❌ Supabase error for "${entry.title}":`,
@@ -428,7 +428,7 @@ class DiaryServiceClass {
                 // the refresh would overwrite the cache with stale data (missing the
                 // just-synced entry). The _recentlySynced buffer + natural 8s polling
                 // in DiaryPage handles this safely.
-                console.log(`[Diary] Sync complete — ${syncedCount} entries synced`);
+                console.info(`[Diary] Sync complete — ${syncedCount} entries synced`);
             }
         } finally {
             this._syncInProgress = false;

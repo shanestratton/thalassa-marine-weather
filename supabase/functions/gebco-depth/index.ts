@@ -1,5 +1,5 @@
 // GEBCO / ETOPO Depth Query Edge Function
-// 
+//
 // Queries bathymetric data for depth values at specified coordinates.
 // Uses NOAA ETOPO via ERDDAP (reliable, free, no auth required).
 //
@@ -43,7 +43,7 @@ interface DepthResult {
 
 /**
  * Query depth at a single point via NOAA ETOPO ERDDAP.
- * 
+ *
  * ERDDAP returns altitude in metres:
  *   - Negative = ocean depth below sea level
  *   - Positive = land elevation above sea level
@@ -76,7 +76,7 @@ async function queryDepthSingle(lat: number, lon: number): Promise<number | null
 
 /**
  * Batch query depths for multiple points.
- * 
+ *
  * Strategy:
  * - For ≤ 5 points: individual parallel queries (fast, simple)
  * - For > 5 points: group into small batches with ERDDAP range queries
@@ -96,7 +96,7 @@ async function queryDepthBatch(points: DepthPoint[]): Promise<DepthResult[]> {
                 lat: pt.lat,
                 lon: pt.lon,
                 depth_m: await queryDepthSingle(pt.lat, pt.lon),
-            }))
+            })),
         );
         for (let j = 0; j < batchResults.length; j++) {
             results[i + j] = batchResults[j];
@@ -138,7 +138,7 @@ serve(async (req: Request) => {
 
             // Fetch grid from ERDDAP — single server-side call (no CORS issue)
             const gridUrl = `${ERDDAP_BASE}?altitude%5B(${south}):${stride}:(${north})%5D%5B(${west}):${stride}:(${east})%5D`;
-            console.log(`[Depth] Grid query: ${gridUrl}`);
+            console.info(`[Depth] Grid query: ${gridUrl}`);
 
             const resp = await fetch(gridUrl, { signal: AbortSignal.timeout(30_000) });
             if (!resp.ok) {
@@ -152,13 +152,10 @@ serve(async (req: Request) => {
             const data = await resp.json();
             const elapsed_ms = Math.round(performance.now() - t0);
 
-            return new Response(
-                JSON.stringify({ grid: data, elapsed_ms, source: 'noaa_etopo_erddap_grid' }),
-                {
-                    status: 200,
-                    headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-                }
-            );
+            return new Response(JSON.stringify({ grid: data, elapsed_ms, source: 'noaa_etopo_erddap_grid' }), {
+                status: 200,
+                headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+            });
         }
 
         // ── Mode 2: Individual points query (original behaviour) ──
@@ -182,21 +179,15 @@ serve(async (req: Request) => {
         const depths = await queryDepthBatch(points);
         const elapsed_ms = Math.round(performance.now() - t0);
 
-        return new Response(
-            JSON.stringify({ depths, elapsed_ms, source: 'noaa_etopo_erddap' }),
-            {
-                status: 200,
-                headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-            }
-        );
+        return new Response(JSON.stringify({ depths, elapsed_ms, source: 'noaa_etopo_erddap' }), {
+            status: 200,
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+        });
     } catch (err) {
         console.error('[Depth] Handler error:', err);
-        return new Response(
-            JSON.stringify({ error: 'Internal error', details: String(err) }),
-            {
-                status: 500,
-                headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
-            }
-        );
+        return new Response(JSON.stringify({ error: 'Internal error', details: String(err) }), {
+            status: 500,
+            headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+        });
     }
 });
