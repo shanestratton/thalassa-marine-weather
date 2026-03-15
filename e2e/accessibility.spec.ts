@@ -1,4 +1,3 @@
-
 import { test, expect } from '@playwright/test';
 
 /**
@@ -8,21 +7,39 @@ import { test, expect } from '@playwright/test';
 
 const ONBOARDED_STORAGE = {
     cookies: [],
-    origins: [{
-        origin: 'http://localhost:3000',
-        localStorage: [
-            { name: 'thalassa_v3_onboarded', value: 'true' },
-            {
-                name: 'thalassa_v3_settings',
-                value: JSON.stringify({
-                    defaultLocation: 'Sydney, NSW',
-                    units: { speed: 'kts', temp: 'C', distance: 'nm', length: 'm', tideHeight: 'm', waveHeight: 'm', visibility: 'nm', volume: 'l' },
-                    vessel: { name: 'Test Vessel', type: 'sail', length: 35, beam: 11, draft: 6, displacement: 12000 },
-                    savedLocations: ['Sydney, NSW'],
-                }),
-            },
-        ],
-    }],
+    origins: [
+        {
+            origin: 'http://localhost:3000',
+            localStorage: [
+                { name: 'thalassa_v3_onboarded', value: 'true' },
+                {
+                    name: 'thalassa_v3_settings',
+                    value: JSON.stringify({
+                        defaultLocation: 'Sydney, NSW',
+                        units: {
+                            speed: 'kts',
+                            temp: 'C',
+                            distance: 'nm',
+                            length: 'm',
+                            tideHeight: 'm',
+                            waveHeight: 'm',
+                            visibility: 'nm',
+                            volume: 'l',
+                        },
+                        vessel: {
+                            name: 'Test Vessel',
+                            type: 'sail',
+                            length: 35,
+                            beam: 11,
+                            draft: 6,
+                            displacement: 12000,
+                        },
+                        savedLocations: ['Sydney, NSW'],
+                    }),
+                },
+            ],
+        },
+    ],
 };
 
 test.describe('Accessibility', () => {
@@ -62,7 +79,7 @@ test.describe('Accessibility', () => {
         }
 
         // At least some elements should receive focus (not all BODY)
-        const nonBodyFocuses = focusedElements.filter(t => t !== 'BODY');
+        const nonBodyFocuses = focusedElements.filter((t) => t !== 'BODY');
         expect(nonBodyFocuses.length).toBeGreaterThan(0);
     });
 
