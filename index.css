@@ -2081,6 +2081,10 @@ body,
 }
 
 /* ── Weather Inspect Popup — strip Mapbox default styling ──────── */
+.weather-inspect-popup {
+  z-index: 500 !important; /* Above wind particle overlay (z-index:400) */
+}
+
 .weather-inspect-popup .mapboxgl-popup-content {
   background: transparent !important;
   box-shadow: none !important;
