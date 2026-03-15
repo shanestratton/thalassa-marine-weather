@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('OnboardingWizard');
@@ -36,6 +36,7 @@ import { fetchWeatherByStrategy } from '../services/weather';
 import { WeatherMap } from './WeatherMap';
 import { getSystemUnits } from '../utils';
 import { Geolocation } from '@capacitor/geolocation';
+import { Capacitor } from '@capacitor/core';
 import { YachtDatabaseSearch } from './settings/YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../data/polarDatabase';
 
@@ -45,6 +46,42 @@ interface OnboardingWizardProps {
 
 export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }) => {
     const [step, setStep] = useState(1);
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+    // Keyboard tracking — same pattern as DiaryPage
+    useEffect(() => {
+        let cleanup: (() => void) | undefined;
+
+        if (Capacitor.isNativePlatform()) {
+            import('@capacitor/keyboard')
+                .then(({ Keyboard }) => {
+                    const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
+                        setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
+                        setTimeout(() => {
+                            const focused = document.activeElement as HTMLElement;
+                            if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) {
+                                focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                        }, 250);
+                    });
+                    const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                        setKeyboardHeight(0);
+                    });
+                    cleanup = () => {
+                        showHandle.then((h) => h.remove());
+                        hideHandle.then((h) => h.remove());
+                    };
+                })
+                .catch(() => {
+                    /* Keyboard plugin not available */
+                });
+        }
+
+        return () => {
+            cleanup?.();
+            setKeyboardHeight(0);
+        };
+    }, []);
 
     // Step 2: Location Data
     const [homePort, setHomePort] = useState('');
@@ -618,7 +655,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                 {/* STEP 4: VESSEL DETAILS */}
                 {step === 4 && (
-                    <div className="animate-in fade-in slide-in-from-right-8 duration-500 max-h-[calc(100dvh-10rem)] overflow-y-auto no-scrollbar">
+                    <div
+                        className="animate-in fade-in slide-in-from-right-8 duration-500 max-h-[calc(100dvh-10rem)] overflow-y-auto no-scrollbar"
+                        style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined }}
+                    >
                         {vesselType === 'observer' ? (
                             <div className="text-center py-10">
                                 <SearchIcon className="w-16 h-16 text-gray-500 mx-auto mb-4" />
