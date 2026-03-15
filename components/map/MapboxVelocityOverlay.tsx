@@ -57,10 +57,10 @@ function createVelocityLayer(data: any[]): L.Layer {
         displayValues: false, // No mouse readout (overlay has pointer-events: none)
         data,
         maxVelocity: 40,
-        velocityScale: 0.02,
-        particleAge: 40,
+        velocityScale: 0.015,
+        particleAge: 60,
         particleMultiplier: 1 / 150,
-        frameRate: 30,
+        frameRate: 15,
         lineWidth: 3.5,
         colorScale: WIND_COLORS,
     });
