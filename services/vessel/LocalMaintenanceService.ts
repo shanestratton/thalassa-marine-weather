@@ -183,4 +183,42 @@ export class LocalMaintenanceService {
             totalSpent,
         };
     }
+    // ── SEED DEFAULTS (Offline) ──
+
+    /**
+     * Seed the 40 default maintenance tasks for a new user — locally.
+     * Matching the cloud MaintenanceService.seedDefaults() API.
+     */
+    static async seedDefaults(): Promise<number> {
+        const { DEFAULT_MAINTENANCE_TASKS } = await import('../../components/vessel/maintenance/defaultTasks');
+
+        const now = new Date();
+        for (const t of DEFAULT_MAINTENANCE_TASKS) {
+            const isEngineHours = t.trigger_type === 'engine_hours';
+            const dueDate = isEngineHours
+                ? null
+                : new Date(now.getTime() + t.interval_value * 86_400_000).toISOString().split('T')[0];
+            const dueHours = isEngineHours ? t.interval_value : null;
+
+            const record: MaintenanceTask = {
+                id: generateUUID(),
+                user_id: '',
+                title: t.title,
+                description: t.description,
+                category: t.category,
+                trigger_type: t.trigger_type,
+                interval_value: t.interval_value,
+                next_due_date: dueDate,
+                next_due_hours: dueHours,
+                last_completed: null,
+                is_active: true,
+                created_at: now.toISOString(),
+                updated_at: now.toISOString(),
+            };
+
+            await insertLocal<MaintenanceTask>(TASKS_TABLE, record);
+        }
+
+        return DEFAULT_MAINTENANCE_TASKS.length;
+    }
 }

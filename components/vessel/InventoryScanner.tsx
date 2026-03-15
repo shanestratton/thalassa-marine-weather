@@ -11,7 +11,7 @@ import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('InventoryScanner');
 import type { InventoryItem, InventoryCategory } from '../../types';
-import { InventoryService } from '../../services/InventoryService';
+import { LocalInventoryService as InventoryService } from '../../services/vessel/LocalInventoryService';
 import { triggerHaptic } from '../../utils/system';
 import { Capacitor } from '@capacitor/core';
 import { toast } from '../Toast';

@@ -14,7 +14,7 @@ import { createLogger } from '../../utils/createLogger';
 const log = createLogger('InventoryList');
 import type { InventoryItem, InventoryCategory } from '../../types';
 import { INVENTORY_CATEGORIES as CATEGORIES, INVENTORY_CATEGORY_ICONS as CATEGORY_ICONS } from '../../types';
-import { InventoryService } from '../../services/InventoryService';
+import { LocalInventoryService as InventoryService } from '../../services/vessel/LocalInventoryService';
 import { InventoryScanner } from './InventoryScanner';
 import { downloadInventoryPdf, shareInventoryPdf } from '../../utils/inventoryPdfExport';
 import { triggerHaptic } from '../../utils/system';
@@ -397,7 +397,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 description: editDescription || null,
                 expiry_date: editExpiry || null,
             });
-            setItems((prev) => prev.map((i) => (i.id === editItem.id ? updated : i)));
+            if (updated) setItems((prev) => prev.map((i) => (i.id === editItem.id ? updated : i)));
             setEditItem(null);
             triggerHaptic('medium');
             toast.success('Item updated');
@@ -413,7 +413,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         triggerHaptic('light');
         try {
             const updated = await InventoryService.adjustQuantity(id, delta);
-            setItems((prev) => prev.map((i) => (i.id === id ? updated : i)));
+            if (updated) setItems((prev) => prev.map((i) => (i.id === id ? updated : i)));
         } catch (e) {
             log.warn(' qty adjust failed:', e);
             toast.error('Failed to update quantity');
