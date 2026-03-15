@@ -78,7 +78,7 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
             // ── Compass rose tick marks ──
             const numTicks = 36;
             for (let i = 0; i < numTicks; i++) {
-                const angle = (i * 360 / numTicks - 90) * Math.PI / 180;
+                const angle = (((i * 360) / numTicks - 90) * Math.PI) / 180;
                 const isMajor = i % 9 === 0;
                 const isMinor = i % 3 === 0;
                 const innerR = displayRadius + (isMajor ? 12 : isMinor ? 16 : 18);
@@ -103,7 +103,7 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
                 { label: 'W', angle: 180, color: 'rgba(148, 163, 184, 0.5)' },
             ];
             cardinals.forEach(({ label, angle, color }) => {
-                const rad = angle * Math.PI / 180;
+                const rad = (angle * Math.PI) / 180;
                 ctx.fillStyle = color;
                 ctx.fillText(label, cx + Math.cos(rad) * labelOffset, cy + Math.sin(rad) * labelOffset);
             });
@@ -169,9 +169,15 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
                 for (let i = 1; i < histLen; i++) {
                     const prev = snapshot.positionHistory[i - 1];
                     const curr = snapshot.positionHistory[i];
-                    const pDx = (prev.longitude - snapshot.anchorPosition!.longitude) * 111320 * Math.cos(snapshot.anchorPosition!.latitude * Math.PI / 180);
+                    const pDx =
+                        (prev.longitude - snapshot.anchorPosition!.longitude) *
+                        111320 *
+                        Math.cos((snapshot.anchorPosition!.latitude * Math.PI) / 180);
                     const pDy = (prev.latitude - snapshot.anchorPosition!.latitude) * 110540;
-                    const cDx = (curr.longitude - snapshot.anchorPosition!.longitude) * 111320 * Math.cos(snapshot.anchorPosition!.latitude * Math.PI / 180);
+                    const cDx =
+                        (curr.longitude - snapshot.anchorPosition!.longitude) *
+                        111320 *
+                        Math.cos((snapshot.anchorPosition!.latitude * Math.PI) / 180);
                     const cDy = (curr.latitude - snapshot.anchorPosition!.latitude) * 110540;
 
                     const t = i / histLen; // 0=old, 1=new
@@ -193,7 +199,10 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
 
             // ── Vessel position with glowing marker ──
             if (snapshot.vesselPosition && snapshot.anchorPosition) {
-                const dx = (snapshot.vesselPosition.longitude - snapshot.anchorPosition.longitude) * 111320 * Math.cos(snapshot.anchorPosition.latitude * Math.PI / 180);
+                const dx =
+                    (snapshot.vesselPosition.longitude - snapshot.anchorPosition.longitude) *
+                    111320 *
+                    Math.cos((snapshot.anchorPosition.latitude * Math.PI) / 180);
                 const dy = (snapshot.vesselPosition.latitude - snapshot.anchorPosition.latitude) * 110540;
                 const vx = cx + dx * scale;
                 const vy = cy - dy * scale;

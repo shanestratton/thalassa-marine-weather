@@ -32,7 +32,9 @@ export function useChatProposals(options: UseChatProposalsOptions) {
 
     // --- Report State ---
     const [reportingMsg, setReportingMsg] = useState<any | null>(null);
-    const [reportReason, setReportReason] = useState<'spam' | 'harassment' | 'hate_speech' | 'inappropriate' | 'other'>('inappropriate');
+    const [reportReason, setReportReason] = useState<'spam' | 'harassment' | 'hate_speech' | 'inappropriate' | 'other'>(
+        'inappropriate',
+    );
     const [reportSent, setReportSent] = useState(false);
 
     // --- Load Memberships ---
@@ -59,8 +61,12 @@ export function useChatProposals(options: UseChatProposalsOptions) {
         let ok = false;
         if (isAdmin) {
             const ch = await ChatService.createChannel(
-                proposalName.trim(), proposalDesc.trim() || 'A new channel',
-                proposalIcon, proposalIsPrivate, undefined, proposalParentId || undefined
+                proposalName.trim(),
+                proposalDesc.trim() || 'A new channel',
+                proposalIcon,
+                proposalIsPrivate,
+                undefined,
+                proposalParentId || undefined,
             );
             ok = !!ch;
             if (ok) {
@@ -69,8 +75,12 @@ export function useChatProposals(options: UseChatProposalsOptions) {
             }
         } else {
             ok = await ChatService.proposeChannel(
-                proposalName.trim(), proposalDesc.trim() || 'A new channel',
-                proposalIcon, proposalIsPrivate, undefined, proposalParentId || undefined
+                proposalName.trim(),
+                proposalDesc.trim() || 'A new channel',
+                proposalIcon,
+                proposalIsPrivate,
+                undefined,
+                proposalParentId || undefined,
             );
         }
 
@@ -78,9 +88,12 @@ export function useChatProposals(options: UseChatProposalsOptions) {
             setProposalSent(true);
             toast.success(isAdmin ? `${proposalName.trim()} created!` : 'Proposal submitted for admin review!');
             setTimeout(() => {
-                setShowProposalForm(false); setProposalSent(false);
-                setProposalName(''); setProposalDesc('');
-                setProposalIsPrivate(false); setProposalParentId(null);
+                setShowProposalForm(false);
+                setProposalSent(false);
+                setProposalName('');
+                setProposalDesc('');
+                setProposalIsPrivate(false);
+                setProposalParentId(null);
             }, 2000);
         } else {
             toast.error('Failed to submit — please try again');
@@ -107,24 +120,35 @@ export function useChatProposals(options: UseChatProposalsOptions) {
 
     return {
         // Proposal
-        showProposalForm, setShowProposalForm,
-        proposalName, setProposalName,
-        proposalDesc, setProposalDesc,
-        proposalIcon, setProposalIcon,
+        showProposalForm,
+        setShowProposalForm,
+        proposalName,
+        setProposalName,
+        proposalDesc,
+        setProposalDesc,
+        proposalIcon,
+        setProposalIcon,
         proposalSent,
-        proposalIsPrivate, setProposalIsPrivate,
-        proposalParentId, setProposalParentId,
+        proposalIsPrivate,
+        setProposalIsPrivate,
+        proposalParentId,
+        setProposalParentId,
 
         // Private channels
         memberChannelIds,
-        joinRequestChannel, setJoinRequestChannel,
-        joinRequestMessage, setJoinRequestMessage,
+        joinRequestChannel,
+        setJoinRequestChannel,
+        joinRequestMessage,
+        setJoinRequestMessage,
         joinRequestSent,
 
         // Report
-        reportingMsg, setReportingMsg,
-        reportReason, setReportReason,
-        reportSent, setReportSent,
+        reportingMsg,
+        setReportingMsg,
+        reportReason,
+        setReportReason,
+        reportSent,
+        setReportSent,
 
         // Actions
         handleProposeChannel,

@@ -11,21 +11,19 @@ export interface GeoContext {
 }
 
 export const reverseGeocodeContext = async (lat: number, lon: number): Promise<GeoContext | null> => {
-
     try {
         // Try Mapbox First (High Precision)
         const mapboxKey = getMapboxKey();
         if (mapboxKey) {
-
             // Enhanced types: place (Cities), locality (Suburbs), poi (Points of Interest for marine features)
             // Note: Mapbox doesn't support 'natural_feature' as a type in the Places API.
             const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,locality,neighborhood,district,poi&access_token=${mapboxKey}`;
             const res = await CapacitorHttp.get({
                 url,
                 headers: {
-                    'Accept': 'application/json',
-                    'User-Agent': 'ThalassaMarine/1.0'
-                }
+                    Accept: 'application/json',
+                    'User-Agent': 'ThalassaMarine/1.0',
+                },
             });
 
             if (!res || !res.data) {
@@ -34,7 +32,9 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
 
             let data = res.data;
             if (typeof data === 'string') {
-                try { data = JSON.parse(data); } catch (e) {
+                try {
+                    data = JSON.parse(data);
+                } catch (e) {
                     return null;
                 }
             }
@@ -43,36 +43,42 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
                 // Prefer more specific types (suburb/neighborhood) over city-level (place)
                 // Mapbox returns features ordered by relevance, but we want the most granular match
                 const preferredTypes = ['neighborhood', 'locality', 'district', 'place'];
-                const place = data.features
-                    .sort((a: any, b: any) => {
+                const place =
+                    data.features.sort((a: any, b: any) => {
                         const ai = preferredTypes.indexOf(a.place_type?.[0]);
                         const bi = preferredTypes.indexOf(b.place_type?.[0]);
                         return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-                    })[0]
-                    || data.features[0];
+                    })[0] || data.features[0];
                 // Mapbox Context: find country and region
                 const context = place.context || [];
-                const countryCtx = context.find((c: { id: string; text?: string; short_code?: string }) => c.id.startsWith('country'));
-                const regionCtx = context.find((c: { id: string; text?: string; short_code?: string }) => c.id.startsWith('region'));
+                const countryCtx = context.find((c: { id: string; text?: string; short_code?: string }) =>
+                    c.id.startsWith('country'),
+                );
+                const regionCtx = context.find((c: { id: string; text?: string; short_code?: string }) =>
+                    c.id.startsWith('region'),
+                );
 
                 const city = place.text;
 
                 // FILTER: Ignore GENERIC "Ocean" or "Sea" results (e.g. "Pacific Ocean")
                 // BUT Allow specific places like "Ocean City", "Seaside", "Ocean Grove"
                 // Strict check: if it looks like a generic water body name
-                const isGenericWater = /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(city);
+                const isGenericWater =
+                    /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(
+                        city,
+                    );
 
                 if (isGenericWater) {
                     return null;
                 }
 
-                const countryShort = countryCtx ? (countryCtx.short_code || countryCtx.text).toUpperCase() : "";
+                const countryShort = countryCtx ? (countryCtx.short_code || countryCtx.text).toUpperCase() : '';
 
-                let state = "";
+                let state = '';
                 if (regionCtx) {
                     const regCode = regionCtx.short_code
-                        ? regionCtx.short_code.replace(/^[A-Z]{2}-/i, "").toUpperCase()
-                        : "";
+                        ? regionCtx.short_code.replace(/^[A-Z]{2}-/i, '').toUpperCase()
+                        : '';
                     const regText = regionCtx.text;
                     if (regCode && regCode.length <= 3) state = regCode;
                     else if (STATE_ABBREVIATIONS[regText]) state = STATE_ABBREVIATIONS[regText];
@@ -82,7 +88,7 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
                 const featureLat = place.center[1];
                 const featureLon = place.center[0];
 
-                const name = [city, state, countryShort].filter(p => p).join(", ");
+                const name = [city, state, countryShort].filter((p) => p).join(', ');
 
                 return { name, lat: featureLat, lon: featureLon };
             }
@@ -91,7 +97,7 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
         // Fallback to Nominatim if Mapbox failed or returned no features
         const res = await CapacitorHttp.get({
             url: `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`,
-            headers: { 'User-Agent': 'ThalassaMarine/1.0' }
+            headers: { 'User-Agent': 'ThalassaMarine/1.0' },
         });
 
         if (!res || !res.data) {
@@ -100,7 +106,9 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
 
         let data = res.data;
         if (typeof data === 'string') {
-            try { data = JSON.parse(data); } catch (e) {
+            try {
+                data = JSON.parse(data);
+            } catch (e) {
                 return null;
             }
         }
@@ -110,10 +118,19 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
         }
 
         const addr = data.address;
-        const locality = addr.suburb || addr.town || addr.city_district || addr.village || addr.city || addr.hamlet || addr.island || addr.municipality || addr.county;
-        const stateFull = addr.state || addr.province || addr.region || "";
+        const locality =
+            addr.suburb ||
+            addr.town ||
+            addr.city_district ||
+            addr.village ||
+            addr.city ||
+            addr.hamlet ||
+            addr.island ||
+            addr.municipality ||
+            addr.county;
+        const stateFull = addr.state || addr.province || addr.region || '';
         const state = abbreviate(stateFull) || stateFull;
-        const country = addr.country_code ? addr.country_code.toUpperCase() : "";
+        const country = addr.country_code ? addr.country_code.toUpperCase() : '';
 
         let finalName = locality;
 
@@ -122,9 +139,10 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
             finalName = parts[0];
         }
 
-        const name = [finalName, state, country].filter(p => p && p.trim().length > 0).join(", ");
+        const name = [finalName, state, country].filter((p) => p && p.trim().length > 0).join(', ');
 
-        const isGenericWater = /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(name);
+        const isGenericWater =
+            /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(name);
 
         if (isGenericWater) {
             return null;
@@ -134,35 +152,31 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
         const resLon = parseFloat(data.lon);
 
         return { name, lat: resLat, lon: resLon };
-
     } catch (err) {
         return null;
     }
-}
+};
 
 export const reverseGeocode = async (lat: number, lon: number): Promise<string | null> => {
     const ctx = await reverseGeocodeContext(lat, lon);
     return ctx ? ctx.name : null;
-}
+};
 
-export const parseLocation = async (location: string): Promise<{ lat: number, lon: number, name: string, timezone?: string }> => {
-    if (!location || typeof location !== 'string') return { lat: 0, lon: 0, name: "Invalid Location" };
+export const parseLocation = async (
+    location: string,
+): Promise<{ lat: number; lon: number; name: string; timezone?: string }> => {
+    if (!location || typeof location !== 'string') return { lat: 0, lon: 0, name: 'Invalid Location' };
 
     const searchStr = location.toLowerCase().trim();
 
     // 1. EXACT MATCH on Buoy ID or Name (Priority)
-    const exactBuoy = MAJOR_BUOYS.find(b =>
-        b.name.toLowerCase() === searchStr ||
-        b.id.toLowerCase() === searchStr
-    );
+    const exactBuoy = MAJOR_BUOYS.find((b) => b.name.toLowerCase() === searchStr || b.id.toLowerCase() === searchStr);
     if (exactBuoy) {
         return { lat: exactBuoy.lat, lon: exactBuoy.lon, name: exactBuoy.name };
     }
 
     // 2. FUZZY MATCH on Buoy Name
-    const fuzzyBuoy = MAJOR_BUOYS.find(b =>
-        b.name.toLowerCase().includes(searchStr) && searchStr.length > 4
-    );
+    const fuzzyBuoy = MAJOR_BUOYS.find((b) => b.name.toLowerCase().includes(searchStr) && searchStr.length > 4);
     if (fuzzyBuoy) {
         return { lat: fuzzyBuoy.lat, lon: fuzzyBuoy.lon, name: fuzzyBuoy.name };
     }
@@ -200,7 +214,7 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
             try {
                 // Count=1, English
                 const res = await CapacitorHttp.get({
-                    url: `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`
+                    url: `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`,
                 });
 
                 if (!res || !res.data) {
@@ -209,9 +223,12 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
 
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
                 return (data && data.results) || [];
-            } catch (e) { console.warn('[geocoding]', e); return []; }
+            } catch (e) {
+                console.warn('[geocoding]', e);
+                return [];
+            }
             // Silently ignored — non-critical failure
-        }
+        };
 
         let results = await fetchOpenMeteoGeo(location);
 
@@ -220,7 +237,7 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
             try {
                 const res = await CapacitorHttp.get({
                     url: `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`,
-                    headers: { 'User-Agent': 'ThalassaMarine/1.0' }
+                    headers: { 'User-Agent': 'ThalassaMarine/1.0' },
                 });
 
                 if (!res.data) {
@@ -231,14 +248,16 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
                 if (data && data.length > 0) {
                     const r = data[0];
                     // Map Nominatim result to OpenMeteo-like structure to reuse logic below
-                    results = [{
-                        latitude: parseFloat(r.lat),
-                        longitude: parseFloat(r.lon),
-                        name: r.name || r.display_name.split(',')[0],
-                        admin1: '', // Nominatim breakdown is complex, leaving blank is safe
-                        country_code: '', // Can extract from display_name but optional
-                        timezone: 'UTC' // We don't get TZ from Nominatim easily, but we can live without it or fetch it later
-                    }];
+                    results = [
+                        {
+                            latitude: parseFloat(r.lat),
+                            longitude: parseFloat(r.lon),
+                            name: r.name || r.display_name.split(',')[0],
+                            admin1: '', // Nominatim breakdown is complex, leaving blank is safe
+                            country_code: '', // Can extract from display_name but optional
+                            timezone: 'UTC', // We don't get TZ from Nominatim easily, but we can live without it or fetch it later
+                        },
+                    ];
                 }
             } catch (e) {
                 // Silently ignored — non-critical failure
@@ -264,11 +283,11 @@ export const parseLocation = async (location: string): Promise<{ lat: number, lo
         lon = r.longitude;
 
         // Formulate Name: "City, Admin1, Country"
-        const parts = [r.name, r.admin1, r.country_code?.toUpperCase()].filter(x => x);
-        name = parts.join(", ");
+        const parts = [r.name, r.admin1, r.country_code?.toUpperCase()].filter((x) => x);
+        name = parts.join(', ');
 
         return { lat, lon, name, timezone: r.timezone };
     }
 
     return { lat, lon, name };
-}
+};

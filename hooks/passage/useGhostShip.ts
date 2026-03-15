@@ -20,15 +20,15 @@ import type { TrackPoint, GhostShipState, TrackConditions } from '../../types/sp
  */
 function lerpConditions(a: TrackConditions, b: TrackConditions, t: number): TrackConditions {
     return {
-        depth_m: (a.depth_m != null && b.depth_m != null)
-            ? a.depth_m + (b.depth_m - a.depth_m) * t
-            : a.depth_m ?? b.depth_m,
+        depth_m:
+            a.depth_m != null && b.depth_m != null ? a.depth_m + (b.depth_m - a.depth_m) * t : (a.depth_m ?? b.depth_m),
         wind_spd_kts: a.wind_spd_kts + (b.wind_spd_kts - a.wind_spd_kts) * t,
         wind_dir_deg: lerpAngle(a.wind_dir_deg, b.wind_dir_deg, t),
         wave_ht_m: a.wave_ht_m + (b.wave_ht_m - a.wave_ht_m) * t,
-        swell_period_s: (a.swell_period_s != null && b.swell_period_s != null)
-            ? a.swell_period_s + (b.swell_period_s - a.swell_period_s) * t
-            : a.swell_period_s ?? b.swell_period_s,
+        swell_period_s:
+            a.swell_period_s != null && b.swell_period_s != null
+                ? a.swell_period_s + (b.swell_period_s - a.swell_period_s) * t
+                : (a.swell_period_s ?? b.swell_period_s),
     };
 }
 
@@ -37,13 +37,10 @@ function lerpAngle(a: number, b: number, t: number): number {
     let diff = b - a;
     if (diff > 180) diff -= 360;
     if (diff < -180) diff += 360;
-    return ((a + diff * t) + 360) % 360;
+    return (a + diff * t + 360) % 360;
 }
 
-export function useGhostShip(
-    track: TrackPoint[] | null | undefined,
-    currentTimeHours: number,
-): GhostShipState | null {
+export function useGhostShip(track: TrackPoint[] | null | undefined, currentTimeHours: number): GhostShipState | null {
     return useMemo(() => {
         if (!track || track.length < 2) return null;
 
@@ -76,8 +73,7 @@ export function useGhostShip(
         // ── Find active segment ──
         let segIdx = 0;
         for (let i = 0; i < track.length - 1; i++) {
-            if (currentTimeHours >= track[i].time_offset_hours &&
-                currentTimeHours < track[i + 1].time_offset_hours) {
+            if (currentTimeHours >= track[i].time_offset_hours && currentTimeHours < track[i + 1].time_offset_hours) {
                 segIdx = i;
                 break;
             }
@@ -88,16 +84,14 @@ export function useGhostShip(
 
         // ── Progress along this segment (0.0 → 1.0) ──
         const timeDiff = wp2.time_offset_hours - wp1.time_offset_hours;
-        const progress = timeDiff > 0
-            ? (currentTimeHours - wp1.time_offset_hours) / timeDiff
-            : 0;
+        const progress = timeDiff > 0 ? (currentTimeHours - wp1.time_offset_hours) / timeDiff : 0;
 
         // ── Interpolated distance ──
         const distDiff = wp2.distance_from_start_nm - wp1.distance_from_start_nm;
         const currentDistNM = wp1.distance_from_start_nm + distDiff * progress;
 
         // ── Turf.js position along the full line ──
-        const line = lineString(track.map(t => t.coordinates));
+        const line = lineString(track.map((t) => t.coordinates));
         const totalLen = length(line, { units: 'nauticalmiles' });
 
         // Clamp to line length

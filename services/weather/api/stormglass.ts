@@ -1,4 +1,4 @@
-import { MarineWeatherReport, StormGlassHour, StormGlassTideData, BeaconObservation } from '../../../types';
+import { MarineWeatherReport, StormGlassHour, BeaconObservation } from '../../../types';
 import { getOpenMeteoKey } from '../keys';
 import { fetchSG } from './base';
 import { fetchRealTides } from './tides';
@@ -32,15 +32,15 @@ const interpolateTides = (tides: { time: string; height: number }[]): { time: st
             // Ratio (0 to 1)
             const ratio = (t - tStart) / (tEnd - tStart);
 
-            // Cosine Interpolation: y(t) = mu2 + (y1 - y2)/2 * cos(pi*t) ? 
+            // Cosine Interpolation: y(t) = mu2 + (y1 - y2)/2 * cos(pi*t) ?
             // Formula: y = (y1 + y2)/2 + (y1 - y2)/2 * cos(x * pi)
-            // At x=0 (start), cos=1 => (y1+y2+y1-y2)/2 = y1. 
+            // At x=0 (start), cos=1 => (y1+y2+y1-y2)/2 = y1.
             // At x=1 (end), cos=-1 => (y1+y2-y1+y2)/2 = y2. Correct.
-            const height = (hStart + hEnd) / 2 + (hStart - hEnd) / 2 * Math.cos(ratio * Math.PI);
+            const height = (hStart + hEnd) / 2 + ((hStart - hEnd) / 2) * Math.cos(ratio * Math.PI);
 
             interpolated.push({
                 time: new Date(t).toISOString(),
-                sg: height // Use 'sg' field as carrier for 'height' in meters
+                sg: height, // Use 'sg' field as carrier for 'height' in meters
             });
         }
     }
@@ -51,9 +51,8 @@ export const fetchStormGlassWeather = async (
     lat: number,
     lon: number,
     name: string,
-    existingLocationType?: 'coastal' | 'offshore' | 'inland'
+    existingLocationType?: 'coastal' | 'offshore' | 'inland',
 ): Promise<MarineWeatherReport> => {
-
     // 1. CHECK CACHE (3h TTL — model data updates every 6h)
     // API key lives server-side in Supabase Secrets — no client-side check needed.
     const cached = apiCacheGet<MarineWeatherReport>('stormglass', lat, lon);
@@ -67,25 +66,30 @@ export const fetchStormGlassWeather = async (
 
     // QUOTA OPTIMIZATION: Request marine-only params for coastal/inland (WeatherKit handles atmo).
     // For OFFSHORE, request full atmospheric + marine since WeatherKit has no ocean station data.
-    const marineParams = 'waveHeight,wavePeriod,waveDirection,swellPeriod,swellDirection,secondarySwellHeight,secondarySwellPeriod,waterTemperature,currentSpeed,currentDirection';
-    const atmosphericParams = 'windSpeed,gust,windDirection,airTemperature,dewPointTemperature,pressure,cloudCover,visibility,precipitation,humidity';
+    const marineParams =
+        'waveHeight,wavePeriod,waveDirection,swellPeriod,swellDirection,secondarySwellHeight,secondarySwellPeriod,waterTemperature,currentSpeed,currentDirection';
+    const atmosphericParams =
+        'windSpeed,gust,windDirection,airTemperature,dewPointTemperature,pressure,cloudCover,visibility,precipitation,humidity';
 
     const weatherParams = {
-        lat, lng: lon,
-        params: existingLocationType === 'offshore'
-            ? `${atmosphericParams},${marineParams}`  // Full suite for offshore
-            : marineParams,                            // Marine-only for coastal/inland
-        start, end,
-        source: 'sg'
+        lat,
+        lng: lon,
+        params:
+            existingLocationType === 'offshore'
+                ? `${atmosphericParams},${marineParams}` // Full suite for offshore
+                : marineParams, // Marine-only for coastal/inland
+        start,
+        end,
+        source: 'sg',
     };
 
     const fetchHybridContext = async () => {
         try {
             const omKey = getOpenMeteoKey();
             if (!omKey) return null; // No free fallback — App Store compliance
-            const baseUrl = "https://customer-api.open-meteo.com/v1";
+            const baseUrl = 'https://customer-api.open-meteo.com/v1';
             // Commercial API serves marine data via the main 'forecast' endpoint, not 'marine'.
-            const marineBaseUrl = "https://customer-api.open-meteo.com/v1/forecast";
+            const marineBaseUrl = 'https://customer-api.open-meteo.com/v1/forecast';
 
             // FIX: Added hourly=uv_index to support Current Card UV display
             // FIX: Changed timezone=UTC to timezone=auto to get location's offset
@@ -102,24 +106,23 @@ export const fetchStormGlassWeather = async (
                     marineData = proxResult.data;
                     distToWaterIdx = proxResult.nearestWaterDistanceKm;
                 } else {
-
                 }
             } catch (e) {
                 // Silently ignored — non-critical failure
-
             }
 
-            const [wRes] = await Promise.all([
-                fetch(weatherUrl).then(r => r.json())
-            ]);
+            const [wRes] = await Promise.all([fetch(weatherUrl).then((r) => r.json())]);
 
             return {
                 weather: wRes,
                 marine: marineData,
                 distToWaterIdx,
-                elevation: wRes.elevation
+                elevation: wRes.elevation,
             };
-        } catch (e) { console.warn('[stormglass]', e); return null; }
+        } catch (e) {
+            console.warn('[stormglass]', e);
+            return null;
+        }
     };
 
     // 1. CRITICAL: Fetch Weather First (Fail fast if this breaks)
@@ -134,16 +137,15 @@ export const fetchStormGlassWeather = async (
     // 2. SECONDARY: Fetch supplements safely
     // If these fail, we log warning but continue with defaults
 
-
     // QUOTA OPTIMIZATION: astronomy/point removed — WeatherKit provides sunrise/sunset.
     // This saves 1 StormGlass API request per fetch.
     const [tidesRes, hybridData] = await Promise.all([
-        fetchRealTides(lat, lon).catch(e => {
+        fetchRealTides(lat, lon).catch((e) => {
             return { tides: [], guiDetails: undefined };
         }),
-        fetchHybridContext().catch(e => {
+        fetchHybridContext().catch((e) => {
             return null;
-        })
+        }),
     ]);
     const astronomy: AstroEntry[] = []; // Empty — WeatherKit provides this data now
 
@@ -154,7 +156,7 @@ export const fetchStormGlassWeather = async (
         const omValues = hybridData.weather.hourly.uv_index as number[];
         const omOffset = hybridData.weather.utc_offset_seconds || 0;
 
-        weatherRes.hours.forEach(h => {
+        weatherRes.hours.forEach((h) => {
             // Match Times: SG is "2026-01-14T00:00:00+00:00" (UTC)
             // OM (Auto) is "2026-01-14T10:00" (Local).
             // Convert OM Local -> UTC to match SG.
@@ -164,12 +166,12 @@ export const fetchStormGlassWeather = async (
             const sgTime = new Date(h.time).getTime();
 
             // Find matching OM time
-            // Because OM returns aligned hours, we can theoretically rely on index if start times matched. 
+            // Because OM returns aligned hours, we can theoretically rely on index if start times matched.
             // But robust way:
-            const matchIdx = omTimes.findIndex(tStr => {
+            const matchIdx = omTimes.findIndex((tStr) => {
                 // TStr: "2026-01-14T10:00"
-                const localEp = new Date(tStr + "Z").getTime(); // Treat as UTC
-                const utcEp = localEp - (omOffset * 1000);
+                const localEp = new Date(tStr + 'Z').getTime(); // Treat as UTC
+                const utcEp = localEp - omOffset * 1000;
                 return Math.abs(utcEp - sgTime) < 100000; // Within tolerance
             });
 
@@ -187,11 +189,11 @@ export const fetchStormGlassWeather = async (
         const omCape = hybridData.weather.hourly.cape as number[];
         const omOffset = hybridData.weather.utc_offset_seconds || 0;
 
-        weatherRes.hours.forEach(h => {
+        weatherRes.hours.forEach((h) => {
             const sgTime = new Date(h.time).getTime();
-            const matchIdx = omTimes.findIndex(tStr => {
-                const localEp = new Date(tStr + "Z").getTime();
-                const utcEp = localEp - (omOffset * 1000);
+            const matchIdx = omTimes.findIndex((tStr) => {
+                const localEp = new Date(tStr + 'Z').getTime();
+                const utcEp = localEp - omOffset * 1000;
                 return Math.abs(utcEp - sgTime) < 100000;
             });
             if (matchIdx !== -1) {
@@ -224,7 +226,7 @@ export const fetchStormGlassWeather = async (
         astronomy,
         existingLocationType,
         hybridData?.weather?.timezone, // Timezone String
-        hybridData?.weather?.utc_offset_seconds ? (hybridData.weather.utc_offset_seconds / 3600) : undefined // UTC Offset (Hours)
+        hybridData?.weather?.utc_offset_seconds ? hybridData.weather.utc_offset_seconds / 3600 : undefined, // UTC Offset (Hours)
     );
 
     // 4. Fetch Buoy Data and Merge with StormGlass
@@ -263,14 +265,16 @@ export const fetchStormGlassWeather = async (
                 // FIX: Filter out Generic or STANDALONE Ocean/Sea names
                 // NOTE: Only match full water body names ("Pacific Ocean", "South Sea"),
                 // NOT place names containing these words ("Seaford", "Coral Sea Marina", "Reefton").
-                const isGeneric = landCtx.name.startsWith("Location") ||
+                const isGeneric =
+                    landCtx.name.startsWith('Location') ||
                     /^[+-]?\d/.test(landCtx.name) ||
-                    /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(landCtx.name);
+                    /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(
+                        landCtx.name,
+                    );
 
                 if (!isGeneric) {
                     distToLand = calculateDistance(lat, lon, landCtx.lat, landCtx.lon);
                 } else {
-
                     // Force landCtx null so determiner sees it as "Far from Land"
                     // (We can't set landCtx to null because it's const, but we can manage the call below)
                 }
@@ -283,11 +287,17 @@ export const fetchStormGlassWeather = async (
                     distToWaterIdx,
                     effectiveCtx?.name,
                     mergedReport.tides && mergedReport.tides.length > 0,
-                    hybridData?.elevation
+                    hybridData?.elevation,
                 );
             } else {
                 // No land context at all
-                mergedReport.locationType = determineLocationType(null, distToWaterIdx, undefined, mergedReport.tides && mergedReport.tides.length > 0, hybridData?.elevation);
+                mergedReport.locationType = determineLocationType(
+                    null,
+                    distToWaterIdx,
+                    undefined,
+                    mergedReport.tides && mergedReport.tides.length > 0,
+                    hybridData?.elevation,
+                );
             }
 
             mergedReport.isLandlocked = mergedReport.locationType === 'inland';
@@ -295,8 +305,6 @@ export const fetchStormGlassWeather = async (
             if (distToLand < 9999) {
                 mergedReport.distToLandKm = distToLand;
             }
-
-
         } catch (e) {
             // Silently ignored — non-critical failure
         }
@@ -308,7 +316,6 @@ export const fetchStormGlassWeather = async (
     // Attach Tide GUI Details (Source Provenance)
     if (tidesRes?.guiDetails) {
         mergedReport.tideGUIDetails = tidesRes.guiDetails;
-
     } else {
     }
 

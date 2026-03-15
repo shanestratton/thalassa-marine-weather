@@ -1,4 +1,3 @@
-
 import * as L from 'leaflet';
 import { createLogger } from '../utils/createLogger';
 
@@ -8,7 +7,7 @@ interface Particle {
     lon: number;
     age: number;
     maxAge: number;
-    trail: { x: number, y: number }[];
+    trail: { x: number; y: number }[];
 }
 
 export class ParticleEngine {
@@ -40,12 +39,17 @@ export class ParticleEngine {
 
     // Duty Cycle — pulse animation to prevent phone overheating
     // Animate for ON_MS, then freeze for OFF_MS, repeat
-    private static DUTY_ON_MS = 2000;   // 2 seconds of animation
-    private static DUTY_OFF_MS = 5000;  // 5 seconds of static freeze
-    private dutyCycleStart = 0;         // When current duty phase started
-    private dutyCycleActive = true;     // true = animating, false = frozen
+    private static DUTY_ON_MS = 2000; // 2 seconds of animation
+    private static DUTY_OFF_MS = 5000; // 5 seconds of static freeze
+    private dutyCycleStart = 0; // When current duty phase started
+    private dutyCycleActive = true; // true = animating, false = frozen
 
-    constructor(canvas: HTMLCanvasElement, map: L.Map, sampleVal: (lat: number, lon: number, type: string) => number | null, sampleDir: (lat: number, lon: number) => number) {
+    constructor(
+        canvas: HTMLCanvasElement,
+        map: L.Map,
+        sampleVal: (lat: number, lon: number, type: string) => number | null,
+        sampleDir: (lat: number, lon: number) => number,
+    ) {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d', { alpha: true })!;
         this.map = map;
@@ -92,11 +96,11 @@ export class ParticleEngine {
             this.isVisible = true;
             this.wake(); // Wake on screen-on / app-foreground
         }
-    }
+    };
 
     private handleInteraction = () => {
         if (this.isIdle) this.wake();
-    }
+    };
 
     // Only wake on significant device movement (phone picked up)
     private lastMotionWake = 0;
@@ -105,12 +109,12 @@ export class ParticleEngine {
         const acc = e.accelerationIncludingGravity;
         if (!acc) return;
         // Detect significant movement (not just gravity)
-        const mag = Math.abs((acc.x || 0)) + Math.abs((acc.y || 0)) + Math.abs((acc.z || 0) - 9.8);
+        const mag = Math.abs(acc.x || 0) + Math.abs(acc.y || 0) + Math.abs((acc.z || 0) - 9.8);
         if (mag > 3 && Date.now() - this.lastMotionWake > 2000) {
             this.lastMotionWake = Date.now();
             this.wake();
         }
-    }
+    };
 
     private handleReducedMotionChange = (e: MediaQueryListEvent) => {
         this.reducedMotion = e.matches;
@@ -121,7 +125,7 @@ export class ParticleEngine {
         } else {
             this.start();
         }
-    }
+    };
 
     // ── Idle Sleep / Wake ────────────────────────────────────────
     private resetIdleTimer() {
@@ -161,15 +165,15 @@ export class ParticleEngine {
         const latBuffer = (ne.lat - sw.lat) * 0.1;
         const lonBuffer = (ne.lng - sw.lng) * 0.1;
 
-        const lat = (sw.lat - latBuffer) + Math.random() * (ne.lat - sw.lat + latBuffer * 2);
-        const lon = (sw.lng - lonBuffer) + Math.random() * (ne.lng - sw.lng + lonBuffer * 2);
+        const lat = sw.lat - latBuffer + Math.random() * (ne.lat - sw.lat + latBuffer * 2);
+        const lon = sw.lng - lonBuffer + Math.random() * (ne.lng - sw.lng + lonBuffer * 2);
 
         return {
             lat,
             lon,
             age: Math.random() * 100,
             maxAge: 60 + Math.random() * 60, // Reduced max age to recycle particles faster
-            trail: []
+            trail: [],
         };
     }
 
@@ -187,15 +191,15 @@ export class ParticleEngine {
         if (layer === 'global-wind') return;
 
         this.activeLayer = layer as 'wind' | 'waves' | 'rain';
-        this.particles.forEach(p => p.trail = []);
+        this.particles.forEach((p) => (p.trail = []));
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.sync = this.sync.bind(this); // Ensure context
         this.sync();
     }
 
     public sync = () => {
-        this.particles.forEach(p => p.trail = []);
-    }
+        this.particles.forEach((p) => (p.trail = []));
+    };
 
     public start() {
         if (this.reducedMotion) {
@@ -238,7 +242,7 @@ export class ParticleEngine {
             this.ctx.scale(this.dpr, this.dpr);
             this.ctx.clearRect(0, 0, width, height);
 
-            this.particles.forEach(p => {
+            this.particles.forEach((p) => {
                 const val = this.sampleValue(p.lat, p.lon, this.activeLayer);
                 if (!val || val < 0.1) return;
                 const pt = this.map.latLngToContainerPoint([p.lat, p.lon]);
@@ -252,7 +256,7 @@ export class ParticleEngine {
 
             this.ctx.restore();
         } catch (e) {
-            log.warn( e);
+            log.warn(e);
             /* Canvas draw error — restore state to prevent corruption */
             this.ctx.restore();
         }
@@ -262,13 +266,13 @@ export class ParticleEngine {
         const a = 0.9; // BOOSTED ALPHA: 0.55 → 0.9 for vivid visibility
         if (this.activeLayer === 'wind') {
             // ENHANCED COLOR PALETTE with higher saturation
-            if (val < 3) return `rgba(200, 200, 200, 0.7)`;           // Bright gray (brighter)
-            if (val < 8) return `rgba(59, 130, 246, ${a})`;           // Vivid blue
-            if (val < 15) return `rgba(16, 185, 129, ${a})`;          // Neon emerald (was green-500)
-            if (val < 25) return `rgba(234, 179, 8, ${a})`;           // Bright yellow
-            if (val < 35) return `rgba(249, 115, 22, ${a})`;          // Hot orange
-            if (val < 45) return `rgba(239, 68, 68, ${a + 0.05})`;    // Glowing red
-            return `rgba(217, 70, 239, ${a + 0.1})`;                  // Electric fuchsia (storm)
+            if (val < 3) return `rgba(200, 200, 200, 0.7)`; // Bright gray (brighter)
+            if (val < 8) return `rgba(59, 130, 246, ${a})`; // Vivid blue
+            if (val < 15) return `rgba(16, 185, 129, ${a})`; // Neon emerald (was green-500)
+            if (val < 25) return `rgba(234, 179, 8, ${a})`; // Bright yellow
+            if (val < 35) return `rgba(249, 115, 22, ${a})`; // Hot orange
+            if (val < 45) return `rgba(239, 68, 68, ${a + 0.05})`; // Glowing red
+            return `rgba(217, 70, 239, ${a + 0.1})`; // Electric fuchsia (storm)
         } else if (this.activeLayer === 'waves') {
             const wa = 0.85; // BOOSTED: 0.6 → 0.85
             if (val < 2) return `rgba(59, 130, 246, ${wa})`;
@@ -276,7 +280,7 @@ export class ParticleEngine {
             if (val < 12) return `rgba(99, 102, 241, ${wa})`;
             return `rgba(236, 72, 153, ${wa})`;
         } else if (this.activeLayer === 'rain') {
-            return `rgba(96, 165, 250, 0.85)`;  // BOOSTED: 0.6 → 0.85
+            return `rgba(96, 165, 250, 0.85)`; // BOOSTED: 0.6 → 0.85
         } else {
             return `rgba(96, 165, 250, 0.85)`;
         }
@@ -356,8 +360,14 @@ export class ParticleEngine {
             const latStepBase = 0.0016 * Math.pow(2, 8 - zoom);
             const MAX_TRAIL_LENGTH = 20;
 
-            this.particles.forEach(p => {
-                if (p.age >= p.maxAge || p.lat < sw.lat - latBuffer || p.lat > ne.lat + latBuffer || p.lon < sw.lng - lonBuffer || p.lon > ne.lng + lonBuffer) {
+            this.particles.forEach((p) => {
+                if (
+                    p.age >= p.maxAge ||
+                    p.lat < sw.lat - latBuffer ||
+                    p.lat > ne.lat + latBuffer ||
+                    p.lon < sw.lng - lonBuffer ||
+                    p.lon > ne.lng + lonBuffer
+                ) {
                     const np = this.createParticle(sw, ne);
                     Object.assign(p, np);
                     p.age = 0;
@@ -381,7 +391,7 @@ export class ParticleEngine {
                     // Boundary check container space to avoid drawing off-canvas
                     if (pt.x < -10 || pt.x > width + 10 || pt.y < -10 || pt.y > height + 10) return;
 
-                    const dropLen = 5 + (val * 2);
+                    const dropLen = 5 + val * 2;
 
                     this.ctx.beginPath();
                     this.ctx.strokeStyle = `rgba(96, 165, 250, ${Math.min(val * 0.3, 0.9)})`; // BOOSTED opacity
@@ -389,7 +399,6 @@ export class ParticleEngine {
                     this.ctx.moveTo(Math.round(pt.x), Math.round(pt.y));
                     this.ctx.lineTo(Math.round(pt.x), Math.round(pt.y - dropLen));
                     this.ctx.stroke();
-
                 } else {
                     // Wind/Wave Logic
                     const dirFrom = this.sampleDir(p.lat, p.lon);
@@ -410,8 +419,8 @@ export class ParticleEngine {
                     if (p.trail.length === 0) {
                         const startLen = 3;
                         for (let i = startLen; i > 0; i--) {
-                            const px = pt.x - (u * i * 3);
-                            const py = pt.y - (v * i * 3);
+                            const px = pt.x - u * i * 3;
+                            const py = pt.y - v * i * 3;
                             p.trail.push({ x: px, y: py });
                         }
                     }
@@ -435,7 +444,7 @@ export class ParticleEngine {
                         if (dist > 1 && dist < 300) {
                             this.ctx.beginPath();
                             this.ctx.strokeStyle = color;
-                            this.ctx.lineWidth = 1.5; // THICKER: 1.0 → 1.5 for visibility 
+                            this.ctx.lineWidth = 1.5; // THICKER: 1.0 → 1.5 for visibility
                             this.ctx.moveTo(head.x, head.y);
 
                             for (let i = 1; i < p.trail.length - 1; i++) {
@@ -461,5 +470,5 @@ export class ParticleEngine {
             }
             this.ctx.restore();
         }
-    }
+    };
 }

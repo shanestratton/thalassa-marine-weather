@@ -65,11 +65,9 @@ export const OfflineTileControl: React.FC<OfflineTileControlProps> = ({ map, til
             }
         });
 
-        tileLayer.on('loadend', () => {
-        });
+        tileLayer.on('loadend', () => {});
 
-        tileLayer.on('tilesremoved', () => {
-        });
+        tileLayer.on('tilesremoved', () => {});
 
         return () => {
             if (controlRef.current && map) {

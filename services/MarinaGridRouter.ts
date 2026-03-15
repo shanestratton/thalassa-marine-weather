@@ -1,14 +1,14 @@
 /**
  * Marina Grid Router
- * 
+ *
  * Turf.js-powered router for close-quarters marina navigation.
  * Creates a 10m grid, removes land/obstacle points, and runs A*
  * to find a safe path from berth to marina exit.
- * 
- * This router is ONLY used within marina geofence zones where the 
+ *
+ * This router is ONLY used within marina geofence zones where the
  * OSM graph doesn't have enough resolution for safe navigation.
- * 
- * Performance: Uses grid-cell spatial indexing for O(N) neighbor 
+ *
+ * Performance: Uses grid-cell spatial indexing for O(N) neighbor
  * connections instead of O(N²), and raw math for A* heuristics.
  */
 
@@ -32,9 +32,9 @@ export interface MarinaRouteResult {
 
 // ── Constants ──────────────────────────────────────────────────────
 
-const GRID_SPACING_M = 10;           // 10m grid resolution
-const OBSTACLE_BUFFER_M = 15;        // 15m safety buffer (beam + clearance)
-const NM_PER_METER = 0.000539957;    // Conversion factor
+const GRID_SPACING_M = 10; // 10m grid resolution
+const OBSTACLE_BUFFER_M = 15; // 15m safety buffer (beam + clearance)
+const NM_PER_METER = 0.000539957; // Conversion factor
 
 // ── Fast Math (no Turf.js overhead in hot loops) ───────────────────
 
@@ -52,11 +52,16 @@ function fastDistM(a: [number, number], b: [number, number]): number {
 
 // ── Min-Heap for A* ────────────────────────────────────────────────
 
-interface HeapEntry { f: number; id: number; }
+interface HeapEntry {
+    f: number;
+    id: number;
+}
 
 class MinHeap {
     private data: HeapEntry[] = [];
-    get length() { return this.data.length; }
+    get length() {
+        return this.data.length;
+    }
 
     push(entry: HeapEntry) {
         this.data.push(entry);
@@ -78,7 +83,8 @@ class MinHeap {
             let i = 0;
             while (true) {
                 let smallest = i;
-                const l = 2 * i + 1, r = 2 * i + 2;
+                const l = 2 * i + 1,
+                    r = 2 * i + 2;
                 if (l < this.data.length && this.data[l].f < this.data[smallest].f) smallest = l;
                 if (r < this.data.length && this.data[r].f < this.data[smallest].f) smallest = r;
                 if (smallest === i) break;
@@ -108,10 +114,13 @@ export async function routeThroughMarina(
     let bufferedObstacles: Feature<Polygon | MultiPolygon>[] = [];
     if (obstacles && obstacles.features.length > 0) {
         bufferedObstacles = obstacles.features
-            .map(f => {
+            .map((f) => {
                 try {
                     return turf.buffer(f, OBSTACLE_BUFFER_M, { units: 'meters' }) as Feature<Polygon | MultiPolygon>;
-                } catch (e) { console.warn('[MarinaGrid]', e); return null; }
+                } catch (e) {
+                    console.warn('[MarinaGrid]', e);
+                    return null;
+                }
             })
             .filter((f): f is Feature<Polygon | MultiPolygon> => f !== null);
     }
@@ -191,7 +200,6 @@ export async function routeThroughMarina(
         return null;
     }
 
-
     // 7. A* pathfinding
     const path = aStarSearch(nodes, startNodeId, exitNodeId);
 
@@ -202,7 +210,7 @@ export async function routeThroughMarina(
     // 8. Build coordinate array
     const rawCoords: [number, number][] = [
         [startLon, startLat],
-        ...path.map(id => nodes[id].coords),
+        ...path.map((id) => nodes[id].coords),
         [exitLon, exitLat],
     ];
 
@@ -217,7 +225,7 @@ export async function routeThroughMarina(
             smoothCoords = rawCoords;
         }
     } catch (e) {
-            console.warn('[MarinaGrid]', e);
+        console.warn('[MarinaGrid]', e);
         smoothCoords = rawCoords;
     }
 

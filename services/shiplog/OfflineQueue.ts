@@ -37,9 +37,8 @@ export async function queueOfflineEntry(entry: Partial<ShipLogEntry>): Promise<v
 
         await Preferences.set({
             key: OFFLINE_QUEUE_KEY,
-            value: JSON.stringify(queue)
+            value: JSON.stringify(queue),
         });
-
     } catch (error) {
         log.error('queueOfflineEntry failed', error);
     }
@@ -60,10 +59,7 @@ export async function syncOfflineQueue(): Promise<number> {
         if (queue.length === 0) return 0;
 
         // Try to insert all queued entries
-        const { data, error } = await supabase
-            .from(SHIP_LOGS_TABLE)
-            .insert(queue)
-            .select();
+        const { data, error } = await supabase.from(SHIP_LOGS_TABLE).insert(queue).select();
 
         if (error) {
             return 0;
@@ -89,7 +85,7 @@ export async function getOfflineQueueCount(): Promise<number> {
         const queue: Partial<ShipLogEntry>[] = JSON.parse(value);
         return queue.length;
     } catch (e) {
-            console.warn('[OfflineQueue]', e);
+        console.warn('[OfflineQueue]', e);
         /* Preferences read/parse failure — 0 is safe default */
         return 0;
     }
@@ -107,10 +103,13 @@ export async function getOfflineEntries(): Promise<ShipLogEntry[]> {
         const queue: Partial<ShipLogEntry>[] = JSON.parse(value);
 
         // Add temporary IDs for display
-        return queue.map((entry, index) => ({
-            id: `offline_${index}`,
-            ...entry
-        } as ShipLogEntry));
+        return queue.map(
+            (entry, index) =>
+                ({
+                    id: `offline_${index}`,
+                    ...entry,
+                }) as ShipLogEntry,
+        );
     } catch (error) {
         log.error('getOfflineEntries failed', error);
         return [];
@@ -129,7 +128,7 @@ export async function deleteVoyageFromOfflineQueue(voyageId: string): Promise<bo
         const originalLength = queue.length;
 
         // Filter out entries matching voyageId (or null/empty for default_voyage)
-        const filteredQueue = queue.filter(entry => {
+        const filteredQueue = queue.filter((entry) => {
             if (voyageId === 'default_voyage') {
                 return entry.voyageId && entry.voyageId !== '';
             }
@@ -140,7 +139,7 @@ export async function deleteVoyageFromOfflineQueue(voyageId: string): Promise<bo
 
         await Preferences.set({
             key: OFFLINE_QUEUE_KEY,
-            value: JSON.stringify(filteredQueue)
+            value: JSON.stringify(filteredQueue),
         });
 
         return true;
@@ -160,13 +159,13 @@ export async function deleteEntryFromOfflineQueue(entryId: string): Promise<bool
         const queue: Partial<ShipLogEntry>[] = JSON.parse(value);
         const originalLength = queue.length;
 
-        const filteredQueue = queue.filter(entry => entry.id !== entryId);
+        const filteredQueue = queue.filter((entry) => entry.id !== entryId);
 
         if (filteredQueue.length === originalLength) return false;
 
         await Preferences.set({
             key: OFFLINE_QUEUE_KEY,
-            value: JSON.stringify(filteredQueue)
+            value: JSON.stringify(filteredQueue),
         });
 
         return true;

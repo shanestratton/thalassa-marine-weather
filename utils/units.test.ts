@@ -4,12 +4,22 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-    ktsToMph, ktsToKmh, ktsToMps,
-    ftToM, mToFt,
-    kgToLbs, lbsToKg,
-    celsiusToFahrenheit, fahrenheitToCelsius,
-    convertSpeed, convertLength, convertWeight,
-    convertTemp, convertDistance, convertMetersTo, convertPrecip
+    ktsToMph,
+    ktsToKmh,
+    ktsToMps,
+    ftToM,
+    mToFt,
+    kgToLbs,
+    lbsToKg,
+    celsiusToFahrenheit,
+    fahrenheitToCelsius,
+    convertSpeed,
+    convertLength,
+    convertWeight,
+    convertTemp,
+    convertDistance,
+    convertMetersTo,
+    convertPrecip,
 } from './units';
 
 // ── Primitive Converters ─────────────────────────────────────────

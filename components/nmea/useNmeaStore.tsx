@@ -6,7 +6,7 @@
  *   const { tws, twa, stw, connectionStatus } = useNmeaStore();
  *   return <NmeaValue metric={tws} unit="kts" decimals={1} />;
  */
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import React from 'react';
 import { NmeaStore, type NmeaStoreState, type TimestampedMetric, type DataFreshness } from '../../services/NmeaStore';
 
@@ -36,11 +36,11 @@ interface NmeaValueProps {
     metric: TimestampedMetric;
     unit?: string;
     decimals?: number;
-    deadText?: string;     // What to show when dead (default: "--.-")
-    className?: string;    // Base classes (applied to all tiers)
-    liveClass?: string;    // Additional classes for live tier
-    staleClass?: string;   // Additional classes for stale tier
-    deadClass?: string;    // Additional classes for dead tier
+    deadText?: string; // What to show when dead (default: "--.-")
+    className?: string; // Base classes (applied to all tiers)
+    liveClass?: string; // Additional classes for live tier
+    staleClass?: string; // Additional classes for stale tier
+    deadClass?: string; // Additional classes for dead tier
 }
 
 /**
@@ -71,8 +71,18 @@ export const NmeaValue: React.FC<NmeaValueProps> = ({
         <span className={`inline-flex items-center gap-1 ${className} ${freshnessStyles[metric.freshness]}`}>
             {isDead ? (
                 <>
-                    <svg className="w-3 h-3 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                    <svg
+                        className="w-3 h-3 text-red-500"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                    >
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+                        />
                     </svg>
                     <span>{deadText}</span>
                 </>
@@ -122,19 +132,28 @@ export const NmeaReconnectBanner: React.FC = () => {
 
     return (
         <div
-            className={`fixed top-0 left-0 right-0 z-[9999] transition-transform duration-300 ease-out ${visible ? 'translate-y-0' : '-translate-y-full'
-                }`}
+            className={`fixed top-0 left-0 right-0 z-[9999] transition-transform duration-300 ease-out ${
+                visible ? 'translate-y-0' : '-translate-y-full'
+            }`}
         >
             <div className="bg-gradient-to-r from-red-600 to-red-700 px-4 py-3 flex items-center justify-center gap-3 shadow-2xl shadow-red-500/30">
                 {/* Pulsing warning icon */}
-                <svg className="w-5 h-5 text-white animate-pulse flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                <svg
+                    className="w-5 h-5 text-white animate-pulse flex-shrink-0"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                >
+                    <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+                    />
                 </svg>
 
                 <div className="text-center">
-                    <p className="text-white text-sm font-black tracking-wide">
-                        ⚠️ Axiom Network Lost
-                    </p>
+                    <p className="text-white text-sm font-black tracking-wide">⚠️ Axiom Network Lost</p>
                     <p className="text-red-200 text-[11px] font-bold uppercase tracking-widest">
                         Reconnecting — instrument data frozen
                     </p>
@@ -145,9 +164,7 @@ export const NmeaReconnectBanner: React.FC = () => {
             </div>
 
             {/* Stale data time indicator */}
-            {state.lastAnyUpdate > 0 && (
-                <StaleTimer lastUpdate={state.lastAnyUpdate} />
-            )}
+            {state.lastAnyUpdate > 0 && <StaleTimer lastUpdate={state.lastAnyUpdate} />}
         </div>
     );
 };

@@ -9,10 +9,7 @@ interface GestureTutorialProps {
 /**
  * First-time user tutorial overlay showing gesture hints
  */
-export const GestureTutorial: React.FC<GestureTutorialProps> = ({
-    onDismiss,
-    onNeverShow,
-}) => {
+export const GestureTutorial: React.FC<GestureTutorialProps> = ({ onDismiss, onNeverShow }) => {
     const [step, setStep] = useState(0);
     const [isVisible, setIsVisible] = useState(false);
 
@@ -23,44 +20,81 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
 
     const steps = [
         {
-            title: "Swipe Horizontally",
-            description: "Scrub through hours to see weather changes throughout the day",
+            title: 'Swipe Horizontally',
+            description: 'Scrub through hours to see weather changes throughout the day',
             icon: (
                 <svg className="w-16 h-16 text-sky-400" viewBox="0 0 64 64" fill="none">
-                    <path d="M8 32h48M48 32l-8-8M48 32l-8 8M16 32l8-8M16 32l8 8"
-                        stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                    <path
+                        d="M8 32h48M48 32l-8-8M48 32l-8 8M16 32l8-8M16 32l8 8"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    />
                 </svg>
             ),
         },
         {
-            title: "Swipe Vertically",
-            description: "Navigate between days - up for tomorrow, down for yesterday",
+            title: 'Swipe Vertically',
+            description: 'Navigate between days - up for tomorrow, down for yesterday',
             icon: (
                 <svg className="w-16 h-16 text-sky-400" viewBox="0 0 64 64" fill="none">
-                    <path d="M32 8v48M32 8l-8 8M32 8l8 8M32 56l-8-8M32 56l8-8"
-                        stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                    <path
+                        d="M32 8v48M32 8l-8 8M32 8l8 8M32 56l-8-8M32 56l8-8"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    />
                 </svg>
             ),
         },
         {
-            title: "Essential & Full Modes",
-            description: "Toggle between quick glance (Essential) and detailed view (Full) using the button in the header",
+            title: 'Essential & Full Modes',
+            description:
+                'Toggle between quick glance (Essential) and detailed view (Full) using the button in the header',
             icon: (
                 <div className="flex gap-3">
-                    <div className="px-3 py-1.5 bg-sky-500/30 border border-sky-400/50 rounded-lg text-sky-300 font-bold text-sm">ESS</div>
-                    <div className={`px-3 py-1.5 bg-white/10 ${t.border.strong} rounded-lg text-white/60 font-bold text-sm`}>FULL</div>
+                    <div className="px-3 py-1.5 bg-sky-500/30 border border-sky-400/50 rounded-lg text-sky-300 font-bold text-sm">
+                        ESS
+                    </div>
+                    <div
+                        className={`px-3 py-1.5 bg-white/10 ${t.border.strong} rounded-lg text-white/60 font-bold text-sm`}
+                    >
+                        FULL
+                    </div>
                 </div>
             ),
         },
         {
-            title: "Delete Voyages",
+            title: 'Delete Voyages',
             description: "In the Ship's Log, swipe left on any voyage to reveal the delete option",
             icon: (
                 <svg className="w-16 h-16 text-red-400" viewBox="0 0 64 64" fill="none">
-                    <path d="M48 32H16M16 32l8-8M16 32l8 8"
-                        stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                    <rect x="44" y="24" width="12" height="16" rx="2" fill="currentColor" fillOpacity="0.3" stroke="currentColor" strokeWidth="2" />
-                    <path d="M50 28v8M50 28l-2 2M50 28l2 2" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    <path
+                        d="M48 32H16M16 32l8-8M16 32l8 8"
+                        stroke="currentColor"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    />
+                    <rect
+                        x="44"
+                        y="24"
+                        width="12"
+                        height="16"
+                        rx="2"
+                        fill="currentColor"
+                        fillOpacity="0.3"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                    />
+                    <path
+                        d="M50 28v8M50 28l-2 2M50 28l2 2"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                    />
                 </svg>
             ),
         },
@@ -83,8 +117,9 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
 
     return (
         <div
-            className={`fixed inset-0 z-[1000] bg-black/80 flex items-center justify-center p-6 transition-opacity duration-300 ${isVisible ? 'opacity-100' : 'opacity-0'
-                }`}
+            className={`fixed inset-0 z-[1000] bg-black/80 flex items-center justify-center p-6 transition-opacity duration-300 ${
+                isVisible ? 'opacity-100' : 'opacity-0'
+            }`}
             onClick={handleDismiss}
         >
             <div
@@ -96,33 +131,29 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
                     {steps.map((_, i) => (
                         <div
                             key={i}
-                            className={`w-2 h-2 rounded-full transition-colors ${i === step ? 'bg-sky-400' : 'bg-white/20'
-                                }`}
+                            className={`w-2 h-2 rounded-full transition-colors ${
+                                i === step ? 'bg-sky-400' : 'bg-white/20'
+                            }`}
                         />
                     ))}
                 </div>
 
                 {/* Icon */}
-                <div className="flex justify-center mb-4">
-                    {currentStep.icon}
-                </div>
+                <div className="flex justify-center mb-4">{currentStep.icon}</div>
 
                 {/* Title */}
-                <h3 className="text-white text-xl font-bold text-center mb-2">
-                    {currentStep.title}
-                </h3>
+                <h3 className="text-white text-xl font-bold text-center mb-2">{currentStep.title}</h3>
 
                 {/* Description */}
-                <p className="text-white/70 text-center mb-6">
-                    {currentStep.description}
-                </p>
+                <p className="text-white/70 text-center mb-6">{currentStep.description}</p>
 
                 {/* Buttons */}
                 <div className="space-y-3">
                     <button
                         onClick={handleNext}
                         className="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-semibold rounded-lg transition-colors min-h-[48px]"
-                     aria-label="Next">
+                        aria-label="Next"
+                    >
                         {step < steps.length - 1 ? 'Next' : 'Get Started'}
                     </button>
 
@@ -144,7 +175,8 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({
                     <button
                         onClick={handleDismiss}
                         className="w-full mt-3 py-2 text-white/60 hover:text-white/70 text-sm transition-colors"
-                     aria-label="Dismiss">
+                        aria-label="Dismiss"
+                    >
                         Skip tutorial
                     </button>
                 )}

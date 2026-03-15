@@ -39,8 +39,8 @@ export function createWindFieldFromGrid(
             const tFrac = hourIdx - h0;
 
             // Spatial interpolation — find the grid cell
-            const latIdx = (lat - grid.south) / (grid.north - grid.south) * (grid.height - 1);
-            const lonIdx = (lon - grid.west) / (grid.east - grid.west) * (grid.width - 1);
+            const latIdx = ((lat - grid.south) / (grid.north - grid.south)) * (grid.height - 1);
+            const lonIdx = ((lon - grid.west) / (grid.east - grid.west)) * (grid.width - 1);
 
             if (latIdx < 0 || latIdx >= grid.height || lonIdx < 0 || lonIdx >= grid.width) {
                 return null; // Outside grid bounds
@@ -72,7 +72,7 @@ export function createWindFieldFromGrid(
             // Direction wind is blowing FROM (meteorological convention)
             // U/V are stored as blowing-TO, so we reverse
             const dirRad = Math.atan2(-u, -v);
-            const dirDeg = ((dirRad * 180 / Math.PI) + 360) % 360;
+            const dirDeg = ((dirRad * 180) / Math.PI + 360) % 360;
 
             return {
                 speed: Math.round(speedKts * 10) / 10,
@@ -84,9 +84,12 @@ export function createWindFieldFromGrid(
 
 function bilinear(
     data: Float32Array,
-    r0: number, r1: number,
-    c0: number, c1: number,
-    rFrac: number, cFrac: number,
+    r0: number,
+    r1: number,
+    c0: number,
+    c1: number,
+    rFrac: number,
+    cFrac: number,
     width: number,
 ): number {
     const v00 = data[r0 * width + c0] ?? 0;
@@ -102,21 +105,21 @@ function bilinear(
 // ── Multi-Model Ensemble ─────────────────────────────────────────
 
 export interface ModelSource {
-    name: string;         // e.g., 'GFS', 'ECMWF', 'ICON', 'ACCESS-G'
+    name: string; // e.g., 'GFS', 'ECMWF', 'ICON', 'ACCESS-G'
     grid: WindGrid;
     forecastBaseTime?: Date;
-    weight?: number;      // Ensemble weight (default: 1.0)
+    weight?: number; // Ensemble weight (default: 1.0)
 }
 
 export interface EnsembleWind {
-    speed: number;          // Ensemble mean speed (kts)
-    direction: number;      // Ensemble mean direction (degrees)
+    speed: number; // Ensemble mean speed (kts)
+    direction: number; // Ensemble mean direction (degrees)
     models: {
         name: string;
         speed: number;
         direction: number;
     }[];
-    spread: number;         // Speed spread (max - min) — high = low confidence
+    spread: number; // Speed spread (max - min) — high = low confidence
     directionSpread: number; // Direction spread (degrees) — high = models disagree
     confidence: 'high' | 'medium' | 'low'; // Based on spread
 }
@@ -131,7 +134,7 @@ export function createEnsembleWindField(sources: ModelSource[]): {
     windField: WindField;
     getEnsembleWind: (lat: number, lon: number, timeOffsetHours: number) => EnsembleWind | null;
 } {
-    const fields = sources.map(s => ({
+    const fields = sources.map((s) => ({
         name: s.name,
         field: createWindFieldFromGrid(s.grid, s.forecastBaseTime),
         weight: s.weight ?? 1.0,
@@ -155,16 +158,17 @@ export function createEnsembleWindField(sources: ModelSource[]): {
         const meanSpeed = results.reduce((sum, r) => sum + r.speed * r.weight, 0) / totalWeight;
 
         // Weighted mean direction (circular mean using unit vectors)
-        let sumSin = 0, sumCos = 0;
+        let sumSin = 0,
+            sumCos = 0;
         for (const r of results) {
-            const rad = r.direction * Math.PI / 180;
+            const rad = (r.direction * Math.PI) / 180;
             sumSin += Math.sin(rad) * r.weight;
             sumCos += Math.cos(rad) * r.weight;
         }
-        const meanDir = ((Math.atan2(sumSin / totalWeight, sumCos / totalWeight) * 180 / Math.PI) + 360) % 360;
+        const meanDir = ((Math.atan2(sumSin / totalWeight, sumCos / totalWeight) * 180) / Math.PI + 360) % 360;
 
         // Spread metrics
-        const speeds = results.map(r => r.speed);
+        const speeds = results.map((r) => r.speed);
         const speedSpread = Math.max(...speeds) - Math.min(...speeds);
 
         // Direction spread (max angular difference between any two models)
@@ -185,7 +189,7 @@ export function createEnsembleWindField(sources: ModelSource[]): {
         return {
             speed: Math.round(meanSpeed * 10) / 10,
             direction: Math.round(meanDir),
-            models: results.map(r => ({ name: r.name, speed: r.speed, direction: r.direction })),
+            models: results.map((r) => ({ name: r.name, speed: r.speed, direction: r.direction })),
             spread: Math.round(speedSpread * 10) / 10,
             directionSpread: Math.round(maxDirDiff),
             confidence,

@@ -1,12 +1,12 @@
 /**
  * AnchorWatchSyncService — Two-device real-time sync via Supabase
- * 
+ *
  * Enables the "Shore Watch" pattern:
  * - VESSEL device: broadcasts position + alarm state to Supabase Realtime channel
  * - SHORE device: subscribes to vessel's channel for remote monitoring
  * - Session pairing via 6-digit code
  * - **Session persists across app crashes/closures** — auto-reconnects on reopen
- * 
+ *
  * Channel naming: `anchor-watch-{sessionCode}`
  * Presence tracks which devices are connected.
  */
@@ -263,7 +263,8 @@ class AnchorWatchSyncServiceClass {
             const token = PushNotificationService.getToken();
             if (token) {
                 try {
-                    await supabase.from('anchor_alarm_tokens')
+                    await supabase
+                        .from('anchor_alarm_tokens')
                         .delete()
                         .eq('session_code', this.sessionCode)
                         .eq('device_token', token);
@@ -338,13 +339,14 @@ class AnchorWatchSyncServiceClass {
             timestamp: Date.now(),
         };
 
-        this.channel.send({
-            type: 'broadcast',
-            event: 'position',
-            payload,
-        }).then((status: string) => {
-        }).catch((_err: unknown) => {
-        });
+        this.channel
+            .send({
+                type: 'broadcast',
+                event: 'position',
+                payload,
+            })
+            .then((_status: string) => {})
+            .catch((_err: unknown) => {});
     }
 
     /** Broadcast alarm state change (called by vessel device) */
@@ -439,13 +441,13 @@ class AnchorWatchSyncServiceClass {
             // Listen for position broadcasts
             this.channel.on('broadcast', { event: 'position' }, ({ payload }: { payload: PositionBroadcast }) => {
                 this.lastPeerUpdate = Date.now();
-                this.broadcastListeners.forEach(l => l(payload as PositionBroadcast));
+                this.broadcastListeners.forEach((l) => l(payload as PositionBroadcast));
             });
 
             // Listen for alarm broadcasts
             this.channel.on('broadcast', { event: 'alarm' }, ({ payload }: { payload: AlarmBroadcast }) => {
                 this.lastPeerUpdate = Date.now();
-                this.broadcastListeners.forEach(l => l(payload as AlarmBroadcast));
+                this.broadcastListeners.forEach((l) => l(payload as AlarmBroadcast));
             });
 
             // Listen for heartbeats
@@ -556,8 +558,12 @@ class AnchorWatchSyncServiceClass {
 
     private notifyState(): void {
         const state = this.getState();
-        this.stateListeners.forEach(l => {
-            try { l(state); } catch (e) { /* State listener error silenced */ }
+        this.stateListeners.forEach((l) => {
+            try {
+                l(state);
+            } catch (e) {
+                /* State listener error silenced */
+            }
         });
     }
 
@@ -576,13 +582,16 @@ class AnchorWatchSyncServiceClass {
             }
 
             // Register token to Supabase
-            const { error } = await supabase.from('anchor_alarm_tokens').upsert({
-                session_code: sessionCode,
-                device_token: token,
-                platform: 'ios',
-            }, {
-                onConflict: 'session_code,device_token',
-            });
+            const { error } = await supabase.from('anchor_alarm_tokens').upsert(
+                {
+                    session_code: sessionCode,
+                    device_token: token,
+                    platform: 'ios',
+                },
+                {
+                    onConflict: 'session_code,device_token',
+                },
+            );
 
             if (error) {
             } else {
@@ -595,4 +604,3 @@ class AnchorWatchSyncServiceClass {
 
 // Export singleton
 export const AnchorWatchSyncService = new AnchorWatchSyncServiceClass();
-

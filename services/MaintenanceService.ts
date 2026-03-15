@@ -21,7 +21,7 @@ export type TrafficLight = 'red' | 'yellow' | 'green' | 'grey';
 
 export interface TaskWithStatus extends MaintenanceTask {
     status: TrafficLight;
-    statusLabel: string;        // "Overdue by 14 days", "Due in 5 days", etc.
+    statusLabel: string; // "Overdue by 14 days", "Due in 5 days", etc.
     daysRemaining: number | null;
     hoursRemaining: number | null;
 }
@@ -117,11 +117,7 @@ export class MaintenanceService {
 
     /** Fetch all tasks (including paused) */
     static async getAllTasks(): Promise<MaintenanceTask[]> {
-        const { data, error } = await getClient()
-            .from(TASKS_TABLE)
-            .select('*')
-            .order('category')
-            .order('title');
+        const { data, error } = await getClient().from(TASKS_TABLE).select('*').order('category').order('title');
 
         if (error) throw new Error(`Failed to load tasks: ${error.message}`);
         return (data || []) as MaintenanceTask[];
@@ -143,8 +139,12 @@ export class MaintenanceService {
     // ── CREATE ──
 
     /** Create a new maintenance task */
-    static async createTask(task: Omit<MaintenanceTask, 'id' | 'user_id' | 'created_at' | 'updated_at'>): Promise<MaintenanceTask> {
-        const { data: { user } } = await getClient().auth.getUser();
+    static async createTask(
+        task: Omit<MaintenanceTask, 'id' | 'user_id' | 'created_at' | 'updated_at'>,
+    ): Promise<MaintenanceTask> {
+        const {
+            data: { user },
+        } = await getClient().auth.getUser();
         if (!user) throw new Error('Not authenticated');
 
         const { data, error } = await getClient()
@@ -161,12 +161,7 @@ export class MaintenanceService {
 
     /** Update a task */
     static async updateTask(id: string, updates: Partial<MaintenanceTask>): Promise<MaintenanceTask> {
-        const { data, error } = await getClient()
-            .from(TASKS_TABLE)
-            .update(updates)
-            .eq('id', id)
-            .select()
-            .single();
+        const { data, error } = await getClient().from(TASKS_TABLE).update(updates).eq('id', id).select().single();
 
         if (error) throw new Error(`Failed to update task: ${error.message}`);
         return data as MaintenanceTask;
@@ -174,20 +169,14 @@ export class MaintenanceService {
 
     /** Soft-delete (pause) a task */
     static async deactivateTask(id: string): Promise<void> {
-        const { error } = await getClient()
-            .from(TASKS_TABLE)
-            .update({ is_active: false })
-            .eq('id', id);
+        const { error } = await getClient().from(TASKS_TABLE).update({ is_active: false }).eq('id', id);
 
         if (error) throw new Error(`Failed to deactivate task: ${error.message}`);
     }
 
     /** Hard-delete a task */
     static async deleteTask(id: string): Promise<void> {
-        const { error } = await getClient()
-            .from(TASKS_TABLE)
-            .delete()
-            .eq('id', id);
+        const { error } = await getClient().from(TASKS_TABLE).delete().eq('id', id);
 
         if (error) throw new Error(`Failed to delete task: ${error.message}`);
     }
@@ -202,15 +191,14 @@ export class MaintenanceService {
         taskId: string,
         engineHours: number | null,
         notes: string | null,
-        cost: number | null
+        cost: number | null,
     ): Promise<{ history_id: string; next_due_date: string | null; next_due_hours: number | null }> {
-        const { data, error } = await getClient()
-            .rpc('log_service', {
-                p_task_id: taskId,
-                p_engine_hours: engineHours,
-                p_notes: notes,
-                p_cost: cost,
-            });
+        const { data, error } = await getClient().rpc('log_service', {
+            p_task_id: taskId,
+            p_engine_hours: engineHours,
+            p_notes: notes,
+            p_cost: cost,
+        });
 
         if (error) throw new Error(`Failed to log service: ${error.message}`);
         return data as { history_id: string; next_due_date: string | null; next_due_hours: number | null };
@@ -253,16 +241,16 @@ export class MaintenanceService {
         totalSpent: number;
     }> {
         const tasks = await MaintenanceService.getTasks();
-        const statuses = tasks.map(t => calculateStatus(t, currentEngineHours));
+        const statuses = tasks.map((t) => calculateStatus(t, currentEngineHours));
 
         const history = await MaintenanceService.getAllHistory(500);
         const totalSpent = history.reduce((sum, h) => sum + (h.cost || 0), 0);
 
         return {
             totalTasks: tasks.length,
-            overdue: statuses.filter(t => t.status === 'red').length,
-            dueSoon: statuses.filter(t => t.status === 'yellow').length,
-            ok: statuses.filter(t => t.status === 'green').length,
+            overdue: statuses.filter((t) => t.status === 'red').length,
+            dueSoon: statuses.filter((t) => t.status === 'yellow').length,
+            ok: statuses.filter((t) => t.status === 'green').length,
             totalSpent,
         };
     }
@@ -274,21 +262,19 @@ export class MaintenanceService {
      * Only call when the user has zero tasks (first-time setup).
      */
     static async seedDefaults(): Promise<number> {
-        const { DEFAULT_MAINTENANCE_TASKS } = await import(
-            '../components/vessel/maintenance/defaultTasks'
-        );
+        const { DEFAULT_MAINTENANCE_TASKS } = await import('../components/vessel/maintenance/defaultTasks');
 
-        const { data: { user } } = await getClient().auth.getUser();
+        const {
+            data: { user },
+        } = await getClient().auth.getUser();
         if (!user) throw new Error('Not authenticated');
 
         const now = new Date();
-        const rows = DEFAULT_MAINTENANCE_TASKS.map(t => {
+        const rows = DEFAULT_MAINTENANCE_TASKS.map((t) => {
             const isEngineHours = t.trigger_type === 'engine_hours';
             const dueDate = isEngineHours
                 ? null
-                : new Date(now.getTime() + t.interval_value * 86_400_000)
-                    .toISOString()
-                    .split('T')[0];
+                : new Date(now.getTime() + t.interval_value * 86_400_000).toISOString().split('T')[0];
             const dueHours = isEngineHours ? t.interval_value : null;
 
             return {
@@ -305,9 +291,7 @@ export class MaintenanceService {
             };
         });
 
-        const { error } = await getClient()
-            .from(TASKS_TABLE)
-            .insert(rows);
+        const { error } = await getClient().from(TASKS_TABLE).insert(rows);
 
         if (error) throw new Error(`Failed to seed defaults: ${error.message}`);
         return rows.length;

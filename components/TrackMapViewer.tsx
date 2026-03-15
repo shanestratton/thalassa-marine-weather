@@ -27,9 +27,7 @@ const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY as string;
 const WIND_CACHE_NAME = 'thalassa-wind-cache';
 const EDGE_FN_PATH = '/functions/v1/fetch-wind-velocity';
 
-const WIND_COLORS = [
-    '#3498db', '#2ecc71', '#f1c40f', '#e67e22', '#e74c3c', '#8e44ad',
-];
+const WIND_COLORS = ['#3498db', '#2ecc71', '#f1c40f', '#e67e22', '#e74c3c', '#8e44ad'];
 
 interface TrackMapViewerProps {
     isOpen: boolean;
@@ -84,10 +82,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
     const sortedEntriesRef = useRef<ShipLogEntry[]>([]);
 
     const sortedEntries = useMemo(() => {
-        const valid = entries.filter(e => e.latitude && e.longitude);
-        const sorted = [...valid].sort((a, b) =>
-            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-        );
+        const valid = entries.filter((e) => e.latitude && e.longitude);
+        const sorted = [...valid].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
         sortedEntriesRef.current = sorted;
         return sorted;
     }, [entries]);
@@ -98,7 +94,10 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
     useMemo(() => {
         const sorted = sortedEntriesRef.current;
         const frames: { lat: number; lon: number; entryIndex: number }[] = [];
-        if (sorted.length === 0) { animFramesRef.current = frames; return; }
+        if (sorted.length === 0) {
+            animFramesRef.current = frames;
+            return;
+        }
 
         for (let i = 0; i < sorted.length; i++) {
             const cur = sorted[i];
@@ -145,7 +144,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
 
         // Dark nautical tile layer (base)
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            maxZoom: 19
+            maxZoom: 19,
         }).addTo(map);
 
         // EMODnet Bathymetry overlay
@@ -179,8 +178,10 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
 
                 // Request full global coverage — no bounds dependency
                 const body = JSON.stringify({
-                    north: 90, south: -90,
-                    west: -180, east: 180,
+                    north: 90,
+                    south: -90,
+                    west: -180,
+                    east: 180,
                 });
 
                 let windData: any[] | null = null;
@@ -191,8 +192,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'apikey': SUPABASE_KEY,
-                            'Authorization': `Bearer ${SUPABASE_KEY}`,
+                            apikey: SUPABASE_KEY,
+                            Authorization: `Bearer ${SUPABASE_KEY}`,
                         },
                         body,
                     });
@@ -201,7 +202,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                         try {
                             const cache = await caches.open(WIND_CACHE_NAME);
                             await cache.put(cacheKey, new Response(JSON.stringify(windData)));
-                        } catch (_) { }
+                        } catch (_) {}
                     } else {
                         log.warn(' Wind fetch HTTP', res.status);
                     }
@@ -211,7 +212,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                         const cache = await caches.open(WIND_CACHE_NAME);
                         const cached = await cache.match(cacheKey);
                         if (cached) windData = await cached.json();
-                    } catch (_e) { }
+                    } catch (_e) {}
                 }
 
                 if (windData && Array.isArray(windData) && windData.length > 0 && mapInstanceRef.current) {
@@ -242,7 +243,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
             if (playIntervalRef.current) clearInterval(playIntervalRef.current);
             if (mapInstanceRef.current) {
                 if (velocityLayerRef.current) {
-                    try { mapInstanceRef.current.removeLayer(velocityLayerRef.current); } catch (_) { }
+                    try {
+                        mapInstanceRef.current.removeLayer(velocityLayerRef.current);
+                    } catch (_) {}
                     velocityLayerRef.current = null;
                 }
                 mapInstanceRef.current.remove();
@@ -272,17 +275,17 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
 
         layerGroup.clearLayers();
 
-        const validEntries = entries.filter(e => e.latitude && e.longitude);
+        const validEntries = entries.filter((e) => e.latitude && e.longitude);
         if (validEntries.length < 2) return;
 
-        const sorted = [...validEntries].sort((a, b) =>
-            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        const sorted = [...validEntries].sort(
+            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
         );
 
-        const trackCoords = sorted.map(e => [e.latitude!, e.longitude!] as [number, number]);
+        const trackCoords = sorted.map((e) => [e.latitude!, e.longitude!] as [number, number]);
 
         // Detect if this is a planned route
-        const isPlannedRoute = sorted.some(e => e.source === 'planned_route');
+        const isPlannedRoute = sorted.some((e) => e.source === 'planned_route');
 
         // Color-segmented polylines
         let currentSegment: [number, number][] = [];
@@ -290,16 +293,22 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
 
         const addSegment = (coords: [number, number][], isWater: boolean) => {
             if (coords.length < 2) return;
-            const color = isPlannedRoute ? '#a78bfa' : (isWater ? '#38bdf8' : '#34d399');
+            const color = isPlannedRoute ? '#a78bfa' : isWater ? '#38bdf8' : '#34d399';
 
             L.polyline(coords, {
-                color, weight: 8, opacity: 0.2,
-                lineCap: 'round', lineJoin: 'round'
+                color,
+                weight: 8,
+                opacity: 0.2,
+                lineCap: 'round',
+                lineJoin: 'round',
             }).addTo(layerGroup);
 
             L.polyline(coords, {
-                color, weight: 3, opacity: 1,
-                lineCap: 'round', lineJoin: 'round'
+                color,
+                weight: 3,
+                opacity: 1,
+                lineCap: 'round',
+                lineJoin: 'round',
             }).addTo(layerGroup);
         };
 
@@ -321,32 +330,37 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
         // Start marker
         const startIcon = L.divIcon({
             html: `<div style="width:24px;height:24px;background:#34d399;border:3px solid white;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.4)"></div>`,
-            iconSize: [24, 24], iconAnchor: [12, 12], className: ''
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+            className: '',
         });
-        L.marker([sorted[0].latitude!, sorted[0].longitude!], { icon: startIcon })
-            .addTo(layerGroup);
+        L.marker([sorted[0].latitude!, sorted[0].longitude!], { icon: startIcon }).addTo(layerGroup);
 
         // End marker
         const endIcon = L.divIcon({
             html: `<div style="width:24px;height:24px;background:#ef4444;border:3px solid white;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.4)"></div>`,
-            iconSize: [24, 24], iconAnchor: [12, 12], className: ''
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+            className: '',
         });
         const lastEntry = sorted[sorted.length - 1];
-        L.marker([lastEntry.latitude!, lastEntry.longitude!], { icon: endIcon })
-            .addTo(layerGroup);
+        L.marker([lastEntry.latitude!, lastEntry.longitude!], { icon: endIcon }).addTo(layerGroup);
 
         // Waypoint markers
-        sorted.filter(e => e.entryType === 'waypoint').forEach(entry => {
-            const wpIcon = L.divIcon({
-                html: `<div style="width:16px;height:16px;background:#f59e0b;border:2px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
-                iconSize: [16, 16], iconAnchor: [8, 8], className: ''
+        sorted
+            .filter((e) => e.entryType === 'waypoint')
+            .forEach((entry) => {
+                const wpIcon = L.divIcon({
+                    html: `<div style="width:16px;height:16px;background:#f59e0b;border:2px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
+                    iconSize: [16, 16],
+                    iconAnchor: [8, 8],
+                    className: '',
+                });
+                L.marker([entry.latitude!, entry.longitude!], { icon: wpIcon }).addTo(layerGroup);
             });
-            L.marker([entry.latitude!, entry.longitude!], { icon: wpIcon })
-                .addTo(layerGroup);
-        });
 
         // GPS dots
-        sorted.forEach(entry => {
+        sorted.forEach((entry) => {
             if (entry.entryType === 'waypoint') return;
             L.circleMarker([entry.latitude!, entry.longitude!], {
                 radius: 2,
@@ -415,7 +429,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
 
     // Play/pause
     const togglePlayback = useCallback(() => {
-        setIsPlaying(prev => {
+        setIsPlaying((prev) => {
             if (!prev) {
                 setShowHUD(true);
                 const frames = animFramesRef.current;
@@ -429,7 +443,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                     setPlaybackIndex(0);
                 } else {
                     // Find the frame that corresponds to the current entry
-                    startFrameIdx = frames.findIndex(f => f.entryIndex >= playbackIndex);
+                    startFrameIdx = frames.findIndex((f) => f.entryIndex >= playbackIndex);
                     if (startFrameIdx < 0) startFrameIdx = 0;
                 }
 
@@ -453,7 +467,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                     if (fillRef.current) fillRef.current.style.width = `${pct}%`;
 
                     // Update playbackIndex when we cross into a new entry
-                    setPlaybackIndex(prev => {
+                    setPlaybackIndex((prev) => {
                         if (frame.entryIndex !== prev) return frame.entryIndex;
                         return prev;
                     });
@@ -484,7 +498,10 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
             setActiveWaypoint({
                 name: entry.waypointName || 'Waypoint',
                 notes: entry.notes || undefined,
-                timestamp: new Date(entry.timestamp).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' }),
+                timestamp: new Date(entry.timestamp).toLocaleTimeString('en-AU', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                }),
                 lat: entry.latitude,
                 lon: entry.longitude,
                 speedKts: entry.speedKts,
@@ -516,60 +533,70 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
         return Math.max(0, Math.min(maxIdx, Math.round(ratio * maxIdx)));
     }, []);
 
-    const handlePointerDown = useCallback((e: React.PointerEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        isDraggingRef.current = true;
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    const handlePointerDown = useCallback(
+        (e: React.PointerEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+            isDraggingRef.current = true;
+            (e.target as HTMLElement).setPointerCapture(e.pointerId);
 
-        // Show HUD when scrubbing
-        setShowHUD(true);
+            // Show HUD when scrubbing
+            setShowHUD(true);
 
-        // Pause if playing
-        if (playIntervalRef.current) {
-            clearInterval(playIntervalRef.current);
-            playIntervalRef.current = null;
-            setIsPlaying(false);
-        }
+            // Pause if playing
+            if (playIntervalRef.current) {
+                clearInterval(playIntervalRef.current);
+                playIntervalRef.current = null;
+                setIsPlaying(false);
+            }
 
-        const idx = positionToIndex(e.clientX);
-        setPlaybackIndex(idx);
-        moveVesselTo(idx);
+            const idx = positionToIndex(e.clientX);
+            setPlaybackIndex(idx);
+            moveVesselTo(idx);
 
-        if (thumbRef.current) {
-            thumbRef.current.style.transform = 'translate(-50%, -50%) scale(1.4)';
-        }
-    }, [positionToIndex, moveVesselTo]);
+            if (thumbRef.current) {
+                thumbRef.current.style.transform = 'translate(-50%, -50%) scale(1.4)';
+            }
+        },
+        [positionToIndex, moveVesselTo],
+    );
 
-    const handlePointerMove = useCallback((e: React.PointerEvent) => {
-        if (!isDraggingRef.current) return;
-        e.preventDefault();
+    const handlePointerMove = useCallback(
+        (e: React.PointerEvent) => {
+            if (!isDraggingRef.current) return;
+            e.preventDefault();
 
-        const idx = positionToIndex(e.clientX);
-        setPlaybackIndex(idx);
-        moveVesselTo(idx);
-    }, [positionToIndex, moveVesselTo]);
+            const idx = positionToIndex(e.clientX);
+            setPlaybackIndex(idx);
+            moveVesselTo(idx);
+        },
+        [positionToIndex, moveVesselTo],
+    );
 
-    const handlePointerUp = useCallback((e: React.PointerEvent) => {
-        if (!isDraggingRef.current) return;
-        isDraggingRef.current = false;
+    const handlePointerUp = useCallback(
+        (e: React.PointerEvent) => {
+            if (!isDraggingRef.current) return;
+            isDraggingRef.current = false;
 
-        const idx = positionToIndex(e.clientX);
-        setPlaybackIndex(idx);
-        moveVesselTo(idx);
+            const idx = positionToIndex(e.clientX);
+            setPlaybackIndex(idx);
+            moveVesselTo(idx);
 
-        if (thumbRef.current) {
-            thumbRef.current.style.transform = 'translate(-50%, -50%) scale(1)';
-        }
-    }, [positionToIndex, moveVesselTo]);
+            if (thumbRef.current) {
+                thumbRef.current.style.transform = 'translate(-50%, -50%) scale(1)';
+            }
+        },
+        [positionToIndex, moveVesselTo],
+    );
 
     if (!isOpen) return null;
 
     // Stats
-    const totalDistance = sortedEntries.length > 0
-        ? (sortedEntries[sortedEntries.length - 1].cumulativeDistanceNM || 0).toFixed(1)
-        : '0.0';
-    const waypointCount = entries.filter(e => e.entryType === 'waypoint').length;
+    const totalDistance =
+        sortedEntries.length > 0
+            ? (sortedEntries[sortedEntries.length - 1].cumulativeDistanceNM || 0).toFixed(1)
+            : '0.0';
+    const waypointCount = entries.filter((e) => e.entryType === 'waypoint').length;
 
     // Current entry for scrubber label + HUD
     const currentEntry = sortedEntries[playbackIndex] || null;
@@ -598,9 +625,14 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
         <div className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col overflow-hidden">
             {/* Title overlay — top left (hidden during playback HUD) */}
             {!showHUD && (
-                <div className="absolute top-0 left-0 right-0 z-[1001] px-4" style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}>
+                <div
+                    className="absolute top-0 left-0 right-0 z-[1001] px-4"
+                    style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}
+                >
                     <div>
-                        <h2 className="text-sm font-bold text-white uppercase tracking-widest drop-shadow-lg">Voyage Track</h2>
+                        <h2 className="text-sm font-bold text-white uppercase tracking-widest drop-shadow-lg">
+                            Voyage Track
+                        </h2>
                         <div className="text-[10px] text-white/60 flex gap-3 mt-0.5 font-medium">
                             <span>{totalDistance} NM</span>
                             <span>{sortedEntries.length} pts</span>
@@ -617,7 +649,13 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                     aria-label="Back"
                     className="w-10 h-10 bg-slate-900/90 hover:bg-slate-800 rounded-full flex items-center justify-center border border-white/20 shadow-2xl transition-all hover:scale-110 active:scale-95 shrink-0"
                 >
-                    <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <svg
+                        className="w-5 h-5 text-white"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                    >
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                     </svg>
                 </button>
@@ -630,7 +668,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                 {/* ═══ FLOATING WEATHER HUD ═══ */}
                 {showHUD && currentEntry && (
                     <div className="absolute top-3 left-3 right-3 z-[1000] pointer-events-none">
-                        <div className="bg-slate-900/90 rounded-xl border border-white/10 shadow-2xl p-3 pointer-events-auto"
+                        <div
+                            className="bg-slate-900/90 rounded-xl border border-white/10 shadow-2xl p-3 pointer-events-auto"
                             style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
                         >
                             {/* Top row: Time, Date, Elapsed */}
@@ -647,8 +686,18 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                                         onClick={() => setShowHUD(false)}
                                         className="w-5 h-5 flex items-center justify-center rounded-full bg-white/10 text-white/60 hover:text-white transition-colors pointer-events-auto"
                                     >
-                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                        <svg
+                                            className="w-3 h-3"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={2.5}
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M6 18L18 6M6 6l12 12"
+                                            />
                                         </svg>
                                     </button>
                                 </div>
@@ -666,14 +715,20 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                                 {/* Distance */}
                                 <HUDCell
                                     label="DIST"
-                                    value={currentEntry.cumulativeDistanceNM != null ? currentEntry.cumulativeDistanceNM.toFixed(1) : '--'}
+                                    value={
+                                        currentEntry.cumulativeDistanceNM != null
+                                            ? currentEntry.cumulativeDistanceNM.toFixed(1)
+                                            : '--'
+                                    }
                                     unit="NM"
                                     color="text-sky-400"
                                 />
                                 {/* Course */}
                                 <HUDCell
                                     label="COG"
-                                    value={currentEntry.courseDeg != null ? `${Math.round(currentEntry.courseDeg)}°` : '--'}
+                                    value={
+                                        currentEntry.courseDeg != null ? `${Math.round(currentEntry.courseDeg)}°` : '--'
+                                    }
                                     color="text-sky-400"
                                 />
                                 {/* Air Temp */}
@@ -685,38 +740,60 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                                 {/* Wind */}
                                 <HUDCell
                                     label="WIND"
-                                    value={currentEntry.windSpeed != null ? Math.round(currentEntry.windSpeed).toString() : '--'}
+                                    value={
+                                        currentEntry.windSpeed != null
+                                            ? Math.round(currentEntry.windSpeed).toString()
+                                            : '--'
+                                    }
                                     unit={currentEntry.windDirection || ''}
                                     color="text-emerald-400"
                                 />
                             </div>
 
                             {/* Second row — only if data exists */}
-                            {(currentEntry.waveHeight != null || currentEntry.pressure != null || currentEntry.waterTemp != null || currentEntry.visibility != null || currentEntry.seaState != null) && (
+                            {(currentEntry.waveHeight != null ||
+                                currentEntry.pressure != null ||
+                                currentEntry.waterTemp != null ||
+                                currentEntry.visibility != null ||
+                                currentEntry.seaState != null) && (
                                 <div className="grid grid-cols-6 gap-1 mt-1 pt-1 border-t border-white/5">
                                     {/* Wave */}
                                     <HUDCell
                                         label="WAVE"
-                                        value={currentEntry.waveHeight != null ? (currentEntry.waveHeight / 3.28084).toFixed(1) : '--'}
+                                        value={
+                                            currentEntry.waveHeight != null
+                                                ? (currentEntry.waveHeight / 3.28084).toFixed(1)
+                                                : '--'
+                                        }
                                         unit="m"
                                         color="text-purple-400"
                                     />
                                     {/* Pressure */}
                                     <HUDCell
                                         label="HPA"
-                                        value={currentEntry.pressure != null ? Math.round(currentEntry.pressure).toString() : '--'}
+                                        value={
+                                            currentEntry.pressure != null
+                                                ? Math.round(currentEntry.pressure).toString()
+                                                : '--'
+                                        }
                                         color="text-purple-400"
                                     />
                                     {/* Water Temp */}
                                     <HUDCell
                                         label="WATER"
-                                        value={currentEntry.waterTemp != null ? `${Math.round(currentEntry.waterTemp)}°` : '--'}
+                                        value={
+                                            currentEntry.waterTemp != null
+                                                ? `${Math.round(currentEntry.waterTemp)}°`
+                                                : '--'
+                                        }
                                         color="text-purple-400"
                                     />
                                     {/* Visibility */}
                                     <HUDCell
                                         label="VIS"
-                                        value={currentEntry.visibility != null ? currentEntry.visibility.toFixed(0) : '--'}
+                                        value={
+                                            currentEntry.visibility != null ? currentEntry.visibility.toFixed(0) : '--'
+                                        }
                                         unit="NM"
                                         color="text-purple-400"
                                     />
@@ -729,7 +806,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                                     {/* Beaufort */}
                                     <HUDCell
                                         label="BFT"
-                                        value={currentEntry.beaufortScale != null ? `F${currentEntry.beaufortScale}` : '--'}
+                                        value={
+                                            currentEntry.beaufortScale != null ? `F${currentEntry.beaufortScale}` : '--'
+                                        }
                                         color="text-purple-400"
                                     />
                                 </div>
@@ -738,7 +817,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                             {/* Notes */}
                             {currentEntry.notes && (
                                 <div className="mt-1.5 pt-1.5 border-t border-white/5">
-                                    <p className="text-[10px] text-slate-400 leading-relaxed truncate">📝 {currentEntry.notes}</p>
+                                    <p className="text-[10px] text-slate-400 leading-relaxed truncate">
+                                        📝 {currentEntry.notes}
+                                    </p>
                                 </div>
                             )}
                         </div>
@@ -753,15 +834,21 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                                     <span className="text-base mt-0.5">📍</span>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2">
-                                            <span className="text-xs font-black text-amber-300 uppercase tracking-wider">{activeWaypoint.name}</span>
-                                            <span className="text-[10px] text-amber-400/60 font-mono">{activeWaypoint.timestamp}</span>
+                                            <span className="text-xs font-black text-amber-300 uppercase tracking-wider">
+                                                {activeWaypoint.name}
+                                            </span>
+                                            <span className="text-[10px] text-amber-400/60 font-mono">
+                                                {activeWaypoint.timestamp}
+                                            </span>
                                         </div>
 
                                         {/* Coordinates */}
                                         {activeWaypoint.lat != null && activeWaypoint.lon != null && (
                                             <p className="text-[11px] text-amber-200/80 font-mono mt-1">
-                                                {Math.abs(activeWaypoint.lat).toFixed(4)}°{activeWaypoint.lat >= 0 ? 'N' : 'S'}{' '}
-                                                {Math.abs(activeWaypoint.lon).toFixed(4)}°{activeWaypoint.lon >= 0 ? 'E' : 'W'}
+                                                {Math.abs(activeWaypoint.lat).toFixed(4)}°
+                                                {activeWaypoint.lat >= 0 ? 'N' : 'S'}{' '}
+                                                {Math.abs(activeWaypoint.lon).toFixed(4)}°
+                                                {activeWaypoint.lon >= 0 ? 'E' : 'W'}
                                             </p>
                                         )}
 
@@ -790,15 +877,27 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                                         </div>
 
                                         {activeWaypoint.notes && (
-                                            <p className="text-[11px] text-amber-200/70 mt-1 leading-relaxed">{activeWaypoint.notes}</p>
+                                            <p className="text-[11px] text-amber-200/70 mt-1 leading-relaxed">
+                                                {activeWaypoint.notes}
+                                            </p>
                                         )}
                                     </div>
                                     <button
                                         onClick={() => setActiveWaypoint(null)}
                                         className="w-5 h-5 flex items-center justify-center rounded-full bg-white/10 text-amber-300/60 hover:text-white transition-colors shrink-0"
                                     >
-                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                        <svg
+                                            className="w-3 h-3"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={2.5}
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M6 18L18 6M6 6l12 12"
+                                            />
                                         </svg>
                                     </button>
                                 </div>
@@ -822,7 +921,10 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                         <span className="text-[9px] text-slate-400">Wpt</span>
                     </div>
                     <div className="flex items-center gap-1">
-                        <div className="w-2 h-2 rounded-full" style={{ background: '#00f0ff', boxShadow: '0 0 4px rgba(0,240,255,0.5)' }}></div>
+                        <div
+                            className="w-2 h-2 rounded-full"
+                            style={{ background: '#00f0ff', boxShadow: '0 0 4px rgba(0,240,255,0.5)' }}
+                        ></div>
                         <span className="text-[9px] text-slate-400">Vessel</span>
                     </div>
                 </div>
@@ -831,7 +933,10 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
             {/* ═══ PLAYBACK SCRUBBER — matches app-wide scrubber pattern ═══ */}
             <div
                 className="absolute left-2 right-2 z-[1001] flex items-center gap-2 px-2.5 py-1.5 rounded-xl border border-white/10 shadow-lg"
-                style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)', background: 'rgba(15, 23, 42, 0.85)' }}
+                style={{
+                    bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)',
+                    background: 'rgba(15, 23, 42, 0.85)',
+                }}
             >
                 <style>{`
                     .track-slider { -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }
@@ -843,9 +948,14 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                     className="w-6 h-6 flex items-center justify-center shrink-0 text-white/70 active:scale-90 transition-transform"
                 >
                     {isPlaying ? (
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><rect x="1" y="1" width="3" height="8" rx="0.5" /><rect x="6" y="1" width="3" height="8" rx="0.5" /></svg>
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                            <rect x="1" y="1" width="3" height="8" rx="0.5" />
+                            <rect x="6" y="1" width="3" height="8" rx="0.5" />
+                        </svg>
                     ) : (
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><polygon points="2,1 9,5 2,9" /></svg>
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                            <polygon points="2,1 9,5 2,9" />
+                        </svg>
                     )}
                 </button>
                 <input
@@ -853,9 +963,12 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                     min={0}
                     max={maxIdx}
                     value={playbackIndex}
-                    onChange={e => {
+                    onChange={(e) => {
                         setIsPlaying(false);
-                        if (playIntervalRef.current) { clearInterval(playIntervalRef.current); playIntervalRef.current = null; }
+                        if (playIntervalRef.current) {
+                            clearInterval(playIntervalRef.current);
+                            playIntervalRef.current = null;
+                        }
                         const idx = parseInt(e.target.value);
                         setPlaybackIndex(idx);
                         moveVesselTo(idx);

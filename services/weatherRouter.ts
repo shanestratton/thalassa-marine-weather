@@ -40,11 +40,9 @@ export interface WeatherRouteResult {
 
 // ── Helpers ───────────────────────────────────────────────────────
 
-const getSupabaseUrl = (): string =>
-    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+const getSupabaseUrl = (): string => (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 
-const getSupabaseKey = (): string =>
-    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+const getSupabaseKey = (): string => (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
 
 /**
  * Fetch the user's polar data from Supabase (if available).
@@ -52,7 +50,9 @@ const getSupabaseKey = (): string =>
 async function fetchUserPolarData(): Promise<PolarData | null> {
     if (!supabase) return null;
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return null;
         const { data, error } = await supabase
             .from('vessel_polars')
@@ -62,7 +62,9 @@ async function fetchUserPolarData(): Promise<PolarData | null> {
         if (data && !error && data.polar_data) {
             return data.polar_data as PolarData;
         }
-    } catch (e) { console.warn('[weather] No polar data:', e); }
+    } catch (e) {
+        console.warn('[weather] No polar data:', e);
+    }
     return null;
 }
 
@@ -100,7 +102,6 @@ export async function fetchWeatherRoute(
     };
 
     try {
-
         const resp = await fetch(url, {
             method: 'POST',
             headers: {
@@ -122,14 +123,14 @@ export async function fetchWeatherRoute(
         if (data.error) {
             console.error(`[WeatherRouter] Routing error:`, data.error);
             return null;
-        }        // Debug: log track coordinates to diagnose crossing-earth issue
+        } // Debug: log track coordinates to diagnose crossing-earth issue
         if (data.track) {
             // Track data available for 4D rendering
         }
         return data;
-
     } catch (err) {
-        if (err instanceof Error && err.name === 'TimeoutError') { } else {
+        if (err instanceof Error && err.name === 'TimeoutError') {
+        } else {
             console.error('[WeatherRouter] Error:', err);
         }
         return null;
@@ -141,10 +142,7 @@ export async function fetchWeatherRoute(
 /**
  * Merge the spatiotemporal payload into a VoyagePlan for legacy UI.
  */
-export function mergeWeatherRoute(
-    voyagePlan: VoyagePlan,
-    payload: SpatiotemporalPayload,
-): VoyagePlan {
+export function mergeWeatherRoute(voyagePlan: VoyagePlan, payload: SpatiotemporalPayload): VoyagePlan {
     const merged = { ...voyagePlan };
     const { summary, track, mesh_stats } = payload;
 
@@ -172,7 +170,8 @@ export function mergeWeatherRoute(
     }
 
     // Routing reasoning
-    merged.routeReasoning = (merged.routeReasoning || '') +
+    merged.routeReasoning =
+        (merged.routeReasoning || '') +
         ` Weather-optimized for ${summary.vessel_type} vessel using ${mesh_stats.weather_grid_points} forecast points over ${mesh_stats.forecast_hours}h. ` +
         `Corridor: ±${mesh_stats.corridor_width_nm} NM, ${mesh_stats.total_nodes} mesh nodes evaluated. ` +
         `Weather-adjusted ETA: ${merged.durationApprox}. Route cost score: ${summary.cost_score} (lower is better).`;
@@ -257,7 +256,9 @@ export async function enhanceVoyagePlanWithWeather(
     if (vessel.type === 'sail') {
         try {
             polarData = await fetchUserPolarData();
-        } catch (e) { console.warn('[weather] Non-critical:', e); }
+        } catch (e) {
+            console.warn('[weather] Non-critical:', e);
+        }
     }
 
     // Decimate centerline for weather API (max ~100 points) — API can't handle thousands
@@ -278,9 +279,13 @@ export async function enhanceVoyagePlanWithWeather(
         // Build a basic spatiotemporal payload from the centerline so the 4D canvas still works
         const fallbackTrack = centerline.map((pt, i) => {
             const prevPt = i > 0 ? centerline[i - 1] : pt;
-            const segDist = i > 0
-                ? Math.sqrt(Math.pow((pt.lat - prevPt.lat) * 60, 2) + Math.pow((pt.lon - prevPt.lon) * 60 * Math.cos(pt.lat * Math.PI / 180), 2))
-                : 0;
+            const segDist =
+                i > 0
+                    ? Math.sqrt(
+                          Math.pow((pt.lat - prevPt.lat) * 60, 2) +
+                              Math.pow((pt.lon - prevPt.lon) * 60 * Math.cos((pt.lat * Math.PI) / 180), 2),
+                      )
+                    : 0;
             return {
                 coordinates: [pt.lon, pt.lat] as [number, number],
                 distance_from_start_nm: segDist,
@@ -304,15 +309,15 @@ export async function enhanceVoyagePlanWithWeather(
             const cur = centerline[i];
             const segDist = Math.sqrt(
                 Math.pow((cur.lat - prev.lat) * 60, 2) +
-                Math.pow((cur.lon - prev.lon) * 60 * Math.cos(cur.lat * Math.PI / 180), 2)
+                    Math.pow((cur.lon - prev.lon) * 60 * Math.cos((cur.lat * Math.PI) / 180), 2),
             );
             cumDist += segDist;
             fallbackTrack[i].distance_from_start_nm = cumDist;
             fallbackTrack[i].time_offset_hours = cumDist / (vessel.cruisingSpeed || 6);
         }
 
-        const lons = centerline.map(p => p.lon);
-        const lats = centerline.map(p => p.lat);
+        const lons = centerline.map((p) => p.lon);
+        const lats = centerline.map((p) => p.lat);
         const fallbackPayload: SpatiotemporalPayload = {
             summary: {
                 total_distance_nm: Math.round(cumDist * 10) / 10,

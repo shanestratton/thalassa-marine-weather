@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useMemo } from 'react';
 import { useSettings } from '../context/SettingsContext';
 import { useWeather } from '../context/WeatherContext';
@@ -12,20 +11,20 @@ import { generateSeaRoute } from '../utils/seaRoute';
 import { GpsService } from '../services/GpsService';
 
 export const LOADING_PHASES = [
-    "Querying Hydrographic Data...",
-    "Analyzing Tidal Streams...",
-    "Checking Notices to Mariners...",
-    "Plotting Waypoints...",
-    "Calculating ETAs...",
-    "Checking Depth Clearances...",
-    "Verifying Air Draft...",
-    "Route Optimization...",
-    "Weather Routing...",
-    "Checking Safety Constraints...",
-    "Reviewing Pilotage Notes...",
-    "Generating Passage Plan...",
-    "Finalizing Route...",
-    "Completing Analysis..."
+    'Querying Hydrographic Data...',
+    'Analyzing Tidal Streams...',
+    'Checking Notices to Mariners...',
+    'Plotting Waypoints...',
+    'Calculating ETAs...',
+    'Checking Depth Clearances...',
+    'Verifying Air Draft...',
+    'Route Optimization...',
+    'Weather Routing...',
+    'Checking Safety Constraints...',
+    'Reviewing Pilotage Notes...',
+    'Generating Passage Plan...',
+    'Finalizing Route...',
+    'Completing Analysis...',
 ];
 
 export const useVoyageForm = (onTriggerUpgrade: () => void) => {
@@ -37,7 +36,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     const [origin, setOrigin] = useState('');
     const [destination, setDestination] = useState('');
     const [via, setVia] = useState('');
-    const [departureDate, setDepartureDate] = useState(voyagePlan?.departureDate || new Date().toLocaleDateString('en-CA'));
+    const [departureDate, setDepartureDate] = useState(
+        voyagePlan?.departureDate || new Date().toLocaleDateString('en-CA'),
+    );
 
     // UI State
     const [isMapOpen, setIsMapOpen] = useState(false);
@@ -67,8 +68,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         if (loading) {
             setLoadingStep(0);
             interval = setInterval(() => {
-                setLoadingStep(s => {
-                    if (s >= LOADING_PHASES.length - 1) return LOADING_PHASES.length - 3 + ((s - (LOADING_PHASES.length - 3) + 1) % 3);
+                setLoadingStep((s) => {
+                    if (s >= LOADING_PHASES.length - 1)
+                        return LOADING_PHASES.length - 3 + ((s - (LOADING_PHASES.length - 3) + 1) % 3);
                     return s + 1;
                 });
             }, 1800);
@@ -91,7 +93,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
 
         // SAFEGUARD: Ensure vessel profile exists before calculation
         if (!vessel) {
-            setError("Vessel profile missing. Please configure in settings.");
+            setError('Vessel profile missing. Please configure in settings.');
             return;
         }
 
@@ -119,18 +121,19 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     // Lazy import to avoid circular dependency issues if any
                     const { fetchFastWeather } = await import('../services/weatherService');
                     // Use Fast Weather to get context quickly without burning premium API credits just for context
-                    const wx = await fetchFastWeather("Origin-Context", { lat, lon });
+                    const wx = await fetchFastWeather('Origin-Context', { lat, lon });
                     if (wx) {
                         weatherContext = {
                             current: wx.current,
                             tides: wx.tides?.slice(0, 4), // Next 4 tide events
-                            forecastSample: wx.hourly?.slice(0, 24).map((h) => ({ // First 24h
+                            forecastSample: wx.hourly?.slice(0, 24).map((h) => ({
+                                // First 24h
                                 time: h.time,
                                 wind: h.windSpeed,
                                 gust: h.windGust,
                                 wave: h.waveHeight,
-                                dir: h.windDirection
-                            }))
+                                dir: h.windDirection,
+                            })),
                         };
                     }
                 }
@@ -141,8 +144,19 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             const { fetchVoyagePlan } = await import('../services/geminiService');
             // Pass user's current GPS position for proximity-based disambiguation
             const userLoc = LocationStore.getState();
-            const userLocation = (userLoc.lat !== 0 || userLoc.lon !== 0) ? { lat: userLoc.lat, lon: userLoc.lon } : undefined;
-            const result = await fetchVoyagePlan(fmtOrigin, fmtDest, vessel, departureDate, vesselUnits, generalUnits, fmtVia, weatherContext, userLocation);
+            const userLocation =
+                userLoc.lat !== 0 || userLoc.lon !== 0 ? { lat: userLoc.lat, lon: userLoc.lon } : undefined;
+            const result = await fetchVoyagePlan(
+                fmtOrigin,
+                fmtDest,
+                vessel,
+                departureDate,
+                vesselUnits,
+                generalUnits,
+                fmtVia,
+                weatherContext,
+                userLocation,
+            );
 
             // ── Show the plan IMMEDIATELY — don't wait for enhancements ──
             saveVoyagePlan(result);
@@ -158,14 +172,14 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     const { enhanceVoyagePlanWithBathymetry } = await import('../services/bathymetricRouter');
                     enhancedPlan = await enhanceVoyagePlanWithBathymetry(result, vessel);
                     saveVoyagePlan(enhancedPlan);
-                } catch (_) { }
+                } catch (_) {}
 
                 // Step 2: Weather routing — corridor optimization (depends on Step 1)
                 try {
                     const { enhanceVoyagePlanWithWeather } = await import('../services/weatherRouter');
                     enhancedPlan = await enhanceVoyagePlanWithWeather(enhancedPlan, vessel, departureDate);
                     saveVoyagePlan(enhancedPlan);
-                } catch (_) { }
+                } catch (_) {}
 
                 // Steps 3 & 4 can run in parallel (both read from enhancedPlan, write to separate fields)
                 const step3 = (async () => {
@@ -176,22 +190,28 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                         const depthWaypoints = [];
                         if (enhancedPlan.originCoordinates) {
                             depthWaypoints.push({
-                                id: 'dep', lat: enhancedPlan.originCoordinates.lat,
-                                lon: enhancedPlan.originCoordinates.lon, name: enhancedPlan.origin || 'Departure',
+                                id: 'dep',
+                                lat: enhancedPlan.originCoordinates.lat,
+                                lon: enhancedPlan.originCoordinates.lon,
+                                name: enhancedPlan.origin || 'Departure',
                             });
                         }
-                        for (const wp of (enhancedPlan.waypoints || [])) {
+                        for (const wp of enhancedPlan.waypoints || []) {
                             if (wp.coordinates) {
                                 depthWaypoints.push({
-                                    id: wp.name || 'wp', lat: wp.coordinates.lat,
-                                    lon: wp.coordinates.lon, name: wp.name || 'WP',
+                                    id: wp.name || 'wp',
+                                    lat: wp.coordinates.lat,
+                                    lon: wp.coordinates.lon,
+                                    name: wp.name || 'WP',
                                 });
                             }
                         }
                         if (enhancedPlan.destinationCoordinates) {
                             depthWaypoints.push({
-                                id: 'arr', lat: enhancedPlan.destinationCoordinates.lat,
-                                lon: enhancedPlan.destinationCoordinates.lon, name: enhancedPlan.destination || 'Arrival',
+                                id: 'arr',
+                                lat: enhancedPlan.destinationCoordinates.lat,
+                                lon: enhancedPlan.destinationCoordinates.lon,
+                                name: enhancedPlan.destination || 'Arrival',
                             });
                         }
 
@@ -205,19 +225,20 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                 minDepth: depthEnhanced.minDepth,
                                 shallowSegments: depthEnhanced.shallowSegments,
                                 totalSegments: depthEnhanced.segments.length,
-                                segments: depthEnhanced.segments.map(s => ({
+                                segments: depthEnhanced.segments.map((s) => ({
                                     depth_m: s.depth_m,
                                     safety: s.depthSafety,
                                     costMultiplier: s.depthCostMultiplier,
                                 })),
                             };
                         }
-                    } catch (_) { }
+                    } catch (_) {}
                 })();
 
                 const step4 = (async () => {
                     try {
-                        const { queryMultiModel, recommendModels } = await import('../services/weather/MultiModelWeatherService');
+                        const { queryMultiModel, recommendModels } =
+                            await import('../services/weather/MultiModelWeatherService');
 
                         const comparisonPoints: { lat: number; lon: number; name?: string }[] = [];
                         if (enhancedPlan.originCoordinates) {
@@ -227,7 +248,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                 name: enhancedPlan.origin,
                             });
                         }
-                        for (const wp of (enhancedPlan.waypoints || [])) {
+                        for (const wp of enhancedPlan.waypoints || []) {
                             if (wp.coordinates) {
                                 comparisonPoints.push({
                                     lat: wp.coordinates.lat,
@@ -252,7 +273,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                 (enhancedPlan as any).__multiModelComparison = multiModelResult;
                             }
                         }
-                    } catch (_) { }
+                    } catch (_) {}
                 })();
 
                 // Wait for both parallel steps, then save final enhanced plan
@@ -262,13 +283,17 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
 
             // ── Background: pre-compute isochrone so the map route is ready ──
             if (result.originCoordinates && result.destinationCoordinates) {
-                import('../services/IsochronePrecomputeCache').then(({ precomputeIsochrone }) => {
-                    precomputeIsochrone(
-                        result.originCoordinates!,
-                        result.destinationCoordinates!,
-                        departureDate || new Date().toISOString(),
-                    );
-                }).catch(() => { /* Non-critical */ });
+                import('../services/IsochronePrecomputeCache')
+                    .then(({ precomputeIsochrone }) => {
+                        precomputeIsochrone(
+                            result.originCoordinates!,
+                            result.destinationCoordinates!,
+                            departureDate || new Date().toISOString(),
+                        );
+                    })
+                    .catch(() => {
+                        /* Non-critical */
+                    });
             }
         } catch (err: unknown) {
             setError(getErrorMessage(err) || 'Calculation Systems Failure');
@@ -303,7 +328,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         });
     };
 
-    const toggleCheck = (item: string) => setChecklistState(p => ({ ...p, [item]: !p[item] }));
+    const toggleCheck = (item: string) => setChecklistState((p) => ({ ...p, [item]: !p[item] }));
     const clearVoyagePlan = () => saveVoyagePlan(null as any);
 
     const handleMapSelect = async (lat: number, lon: number, name: string) => {
@@ -322,9 +347,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         // This ensures the routing pipeline (Gemini + bathymetric + weather)
         // uses the precise GPS position, not a vague name lookup.
         const coordSuffix = `(${lat.toFixed(4)}, ${lon.toFixed(4)})`;
-        const displayName = resolvedName
-            ? `${resolvedName} ${coordSuffix}`
-            : `WP ${coordSuffix}`;
+        const displayName = resolvedName ? `${resolvedName} ${coordSuffix}` : `WP ${coordSuffix}`;
 
         if (mapSelectionTarget === 'origin') {
             setOrigin(displayName);
@@ -348,7 +371,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         const waypoints: { lat: number; lon: number }[] = [];
         if (voyagePlan.originCoordinates) waypoints.push(voyagePlan.originCoordinates);
         if (voyagePlan.waypoints && Array.isArray(voyagePlan.waypoints)) {
-            voyagePlan.waypoints.forEach(wp => {
+            voyagePlan.waypoints.forEach((wp) => {
                 if (wp && wp.coordinates) waypoints.push(wp.coordinates);
             });
         }
@@ -364,23 +387,34 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         }
     }, [voyagePlan]);
 
-    const distVal = (voyagePlan && typeof voyagePlan.distanceApprox === 'string')
-        ? parseInt(voyagePlan.distanceApprox.match(/(\d+)/)?.[0] || '0', 10)
-        : 0;
+    const distVal =
+        voyagePlan && typeof voyagePlan.distanceApprox === 'string'
+            ? parseInt(voyagePlan.distanceApprox.match(/(\d+)/)?.[0] || '0', 10)
+            : 0;
     const isShortTrip = distVal < 20;
 
     return {
         // State
-        origin, setOrigin,
-        destination, setDestination,
-        via, setVia,
-        departureDate, setDepartureDate,
-        isMapOpen, setIsMapOpen,
-        mapSelectionTarget, setMapSelectionTarget,
-        loading, loadingStep,
-        error, setError,
-        analyzingDeep, deepReport,
-        checklistState, toggleCheck,
+        origin,
+        setOrigin,
+        destination,
+        setDestination,
+        via,
+        setVia,
+        departureDate,
+        setDepartureDate,
+        isMapOpen,
+        setIsMapOpen,
+        mapSelectionTarget,
+        setMapSelectionTarget,
+        loading,
+        loadingStep,
+        error,
+        setError,
+        analyzingDeep,
+        deepReport,
+        checklistState,
+        toggleCheck,
 
         // Handlers
         handleCalculate,
@@ -393,7 +427,8 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         // Computed
         routeCoords,
         isShortTrip,
-        activeChecklistTab, setActiveChecklistTab,
+        activeChecklistTab,
+        setActiveChecklistTab,
         minDate: new Date().toLocaleDateString('en-CA'),
 
         // Context
@@ -401,6 +436,6 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         vessel,
         isPro,
         mapboxToken,
-        hourlyForecasts: weatherData?.hourly || []
+        hourlyForecasts: weatherData?.hourly || [],
     };
 };

@@ -5,7 +5,7 @@
  * Writes chunks to Capacitor Filesystem, tracks progress,
  * and auto-retries with exponential backoff on network drops.
  */
-import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Filesystem, Directory } from '@capacitor/filesystem';
 import type { GribDownloadState } from '../types';
 import { saveLargeData, loadLargeData } from './nativeStorage';
 
@@ -18,7 +18,7 @@ export interface DownloadProgress {
     downloadedBytes: number;
     totalBytes: number;
     percent: number;
-    speedBps: number;     // Bytes per second
+    speedBps: number; // Bytes per second
     estimatedRemainingS: number;
 }
 
@@ -94,7 +94,10 @@ class SatLinkClientClass {
     async cancel(): Promise<void> {
         this.abortController?.abort();
         this.abortController = null;
-        if (this.retryTimer) { clearTimeout(this.retryTimer); this.retryTimer = null; }
+        if (this.retryTimer) {
+            clearTimeout(this.retryTimer);
+            this.retryTimer = null;
+        }
 
         // Delete temp file
         try {
@@ -102,7 +105,9 @@ class SatLinkClientClass {
                 path: this.state.tempFilePath,
                 directory: Directory.Documents,
             });
-        } catch (e) { console.warn('[SatLink] ignore:', e); }
+        } catch (e) {
+            console.warn('[SatLink] ignore:', e);
+        }
 
         this.state = this.createIdleState();
         this.emitStatus();
@@ -110,13 +115,21 @@ class SatLinkClientClass {
     }
 
     /** Get current download state */
-    getState(): GribDownloadState { return this.state; }
+    getState(): GribDownloadState {
+        return this.state;
+    }
 
     /** Subscribe to progress updates */
-    onProgress(cb: DownloadProgressCallback) { this.progressListeners.add(cb); return () => this.progressListeners.delete(cb); }
+    onProgress(cb: DownloadProgressCallback) {
+        this.progressListeners.add(cb);
+        return () => this.progressListeners.delete(cb);
+    }
 
     /** Subscribe to status changes */
-    onStatusChange(cb: DownloadStatusCallback) { this.statusListeners.add(cb); return () => this.statusListeners.delete(cb); }
+    onStatusChange(cb: DownloadStatusCallback) {
+        this.statusListeners.add(cb);
+        return () => this.statusListeners.delete(cb);
+    }
 
     /** Get the path to the completed GRIB file (null if not complete) */
     getCompletedFilePath(): string | null {
@@ -218,7 +231,9 @@ class SatLinkClientClass {
                     toDirectory: Directory.Documents,
                 });
                 this.state.tempFilePath = finalPath;
-            } catch (e) { console.warn('[SatLink] rename failed, temp file still valid:', e); }
+            } catch (e) {
+                console.warn('[SatLink] rename failed, temp file still valid:', e);
+            }
 
             this.emitStatus();
             this.emitProgress();
@@ -263,12 +278,10 @@ class SatLinkClientClass {
     }
 
     private emitProgress(): void {
-        const percent = this.state.totalBytes > 0
-            ? Math.round((this.state.downloadedBytes / this.state.totalBytes) * 100)
-            : 0;
-        const remaining = this.currentSpeed > 0
-            ? (this.state.totalBytes - this.state.downloadedBytes) / this.currentSpeed
-            : 0;
+        const percent =
+            this.state.totalBytes > 0 ? Math.round((this.state.downloadedBytes / this.state.totalBytes) * 100) : 0;
+        const remaining =
+            this.currentSpeed > 0 ? (this.state.totalBytes - this.state.downloadedBytes) / this.currentSpeed : 0;
 
         const progress: DownloadProgress = {
             downloadedBytes: this.state.downloadedBytes,

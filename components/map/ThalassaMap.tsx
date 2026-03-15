@@ -62,17 +62,13 @@ const OFFLINE_STYLE: StyleSpecification = {
     sources: {
         'osm-raster': {
             type: 'raster',
-            tiles: [
-                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            ],
+            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
             tileSize: 256,
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
         },
-        'openseamap': {
+        openseamap: {
             type: 'raster',
-            tiles: [
-                'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
-            ],
+            tiles: ['https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'],
             tileSize: 256,
             maxzoom: 18,
             attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
@@ -152,7 +148,7 @@ const ThalassaMap: React.FC<ThalassaMapProps> = ({
             const map = mapRef.current;
             if (!map) {
                 // Fallback: just set viewState directly
-                setViewState(prev => ({
+                setViewState((prev) => ({
                     ...prev,
                     longitude: newState.lon,
                     latitude: newState.lat,
@@ -197,7 +193,11 @@ const ThalassaMap: React.FC<ThalassaMapProps> = ({
         if (!map) return;
 
         if (windLayerRef.current) {
-            try { map.removeLayer(windLayerRef.current.id); } catch (_) { /* ok */ }
+            try {
+                map.removeLayer(windLayerRef.current.id);
+            } catch (_) {
+                /* ok */
+            }
         }
 
         const windLayer = new WindParticleLayer('wind-particles');
@@ -234,7 +234,11 @@ const ThalassaMap: React.FC<ThalassaMapProps> = ({
         return () => {
             const map = mapRef.current?.getMap();
             if (map && windLayerRef.current) {
-                try { map.removeLayer(windLayerRef.current.id); } catch (_) { /* ok */ }
+                try {
+                    map.removeLayer(windLayerRef.current.id);
+                } catch (_) {
+                    /* ok */
+                }
                 windLayerRef.current = null;
             }
         };

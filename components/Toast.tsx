@@ -32,10 +32,15 @@ type Listener = (item: ToastItem) => void;
 const listeners: Set<Listener> = new Set();
 let nextId = 1;
 
-function emit(message: string, type: ToastType, duration: number, action?: { label: string; onClick: () => void }): number {
+function emit(
+    message: string,
+    type: ToastType,
+    duration: number,
+    action?: { label: string; onClick: () => void },
+): number {
     const id = nextId++;
     const item: ToastItem = { id, message, type, duration, action };
-    listeners.forEach(fn => fn(item));
+    listeners.forEach((fn) => fn(item));
     return id;
 }
 
@@ -116,29 +121,32 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: () => void }> = ({ item,
                 gap: 10,
                 minWidth: 260,
                 maxWidth: 380,
-                
-                
+
                 boxShadow: colors.glow,
                 pointerEvents: 'auto',
             }}
         >
-            <span style={{
-                fontSize: 16,
-                flexShrink: 0,
-                animation: item.type === 'loading' ? 'spin 1s linear infinite' : undefined,
-                filter: 'brightness(1.3)',
-            }}>
+            <span
+                style={{
+                    fontSize: 16,
+                    flexShrink: 0,
+                    animation: item.type === 'loading' ? 'spin 1s linear infinite' : undefined,
+                    filter: 'brightness(1.3)',
+                }}
+            >
                 {ICONS[item.type]}
             </span>
-            <span style={{
-                flex: 1,
-                color: '#ffffff',
-                fontFamily: FONT.ui,
-                fontSize: SIZE.subhead,
-                fontWeight: 600,
-                lineHeight: 1.3,
-                letterSpacing: '0.01em',
-            }}>
+            <span
+                style={{
+                    flex: 1,
+                    color: '#ffffff',
+                    fontFamily: FONT.ui,
+                    fontSize: SIZE.subhead,
+                    fontWeight: 600,
+                    lineHeight: 1.3,
+                    letterSpacing: '0.01em',
+                }}
+            >
                 {item.message}
             </span>
             {item.action && (
@@ -163,8 +171,8 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: () => void }> = ({ item,
                         flexShrink: 0,
                         transition: 'background 0.15s ease',
                     }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.25)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.15)')}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.25)')}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.15)')}
                 >
                     {item.action.label}
                 </button>
@@ -179,14 +187,16 @@ export const ToastPortal: React.FC = () => {
 
     useEffect(() => {
         const handler: Listener = (item) => {
-            setToasts(prev => [...prev.slice(-4), item]); // Keep max 5
+            setToasts((prev) => [...prev.slice(-4), item]); // Keep max 5
         };
         listeners.add(handler);
-        return () => { listeners.delete(handler); };
+        return () => {
+            listeners.delete(handler);
+        };
     }, []);
 
     const removeToast = useCallback((id: number) => {
-        setToasts(prev => prev.filter(t => t.id !== id));
+        setToasts((prev) => prev.filter((t) => t.id !== id));
     }, []);
 
     if (toasts.length === 0) return null;
@@ -206,7 +216,7 @@ export const ToastPortal: React.FC = () => {
                 pointerEvents: 'none',
             }}
         >
-            {toasts.map(t => (
+            {toasts.map((t) => (
                 <SingleToast key={t.id} item={t} onClose={() => removeToast(t.id)} />
             ))}
         </div>
@@ -219,14 +229,14 @@ export const useToast = () => {
 
     const showToast = (message: string, type: ToastType = 'info', duration?: number) => {
         const id = nextId++;
-        setToasts(prev => [...prev, { id, message, type, duration: duration ?? 3000 }]);
+        setToasts((prev) => [...prev, { id, message, type, duration: duration ?? 3000 }]);
         // Also emit globally
         emit(message, type, duration ?? 3000);
         return id;
     };
 
     const hideToast = (id: number) => {
-        setToasts(prev => prev.filter(t => t.id !== id));
+        setToasts((prev) => prev.filter((t) => t.id !== id));
     };
 
     const ToastContainer = () => null; // Now handled by ToastPortal

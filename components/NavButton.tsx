@@ -30,7 +30,7 @@ export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onCli
             if (!active) triggerHaptic('light');
             onClick();
         }}
-        onTouchStart={() => { }} // Forces immediate touch response
+        onTouchStart={() => {}} // Forces immediate touch response
         aria-label={`Navigate to ${label}`}
         aria-current={active ? 'page' : undefined}
         role="tab"
@@ -43,12 +43,23 @@ export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onCli
             {badge && (
                 <span className="absolute -top-1 -right-1.5 flex items-center justify-center min-w-[14px] h-[14px] bg-red-500 rounded-full border-2 border-slate-900 shadow-lg shadow-red-500/30">
                     {typeof badge === 'number' && badge > 0 && (
-                        <span className="text-[8px] font-black text-white leading-none px-0.5">{badge > 99 ? '99+' : badge}</span>
+                        <span className="text-[8px] font-black text-white leading-none px-0.5">
+                            {badge > 99 ? '99+' : badge}
+                        </span>
                     )}
                 </span>
             )}
         </div>
-        <span className={`text-[11px] font-bold uppercase tracking-wider leading-none mt-0.5 ${active ? 'text-sky-400' : 'text-gray-500'}`}>{label}</span>
-        {active && <div className="absolute bottom-0.5 w-1 h-1 bg-sky-400 rounded-full shadow-[0_0_8px_rgba(56,189,248,0.8)] pointer-events-none" aria-hidden="true"></div>}
+        <span
+            className={`text-[11px] font-bold uppercase tracking-wider leading-none mt-0.5 ${active ? 'text-sky-400' : 'text-gray-500'}`}
+        >
+            {label}
+        </span>
+        {active && (
+            <div
+                className="absolute bottom-0.5 w-1 h-1 bg-sky-400 rounded-full shadow-[0_0_8px_rgba(56,189,248,0.8)] pointer-events-none"
+                aria-hidden="true"
+            ></div>
+        )}
     </button>
 );

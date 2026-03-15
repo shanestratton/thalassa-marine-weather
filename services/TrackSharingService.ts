@@ -1,10 +1,10 @@
 /**
  * Track Sharing Service
  * Community track sharing via Supabase — "Strava for Sailors"
- * 
+ *
  * Users can share voyage tracks (stripped of personal data) for other
  * sailors to discover and download. Pro tier required for downloads.
- * 
+ *
  * Categories: anchorage, port_entry, marina_exit, harbour_entry,
  *   walking, reef_passage, bar_crossing, coastal, offshore,
  *   driving, pin_repairs, pin_food, pin_fuel, pin_supplies, pin_scenic
@@ -16,12 +16,27 @@ import { exportVoyageAsGPX } from './gpxService';
 
 // --- TYPES ---
 
-export type TrackCategory = 'anchorage' | 'port_entry' | 'marina_exit' | 'harbour_entry' | 'walking' | 'reef_passage' | 'coastal' | 'offshore' | 'bar_crossing' | 'driving' | 'pin_repairs' | 'pin_food' | 'pin_fuel' | 'pin_supplies' | 'pin_scenic';
+export type TrackCategory =
+    | 'anchorage'
+    | 'port_entry'
+    | 'marina_exit'
+    | 'harbour_entry'
+    | 'walking'
+    | 'reef_passage'
+    | 'coastal'
+    | 'offshore'
+    | 'bar_crossing'
+    | 'driving'
+    | 'pin_repairs'
+    | 'pin_food'
+    | 'pin_fuel'
+    | 'pin_supplies'
+    | 'pin_scenic';
 
 export interface SharedTrack {
     id: string;
     user_id: string;
-    voyage_id?: string;   // Links back to the local voyage for cascade-delete
+    voyage_id?: string; // Links back to the local voyage for cascade-delete
     title: string;
     description: string;
     tags: string[];
@@ -64,21 +79,19 @@ const SHARED_TRACKS_TABLE = 'shared_tracks';
 // --- SERVICE ---
 
 class TrackSharingServiceClass {
-
     /**
      * Share a voyage track with the community.
      * Strips personal data (userId, vessel name, exact timestamps).
      * Converts entries to GPX and stores in Supabase.
      */
-    async shareTrack(
-        entries: ShipLogEntry[],
-        metadata: SharedTrackInput
-    ): Promise<SharedTrack | null> {
+    async shareTrack(entries: ShipLogEntry[], metadata: SharedTrackInput): Promise<SharedTrack | null> {
         if (!supabase) {
             return null;
         }
 
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) {
             throw new Error('Must be logged in to share tracks');
         }
@@ -90,11 +103,13 @@ class TrackSharingServiceClass {
         // ── Provenance guard: only first-party device tracks can be shared ──
         // Prevents laundering imported GPX or community-downloaded tracks back
         // into the community pool under a different user's name.
-        const nonDeviceEntries = entries.filter(e => e.source && e.source !== 'device');
+        const nonDeviceEntries = entries.filter((e) => e.source && e.source !== 'device');
         if (nonDeviceEntries.length > 0) {
             const source = nonDeviceEntries[0].source;
             if (source === 'community_download') {
-                throw new Error('Cannot re-share a community-downloaded track — only your own recorded voyages can be shared');
+                throw new Error(
+                    'Cannot re-share a community-downloaded track — only your own recorded voyages can be shared',
+                );
             }
             if (source === 'gpx_import') {
                 throw new Error('Cannot share imported GPX tracks — only your own recorded voyages can be shared');
@@ -119,7 +134,7 @@ class TrackSharingServiceClass {
 
         const trackData: Record<string, any> = {
             user_id: user.id,
-            voyage_id: entries[0]?.voyageId || null,  // Link back to local voyage
+            voyage_id: entries[0]?.voyageId || null, // Link back to local voyage
             title: metadata.title,
             description: metadata.description,
             tags: metadata.tags,
@@ -130,18 +145,14 @@ class TrackSharingServiceClass {
             distance_nm: Math.round(distanceNM * 10) / 10,
             point_count: entries.length,
             download_count: 0,
-            gpx_data: gpxData
+            gpx_data: gpxData,
         };
 
         // Include vessel draft and tide info if provided
         if (metadata.vessel_draft_m) trackData.vessel_draft_m = metadata.vessel_draft_m;
         if (metadata.tide_info) trackData.tide_info = metadata.tide_info;
 
-        const { data, error } = await supabase
-            .from(SHARED_TRACKS_TABLE)
-            .insert(trackData)
-            .select()
-            .single();
+        const { data, error } = await supabase.from(SHARED_TRACKS_TABLE).insert(trackData).select().single();
 
         if (error) {
             throw new Error(`Failed to share track: ${error.message}`);
@@ -159,20 +170,10 @@ class TrackSharingServiceClass {
             return { tracks: [], total: 0 };
         }
 
-        const {
-            category,
-            region,
-            search,
-            limit = 20,
-            offset = 0,
-            sortBy = 'created_at',
-            sortOrder = 'desc'
-        } = filters;
+        const { category, region, search, limit = 20, offset = 0, sortBy = 'created_at', sortOrder = 'desc' } = filters;
 
         // Select all and strip GPX on client side (Supabase untyped table)
-        let query = supabase
-            .from(SHARED_TRACKS_TABLE)
-            .select('*', { count: 'exact' });
+        let query = supabase.from(SHARED_TRACKS_TABLE).select('*', { count: 'exact' });
 
         // Apply filters
         if (category) {
@@ -186,9 +187,7 @@ class TrackSharingServiceClass {
         }
 
         // Sort and paginate
-        query = query
-            .order(sortBy, { ascending: sortOrder === 'asc' })
-            .range(offset, offset + limit - 1);
+        query = query.order(sortBy, { ascending: sortOrder === 'asc' }).range(offset, offset + limit - 1);
 
         const { data, error, count } = await query;
 
@@ -198,7 +197,7 @@ class TrackSharingServiceClass {
 
         return {
             tracks: ((data || []) as SharedTrack[]).map(({ gpx_data, ...rest }) => rest as SharedTrack),
-            total: count || 0
+            total: count || 0,
         };
     }
 
@@ -226,14 +225,20 @@ class TrackSharingServiceClass {
         }
 
         // ── Self-import guard: can't download your own track ──
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (user && data.user_id === user.id) {
             throw new Error('Cannot download your own shared track — you already have this data');
         }
 
         // Increment download counter (fire-and-forget)
         (async () => {
-            try { await supabase.rpc('increment_download_count', { track_id: trackId }); } catch (e) { console.warn('[TrackSharing] Fire-and-forget — counter miss is non-critical:', e); }
+            try {
+                await supabase.rpc('increment_download_count', { track_id: trackId });
+            } catch (e) {
+                console.warn('[TrackSharing] Fire-and-forget — counter miss is non-critical:', e);
+            }
         })();
 
         return data.gpx_data;
@@ -245,14 +250,12 @@ class TrackSharingServiceClass {
     async deleteSharedTrack(trackId: string): Promise<boolean> {
         if (!supabase) return false;
 
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return false;
 
-        const { error } = await supabase
-            .from(SHARED_TRACKS_TABLE)
-            .delete()
-            .eq('id', trackId)
-            .eq('user_id', user.id); // RLS also enforces this
+        const { error } = await supabase.from(SHARED_TRACKS_TABLE).delete().eq('id', trackId).eq('user_id', user.id); // RLS also enforces this
 
         if (error) {
             return false;
@@ -267,7 +270,9 @@ class TrackSharingServiceClass {
     async getMySharedTracks(): Promise<SharedTrack[]> {
         if (!supabase) return [];
 
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return [];
 
         const { data, error } = await supabase
@@ -287,11 +292,7 @@ class TrackSharingServiceClass {
     async getTrackById(trackId: string, includeGPX: boolean = false): Promise<SharedTrack | null> {
         if (!supabase) return null;
 
-        const { data, error } = await supabase
-            .from(SHARED_TRACKS_TABLE)
-            .select('*')
-            .eq('id', trackId)
-            .single();
+        const { data, error } = await supabase.from(SHARED_TRACKS_TABLE).select('*').eq('id', trackId).single();
 
         if (error) {
             return null;
@@ -311,15 +312,13 @@ class TrackSharingServiceClass {
     async getDistinctRegions(): Promise<string[]> {
         if (!supabase) return [];
 
-        const { data, error } = await supabase
-            .from(SHARED_TRACKS_TABLE)
-            .select('region');
+        const { data, error } = await supabase.from(SHARED_TRACKS_TABLE).select('region');
 
         if (error || !data) return [];
 
         // Extract unique non-empty regions, sorted alphabetically
         const regions = new Set<string>();
-        (data as { region: string }[]).forEach(row => {
+        (data as { region: string }[]).forEach((row) => {
             if (row.region && row.region.trim()) {
                 regions.add(row.region.trim());
             }
@@ -335,7 +334,9 @@ class TrackSharingServiceClass {
     async getSharedTracksByVoyageId(voyageId: string): Promise<SharedTrack[]> {
         if (!supabase || !voyageId) return [];
 
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return [];
 
         const { data, error } = await supabase
@@ -355,7 +356,9 @@ class TrackSharingServiceClass {
     async deleteSharedTracksByVoyageId(voyageId: string): Promise<boolean> {
         if (!supabase || !voyageId) return false;
 
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return false;
 
         const { error } = await supabase

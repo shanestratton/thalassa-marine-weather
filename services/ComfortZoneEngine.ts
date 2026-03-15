@@ -43,11 +43,7 @@ export interface ComfortZoneResult {
  */
 export function hasActiveComfortLimits(params?: ComfortParams): boolean {
     if (!params) return false;
-    return (
-        (params.maxWindKts !== undefined) ||
-        (params.maxWaveM !== undefined) ||
-        (params.maxGustKts !== undefined)
-    );
+    return params.maxWindKts !== undefined || params.maxWaveM !== undefined || params.maxGustKts !== undefined;
 }
 
 /**
@@ -148,9 +144,9 @@ export function generateComfortZoneOverlay(
             const radius = SCALE * 1.5; // Overlap for smooth feathering
 
             const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
-            gradient.addColorStop(0, `rgba(239, 68, 68, ${alpha})`);     // Red center
+            gradient.addColorStop(0, `rgba(239, 68, 68, ${alpha})`); // Red center
             gradient.addColorStop(0.6, `rgba(239, 68, 68, ${alpha * 0.6})`);
-            gradient.addColorStop(1, 'rgba(239, 68, 68, 0)');            // Feathered edge
+            gradient.addColorStop(1, 'rgba(239, 68, 68, 0)'); // Feathered edge
 
             ctx.fillStyle = gradient;
             ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2);

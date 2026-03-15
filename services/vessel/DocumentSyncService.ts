@@ -18,7 +18,7 @@
 
 import { supabase } from '../supabase';
 import { LocalDocumentService } from './LocalDocumentService';
-import { getAll, bulkUpsert } from './LocalDatabase';
+import { bulkUpsert } from './LocalDatabase';
 import type { ShipDocument } from '../../types';
 
 // ── Constants ──────────────────────────────────────────────────
@@ -42,7 +42,6 @@ interface SyncStatusMap {
 // ── Service ────────────────────────────────────────────────────
 
 class DocumentSyncServiceClass {
-
     private _syncInProgress = false;
     private _statusCache: SyncStatusMap = {};
 
@@ -93,16 +92,14 @@ class DocumentSyncServiceClass {
     private _saveStatus(): void {
         try {
             localStorage.setItem(SYNC_STATUS_KEY, JSON.stringify(this._statusCache));
-        } catch (e) { console.warn('[DocumentSync] localStorage full — ignore:', e); }
+        } catch (e) {
+            console.warn('[DocumentSync] localStorage full — ignore:', e);
+        }
     }
 
     // ── Upload file to Supabase Storage ────────────────────────
 
-    private async _uploadFileToStorage(
-        dataUri: string,
-        docId: string,
-        fileName?: string
-    ): Promise<string | null> {
+    private async _uploadFileToStorage(dataUri: string, docId: string, fileName?: string): Promise<string | null> {
         if (!supabase) return null;
 
         try {
@@ -127,12 +124,10 @@ class DocumentSyncServiceClass {
             const ext = extMap[mime] || fileName?.split('.').pop() || 'dat';
             const storagePath = `${user.id}/documents/${docId}.${ext}`;
 
-            const { error } = await supabase.storage
-                .from(STORAGE_BUCKET)
-                .upload(storagePath, blob, {
-                    contentType: mime,
-                    upsert: true, // Allow re-upload if sync retries
-                });
+            const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(storagePath, blob, {
+                contentType: mime,
+                upsert: true, // Allow re-upload if sync retries
+            });
 
             if (error) {
                 console.error('[DocSync] Storage upload failed:', error.message);
@@ -168,7 +163,9 @@ class DocumentSyncServiceClass {
             if (match) {
                 await supabase.storage.from(STORAGE_BUCKET).remove([match[1]]);
             }
-        } catch (e) { console.warn('[DocumentSync] ignore cleanup errors:', e); }
+        } catch (e) {
+            console.warn('[DocumentSync] ignore cleanup errors:', e);
+        }
     }
 
     // ── Sync single document to Supabase ───────────────────────
@@ -185,9 +182,7 @@ class DocumentSyncServiceClass {
             // 1. Upload file if it's a data URI (pending upload)
             let fileUrl = doc.file_uri;
             if (fileUrl && fileUrl.startsWith('data:')) {
-                const uploadedUrl = await this._uploadFileToStorage(
-                    fileUrl, doc.id, doc.document_name
-                );
+                const uploadedUrl = await this._uploadFileToStorage(fileUrl, doc.id, doc.document_name);
                 if (uploadedUrl) {
                     fileUrl = uploadedUrl;
                     // Update local record with the cloud URL
@@ -203,9 +198,8 @@ class DocumentSyncServiceClass {
             }
 
             // 2. Upsert metadata to Supabase
-            const { error } = await supabase
-                .from(TABLE)
-                .upsert({
+            const { error } = await supabase.from(TABLE).upsert(
+                {
                     id: doc.id,
                     user_id: user.id,
                     document_name: doc.document_name,
@@ -216,7 +210,9 @@ class DocumentSyncServiceClass {
                     notes: doc.notes,
                     created_at: doc.created_at,
                     updated_at: doc.updated_at,
-                }, { onConflict: 'id' });
+                },
+                { onConflict: 'id' },
+            );
 
             if (error) {
                 console.error('[DocSync] DB upsert failed:', error.message);
@@ -241,7 +237,8 @@ class DocumentSyncServiceClass {
         }
 
         this._syncInProgress = true;
-        let synced = 0, failed = 0;
+        let synced = 0,
+            failed = 0;
 
         try {
             const allDocs = LocalDocumentService.getAll();
@@ -281,15 +278,12 @@ class DocumentSyncServiceClass {
             if (!user) return;
 
             // Get cloud docs
-            const { data: cloudDocs } = await supabase
-                .from(TABLE)
-                .select('id, file_uri')
-                .eq('user_id', user.id);
+            const { data: cloudDocs } = await supabase.from(TABLE).select('id, file_uri').eq('user_id', user.id);
 
             if (!cloudDocs || cloudDocs.length === 0) return;
 
             // Get local doc IDs
-            const localIds = new Set(LocalDocumentService.getAll().map(d => d.id));
+            const localIds = new Set(LocalDocumentService.getAll().map((d) => d.id));
 
             // Delete cloud docs that no longer exist locally
             for (const cloudDoc of cloudDocs) {
@@ -328,7 +322,7 @@ class DocumentSyncServiceClass {
 
             // Merge with local — cloud wins for conflicts
             const localDocs = LocalDocumentService.getAll();
-            const localIds = new Set(localDocs.map(d => d.id));
+            const localIds = new Set(localDocs.map((d) => d.id));
 
             let restored = 0;
             const toUpsert: ShipDocument[] = [];
@@ -341,7 +335,7 @@ class DocumentSyncServiceClass {
                     restored++;
                 } else {
                     // Exists locally — cloud wins if newer
-                    const local = localDocs.find(d => d.id === cloudDoc.id);
+                    const local = localDocs.find((d) => d.id === cloudDoc.id);
                     if (local && new Date(cloudDoc.updated_at) > new Date(local.updated_at)) {
                         toUpsert.push(cloudDoc as ShipDocument);
                         this._setStatus(cloudDoc.id, 'synced');
@@ -392,7 +386,7 @@ class DocumentSyncServiceClass {
         // supabase-storage:// scheme — extract path and sign
         if (fileUri.startsWith('supabase-storage://')) {
             const path = fileUri.replace(`supabase-storage://${STORAGE_BUCKET}/`, '');
-            return await this._signStoragePath(path) ?? fileUri;
+            return (await this._signStoragePath(path)) ?? fileUri;
         }
 
         // Supabase URL (signed or public) — re-sign from storage path
@@ -411,9 +405,7 @@ class DocumentSyncServiceClass {
     private async _signStoragePath(path: string): Promise<string | null> {
         if (!supabase) return null;
         try {
-            const { data, error } = await supabase.storage
-                .from(STORAGE_BUCKET)
-                .createSignedUrl(path, 60 * 60); // 1 hour for downloads
+            const { data, error } = await supabase.storage.from(STORAGE_BUCKET).createSignedUrl(path, 60 * 60); // 1 hour for downloads
             if (error || !data?.signedUrl) return null;
             return data.signedUrl;
         } catch {
@@ -424,8 +416,8 @@ class DocumentSyncServiceClass {
     // ── Status helpers ─────────────────────────────────────────
 
     get pendingCount(): number {
-        return Object.values(this._statusCache)
-            .filter(s => s.status === 'pending' || s.status === 'uploading').length;
+        return Object.values(this._statusCache).filter((s) => s.status === 'pending' || s.status === 'uploading')
+            .length;
     }
 
     get isSyncing(): boolean {

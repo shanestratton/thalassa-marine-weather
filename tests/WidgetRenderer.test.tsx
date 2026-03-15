@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
@@ -6,23 +5,23 @@ import { WidgetRenderer, DashboardWidgetContextType } from '../components/Widget
 
 // Mock the heavy child components to isolate Renderer logic
 vi.mock('../components/dashboard/Advice', () => ({
-    AdviceWidget: () => <div data-testid="advice-widget">Advice Widget</div>
+    AdviceWidget: () => <div data-testid="advice-widget">Advice Widget</div>,
 }));
 
 vi.mock('../components/dashboard/WeatherCharts', () => ({
     HourlyWidget: () => <div>Hourly</div>,
     DailyWidget: () => <div>Daily</div>,
-    MapWidget: () => <div data-testid="map-widget">Map Widget</div>
+    MapWidget: () => <div data-testid="map-widget">Map Widget</div>,
 }));
 
 vi.mock('../components/dashboard/WeatherGrid', () => ({
     BeaufortWidget: () => <div data-testid="beaufort-widget">Beaufort Widget</div>,
-    DetailedMetricsWidget: () => <div data-testid="details-widget">Details Widget</div>
+    DetailedMetricsWidget: () => <div data-testid="details-widget">Details Widget</div>,
 }));
 
 vi.mock('../components/dashboard/TideAndVessel', () => ({
     VesselStatusWidget: () => <div data-testid="vessel-widget">Vessel Widget</div>,
-    TideWidget: () => <div data-testid="tides-widget">Tides Widget</div>
+    TideWidget: () => <div data-testid="tides-widget">Tides Widget</div>,
 }));
 
 // Create a robust mock context
@@ -34,15 +33,15 @@ const mockContext: DashboardWidgetContextType = {
         uvIndex: 5,
         pressure: 1013,
         condition: 'Sunny',
-        description: 'Clear skies'
+        description: 'Clear skies',
     } as any,
     forecast: [],
     hourly: [],
     tides: [],
     tideHourly: [],
-    boatingAdvice: "Stay safe",
+    boatingAdvice: 'Stay safe',
     lockerItems: [{ name: 'PFD', icon: '🦺', category: 'Safety' }],
-    locationName: "Test Port",
+    locationName: 'Test Port',
     units: { speed: 'kts', length: 'ft', waveHeight: 'ft', temp: 'C', distance: 'nm' },
     vessel: { name: 'Test Boat', type: 'sail', length: 30 } as any,
     isPro: true,
@@ -63,8 +62,6 @@ describe('WidgetRenderer', () => {
         render(<WidgetRenderer id="advice" context={mockContext} />);
         expect(screen.getByTestId('advice-widget')).toBeInTheDocument();
     });
-
-
 
     it('renders Beaufort Widget when id is "beaufort"', () => {
         render(<WidgetRenderer id="beaufort" context={mockContext} />);

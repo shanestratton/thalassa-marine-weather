@@ -12,10 +12,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import {
-    AnchorWatchService,
-    type AnchorWatchSnapshot,
-} from '../services/AnchorWatchService';
+import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
 
 interface AnchorStatusIndicatorProps {
     /** Current view name — hide when already on anchor watch */
@@ -24,10 +21,7 @@ interface AnchorStatusIndicatorProps {
     onNavigate: () => void;
 }
 
-export const AnchorStatusIndicator: React.FC<AnchorStatusIndicatorProps> = ({
-    currentView,
-    onNavigate,
-}) => {
+export const AnchorStatusIndicator: React.FC<AnchorStatusIndicatorProps> = ({ currentView, onNavigate }) => {
     const [snapshot, setSnapshot] = useState<AnchorWatchSnapshot | null>(null);
 
     useEffect(() => {
@@ -82,13 +76,17 @@ export const AnchorStatusIndicator: React.FC<AnchorStatusIndicatorProps> = ({
             {/* Pulse ring */}
             <span className="relative flex h-2 w-2">
                 {config.animate && (
-                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${config.pulse} opacity-75`} />
+                    <span
+                        className={`animate-ping absolute inline-flex h-full w-full rounded-full ${config.pulse} opacity-75`}
+                    />
                 )}
                 <span className={`relative inline-flex rounded-full h-2 w-2 ${config.dot}`} />
             </span>
 
             {/* Anchor icon */}
-            <span className="text-xs" style={{ lineHeight: 1 }}>⚓</span>
+            <span className="text-xs" style={{ lineHeight: 1 }}>
+                ⚓
+            </span>
 
             {/* Status label */}
             <span className={`${config.textColor} font-bold text-[11px] tracking-wide leading-none`}>

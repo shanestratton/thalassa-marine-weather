@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import type { TransitionDirection } from '../components/ui/PageTransition';
 
@@ -7,8 +6,16 @@ const TAB_PAGES = new Set(['dashboard', 'map', 'chat', 'vessel']);
 
 // Pages that are children of vessel (push/pop within the vessel hub)
 const VESSEL_CHILDREN = new Set([
-    'details', 'compass', 'inventory', 'maintenance', 'polars',
-    'nmea', 'equipment', 'documents', 'diary', 'route',
+    'details',
+    'compass',
+    'inventory',
+    'maintenance',
+    'polars',
+    'nmea',
+    'equipment',
+    'documents',
+    'diary',
+    'route',
 ]);
 
 // Overlay pages (push from any tab, pop back)
@@ -79,19 +86,21 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     }, []);
 
     const addDebugLog = (msg: string) => {
-        setDebugLogs(prev => [`[${new Date().toLocaleTimeString().split(' ')[0]}] ${msg}`, ...prev].slice(0, 20));
+        setDebugLogs((prev) => [`[${new Date().toLocaleTimeString().split(' ')[0]}] ${msg}`, ...prev].slice(0, 20));
     };
 
     return (
-        <UIContext.Provider value={{
-            currentView,
-            previousView,
-            transitionDirection,
-            setPage,
-            isOffline,
-            debugLogs,
-            addDebugLog
-        }}>
+        <UIContext.Provider
+            value={{
+                currentView,
+                previousView,
+                transitionDirection,
+                setPage,
+                isOffline,
+                debugLogs,
+                addDebugLog,
+            }}
+        >
             {children}
         </UIContext.Provider>
     );

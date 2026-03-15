@@ -10,7 +10,6 @@ import { SlideToAction } from './ui/SlideToAction';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { useWeather } from '../context/WeatherContext';
 import { PageHeader } from './ui/PageHeader';
-import { useSwipeable } from '../hooks/useSwipeable';
 import { OfflineBadge } from './ui/OfflineBadge';
 import { UndoToast } from './ui/UndoToast';
 import { SwipeableDiaryCard } from './diary/SwipeableDiaryCard';
@@ -26,7 +25,10 @@ interface DiaryPageProps {
 const formatDate = (iso: string): string => {
     const d = new Date(iso);
     return d.toLocaleDateString('en-AU', {
-        weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
     });
 };
 
@@ -66,68 +68,143 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
     // Destructure for JSX backward compatibility
     const {
-        entries, loading, showCompose, selectedEntry,
-        editingId, title, body, mood, photos, audioUrl,
-        uploading, lat, lon, locationName, weatherSummary,
-        saving, polishing, gpsLoading, deletedItem,
-        selectMode, selectedIds, menuOpen, exportProgress,
-        isRecording, recordingTime, transcribing,
-        isPlaying, keyboardHeight,
+        entries,
+        loading,
+        showCompose,
+        selectedEntry,
+        editingId,
+        title,
+        body,
+        mood,
+        photos,
+        audioUrl,
+        uploading,
+        lat,
+        lon,
+        locationName,
+        weatherSummary,
+        saving,
+        polishing,
+        gpsLoading,
+        deletedItem,
+        selectMode,
+        selectedIds,
+        menuOpen,
+        exportProgress,
+        isRecording,
+        recordingTime,
+        transcribing,
+        isPlaying,
+        keyboardHeight,
     } = state;
 
     // Setter shims — same API surface, backed by dispatch
-    const setEntries = useCallback((v: DiaryEntry[] | ((prev: DiaryEntry[]) => DiaryEntry[])) => {
-        dispatch({ type: 'SET_ENTRIES', entries: typeof v === 'function' ? v(state.entries) : v });
-    }, [dispatch, state.entries]);
-    const setSelectedEntry = useCallback((e: DiaryEntry | null) => dispatch({ type: 'SET_SELECTED_ENTRY', entry: e }), [dispatch]);
-    const setShowCompose = useCallback((v: boolean) => v ? dispatch({ type: 'OPEN_COMPOSE', weatherSummary: '' }) : dispatch({ type: 'CLOSE_COMPOSE' }), [dispatch]);
+    const setEntries = useCallback(
+        (v: DiaryEntry[] | ((prev: DiaryEntry[]) => DiaryEntry[])) => {
+            dispatch({ type: 'SET_ENTRIES', entries: typeof v === 'function' ? v(state.entries) : v });
+        },
+        [dispatch, state.entries],
+    );
+    const setSelectedEntry = useCallback(
+        (e: DiaryEntry | null) => dispatch({ type: 'SET_SELECTED_ENTRY', entry: e }),
+        [dispatch],
+    );
+    const setShowCompose = useCallback(
+        (v: boolean) =>
+            v ? dispatch({ type: 'OPEN_COMPOSE', weatherSummary: '' }) : dispatch({ type: 'CLOSE_COMPOSE' }),
+        [dispatch],
+    );
     const setMenuOpen = useCallback((v: boolean) => dispatch({ type: 'SET_MENU_OPEN', open: v }), [dispatch]);
-    const setSelectedIds = useCallback((v: Set<string> | ((prev: Set<string>) => Set<string>)) => {
-        // For backward compat — exit select mode clears IDs
-        if (typeof v === 'function') {
-            const next = v(state.selectedIds);
-            if (next.size === 0) dispatch({ type: 'EXIT_SELECT_MODE' });
-        } else if (v.size === 0) {
-            dispatch({ type: 'EXIT_SELECT_MODE' });
-        }
-    }, [dispatch, state.selectedIds]);
+    const setSelectedIds = useCallback(
+        (v: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+            // For backward compat — exit select mode clears IDs
+            if (typeof v === 'function') {
+                const next = v(state.selectedIds);
+                if (next.size === 0) dispatch({ type: 'EXIT_SELECT_MODE' });
+            } else if (v.size === 0) {
+                dispatch({ type: 'EXIT_SELECT_MODE' });
+            }
+        },
+        [dispatch, state.selectedIds],
+    );
 
     // Additional setter shims
-    const setKeyboardHeight = useCallback((h: number) => dispatch({ type: 'SET_KEYBOARD_HEIGHT', height: h }), [dispatch]);
+    const setKeyboardHeight = useCallback(
+        (h: number) => dispatch({ type: 'SET_KEYBOARD_HEIGHT', height: h }),
+        [dispatch],
+    );
     const setLoading = useCallback((v: boolean) => dispatch({ type: 'SET_LOADING', loading: v }), [dispatch]);
     const setGpsLoading = useCallback((v: boolean) => dispatch({ type: 'SET_GPS_LOADING', loading: v }), [dispatch]);
-    const setLat = useCallback((v: number | null) => {
-        dispatch({ type: 'SET_GPS', lat: v, lon: state.lon, locationName: state.locationName });
-    }, [dispatch, state.lon, state.locationName]);
-    const setLon = useCallback((v: number | null) => {
-        dispatch({ type: 'SET_GPS', lat: state.lat, lon: v, locationName: state.locationName });
-    }, [dispatch, state.lat, state.locationName]);
-    const setLocationName = useCallback((v: string) => {
-        dispatch({ type: 'SET_GPS', lat: state.lat, lon: state.lon, locationName: v });
-    }, [dispatch, state.lat, state.lon]);
-    const setEditingId = useCallback((_v: string | null) => { /* handled by OPEN_COMPOSE/OPEN_EDIT/CLOSE_COMPOSE */ }, []);
+    const setLat = useCallback(
+        (v: number | null) => {
+            dispatch({ type: 'SET_GPS', lat: v, lon: state.lon, locationName: state.locationName });
+        },
+        [dispatch, state.lon, state.locationName],
+    );
+    const setLon = useCallback(
+        (v: number | null) => {
+            dispatch({ type: 'SET_GPS', lat: state.lat, lon: v, locationName: state.locationName });
+        },
+        [dispatch, state.lat, state.locationName],
+    );
+    const setLocationName = useCallback(
+        (v: string) => {
+            dispatch({ type: 'SET_GPS', lat: state.lat, lon: state.lon, locationName: v });
+        },
+        [dispatch, state.lat, state.lon],
+    );
+    const setEditingId = useCallback((_v: string | null) => {
+        /* handled by OPEN_COMPOSE/OPEN_EDIT/CLOSE_COMPOSE */
+    }, []);
     const setTitle = useCallback((v: string) => dispatch({ type: 'SET_TITLE', title: v }), [dispatch]);
-    const setBody = useCallback((v: string | ((prev: string) => string)) => {
-        dispatch({ type: 'SET_BODY', body: typeof v === 'function' ? v(state.body) : v });
-    }, [dispatch, state.body]);
+    const setBody = useCallback(
+        (v: string | ((prev: string) => string)) => {
+            dispatch({ type: 'SET_BODY', body: typeof v === 'function' ? v(state.body) : v });
+        },
+        [dispatch, state.body],
+    );
     const setMood = useCallback((v: DiaryMood) => dispatch({ type: 'SET_MOOD', mood: v }), [dispatch]);
-    const setPhotos = useCallback((v: string[] | ((prev: string[]) => string[])) => {
-        dispatch({ type: 'SET_PHOTOS', photos: typeof v === 'function' ? v(state.photos) : v });
-    }, [dispatch, state.photos]);
+    const setPhotos = useCallback(
+        (v: string[] | ((prev: string[]) => string[])) => {
+            dispatch({ type: 'SET_PHOTOS', photos: typeof v === 'function' ? v(state.photos) : v });
+        },
+        [dispatch, state.photos],
+    );
     const setAudioUrl = useCallback((v: string | null) => dispatch({ type: 'SET_AUDIO_URL', url: v }), [dispatch]);
     const setUploading = useCallback((v: boolean) => dispatch({ type: 'SET_UPLOADING', uploading: v }), [dispatch]);
-    const setWeatherSummary = useCallback((v: string) => dispatch({ type: 'SET_WEATHER_SUMMARY', summary: v }), [dispatch]);
+    const setWeatherSummary = useCallback(
+        (v: string) => dispatch({ type: 'SET_WEATHER_SUMMARY', summary: v }),
+        [dispatch],
+    );
     const setSaving = useCallback((v: boolean) => dispatch({ type: 'SET_SAVING', saving: v }), [dispatch]);
     const setPolishing = useCallback((v: boolean) => dispatch({ type: 'SET_POLISHING', polishing: v }), [dispatch]);
-    const setDeletedItem = useCallback((v: DiaryEntry | null) => dispatch({ type: 'SET_DELETED_ITEM', item: v }), [dispatch]);
-    const setSelectMode = useCallback((v: boolean) => v ? dispatch({ type: 'ENTER_SELECT_MODE' }) : dispatch({ type: 'EXIT_SELECT_MODE' }), [dispatch]);
-    const setExportProgress = useCallback((v: string | null) => dispatch({ type: 'SET_EXPORT_PROGRESS', progress: v }), [dispatch]);
-    const setIsRecording = useCallback((v: boolean) => v ? dispatch({ type: 'START_RECORDING' }) : dispatch({ type: 'STOP_RECORDING' }), [dispatch]);
-    const setRecordingTime = useCallback((v: number | ((prev: number) => number)) => {
-        if (typeof v === 'function') dispatch({ type: 'TICK_RECORDING' });
-        else dispatch({ type: 'SET_RECORDING_TIME', time: v });
-    }, [dispatch]);
-    const setTranscribing = useCallback((v: boolean) => dispatch({ type: 'SET_TRANSCRIBING', transcribing: v }), [dispatch]);
+    const setDeletedItem = useCallback(
+        (v: DiaryEntry | null) => dispatch({ type: 'SET_DELETED_ITEM', item: v }),
+        [dispatch],
+    );
+    const setSelectMode = useCallback(
+        (v: boolean) => (v ? dispatch({ type: 'ENTER_SELECT_MODE' }) : dispatch({ type: 'EXIT_SELECT_MODE' })),
+        [dispatch],
+    );
+    const setExportProgress = useCallback(
+        (v: string | null) => dispatch({ type: 'SET_EXPORT_PROGRESS', progress: v }),
+        [dispatch],
+    );
+    const setIsRecording = useCallback(
+        (v: boolean) => (v ? dispatch({ type: 'START_RECORDING' }) : dispatch({ type: 'STOP_RECORDING' })),
+        [dispatch],
+    );
+    const setRecordingTime = useCallback(
+        (v: number | ((prev: number) => number)) => {
+            if (typeof v === 'function') dispatch({ type: 'TICK_RECORDING' });
+            else dispatch({ type: 'SET_RECORDING_TIME', time: v });
+        },
+        [dispatch],
+    );
+    const setTranscribing = useCallback(
+        (v: boolean) => dispatch({ type: 'SET_TRANSCRIBING', transcribing: v }),
+        [dispatch],
+    );
     const setIsPlaying = useCallback((v: boolean) => dispatch({ type: 'SET_PLAYING', playing: v }), [dispatch]);
 
     // Weather context
@@ -147,25 +224,29 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         let cleanup: (() => void) | undefined;
 
         if (Capacitor.isNativePlatform()) {
-            import('@capacitor/keyboard').then(({ Keyboard }) => {
-                const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
-                    setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
-                    // After the layout adjusts, scroll the focused field into view
-                    setTimeout(() => {
-                        const focused = document.activeElement as HTMLElement;
-                        if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) {
-                            focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        }
-                    }, 250);
+            import('@capacitor/keyboard')
+                .then(({ Keyboard }) => {
+                    const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
+                        setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
+                        // After the layout adjusts, scroll the focused field into view
+                        setTimeout(() => {
+                            const focused = document.activeElement as HTMLElement;
+                            if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) {
+                                focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                        }, 250);
+                    });
+                    const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                        setKeyboardHeight(0);
+                    });
+                    cleanup = () => {
+                        showHandle.then((h) => h.remove());
+                        hideHandle.then((h) => h.remove());
+                    };
+                })
+                .catch(() => {
+                    /* Keyboard plugin not available */
                 });
-                const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                    setKeyboardHeight(0);
-                });
-                cleanup = () => {
-                    showHandle.then(h => h.remove());
-                    hideHandle.then(h => h.remove());
-                };
-            }).catch(() => { /* Keyboard plugin not available */ });
         } else {
             // Web fallback: visualViewport
             const vp = window.visualViewport;
@@ -188,20 +269,22 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     // ── Load entries ───────────────────────────────────────────
 
     const refreshEntries = useCallback(() => {
-        DiaryService.getEntries(100).then(data => {
+        DiaryService.getEntries(100).then((data) => {
             // Filter out the entry pending soft-delete (undo window still open)
             const pendingId = deletedIdRef.current;
-            setEntries(pendingId ? data.filter(e => e.id !== pendingId) : data);
+            setEntries(pendingId ? data.filter((e) => e.id !== pendingId) : data);
         });
     }, []);
 
     useEffect(() => {
-        DiaryService.getEntries(100).then(data => {
+        DiaryService.getEntries(100).then((data) => {
             setEntries(data);
             setLoading(false);
         });
         // Periodically refresh to clear PENDING badges after background sync
-        const interval = setInterval(() => { if (!document.hidden) refreshEntries(); }, 8000);
+        const interval = setInterval(() => {
+            if (!document.hidden) refreshEntries();
+        }, 8000);
         return () => clearInterval(interval);
     }, [refreshEntries]);
 
@@ -210,7 +293,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         return () => {
             if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
             if (mediaRecorderRef.current?.state === 'recording') mediaRecorderRef.current.stop();
-            if (audioPlayerRef.current) { audioPlayerRef.current.pause(); audioPlayerRef.current = null; }
+            if (audioPlayerRef.current) {
+                audioPlayerRef.current.pause();
+                audioPlayerRef.current = null;
+            }
         };
     }, []);
 
@@ -259,8 +345,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
             // Convert back to meters for display
             const waveM = c.waveHeight / 3.28084;
             parts.push(`Waves ${waveM.toFixed(1)}m`);
-        }
-        else if (c.description) parts.push(c.description);
+        } else if (c.description) parts.push(c.description);
         return parts.join(' · ');
     }, [weatherData]);
 
@@ -292,7 +377,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         setAudioUrl(entry.audio_url || null);
         setLat(entry.latitude);
         setLon(entry.longitude);
-        setLocationName(entry.location_name || (entry.latitude && entry.longitude ? formatCoord(entry.latitude, entry.longitude) : ''));
+        setLocationName(
+            entry.location_name ||
+                (entry.latitude && entry.longitude ? formatCoord(entry.latitude, entry.longitude) : ''),
+        );
         setSelectedEntry(null);
         setShowCompose(true);
         triggerHaptic('light');
@@ -333,7 +421,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
             mediaRecorder.onstop = async () => {
                 // Stop all tracks
-                stream.getTracks().forEach(t => t.stop());
+                stream.getTracks().forEach((t) => t.stop());
 
                 const blob = new Blob(audioChunksRef.current, { type: recordedMime });
                 if (blob.size > 0) {
@@ -346,7 +434,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         setTranscribing(true);
                         const text = await DiaryService.transcribeAudio(url, recordedMime);
                         if (text) {
-                            setBody(prev => prev ? `${prev}\n\n${text}` : text);
+                            setBody((prev) => (prev ? `${prev}\n\n${text}` : text));
                         }
                         setTranscribing(false);
                     }
@@ -361,7 +449,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
             // Timer
             recordingTimerRef.current = setInterval(() => {
-                setRecordingTime(prev => prev + 1);
+                setRecordingTime((prev) => prev + 1);
             }, 1000);
         } catch (err) {
             log.error('[Diary] Mic access denied:', err);
@@ -410,7 +498,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         triggerHaptic('light');
         const text = await DiaryService.transcribeAudio(url);
         if (text) {
-            setBody(prev => prev ? `${prev}\n\n${text}` : text);
+            setBody((prev) => (prev ? `${prev}\n\n${text}` : text));
         }
         setTranscribing(false);
     };
@@ -422,13 +510,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         if (!file) return;
         setUploading(true);
         const url = await DiaryService.uploadPhoto(file);
-        if (url) setPhotos(prev => [...prev, url]);
+        if (url) setPhotos((prev) => [...prev, url]);
         setUploading(false);
         if (fileRef.current) fileRef.current.value = '';
     };
 
     const removePhoto = (idx: number) => {
-        setPhotos(prev => prev.filter((_, i) => i !== idx));
+        setPhotos((prev) => prev.filter((_, i) => i !== idx));
     };
 
     // ── Gemini polish ──────────────────────────────────────────
@@ -457,11 +545,20 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 photos,
             });
             if (ok) {
-                setEntries(prev => prev.map(e =>
-                    e.id === editingId
-                        ? { ...e, title: title.trim() || e.title, body: body.trim(), mood, photos, audio_url: audioUrl }
-                        : e
-                ));
+                setEntries((prev) =>
+                    prev.map((e) =>
+                        e.id === editingId
+                            ? {
+                                  ...e,
+                                  title: title.trim() || e.title,
+                                  body: body.trim(),
+                                  mood,
+                                  photos,
+                                  audio_url: audioUrl,
+                              }
+                            : e,
+                    ),
+                );
                 setShowCompose(false);
                 setEditingId(null);
             }
@@ -479,7 +576,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 tags: [],
             });
             if (entry) {
-                setEntries(prev => [entry, ...prev]);
+                setEntries((prev) => [entry, ...prev]);
                 setShowCompose(false);
             }
         }
@@ -491,14 +588,14 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
     // ── Delete (soft-delete with undo) ─────────────────────────
 
     const handleDelete = (id: string) => {
-        const item = entries.find(e => e.id === id);
+        const item = entries.find((e) => e.id === id);
         if (!item) return;
         triggerHaptic('medium');
 
         // Track pending-delete so refreshEntries won't bring it back
         deletedIdRef.current = id;
         // Remove from UI immediately
-        setEntries(prev => prev.filter(e => e.id !== id));
+        setEntries((prev) => prev.filter((e) => e.id !== id));
         setSelectedEntry(null);
         setDeletedItem(item);
     };
@@ -517,7 +614,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 if (!retry) {
                     log.warn('Delete retry failed, restoring entry');
                     toast.error('Failed to delete — try again');
-                    setEntries(prev => [...prev, item]);
+                    setEntries((prev) => [...prev, item]);
                     deletedIdRef.current = null;
                     return;
                 }
@@ -526,7 +623,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
             log.warn(' delete failed:', e);
             toast.error('Failed to delete entry');
             // Restore on failure
-            setEntries(prev => [...prev, item]);
+            setEntries((prev) => [...prev, item]);
         }
         // Clear pending-delete ref after successful delete
         deletedIdRef.current = null;
@@ -534,7 +631,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
     const handleUndoDelete = () => {
         if (deletedItem) {
-            setEntries(prev => [...prev, deletedItem]);
+            setEntries((prev) => [...prev, deletedItem]);
             toast.success('Entry restored');
         }
         setDeletedItem(null);
@@ -560,12 +657,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
             onError: (err) => {
                 setExportProgress(null);
                 log.error('Diary PDF export error:', err);
-            }
+            },
         });
     }, []);
 
     const toggleEntrySelection = useCallback((id: string) => {
-        setSelectedIds(prev => {
+        setSelectedIds((prev) => {
             const next = new Set(prev);
             if (next.has(id)) next.delete(id);
             else next.add(id);
@@ -633,7 +730,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                             onClick={removeAudio}
                             className="p-1.5 rounded-lg hover:bg-red-500/20 transition-colors"
                         >
-                            <svg className="w-4 h-4 text-red-400/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                            <svg
+                                className="w-4 h-4 text-red-400/60"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                            >
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>
@@ -657,17 +760,39 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 {/* Header */}
                 <div className="shrink-0 px-4 pt-4 pb-3">
                     <div className="flex items-center gap-3">
-                        <button onClick={() => setSelectedEntry(null)} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
-                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <button
+                            onClick={() => setSelectedEntry(null)}
+                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+                        >
+                            <svg
+                                className="w-5 h-5 text-gray-400"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                             </svg>
                         </button>
                         <div className="flex-1 min-w-0">
                             <h1 className="text-lg font-extrabold text-white truncate">{e.title}</h1>
                         </div>
-                        <button onClick={() => openEdit(e)} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
-                            <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                        <button
+                            onClick={() => openEdit(e)}
+                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+                        >
+                            <svg
+                                className="w-5 h-5 text-sky-400"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
+                                />
                             </svg>
                         </button>
                     </div>
@@ -678,7 +803,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     {e.photos.length > 0 && (
                         <div className="flex gap-1 overflow-x-auto snap-x snap-mandatory">
                             {e.photos.map((url, i) => (
-                                <img key={i} src={url} alt="" className="w-full h-56 object-cover snap-center shrink-0" />
+                                <img
+                                    key={i}
+                                    src={url}
+                                    alt=""
+                                    className="w-full h-56 object-cover snap-center shrink-0"
+                                />
                             ))}
                         </div>
                     )}
@@ -699,13 +829,29 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                             <div className="bg-gradient-to-r from-sky-500/10 to-sky-500/10 border border-sky-500/15 rounded-xl p-3">
                                 <div className="flex items-center gap-2.5">
                                     <div className="p-2 bg-sky-500/15 rounded-lg">
-                                        <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                        <svg
+                                            className="w-4 h-4 text-sky-400"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={1.5}
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+                                            />
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                                            />
                                         </svg>
                                     </div>
                                     <div className="flex-1">
-                                        <p className="text-[11px] font-bold text-sky-400/60 uppercase tracking-wider">Position</p>
+                                        <p className="text-[11px] font-bold text-sky-400/60 uppercase tracking-wider">
+                                            Position
+                                        </p>
                                         <p className="text-sm font-bold text-white font-mono tracking-wide">
                                             {formatCoord(e.latitude!, e.longitude!)}
                                         </p>
@@ -718,18 +864,30 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         )}
                         {!hasCoords && e.location_name && (
                             <div className="flex items-center gap-2 text-xs text-sky-400/70">
-                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                <svg
+                                    className="w-3.5 h-3.5"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+                                    />
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                                    />
                                 </svg>
                                 <span className="font-medium">{e.location_name}</span>
                             </div>
                         )}
 
                         {/* Voice Memo */}
-                        {e.audio_url && (
-                            <AudioWidget url={e.audio_url} allowTranscribe={true} />
-                        )}
+                        {e.audio_url && <AudioWidget url={e.audio_url} allowTranscribe={true} />}
 
                         {/* Weather */}
                         {e.weather_summary && (
@@ -740,16 +898,17 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
                         {/* Body */}
                         {e.body && (
-                            <div className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">
-                                {e.body}
-                            </div>
+                            <div className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{e.body}</div>
                         )}
 
                         {/* Tags */}
                         {e.tags.length > 0 && (
                             <div className="flex flex-wrap gap-2 pt-2">
-                                {e.tags.map(tag => (
-                                    <span key={tag} className="text-[11px] font-bold text-sky-400/60 bg-sky-500/10 px-2 py-1 rounded-full uppercase tracking-wider">
+                                {e.tags.map((tag) => (
+                                    <span
+                                        key={tag}
+                                        className="text-[11px] font-bold text-sky-400/60 bg-sky-500/10 px-2 py-1 rounded-full uppercase tracking-wider"
+                                    >
                                         #{tag}
                                     </span>
                                 ))}
@@ -759,7 +918,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         {e._offline && (
                             <div className="flex items-center gap-2 text-[11px] text-amber-400/70 bg-amber-500/10 rounded-lg px-3 py-2 border border-amber-500/10">
                                 <span>⏳</span>
-                                <span className="font-bold uppercase tracking-wider">Pending sync — will upload when online</span>
+                                <span className="font-bold uppercase tracking-wider">
+                                    Pending sync — will upload when online
+                                </span>
                             </div>
                         )}
                     </div>
@@ -788,13 +949,27 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 {/* Header */}
                 <div className="shrink-0 px-4 pt-4 pb-3">
                     <div className="flex items-center gap-3">
-                        <button onClick={() => { setShowCompose(false); setEditingId(null); }} className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
-                            <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <button
+                            onClick={() => {
+                                setShowCompose(false);
+                                setEditingId(null);
+                            }}
+                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+                        >
+                            <svg
+                                className="w-5 h-5 text-gray-400"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                             </svg>
                         </button>
                         <div className="flex-1">
-                            <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">{isEditing ? 'Edit Entry' : 'New Entry'}</h1>
+                            <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">
+                                {isEditing ? 'Edit Entry' : 'New Entry'}
+                            </h1>
                         </div>
                         <OfflineBadge />
                     </div>
@@ -807,7 +982,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         type="text"
                         placeholder="Entry title (optional)"
                         value={title}
-                        onChange={e => setTitle(e.target.value)}
+                        onChange={(e) => setTitle(e.target.value)}
                         onFocus={scrollInputAboveKeyboard}
                         autoFocus
                         className="shrink-0 w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 text-lg font-bold text-white placeholder-gray-500 outline-none focus:border-sky-500/30 transition-colors"
@@ -815,16 +990,20 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
                     {/* Mood selector — 4 moods, single row */}
                     <div className="shrink-0 grid grid-cols-4 gap-1.5">
-                        {(['epic', 'good', 'neutral', 'rough'] as DiaryMood[]).map(key => {
+                        {(['epic', 'good', 'neutral', 'rough'] as DiaryMood[]).map((key) => {
                             const cfg = MOOD_CONFIG[key];
                             return (
                                 <button
                                     key={key}
-                                    onClick={() => { setMood(key); triggerHaptic('light'); }}
-                                    className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-all ${mood === key
-                                        ? 'bg-white/15 border border-white/20 scale-[1.02]'
-                                        : 'bg-white/5 border border-white/[0.06] opacity-60 hover:opacity-90'
-                                        }`}
+                                    onClick={() => {
+                                        setMood(key);
+                                        triggerHaptic('light');
+                                    }}
+                                    className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-all ${
+                                        mood === key
+                                            ? 'bg-white/15 border border-white/20 scale-[1.02]'
+                                            : 'bg-white/5 border border-white/[0.06] opacity-60 hover:opacity-90'
+                                    }`}
                                 >
                                     <span>{cfg.emoji}</span>
                                     <span className={cfg.color}>{cfg.label}</span>
@@ -837,22 +1016,57 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     <div className="shrink-0 bg-gradient-to-r from-sky-500/10 to-sky-500/10 border border-sky-500/15 rounded-xl p-3">
                         <div className="flex items-center gap-2.5">
                             <div className="p-2 bg-sky-500/15 rounded-lg">
-                                <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                                <svg
+                                    className="w-4 h-4 text-sky-400"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+                                    />
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                                    />
                                 </svg>
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="text-[11px] font-bold text-sky-400/60 uppercase tracking-wider">Position</p>
+                                <p className="text-[11px] font-bold text-sky-400/60 uppercase tracking-wider">
+                                    Position
+                                </p>
                                 {lat != null && lon != null ? (
-                                    <p className="text-sm font-bold text-white font-mono tracking-wide">{formatCoord(lat, lon)}</p>
+                                    <p className="text-sm font-bold text-white font-mono tracking-wide">
+                                        {formatCoord(lat, lon)}
+                                    </p>
                                 ) : (
-                                    <p className="text-xs text-gray-500 italic">{gpsLoading ? 'Acquiring GPS fix…' : 'No position — tap refresh'}</p>
+                                    <p className="text-xs text-gray-500 italic">
+                                        {gpsLoading ? 'Acquiring GPS fix…' : 'No position — tap refresh'}
+                                    </p>
                                 )}
                             </div>
-                            <button onClick={grabGps} disabled={gpsLoading} className="relative z-10 p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors disabled:opacity-40 cursor-pointer" title="Refresh GPS">
-                                <svg className={`w-4 h-4 text-sky-400 ${gpsLoading ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M2.985 19.644l3.181-3.182" />
+                            <button
+                                onClick={grabGps}
+                                disabled={gpsLoading}
+                                className="relative z-10 p-2 rounded-lg bg-white/5 hover:bg-white/10 transition-colors disabled:opacity-40 cursor-pointer"
+                                title="Refresh GPS"
+                            >
+                                <svg
+                                    className={`w-4 h-4 text-sky-400 ${gpsLoading ? 'animate-spin' : ''}`}
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M2.985 19.644l3.181-3.182"
+                                    />
                                 </svg>
                             </button>
                         </div>
@@ -861,7 +1075,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 type="text"
                                 placeholder="Location name (e.g. Moreton Bay, Anchor in 4m)"
                                 value={locationName}
-                                onChange={e => setLocationName(e.target.value)}
+                                onChange={(e) => setLocationName(e.target.value)}
                                 onFocus={scrollInputAboveKeyboard}
                                 className="w-full bg-white/5 border border-white/5 rounded-lg px-3 py-2 text-xs text-gray-300 placeholder-gray-500 outline-none focus:border-sky-500/30 transition-colors"
                             />
@@ -871,7 +1085,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     {/* ═══ VOICE TO TEXT + POLISH ═══ */}
                     <div className="shrink-0">
                         <div className="flex items-center gap-2 mb-2">
-                            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Voice to Text</span>
+                            <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                Voice to Text
+                            </span>
                             <span className="text-[11px] text-gray-500">Dictate or type below</span>
                         </div>
 
@@ -889,7 +1105,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                     </button>
                                     <div className="flex-1">
                                         <p className="text-sm font-bold text-red-400 animate-pulse">● Recording…</p>
-                                        <p className="text-xl font-mono font-bold text-white">{formatDuration(recordingTime)}</p>
+                                        <p className="text-xl font-mono font-bold text-white">
+                                            {formatDuration(recordingTime)}
+                                        </p>
                                     </div>
                                     {/* Live waveform */}
                                     <div className="flex items-center gap-0.5">
@@ -918,16 +1136,38 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                     className="flex-1 bg-white/[0.03] border border-white/5 rounded-xl p-4 flex items-center gap-3 hover:bg-emerald-500/5 hover:border-emerald-500/15 transition-all active:scale-[0.98] group"
                                 >
                                     <div className="p-2.5 bg-emerald-500/15 rounded-full group-hover:bg-emerald-500/25 transition-colors">
-                                        <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
+                                        <svg
+                                            className="w-5 h-5 text-emerald-400"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={1.5}
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"
+                                            />
                                         </svg>
                                     </div>
                                     <div className="text-left flex-1">
                                         <p className="text-sm font-bold text-white">Record Voice to Text</p>
-                                        <p className="text-[11px] text-gray-500">Speak — your words fill the entry below</p>
+                                        <p className="text-[11px] text-gray-500">
+                                            Speak — your words fill the entry below
+                                        </p>
                                     </div>
-                                    <svg className="w-4 h-4 text-gray-500 group-hover:text-emerald-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                    <svg
+                                        className="w-4 h-4 text-gray-500 group-hover:text-emerald-400 transition-colors"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M8.25 4.5l7.5 7.5-7.5 7.5"
+                                        />
                                     </svg>
                                 </button>
 
@@ -935,16 +1175,25 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 <button
                                     onClick={handlePolish}
                                     disabled={polishing || body.trim().length < 10}
-                                    className={`shrink-0 self-stretch w-16 rounded-xl flex flex-col items-center justify-center gap-1 transition-all active:scale-90 ${polishing
-                                        ? 'bg-purple-500/30 border border-purple-500/30 animate-pulse'
-                                        : body.trim().length >= 10
-                                            ? 'bg-purple-500/20 border border-purple-500/30 hover:bg-purple-500/30'
-                                            : 'bg-white/[0.03] border border-white/[0.06] opacity-30 cursor-default'
-                                        }`}
-                                    title={polishing ? 'Polishing…' : body.trim().length >= 10 ? 'Polish with Gemini' : 'Type more to enable AI polish'}
+                                    className={`shrink-0 self-stretch w-16 rounded-xl flex flex-col items-center justify-center gap-1 transition-all active:scale-90 ${
+                                        polishing
+                                            ? 'bg-purple-500/30 border border-purple-500/30 animate-pulse'
+                                            : body.trim().length >= 10
+                                              ? 'bg-purple-500/20 border border-purple-500/30 hover:bg-purple-500/30'
+                                              : 'bg-white/[0.03] border border-white/[0.06] opacity-30 cursor-default'
+                                    }`}
+                                    title={
+                                        polishing
+                                            ? 'Polishing…'
+                                            : body.trim().length >= 10
+                                              ? 'Polish with Gemini'
+                                              : 'Type more to enable AI polish'
+                                    }
                                 >
                                     <span className="text-xl">{polishing ? '⏳' : '✨'}</span>
-                                    <span className="text-[8px] font-bold text-purple-300/70 uppercase tracking-wider leading-none">Polish</span>
+                                    <span className="text-[8px] font-bold text-purple-300/70 uppercase tracking-wider leading-none">
+                                        Polish
+                                    </span>
                                 </button>
                             </div>
                         )}
@@ -955,7 +1204,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         <textarea
                             placeholder=""
                             value={body}
-                            onChange={e => setBody(e.target.value)}
+                            onChange={(e) => setBody(e.target.value)}
                             onFocus={scrollInputAboveKeyboard}
                             className="w-full h-full min-h-0 bg-slate-900 border border-white/[0.08] rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
                         />
@@ -973,11 +1222,19 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
                     {/* Photos */}
                     <div className="shrink-0">
-                        <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))' }}>
+                        <div
+                            className="grid gap-2"
+                            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))' }}
+                        >
                             {photos.map((url, i) => (
                                 <div key={i} className="relative aspect-square rounded-xl overflow-hidden group">
                                     <img src={url} alt="" className="w-full h-full object-cover" />
-                                    <button onClick={() => removePhoto(i)} className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center text-white text-[11px] opacity-0 group-hover:opacity-100 transition-opacity">✕</button>
+                                    <button
+                                        onClick={() => removePhoto(i)}
+                                        className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center text-white text-[11px] opacity-0 group-hover:opacity-100 transition-opacity"
+                                    >
+                                        ✕
+                                    </button>
                                 </div>
                             ))}
                             {/* Fill remaining slots with Add buttons */}
@@ -992,7 +1249,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                         <span className="text-xs animate-pulse">📷</span>
                                     ) : (
                                         <>
-                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                            <svg
+                                                className="w-4 h-4"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                                stroke="currentColor"
+                                                strokeWidth={1.5}
+                                            >
                                                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                                             </svg>
                                         </>
@@ -1007,7 +1270,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 <div className="shrink-0 px-4 py-3 border-t border-white/5 bg-slate-950">
                     <div className="flex gap-3">
                         <button
-                            onClick={() => { setShowCompose(false); setEditingId(null); }}
+                            onClick={() => {
+                                setShowCompose(false);
+                                setEditingId(null);
+                            }}
                             className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.08] text-gray-400 font-bold text-sm hover:bg-white/10 transition-colors active:scale-[0.98]"
                         >
                             Cancel
@@ -1027,7 +1293,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         );
     }
 
-
     // ── Render: Timeline ────────────────────────────────────────
 
     return (
@@ -1043,86 +1308,126 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 <PageHeader
                     title="Diary"
                     onBack={onBack}
-                    breadcrumbs={['Ship\'s Office', 'Diary']}
+                    breadcrumbs={["Ship's Office", 'Diary']}
                     subtitle={
                         <p className="text-label text-gray-500 font-bold uppercase tracking-widest">
                             {entries.length} {entries.length === 1 ? 'Entry' : 'Entries'}
-                            {selectedIds.size > 0 && <span className="text-sky-400 ml-2">✓ {selectedIds.size} selected</span>}
+                            {selectedIds.size > 0 && (
+                                <span className="text-sky-400 ml-2">✓ {selectedIds.size} selected</span>
+                            )}
                         </p>
                     }
-                    action={entries.length > 0 ? (
-                        <div className="relative" ref={menuRef}>
-                            <button
-                                onClick={() => setMenuOpen(!menuOpen)}
-                                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
-                                aria-label="Page actions"
-                            >
-                                <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
-                                    <circle cx="12" cy="5" r="1.5" />
-                                    <circle cx="12" cy="12" r="1.5" />
-                                    <circle cx="12" cy="19" r="1.5" />
-                                </svg>
-                            </button>
-                            {menuOpen && (
-                                <>
-                                    <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                                    <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
-                                        <button
-                                            onClick={() => {
-                                                setMenuOpen(false);
-                                                const sel = entries.filter(e => selectedIds.has(e.id));
-                                                if (sel.length > 0) exportDiaryPdf(sel);
-                                            }}
-                                            disabled={selectedIds.size === 0}
-                                            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
-                                        >
-                                            <svg className="w-4 h-4 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                            </svg>
-                                            Download Selected
-                                        </button>
-                                        <div className="border-t border-white/5" />
-                                        <button
-                                            onClick={() => {
-                                                setMenuOpen(false);
-                                                const sel = entries.filter(e => selectedIds.has(e.id));
-                                                if (sel.length > 0) exportDiaryPdf(sel);
-                                            }}
-                                            disabled={selectedIds.size === 0}
-                                            className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
-                                        >
-                                            <svg className="w-4 h-4 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
-                                            </svg>
-                                            Share Selected
-                                        </button>
-                                        {selectedIds.size > 0 && (
-                                            <>
-                                                <div className="border-t border-white/5" />
-                                                <button
-                                                    onClick={() => { setSelectedIds(new Set()); setMenuOpen(false); }}
-                                                    className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-gray-400 hover:bg-white/5 transition-colors"
+                    action={
+                        entries.length > 0 ? (
+                            <div className="relative" ref={menuRef}>
+                                <button
+                                    onClick={() => setMenuOpen(!menuOpen)}
+                                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+                                    aria-label="Page actions"
+                                >
+                                    <svg className="w-5 h-5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
+                                        <circle cx="12" cy="5" r="1.5" />
+                                        <circle cx="12" cy="12" r="1.5" />
+                                        <circle cx="12" cy="19" r="1.5" />
+                                    </svg>
+                                </button>
+                                {menuOpen && (
+                                    <>
+                                        <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+                                        <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
+                                            <button
+                                                onClick={() => {
+                                                    setMenuOpen(false);
+                                                    const sel = entries.filter((e) => selectedIds.has(e.id));
+                                                    if (sel.length > 0) exportDiaryPdf(sel);
+                                                }}
+                                                disabled={selectedIds.size === 0}
+                                                className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
+                                            >
+                                                <svg
+                                                    className="w-4 h-4 text-sky-400"
+                                                    fill="none"
+                                                    viewBox="0 0 24 24"
+                                                    stroke="currentColor"
+                                                    strokeWidth={2}
                                                 >
-                                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                                    </svg>
-                                                    Clear Selection
-                                                </button>
-                                            </>
-                                        )}
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    ) : undefined}
+                                                    <path
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                                                    />
+                                                </svg>
+                                                Download Selected
+                                            </button>
+                                            <div className="border-t border-white/5" />
+                                            <button
+                                                onClick={() => {
+                                                    setMenuOpen(false);
+                                                    const sel = entries.filter((e) => selectedIds.has(e.id));
+                                                    if (sel.length > 0) exportDiaryPdf(sel);
+                                                }}
+                                                disabled={selectedIds.size === 0}
+                                                className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
+                                            >
+                                                <svg
+                                                    className="w-4 h-4 text-emerald-400"
+                                                    fill="none"
+                                                    viewBox="0 0 24 24"
+                                                    stroke="currentColor"
+                                                    strokeWidth={2}
+                                                >
+                                                    <path
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
+                                                    />
+                                                </svg>
+                                                Share Selected
+                                            </button>
+                                            {selectedIds.size > 0 && (
+                                                <>
+                                                    <div className="border-t border-white/5" />
+                                                    <button
+                                                        onClick={() => {
+                                                            setSelectedIds(new Set());
+                                                            setMenuOpen(false);
+                                                        }}
+                                                        className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-gray-400 hover:bg-white/5 transition-colors"
+                                                    >
+                                                        <svg
+                                                            className="w-4 h-4"
+                                                            fill="none"
+                                                            viewBox="0 0 24 24"
+                                                            stroke="currentColor"
+                                                            strokeWidth={2}
+                                                        >
+                                                            <path
+                                                                strokeLinecap="round"
+                                                                strokeLinejoin="round"
+                                                                d="M6 18L18 6M6 6l12 12"
+                                                            />
+                                                        </svg>
+                                                        Clear Selection
+                                                    </button>
+                                                </>
+                                            )}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        ) : undefined
+                    }
                 />
 
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto px-4 min-h-0" style={{ paddingBottom: '4px' }}>
                     {loading ? (
                         <div className="space-y-3 px-1">
-                            {[1, 2, 3].map(i => (
-                                <div key={i} className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 space-y-3">
+                            {[1, 2, 3].map((i) => (
+                                <div
+                                    key={i}
+                                    className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 space-y-3"
+                                >
                                     <div className="flex items-center gap-3">
                                         <div className="w-10 h-10 rounded-full skeleton-shimmer" />
                                         <div className="flex-1 space-y-2">
@@ -1138,14 +1443,24 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-16">
                             <div className="relative w-20 h-20 mb-5">
                                 <svg viewBox="0 0 96 96" fill="none" className="w-full h-full text-sky-500/30">
-                                    <circle cx="48" cy="48" r="44" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 4" />
+                                    <circle
+                                        cx="48"
+                                        cy="48"
+                                        r="44"
+                                        stroke="currentColor"
+                                        strokeWidth="1.5"
+                                        strokeDasharray="4 4"
+                                    />
                                     <circle cx="48" cy="48" r="6" fill="currentColor" fillOpacity="0.3" />
                                     <path d="M48 8L52 44H44L48 8Z" fill="currentColor" fillOpacity="0.6" />
                                     <path d="M48 88L44 52H52L48 88Z" fill="currentColor" fillOpacity="0.3" />
                                 </svg>
                             </div>
                             <p className="text-base font-bold text-white mb-1">Your Story Starts Here</p>
-                            <p className="text-sm text-white/60 max-w-[240px] text-center">Slide below to write your first journal entry. Add photos, voice memos, and GPS coordinates.</p>
+                            <p className="text-sm text-white/60 max-w-[240px] text-center">
+                                Slide below to write your first journal entry. Add photos, voice memos, and GPS
+                                coordinates.
+                            </p>
                         </div>
                     ) : (
                         <div className="space-y-6">
@@ -1160,11 +1475,14 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                     </div>
 
                                     <div className="space-y-3">
-                                        {dayEntries.map(entry => (
+                                        {dayEntries.map((entry) => (
                                             <SwipeableDiaryCard
                                                 key={entry.id}
                                                 entry={entry}
-                                                onTap={() => { setSelectedEntry(entry); triggerHaptic('light'); }}
+                                                onTap={() => {
+                                                    setSelectedEntry(entry);
+                                                    triggerHaptic('light');
+                                                }}
                                                 onDelete={() => handleDelete(entry.id)}
                                                 onEdit={() => openEdit(entry)}
                                                 selected={selectedIds.has(entry.id)}
@@ -1179,11 +1497,20 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 </div>
 
                 {/* ── Bottom bar: slide-to-action ── */}
-                <div className="shrink-0 px-4" style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}>
+                <div
+                    className="shrink-0 px-4"
+                    style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                >
                     <SlideToAction
                         label="Slide to Write Entry"
                         thumbIcon={
-                            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <svg
+                                className="w-5 h-5 text-white"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2.5}
+                            >
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
                             </svg>
                         }
@@ -1204,6 +1531,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 onDismiss={handleDismissDelete}
                 duration={5000}
             />
-        </div >
+        </div>
     );
 };

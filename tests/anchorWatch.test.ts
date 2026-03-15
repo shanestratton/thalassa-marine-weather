@@ -5,7 +5,7 @@
  * drag detection logic, and jitter filtering.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { haversineDistance, bearing, calculateSwingRadius } from '../services/AnchorWatchService';
 
 // ── Haversine Distance ──
@@ -37,7 +37,7 @@ describe('haversineDistance', () => {
 
     it('handles antimeridian crossing (Fiji to Samoa)', () => {
         // Fiji (178°E) to Samoa (172°W = 188°E effectively)
-        const d = haversineDistance(-17.7134, 178.065, -13.8333, -171.7500);
+        const d = haversineDistance(-17.7134, 178.065, -13.8333, -171.75);
         expect(d).toBeGreaterThan(500_000);
         expect(d).toBeLessThan(1_500_000);
     });
@@ -90,8 +90,11 @@ describe('bearing', () => {
 describe('calculateSwingRadius', () => {
     it('calculates chain catenary with standard scope', () => {
         const r = calculateSwingRadius({
-            rodeLength: 50, waterDepth: 10, scopeRatio: 5,
-            rodeType: 'chain', safetyMargin: 10,
+            rodeLength: 50,
+            waterDepth: 10,
+            scopeRatio: 5,
+            rodeType: 'chain',
+            safetyMargin: 10,
         });
         // sqrt(50²-10²) * 0.85 + 10 ≈ 41.6 + 10 = 51.6
         expect(r).toBeGreaterThan(40);
@@ -100,12 +103,18 @@ describe('calculateSwingRadius', () => {
 
     it('rope gives larger radius than chain (less catenary sag)', () => {
         const chainR = calculateSwingRadius({
-            rodeLength: 50, waterDepth: 10, scopeRatio: 5,
-            rodeType: 'chain', safetyMargin: 0,
+            rodeLength: 50,
+            waterDepth: 10,
+            scopeRatio: 5,
+            rodeType: 'chain',
+            safetyMargin: 0,
         });
         const ropeR = calculateSwingRadius({
-            rodeLength: 50, waterDepth: 10, scopeRatio: 5,
-            rodeType: 'rope', safetyMargin: 0,
+            rodeLength: 50,
+            waterDepth: 10,
+            scopeRatio: 5,
+            rodeType: 'rope',
+            safetyMargin: 0,
         });
         expect(ropeR).toBeGreaterThan(chainR);
     });
@@ -121,32 +130,47 @@ describe('calculateSwingRadius', () => {
 
     it('returns safety margin when rode ≤ depth', () => {
         const r = calculateSwingRadius({
-            rodeLength: 5, waterDepth: 10, scopeRatio: 5,
-            rodeType: 'chain', safetyMargin: 15,
+            rodeLength: 5,
+            waterDepth: 10,
+            scopeRatio: 5,
+            rodeType: 'chain',
+            safetyMargin: 15,
         });
         expect(r).toBe(15);
     });
 
     it('safety margin adds to horizontal distance', () => {
         const withMargin = calculateSwingRadius({
-            rodeLength: 50, waterDepth: 10, scopeRatio: 5,
-            rodeType: 'chain', safetyMargin: 20,
+            rodeLength: 50,
+            waterDepth: 10,
+            scopeRatio: 5,
+            rodeType: 'chain',
+            safetyMargin: 20,
         });
         const withoutMargin = calculateSwingRadius({
-            rodeLength: 50, waterDepth: 10, scopeRatio: 5,
-            rodeType: 'chain', safetyMargin: 0,
+            rodeLength: 50,
+            waterDepth: 10,
+            scopeRatio: 5,
+            rodeType: 'chain',
+            safetyMargin: 0,
         });
         expect(withMargin - withoutMargin).toBeCloseTo(20, 1);
     });
 
     it('shallow water gives larger radius (more horizontal)', () => {
         const shallow = calculateSwingRadius({
-            rodeLength: 50, waterDepth: 3, scopeRatio: 5,
-            rodeType: 'chain', safetyMargin: 0,
+            rodeLength: 50,
+            waterDepth: 3,
+            scopeRatio: 5,
+            rodeType: 'chain',
+            safetyMargin: 0,
         });
         const deep = calculateSwingRadius({
-            rodeLength: 50, waterDepth: 15, scopeRatio: 5,
-            rodeType: 'chain', safetyMargin: 0,
+            rodeLength: 50,
+            waterDepth: 15,
+            scopeRatio: 5,
+            rodeType: 'chain',
+            safetyMargin: 0,
         });
         expect(shallow).toBeGreaterThan(deep);
     });

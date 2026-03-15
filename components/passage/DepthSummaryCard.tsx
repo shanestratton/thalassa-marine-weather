@@ -9,7 +9,7 @@ import React from 'react';
 
 interface DepthSegment {
     depth_m: number | null;
-    safety: string;       // 'safe' | 'caution' | 'danger' | 'land' | 'unknown'
+    safety: string; // 'safe' | 'caution' | 'danger' | 'land' | 'unknown'
     costMultiplier: number;
 }
 
@@ -34,26 +34,49 @@ const SAFETY_COLORS = {
 };
 
 export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vesselDraft = 2.5 }) => {
-    const hasDanger = data.segments.some(s => s.safety === 'danger' || s.safety === 'land');
-    const hasCaution = data.segments.some(s => s.safety === 'caution');
+    const hasDanger = data.segments.some((s) => s.safety === 'danger' || s.safety === 'land');
+    const hasCaution = data.segments.some((s) => s.safety === 'caution');
 
     const overallStatus = hasDanger ? 'danger' : hasCaution ? 'caution' : 'safe';
     const statusStyle = {
-        safe: { bg: 'bg-emerald-500/10', border: 'border-emerald-500/30', text: 'text-emerald-400', label: 'DEPTH CLEAR', icon: '✅' },
-        caution: { bg: 'bg-amber-500/10', border: 'border-amber-500/30', text: 'text-amber-400', label: 'SHALLOW WATER', icon: '⚠️' },
-        danger: { bg: 'bg-red-500/10', border: 'border-red-500/30', text: 'text-red-400', label: 'DEPTH HAZARD', icon: '🔴' },
+        safe: {
+            bg: 'bg-emerald-500/10',
+            border: 'border-emerald-500/30',
+            text: 'text-emerald-400',
+            label: 'DEPTH CLEAR',
+            icon: '✅',
+        },
+        caution: {
+            bg: 'bg-amber-500/10',
+            border: 'border-amber-500/30',
+            text: 'text-amber-400',
+            label: 'SHALLOW WATER',
+            icon: '⚠️',
+        },
+        danger: {
+            bg: 'bg-red-500/10',
+            border: 'border-red-500/30',
+            text: 'text-red-400',
+            label: 'DEPTH HAZARD',
+            icon: '🔴',
+        },
     }[overallStatus];
 
     // Count segments by safety
-    const counts = data.segments.reduce((acc, s) => {
-        acc[s.safety] = (acc[s.safety] || 0) + 1;
-        return acc;
-    }, {} as Record<string, number>);
+    const counts = data.segments.reduce(
+        (acc, s) => {
+            acc[s.safety] = (acc[s.safety] || 0) + 1;
+            return acc;
+        },
+        {} as Record<string, number>,
+    );
 
     return (
         <div className="space-y-4">
             {/* Status Banner */}
-            <div className={`${statusStyle.bg} ${statusStyle.border} border rounded-xl px-4 py-3 flex items-center gap-3`}>
+            <div
+                className={`${statusStyle.bg} ${statusStyle.border} border rounded-xl px-4 py-3 flex items-center gap-3`}
+            >
                 <span className="text-2xl">{statusStyle.icon}</span>
                 <div className="flex-1">
                     <div className={`text-sm font-black uppercase tracking-widest ${statusStyle.text}`}>
@@ -117,21 +140,33 @@ export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vessel
             <div className="grid grid-cols-3 gap-3">
                 <div className="bg-white/[0.03] rounded-xl px-3 py-2.5 text-center border border-white/[0.06]">
                     <div className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-1">Min Depth</div>
-                    <div className={`text-lg font-bold ${data.minDepth !== null && Math.abs(data.minDepth) < vesselDraft * 2 ? 'text-red-400' : 'text-white'
-                        }`}>
+                    <div
+                        className={`text-lg font-bold ${
+                            data.minDepth !== null && Math.abs(data.minDepth) < vesselDraft * 2
+                                ? 'text-red-400'
+                                : 'text-white'
+                        }`}
+                    >
                         {data.minDepth !== null ? `${Math.abs(data.minDepth)}m` : '--'}
                     </div>
                 </div>
                 <div className="bg-white/[0.03] rounded-xl px-3 py-2.5 text-center border border-white/[0.06]">
-                    <div className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-1">Vessel Draft</div>
+                    <div className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-1">
+                        Vessel Draft
+                    </div>
                     <div className="text-lg font-bold text-sky-400">{vesselDraft}m</div>
                 </div>
                 <div className="bg-white/[0.03] rounded-xl px-3 py-2.5 text-center border border-white/[0.06]">
                     <div className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-1">Clearance</div>
-                    <div className={`text-lg font-bold ${data.minDepth !== null
-                            ? Math.abs(data.minDepth) - vesselDraft < 2 ? 'text-red-400' : 'text-emerald-400'
-                            : 'text-gray-500'
-                        }`}>
+                    <div
+                        className={`text-lg font-bold ${
+                            data.minDepth !== null
+                                ? Math.abs(data.minDepth) - vesselDraft < 2
+                                    ? 'text-red-400'
+                                    : 'text-emerald-400'
+                                : 'text-gray-500'
+                        }`}
+                    >
                         {data.minDepth !== null ? `${(Math.abs(data.minDepth) - vesselDraft).toFixed(1)}m` : '--'}
                     </div>
                 </div>

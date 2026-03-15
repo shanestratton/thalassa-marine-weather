@@ -1,9 +1,9 @@
 /**
  * Global Wind Data Service
- * 
+ *
  * Fetches real wind speed, wind direction, and mean sea level pressure (MSLP)
  * from the Open-Meteo API (paid commercial endpoint).
- * 
+ *
  * Samples a grid of points across the visible map area to produce a global
  * wind heat map with isobar contour lines.
  */
@@ -13,9 +13,9 @@ import { getOpenMeteoKey } from '../keys';
 export interface WindGridPoint {
     lat: number;
     lon: number;
-    windSpeed: number;      // knots
-    windDirection: number;  // degrees
-    pressure: number;       // hPa (MSLP)
+    windSpeed: number; // knots
+    windDirection: number; // degrees
+    pressure: number; // hPa (MSLP)
 }
 
 export interface WindGridData {
@@ -26,7 +26,7 @@ export interface WindGridData {
     latMax: number;
     lonMin: number;
     lonMax: number;
-    fetchedAt: number;      // epoch-ms
+    fetchedAt: number; // epoch-ms
 }
 
 // Cache to avoid re-fetching on every pan/zoom
@@ -39,23 +39,24 @@ const GRID_SIZE = 12; // 12x12 grid = 144 API calls batched
 /**
  * Fetch wind data for a grid of points covering the given bounds.
  * Uses Open-Meteo's free forecast API with current_weather parameter.
- * 
+ *
  * Open-Meteo supports batching multiple coordinates in a single request
  * using comma-separated latitude/longitude values.
  */
 export async function fetchGlobalWindGrid(
-    latMin: number, latMax: number,
-    lonMin: number, lonMax: number
+    latMin: number,
+    latMax: number,
+    lonMin: number,
+    lonMax: number,
 ): Promise<WindGridData | null> {
     // Check cache
     if (cachedData && Date.now() - cachedData.fetchedAt < CACHE_TTL_MS) {
         // Check if cached bounds roughly cover the requested area
-        const overlap = (
+        const overlap =
             cachedData.latMin <= latMin + 5 &&
             cachedData.latMax >= latMax - 5 &&
             cachedData.lonMin <= lonMin + 5 &&
-            cachedData.lonMax >= lonMax - 5
-        );
+            cachedData.lonMax >= lonMax - 5;
         if (overlap) return cachedData;
     }
 
@@ -71,10 +72,7 @@ export async function fetchGlobalWindGrid(
     }
 }
 
-async function _doFetch(
-    latMin: number, latMax: number,
-    lonMin: number, lonMax: number
-): Promise<WindGridData | null> {
+async function _doFetch(latMin: number, latMax: number, lonMin: number, lonMax: number): Promise<WindGridData | null> {
     try {
         // Expand bounds slightly for smoother edges
         const pad = 3;
@@ -156,7 +154,7 @@ async function _doFetch(
 export function interpolateAtPoint(
     data: WindGridData,
     lat: number,
-    lon: number
+    lon: number,
 ): { speed: number; direction: number; pressure: number } {
     let totalWeight = 0;
     let speedSum = 0;
@@ -178,8 +176,8 @@ export function interpolateAtPoint(
         totalWeight += w;
         speedSum += w * p.windSpeed;
         // Wind direction needs circular averaging
-        sinDirSum += w * Math.sin(p.windDirection * Math.PI / 180);
-        cosDirSum += w * Math.cos(p.windDirection * Math.PI / 180);
+        sinDirSum += w * Math.sin((p.windDirection * Math.PI) / 180);
+        cosDirSum += w * Math.cos((p.windDirection * Math.PI) / 180);
         pressureSum += w * p.pressure;
     }
 
@@ -187,7 +185,7 @@ export function interpolateAtPoint(
 
     return {
         speed: speedSum / totalWeight,
-        direction: ((Math.atan2(sinDirSum / totalWeight, cosDirSum / totalWeight) * 180 / Math.PI) + 360) % 360,
+        direction: ((Math.atan2(sinDirSum / totalWeight, cosDirSum / totalWeight) * 180) / Math.PI + 360) % 360,
         pressure: pressureSum / totalWeight,
     };
 }

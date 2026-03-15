@@ -6,27 +6,27 @@ import { apiCacheGet, apiCacheSet } from '../apiCache';
 
 /** Observation from Apple WeatherKit */
 export interface WeatherKitObservation {
-    temperature: number | null;         // °C
+    temperature: number | null; // °C
     temperatureApparent: number | null; // Feels-like °C
-    humidity: number | null;            // % (0-100)
-    windSpeed: number | null;           // m/s
-    windDirection: number | null;       // degrees
-    windGust: number | null;            // m/s
-    pressure: number | null;            // hPa
-    visibility: number | null;          // km
-    cloudCover: number | null;          // % (0-100)
-    dewPoint: number | null;            // °C
+    humidity: number | null; // % (0-100)
+    windSpeed: number | null; // m/s
+    windDirection: number | null; // degrees
+    windGust: number | null; // m/s
+    pressure: number | null; // hPa
+    visibility: number | null; // km
+    cloudCover: number | null; // % (0-100)
+    dewPoint: number | null; // °C
     uvIndex: number | null;
     precipitationIntensity: number | null; // mm/hr
-    weatherCode: number | null;         // Apple conditionCode
-    condition: string;                  // Human-readable condition
-    observationTime: string;            // ISO timestamp
+    weatherCode: number | null; // Apple conditionCode
+    condition: string; // Human-readable condition
+    observationTime: string; // ISO timestamp
 }
 
 /** Minutely rain data from Apple WeatherKit `forecastNextHour` */
 export interface MinutelyRain {
-    time: string;       // ISO timestamp
-    intensity: number;  // mm/hr
+    time: string; // ISO timestamp
+    intensity: number; // mm/hr
 }
 
 /** Full WeatherKit response with forecasts + next-hour rain */
@@ -35,7 +35,7 @@ export interface WeatherKitFullResponse {
     hourly: HourlyForecast[];
     daily: ForecastDay[];
     minutelyRain: MinutelyRain[];
-    rainSummary: string;  // Apple's summary text (e.g. "Rain starting in 15 minutes")
+    rainSummary: string; // Apple's summary text (e.g. "Rain starting in 15 minutes")
 }
 
 // ── Apple Weather Condition → Human Readable ──────────────────
@@ -110,24 +110,19 @@ function getSupabaseKey(): string {
 // ── Unit Converters ───────────────────────────────────────────
 
 /** Apple km/h → m/s */
-const kmhToMs = (v: number | null | undefined): number | null =>
-    v != null ? v / 3.6 : null;
+const kmhToMs = (v: number | null | undefined): number | null => (v != null ? v / 3.6 : null);
 
 /** Apple km/h → knots (internal unit convention) */
-const kmhToKnots = (v: number | null | undefined): number | null =>
-    v != null ? v * 0.539957 : null;
+const kmhToKnots = (v: number | null | undefined): number | null => (v != null ? v * 0.539957 : null);
 
 /** Apple m/s wind speed → knots for display */
-const msToKnots = (v: number | null | undefined): number =>
-    v != null ? Math.round(v * 1.94384) : 0;
+const msToKnots = (v: number | null | undefined): number => (v != null ? Math.round(v * 1.94384) : 0);
 
 /** Apple 0-1 fraction → 0-100% */
-const fractionToPercent = (v: number | null | undefined): number | null =>
-    v != null ? Math.round(v * 100) : null;
+const fractionToPercent = (v: number | null | undefined): number | null => (v != null ? Math.round(v * 100) : null);
 
 /** Apple meters → km */
-const mToKm = (v: number | null | undefined): number | null =>
-    v != null ? v / 1000 : null;
+const mToKm = (v: number | null | undefined): number | null => (v != null ? v / 1000 : null);
 
 /** Round an ISO timestamp to the nearest minute and format as HH:MM */
 function roundToNearestMinute(isoStr: string): string {
@@ -147,9 +142,9 @@ function mapCurrentWeather(cw: WeatherKitRaw): WeatherKitObservation {
         temperature: cw.temperature ?? null,
         temperatureApparent: cw.temperatureApparent ?? null,
         humidity: fractionToPercent(cw.humidity),
-        windSpeed: kmhToKnots(cw.windSpeed),     // MUST be knots — internal convention
+        windSpeed: kmhToKnots(cw.windSpeed), // MUST be knots — internal convention
         windDirection: cw.windDirection ?? null,
-        windGust: kmhToKnots(cw.windGust),        // MUST be knots — internal convention
+        windGust: kmhToKnots(cw.windGust), // MUST be knots — internal convention
         pressure: cw.pressure ?? null,
         visibility: mToKm(cw.visibility),
         cloudCover: fractionToPercent(cw.cloudCover),
@@ -167,28 +162,28 @@ function mapHourlyForecast(forecastHourly: WeatherKitRaw): HourlyForecast[] {
     const hours = forecastHourly?.hours;
     if (!Array.isArray(hours)) return [];
 
-    return hours.map((h: WeatherKitRaw): HourlyForecast => ({
-        time: h.forecastStart || '',
-        windSpeed: msToKnots(kmhToMs(h.windSpeed)),
-        windGust: h.windGust != null ? msToKnots(kmhToMs(h.windGust)) : null,
-        windDirection: h.windDirection != null
-            ? degreesToCardinalSimple(h.windDirection)
-            : undefined,
-        windDegree: h.windDirection ?? undefined,
-        waveHeight: 0, // WeatherKit doesn't provide waves — StormGlass fills this
-        swellPeriod: null,
-        temperature: h.temperature ?? 0,
-        condition: mapCondition(h.conditionCode || ''),
-        feelsLike: h.temperatureApparent ?? undefined,
-        precipitation: h.precipitationAmount ?? null,
-        precipChance: h.precipitationChance != null ? Math.round(h.precipitationChance * 100) : undefined,
-        cloudCover: fractionToPercent(h.cloudCover),
-        uvIndex: h.uvIndex ?? undefined,
-        pressure: h.pressure ?? undefined,
-        humidity: fractionToPercent(h.humidity),
-        visibility: mToKm(h.visibility) ?? undefined,
-        dewPoint: h.temperatureDewPoint ?? null,
-    }));
+    return hours.map(
+        (h: WeatherKitRaw): HourlyForecast => ({
+            time: h.forecastStart || '',
+            windSpeed: msToKnots(kmhToMs(h.windSpeed)),
+            windGust: h.windGust != null ? msToKnots(kmhToMs(h.windGust)) : null,
+            windDirection: h.windDirection != null ? degreesToCardinalSimple(h.windDirection) : undefined,
+            windDegree: h.windDirection ?? undefined,
+            waveHeight: 0, // WeatherKit doesn't provide waves — StormGlass fills this
+            swellPeriod: null,
+            temperature: h.temperature ?? 0,
+            condition: mapCondition(h.conditionCode || ''),
+            feelsLike: h.temperatureApparent ?? undefined,
+            precipitation: h.precipitationAmount ?? null,
+            precipChance: h.precipitationChance != null ? Math.round(h.precipitationChance * 100) : undefined,
+            cloudCover: fractionToPercent(h.cloudCover),
+            uvIndex: h.uvIndex ?? undefined,
+            pressure: h.pressure ?? undefined,
+            humidity: fractionToPercent(h.humidity),
+            visibility: mToKm(h.visibility) ?? undefined,
+            dewPoint: h.temperatureDewPoint ?? null,
+        }),
+    );
 }
 
 /** Map Apple forecastDaily → ForecastDay[] */
@@ -227,9 +222,7 @@ function mapDailyForecast(forecastDaily: WeatherKitRaw): ForecastDay[] {
 /** Map Apple forecastNextHour → MinutelyRain[] */
 function mapNextHourForecast(forecastNextHour: WeatherKitRaw): { rain: MinutelyRain[]; summary: string } {
     const minutes = forecastNextHour?.minutes;
-    const summary = forecastNextHour?.summary?.[0]?.condition
-        ?? forecastNextHour?.metadata?.conditionCode
-        ?? '';
+    const summary = forecastNextHour?.summary?.[0]?.condition ?? forecastNextHour?.metadata?.conditionCode ?? '';
 
     // Build human-readable summary from Apple's data
     let summaryText = '';
@@ -237,9 +230,12 @@ function mapNextHourForecast(forecastNextHour: WeatherKitRaw): { rain: MinutelyR
         // Apple provides summary periods with startTime, endTime, condition, precipitationChance
         const periods = forecastNextHour.summary;
         if (periods.length > 0) {
-            const firstPrecip = periods.find((p: WeatherKitRaw) =>
-                p.condition === 'rain' || p.condition === 'drizzle' ||
-                p.condition === 'snow' || p.condition === 'sleet'
+            const firstPrecip = periods.find(
+                (p: WeatherKitRaw) =>
+                    p.condition === 'rain' ||
+                    p.condition === 'drizzle' ||
+                    p.condition === 'snow' ||
+                    p.condition === 'sleet',
             );
             if (firstPrecip) {
                 const startTime = new Date(firstPrecip.startTime);
@@ -271,8 +267,7 @@ function mapNextHourForecast(forecastNextHour: WeatherKitRaw): { rain: MinutelyR
 
 /** Simple degrees-to-cardinal for hourly forecast */
 function degreesToCardinalSimple(deg: number): string {
-    const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE',
-        'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+    const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
     return dirs[Math.round(deg / 22.5) % 16];
 }
 
@@ -283,13 +278,10 @@ function degreesToCardinalSimple(deg: number): string {
  * Returns current conditions + hourly forecast + daily forecast.
  * Tier 2: Used for coastal/inland locations (≤20nm offshore).
  */
-export const fetchWeatherKitFull = async (
-    lat: number,
-    lon: number,
-): Promise<WeatherKitFullResponse | null> => {
+export const fetchWeatherKitFull = async (lat: number, lon: number): Promise<WeatherKitFullResponse | null> => {
     // 1. In-memory cache (fast — avoids localStorage deserialization)
     const cacheKey = `${lat.toFixed(3)},${lon.toFixed(3)}`;
-    if (cachedFull && cachedFull.key === cacheKey && (Date.now() - cachedFull.fetchedAt) < CACHE_TTL) {
+    if (cachedFull && cachedFull.key === cacheKey && Date.now() - cachedFull.fetchedAt < CACHE_TTL) {
         return cachedFull.data;
     }
 
@@ -331,7 +323,7 @@ export const fetchWeatherKitFull = async (
                 throw new Error(`HTTP ${res.status}: ${errBody?.substring(0, 100)}`);
             }
             json = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-        } catch (capacitorErr: unknown) {
+        } catch (_capacitorErr: unknown) {
             const res = await fetch(url, {
                 method: 'POST',
                 headers: {
@@ -360,8 +352,8 @@ export const fetchWeatherKitFull = async (
 
         // Cache (memory + persistent)
         cachedFull = { data: result, fetchedAt: Date.now(), key: cacheKey };
-        apiCacheSet('weatherkit', lat, lon, result); return result;
-
+        apiCacheSet('weatherkit', lat, lon, result);
+        return result;
     } catch (e: unknown) {
         const errMsg = e instanceof Error ? e.message : String(e);
         console.error('[WeatherKit] ❌ FETCH FAILED:', errMsg);
@@ -374,10 +366,7 @@ export const fetchWeatherKitFull = async (
  * Convenience: fetch only currentWeather observation.
  * For backward compatibility with code that only needs live data.
  */
-export const fetchWeatherKitRealtime = async (
-    lat: number,
-    lon: number,
-): Promise<WeatherKitObservation | null> => {
+export const fetchWeatherKitRealtime = async (lat: number, lon: number): Promise<WeatherKitObservation | null> => {
     const full = await fetchWeatherKitFull(lat, lon);
     return full?.observation ?? null;
 };
@@ -387,10 +376,7 @@ export const fetchWeatherKitRealtime = async (
  * Fetch minute-by-minute rain from WeatherKit `forecastNextHour`.
  * Returns 60 data points (1 per minute) for the next hour.
  */
-export const fetchMinutelyRain = async (
-    lat: number,
-    lon: number,
-): Promise<MinutelyRain[]> => {
+export const fetchMinutelyRain = async (lat: number, lon: number): Promise<MinutelyRain[]> => {
     const full = await fetchWeatherKitFull(lat, lon);
     return full?.minutelyRain ?? [];
 };
@@ -460,17 +446,32 @@ export function buildReportFromWeatherKit(
     if (wk.hourly.length > 0) {
         const now = new Date();
         const currentHourStr = now.toISOString().slice(0, 13);
-        const currentHourly = wk.hourly.find(h => h.time?.startsWith(currentHourStr));
+        const currentHourly = wk.hourly.find((h) => h.time?.startsWith(currentHourStr));
         if (currentHourly?.condition && obs?.condition) {
             // Use severity ranking — same logic as orchestrator
             const SEVERITY: Record<string, number> = {
-                'Clear': 0, 'Mostly Clear': 1, 'Partly Cloudy': 2,
-                'Mostly Cloudy': 3, 'Cloudy': 4, 'Overcast': 4,
-                'Haze': 5, 'Fog': 6, 'Breezy': 6, 'Windy': 7,
-                'Drizzle': 8, 'Light Rain': 9, 'Rain': 10, 'Showers': 10,
-                'Heavy Rain': 11, 'Freezing Rain': 12, 'Sleet': 12,
-                'Snow': 12, 'Heavy Snow': 13, 'Blizzard': 14,
-                'Thunderstorm': 15, 'Severe Storms': 16,
+                Clear: 0,
+                'Mostly Clear': 1,
+                'Partly Cloudy': 2,
+                'Mostly Cloudy': 3,
+                Cloudy: 4,
+                Overcast: 4,
+                Haze: 5,
+                Fog: 6,
+                Breezy: 6,
+                Windy: 7,
+                Drizzle: 8,
+                'Light Rain': 9,
+                Rain: 10,
+                Showers: 10,
+                'Heavy Rain': 11,
+                'Freezing Rain': 12,
+                Sleet: 12,
+                Snow: 12,
+                'Heavy Snow': 13,
+                Blizzard: 14,
+                Thunderstorm: 15,
+                'Severe Storms': 16,
             };
             const sevObs = SEVERITY[obs.condition] ?? 2;
             const sevHourly = SEVERITY[currentHourly.condition] ?? 2;
@@ -485,12 +486,12 @@ export function buildReportFromWeatherKit(
         windGust: obs?.windGust != null ? parseFloat(obs.windGust.toFixed(1)) : null,
         windDirection: obs?.windDirection != null ? degreesToCardinalSimple(obs.windDirection) : '---',
         windDegree: obs?.windDirection ?? undefined,
-        waveHeight: null,        // StormGlass fills
-        swellPeriod: null,       // StormGlass fills
+        waveHeight: null, // StormGlass fills
+        swellPeriod: null, // StormGlass fills
         swellDirection: undefined,
-        waterTemperature: null,  // StormGlass fills
-        currentSpeed: 0,         // StormGlass fills
-        currentDirection: 0,     // StormGlass fills
+        waterTemperature: null, // StormGlass fills
+        currentSpeed: 0, // StormGlass fills
+        currentDirection: 0, // StormGlass fills
         condition,
         description: `${condition}. Wind ${obs?.windSpeed != null ? parseFloat(obs.windSpeed.toFixed(1)) : '--'} kts ${obs?.windDirection != null ? degreesToCardinalSimple(obs.windDirection) : ''}`,
         pressure: obs?.pressure ?? null,

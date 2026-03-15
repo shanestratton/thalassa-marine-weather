@@ -22,7 +22,15 @@ interface TaskFormModalProps {
 }
 
 export const TaskFormModal: React.FC<TaskFormModalProps> = ({
-    mode, form, setField, setCategory, setTaskType, setTrigger, engineHours, onSubmit, onClose,
+    mode,
+    form,
+    setField,
+    setCategory,
+    setTaskType,
+    setTrigger,
+    engineHours,
+    onSubmit,
+    onClose,
 }) => {
     const isAdd = mode === 'add';
 
@@ -30,26 +38,35 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
         return (
             <ModalSheet isOpen={true} onClose={onClose} title="New Task">
                 <div className="flex flex-col gap-2">
-
                     {/* Task Type Selector */}
                     <div>
-                        <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">Type</label>
+                        <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">
+                            Type
+                        </label>
                         <div className="grid grid-cols-2 gap-2">
                             <button
-                                onClick={() => { setTaskType('maintenance'); setCategory('Engine'); }}
-                                className={`py-2 rounded-xl text-xs font-black transition-all text-center ${form.taskType === 'maintenance'
-                                    ? 'bg-sky-500/20 text-sky-400 border-2 border-sky-500/40'
-                                    : 'bg-white/5 text-gray-500 border-2 border-white/5'
-                                    }`}
+                                onClick={() => {
+                                    setTaskType('maintenance');
+                                    setCategory('Engine');
+                                }}
+                                className={`py-2 rounded-xl text-xs font-black transition-all text-center ${
+                                    form.taskType === 'maintenance'
+                                        ? 'bg-sky-500/20 text-sky-400 border-2 border-sky-500/40'
+                                        : 'bg-white/5 text-gray-500 border-2 border-white/5'
+                                }`}
                             >
                                 🔄 Maintenance
                             </button>
                             <button
-                                onClick={() => { setTaskType('repair'); setCategory('Repair'); }}
-                                className={`py-2 rounded-xl text-xs font-black transition-all text-center ${form.taskType === 'repair'
-                                    ? 'bg-amber-500/20 text-amber-400 border-2 border-amber-500/40'
-                                    : 'bg-white/5 text-gray-500 border-2 border-white/5'
-                                    }`}
+                                onClick={() => {
+                                    setTaskType('repair');
+                                    setCategory('Repair');
+                                }}
+                                className={`py-2 rounded-xl text-xs font-black transition-all text-center ${
+                                    form.taskType === 'repair'
+                                        ? 'bg-amber-500/20 text-amber-400 border-2 border-amber-500/40'
+                                        : 'bg-white/5 text-gray-500 border-2 border-white/5'
+                                }`}
                             >
                                 🔧 Repair
                             </button>
@@ -59,16 +76,19 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                     {/* Category chips — only for Maintenance type */}
                     {form.taskType === 'maintenance' && (
                         <div>
-                            <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">Category</label>
+                            <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">
+                                Category
+                            </label>
                             <div className="grid grid-cols-3 gap-1.5">
-                                {CATEGORIES.filter(cat => cat.id !== 'Repair').map(cat => (
+                                {CATEGORIES.filter((cat) => cat.id !== 'Repair').map((cat) => (
                                     <button
                                         key={cat.id}
                                         onClick={() => setCategory(cat.id)}
-                                        className={`py-1 rounded-full text-label font-bold transition-all text-center ${form.category === cat.id
-                                            ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                            : 'bg-white/5 text-gray-500 border border-white/5'
-                                            }`}
+                                        className={`py-1 rounded-full text-label font-bold transition-all text-center ${
+                                            form.category === cat.id
+                                                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                                : 'bg-white/5 text-gray-500 border border-white/5'
+                                        }`}
                                     >
                                         {cat.icon} {cat.label}
                                     </button>
@@ -81,7 +101,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                     <FormField
                         label="Task Name"
                         value={form.title}
-                        onChange={v => setField('title', v)}
+                        onChange={(v) => setField('title', v)}
                         placeholder="Main Engine Oil Change"
                         required
                         error={!form.title.trim() && form.title !== '' ? 'Task name is required' : undefined}
@@ -92,7 +112,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                         label="Notes (Optional)"
                         type="textarea"
                         value={form.description}
-                        onChange={v => setField('description', v)}
+                        onChange={(v) => setField('description', v)}
                         placeholder="Don't forget to check the bottom for rust..."
                         rows={1}
                     />
@@ -100,16 +120,19 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                     {/* Trigger type — hidden for Repair */}
                     {form.category !== 'Repair' && (
                         <div>
-                            <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">Schedule</label>
+                            <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">
+                                Schedule
+                            </label>
                             <div className="grid grid-cols-3 gap-1.5">
-                                {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
+                                {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map((t) => (
                                     <button
                                         key={t}
                                         onClick={() => setTrigger(t)}
-                                        className={`py-1 rounded-full text-label font-bold transition-all text-center ${form.trigger === t
-                                            ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                            : 'bg-white/5 text-gray-500 border border-white/5'
-                                            }`}
+                                        className={`py-1 rounded-full text-label font-bold transition-all text-center ${
+                                            form.trigger === t
+                                                ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
+                                                : 'bg-white/5 text-gray-500 border border-white/5'
+                                        }`}
                                     >
                                         {TRIGGER_LABELS[t]}
                                     </button>
@@ -124,14 +147,14 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                             <FormField
                                 label="Interval (Hrs)"
                                 value={form.interval}
-                                onChange={v => setField('interval', v)}
+                                onChange={(v) => setField('interval', v)}
                                 placeholder="200"
                                 inputMode="numeric"
                             />
                             <FormField
                                 label="Next Due (Hrs)"
                                 value={form.dueHours}
-                                onChange={v => setField('dueHours', v)}
+                                onChange={(v) => setField('dueHours', v)}
                                 placeholder={String(engineHours + 200)}
                                 inputMode="numeric"
                             />
@@ -144,7 +167,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                             label="Starts From"
                             type="date"
                             value={form.dueDate}
-                            onChange={v => setField('dueDate', v)}
+                            onChange={(v) => setField('dueDate', v)}
                             hint={`Repeats every ${TRIGGER_LABELS[form.trigger].replace('📅 ', '').toLowerCase()}`}
                         />
                     )}
@@ -173,7 +196,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 <FormField
                     label="Task Name"
                     value={form.title}
-                    onChange={v => setField('title', v)}
+                    onChange={(v) => setField('title', v)}
                     placeholder="Main Engine Oil Change"
                     required
                 />
@@ -185,7 +208,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                     label="Notes (Optional)"
                     type="textarea"
                     value={form.description}
-                    onChange={v => setField('description', v)}
+                    onChange={(v) => setField('description', v)}
                     placeholder="Don't forget to check for rust..."
                     rows={2}
                 />
@@ -193,10 +216,16 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
             {/* Category */}
             <div className="mb-4">
-                <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-2">Category</label>
+                <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-2">
+                    Category
+                </label>
                 <div className="grid grid-cols-3 gap-2">
-                    {CATEGORIES.map(cat => (
-                        <button key={cat.id} onClick={() => setCategory(cat.id)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.category === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                    {CATEGORIES.map((cat) => (
+                        <button
+                            key={cat.id}
+                            onClick={() => setCategory(cat.id)}
+                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.category === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
+                        >
                             {cat.icon} {cat.label}
                         </button>
                     ))}
@@ -205,10 +234,16 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
             {/* Trigger type */}
             <div className="mb-4">
-                <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-2">Trigger Type</label>
+                <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-2">
+                    Trigger Type
+                </label>
                 <div className="grid grid-cols-3 gap-2">
-                    {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map(t => (
-                        <button key={t} onClick={() => setTrigger(t)} className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}>
+                    {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map((t) => (
+                        <button
+                            key={t}
+                            onClick={() => setTrigger(t)}
+                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
+                        >
                             {TRIGGER_LABELS[t]}
                         </button>
                     ))}
@@ -219,10 +254,22 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             {form.trigger === 'engine_hours' && (
                 <>
                     <div className="mb-4">
-                        <FormField label="Interval (Hours)" value={form.interval} onChange={v => setField('interval', v)} placeholder="200" inputMode="numeric" />
+                        <FormField
+                            label="Interval (Hours)"
+                            value={form.interval}
+                            onChange={(v) => setField('interval', v)}
+                            placeholder="200"
+                            inputMode="numeric"
+                        />
                     </div>
                     <div className="mb-6">
-                        <FormField label="Next Due at (Hours)" value={form.dueHours} onChange={v => setField('dueHours', v)} placeholder={String(engineHours + 200)} inputMode="numeric" />
+                        <FormField
+                            label="Next Due at (Hours)"
+                            value={form.dueHours}
+                            onChange={(v) => setField('dueHours', v)}
+                            placeholder={String(engineHours + 200)}
+                            inputMode="numeric"
+                        />
                     </div>
                 </>
             )}
@@ -230,7 +277,12 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             {/* Due date — for non-engine triggers */}
             {form.trigger !== 'engine_hours' && (
                 <div className="mb-6">
-                    <FormField label="Next Due Date" type="date" value={form.dueDate} onChange={v => setField('dueDate', v)} />
+                    <FormField
+                        label="Next Due Date"
+                        type="date"
+                        value={form.dueDate}
+                        onChange={(v) => setField('dueDate', v)}
+                    />
                 </div>
             )}
 

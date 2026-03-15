@@ -59,7 +59,7 @@ export const AVAILABLE_MODELS: WeatherModelInfo[] = [
         name: 'ICON',
         provider: 'DWD',
         resolution: '0.125°',
-        description: 'Germany\'s Icosahedral model — strong for Atlantic/Med',
+        description: "Germany's Icosahedral model — strong for Atlantic/Med",
         bestFor: 'European waters, Mediterranean, North Atlantic',
         openMeteoModel: 'icon_seamless',
     },
@@ -84,12 +84,12 @@ export const AVAILABLE_MODELS: WeatherModelInfo[] = [
 ];
 
 export interface ModelForecastPoint {
-    time: string;           // ISO
-    windSpeed: number;      // kts
-    windDirection: number;  // degrees
-    windGust: number;       // kts
-    waveHeight: number;     // metres
-    pressure: number;       // hPa
+    time: string; // ISO
+    windSpeed: number; // kts
+    windDirection: number; // degrees
+    windGust: number; // kts
+    waveHeight: number; // metres
+    pressure: number; // hPa
 }
 
 export interface ModelForecast {
@@ -104,7 +104,7 @@ export interface WaypointComparison {
     forecasts: ModelForecast[];
     consensus: {
         windSpeedMean: number;
-        windSpeedSpread: number;    // max - min across models
+        windSpeedSpread: number; // max - min across models
         windDirectionMean: number;
         windDirectionSpread: number;
         waveHeightMean: number;
@@ -152,18 +152,18 @@ export async function queryMultiModel(
     }
 
     const models = modelIds
-        .map(id => AVAILABLE_MODELS.find(m => m.id === id))
+        .map((id) => AVAILABLE_MODELS.find((m) => m.id === id))
         .filter(Boolean) as WeatherModelInfo[];
 
     if (models.length === 0) return null;
 
     // Build multi-point lat/lon strings
-    const latStr = queryPoints.map(p => p.lat.toFixed(4)).join(',');
-    const lonStr = queryPoints.map(p => p.lon.toFixed(4)).join(',');
+    const latStr = queryPoints.map((p) => p.lat.toFixed(4)).join(',');
+    const lonStr = queryPoints.map((p) => p.lon.toFixed(4)).join(',');
 
     // Query each model in parallel
     const modelForecasts = await Promise.all(
-        models.map(model => fetchModelForecast(model, latStr, lonStr, forecastHours, queryPoints.length, omKey))
+        models.map((model) => fetchModelForecast(model, latStr, lonStr, forecastHours, queryPoints.length, omKey)),
     );
 
     // Build waypoint comparisons
@@ -299,9 +299,9 @@ async function fetchModelForecast(
             const times: string[] = hourly.time || [];
             const points: ModelForecastPoint[] = times.map((time: string, h: number) => ({
                 time,
-                windSpeed: Math.round((hourly.wind_speed_10m?.[h] ?? 0) / 1.852 * 10) / 10, // km/h → kts
+                windSpeed: Math.round(((hourly.wind_speed_10m?.[h] ?? 0) / 1.852) * 10) / 10, // km/h → kts
                 windDirection: hourly.wind_direction_10m?.[h] ?? 0,
-                windGust: Math.round((hourly.wind_gusts_10m?.[h] ?? 0) / 1.852 * 10) / 10,
+                windGust: Math.round(((hourly.wind_gusts_10m?.[h] ?? 0) / 1.852) * 10) / 10,
                 waveHeight: waveHourly?.wave_height?.[h] ?? 0,
                 pressure: hourly.pressure_msl?.[h] ?? 1013,
             }));
@@ -317,7 +317,7 @@ async function fetchModelForecast(
 }
 
 function calculateConsensus(forecasts: ModelForecast[]): WaypointComparison['consensus'] {
-    if (forecasts.length === 0 || forecasts.every(f => f.points.length === 0)) {
+    if (forecasts.length === 0 || forecasts.every((f) => f.points.length === 0)) {
         return {
             windSpeedMean: 0,
             windSpeedSpread: 0,
@@ -348,17 +348,18 @@ function calculateConsensus(forecasts: ModelForecast[]): WaypointComparison['con
         pressures.push(pt.pressure);
     }
 
-    const mean = (arr: number[]) => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
-    const spread = (arr: number[]) => arr.length ? Math.max(...arr) - Math.min(...arr) : 0;
+    const mean = (arr: number[]) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+    const spread = (arr: number[]) => (arr.length ? Math.max(...arr) - Math.min(...arr) : 0);
 
     // Circular mean for direction
-    let sumSin = 0, sumCos = 0;
+    let sumSin = 0,
+        sumCos = 0;
     for (const d of windDirs) {
-        sumSin += Math.sin(d * Math.PI / 180);
-        sumCos += Math.cos(d * Math.PI / 180);
+        sumSin += Math.sin((d * Math.PI) / 180);
+        sumCos += Math.cos((d * Math.PI) / 180);
     }
     const meanDir = windDirs.length
-        ? ((Math.atan2(sumSin / windDirs.length, sumCos / windDirs.length) * 180 / Math.PI) + 360) % 360
+        ? ((Math.atan2(sumSin / windDirs.length, sumCos / windDirs.length) * 180) / Math.PI + 360) % 360
         : 0;
 
     // Direction spread
@@ -373,8 +374,7 @@ function calculateConsensus(forecasts: ModelForecast[]): WaypointComparison['con
 
     const wSpread = spread(windSpeeds);
     const confidence: 'high' | 'medium' | 'low' =
-        (wSpread > 15 || maxDirDiff > 60) ? 'low' :
-            (wSpread > 8 || maxDirDiff > 30) ? 'medium' : 'high';
+        wSpread > 15 || maxDirDiff > 60 ? 'low' : wSpread > 8 || maxDirDiff > 30 ? 'medium' : 'high';
 
     return {
         windSpeedMean: Math.round(mean(windSpeeds) * 10) / 10,
@@ -391,5 +391,5 @@ function calculateConsensus(forecasts: ModelForecast[]): WaypointComparison['con
 // ── Convenience: Get model info by ID ────────────────────────────
 
 export function getModelById(id: WeatherModelId): WeatherModelInfo | undefined {
-    return AVAILABLE_MODELS.find(m => m.id === id);
+    return AVAILABLE_MODELS.find((m) => m.id === id);
 }

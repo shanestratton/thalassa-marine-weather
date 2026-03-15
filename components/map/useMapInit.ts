@@ -11,7 +11,7 @@ import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('useMapInit');
 import mapboxgl from 'mapbox-gl';
-import { LocationStore, useLocationStore } from '../../stores/LocationStore';
+import { LocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
 import { GpsService } from '../../services/GpsService';
 
@@ -48,28 +48,45 @@ interface UseMapInitOptions {
  */
 export function useMapInit(opts: UseMapInitOptions) {
     const {
-        containerRef, mapRef, pinMarkerRef, locationDotRef,
-        mapboxToken, mapStyle, initialZoom, minimalLabels, embedded,
-        center, location, onLocationSelect, pickerMode,
-        settingPoint, showPassage, departure, arrival,
-        setMapReady, setActiveLayer,
-        setDeparture, setArrival, setSettingPoint,
+        containerRef,
+        mapRef,
+        pinMarkerRef,
+        locationDotRef,
+        mapboxToken,
+        mapStyle,
+        initialZoom,
+        minimalLabels,
+        embedded,
+        center,
+        location,
+        onLocationSelect,
+        pickerMode,
+        settingPoint,
+        showPassage,
+        departure,
+        arrival,
+        setMapReady,
+        setActiveLayer,
+        setDeparture,
+        setArrival,
+        setSettingPoint,
         onMapTap,
     } = opts;
 
     const longPressTimer = useRef<NodeJS.Timeout | null>(null);
 
     // ── Pin Drop Logic ──
-    const dropPin = useCallback((map: mapboxgl.Map, lat: number, lon: number) => {
-        triggerHaptic('heavy');
+    const dropPin = useCallback(
+        (map: mapboxgl.Map, lat: number, lon: number) => {
+            triggerHaptic('heavy');
 
-        if (pinMarkerRef.current) {
-            pinMarkerRef.current.remove();
-        }
+            if (pinMarkerRef.current) {
+                pinMarkerRef.current.remove();
+            }
 
-        const el = document.createElement('div');
-        el.className = 'mapbox-pin-marker';
-        el.innerHTML = `
+            const el = document.createElement('div');
+            el.className = 'mapbox-pin-marker';
+            el.innerHTML = `
             <div style="
                 width: 24px; height: 24px; background: #38bdf8;
                 border: 3px solid #fff; border-radius: 50% 50% 50% 0;
@@ -78,48 +95,66 @@ export function useMapInit(opts: UseMapInitOptions) {
             "></div>
         `;
 
-        const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
-            .setLngLat([lon, lat])
-            .addTo(map);
+            const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' }).setLngLat([lon, lat]).addTo(map);
 
-        pinMarkerRef.current = marker;
+            pinMarkerRef.current = marker;
 
-        // If setting a departure or arrival point for passage
-        if (settingPoint) {
-            const fallbackName = `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(3)}°${lon >= 0 ? 'E' : 'W'}`;
-            // Set immediately with fallback coords name, then upgrade with reverse geocode
-            const setter = settingPoint === 'departure' ? setDeparture : setArrival;
-            setter({ lat, lon, name: fallbackName });
-            setSettingPoint(null);
+            // If setting a departure or arrival point for passage
+            if (settingPoint) {
+                const fallbackName = `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(3)}°${lon >= 0 ? 'E' : 'W'}`;
+                // Set immediately with fallback coords name, then upgrade with reverse geocode
+                const setter = settingPoint === 'departure' ? setDeparture : setArrival;
+                setter({ lat, lon, name: fallbackName });
+                setSettingPoint(null);
+                LocationStore.setFromMapPin(lat, lon);
+                // Async: reverse geocode for a proper place name
+                import('../../services/weatherService')
+                    .then(({ reverseGeocode }) =>
+                        reverseGeocode(lat, lon).then((name) => {
+                            if (name) setter({ lat, lon, name });
+                        }),
+                    )
+                    .catch(() => {
+                        /* keep fallback name */
+                    });
+                return;
+            }
+
+            // If passage planner is open, auto-fill the first empty field
+            if (showPassage) {
+                const fallbackName = `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(3)}°${lon >= 0 ? 'E' : 'W'}`;
+                const setter = !departure ? setDeparture : setArrival;
+                setter({ lat, lon, name: fallbackName });
+                LocationStore.setFromMapPin(lat, lon);
+                // Async: reverse geocode for a proper place name
+                import('../../services/weatherService')
+                    .then(({ reverseGeocode }) =>
+                        reverseGeocode(lat, lon).then((name) => {
+                            if (name) setter({ lat, lon, name });
+                        }),
+                    )
+                    .catch(() => {
+                        /* keep fallback name */
+                    });
+                return;
+            }
+
+            // Default: Update global LocationStore + navigate to WX
             LocationStore.setFromMapPin(lat, lon);
-            // Async: reverse geocode for a proper place name
-            import('../../services/weatherService').then(({ reverseGeocode }) =>
-                reverseGeocode(lat, lon).then(name => {
-                    if (name) setter({ lat, lon, name });
-                })
-            ).catch(() => { /* keep fallback name */ });
-            return;
-        }
-
-        // If passage planner is open, auto-fill the first empty field
-        if (showPassage) {
-            const fallbackName = `${Math.abs(lat).toFixed(3)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(3)}°${lon >= 0 ? 'E' : 'W'}`;
-            const setter = !departure ? setDeparture : setArrival;
-            setter({ lat, lon, name: fallbackName });
-            LocationStore.setFromMapPin(lat, lon);
-            // Async: reverse geocode for a proper place name
-            import('../../services/weatherService').then(({ reverseGeocode }) =>
-                reverseGeocode(lat, lon).then(name => {
-                    if (name) setter({ lat, lon, name });
-                })
-            ).catch(() => { /* keep fallback name */ });
-            return;
-        }
-
-        // Default: Update global LocationStore + navigate to WX
-        LocationStore.setFromMapPin(lat, lon);
-        onLocationSelect?.(lat, lon);
-    }, [settingPoint, showPassage, departure, arrival, onLocationSelect, pinMarkerRef, setDeparture, setArrival, setSettingPoint]);
+            onLocationSelect?.(lat, lon);
+        },
+        [
+            settingPoint,
+            showPassage,
+            departure,
+            arrival,
+            onLocationSelect,
+            pinMarkerRef,
+            setDeparture,
+            setArrival,
+            setSettingPoint,
+        ],
+    );
 
     // ── Initialize Map ──
     useEffect(() => {
@@ -150,7 +185,11 @@ export function useMapInit(opts: UseMapInitOptions) {
             const style = map.getStyle();
             if (style?.layers) {
                 for (const layer of style.layers) {
-                    if (minimalLabels && layer.type === 'symbol' && layer.id.match(/country-label|state-label|continent-label|place-label|settlement/)) {
+                    if (
+                        minimalLabels &&
+                        layer.type === 'symbol' &&
+                        layer.id.match(/country-label|state-label|continent-label|place-label|settlement/)
+                    ) {
                         map.setLayoutProperty(layer.id, 'visibility', 'none');
                     }
                     if (layer.type === 'symbol' && layer.id.match(/road|motorway|highway|shield|trunk/i)) {
@@ -173,13 +212,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                     'source-layer': 'water',
                     paint: {
                         'line-color': 'rgba(255, 255, 255, 0.45)',
-                        'line-width': [
-                            'interpolate', ['linear'], ['zoom'],
-                            2, 0.4,
-                            5, 0.8,
-                            8, 1.2,
-                            12, 1.5,
-                        ],
+                        'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.4, 5, 0.8, 8, 1.2, 12, 1.5],
                     },
                 });
             }
@@ -187,7 +220,10 @@ export function useMapInit(opts: UseMapInitOptions) {
             const styleLayers = map.getStyle()?.layers || [];
             let firstSymbolId: string | undefined;
             for (const l of styleLayers) {
-                if (l.type === 'symbol') { firstSymbolId = l.id; break; }
+                if (l.type === 'symbol') {
+                    firstSymbolId = l.id;
+                    break;
+                }
             }
 
             // GEBCO Bathymetry removed — WMS service now returns 'Zoom Level Not Supported'
@@ -201,14 +237,17 @@ export function useMapInit(opts: UseMapInitOptions) {
                     tileSize: 256,
                     maxzoom: 18,
                 });
-                map.addLayer({
-                    id: 'openseamap-permanent',
-                    type: 'raster',
-                    source: 'openseamap-permanent',
-                    minzoom: 6,
-                    maxzoom: 18,
-                    paint: { 'raster-opacity': 0.85 },
-                }, firstSymbolId);
+                map.addLayer(
+                    {
+                        id: 'openseamap-permanent',
+                        type: 'raster',
+                        source: 'openseamap-permanent',
+                        minzoom: 6,
+                        maxzoom: 18,
+                        paint: { 'raster-opacity': 0.85 },
+                    },
+                    firstSymbolId,
+                );
             }
 
             // ── Skip heavy sources in embedded mode ──
@@ -230,9 +269,17 @@ export function useMapInit(opts: UseMapInitOptions) {
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: {
                     'line-color': [
-                        'match', ['get', 'safety'],
-                        'safe', '#00e676', 'caution', '#ff9100',
-                        'danger', '#ff1744', 'harbour', '#38bdf8', '#00f2fe',
+                        'match',
+                        ['get', 'safety'],
+                        'safe',
+                        '#00e676',
+                        'caution',
+                        '#ff9100',
+                        'danger',
+                        '#ff1744',
+                        'harbour',
+                        '#38bdf8',
+                        '#00f2fe',
                     ],
                     'line-width': 12,
                     'line-blur': 10,
@@ -248,9 +295,17 @@ export function useMapInit(opts: UseMapInitOptions) {
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: {
                     'line-color': [
-                        'match', ['get', 'safety'],
-                        'safe', '#00e676', 'caution', '#ff9100',
-                        'danger', '#ff1744', 'harbour', '#38bdf8', '#00f2fe',
+                        'match',
+                        ['get', 'safety'],
+                        'safe',
+                        '#00e676',
+                        'caution',
+                        '#ff9100',
+                        'danger',
+                        '#ff1744',
+                        'harbour',
+                        '#38bdf8',
+                        '#00f2fe',
                     ],
                     'line-width': 3,
                     'line-opacity': 0.9,
@@ -279,9 +334,17 @@ export function useMapInit(opts: UseMapInitOptions) {
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: {
                     'line-color': [
-                        'match', ['get', 'safety'],
-                        'safe', '#b9f6ca', 'caution', '#ffe0b2',
-                        'danger', '#ffcdd2', 'harbour', '#bae6fd', '#ffffff',
+                        'match',
+                        ['get', 'safety'],
+                        'safe',
+                        '#b9f6ca',
+                        'caution',
+                        '#ffe0b2',
+                        'danger',
+                        '#ffcdd2',
+                        'harbour',
+                        '#bae6fd',
+                        '#ffffff',
                     ],
                     'line-width': 1.5,
                 },
@@ -299,27 +362,35 @@ export function useMapInit(opts: UseMapInitOptions) {
                 type: 'circle',
                 source: 'harbour-seamarks',
                 paint: {
-                    'circle-radius': [
-                        'match', ['get', '_class'],
-                        'light_major', 6,
-                        'safe_water', 5,
-                        4,
-                    ],
+                    'circle-radius': ['match', ['get', '_class'], 'light_major', 6, 'safe_water', 5, 4],
                     'circle-color': [
-                        'match', ['get', '_class'],
-                        'port', '#ef4444',        // Red — port lateral
-                        'starboard', '#22c55e',   // Green — starboard lateral
-                        'cardinal_n', '#facc15',  // Yellow — cardinal
-                        'cardinal_s', '#facc15',
-                        'cardinal_e', '#facc15',
-                        'cardinal_w', '#facc15',
-                        'cardinal', '#facc15',
-                        'safe_water', '#ffffff',   // White — safe water
-                        'danger', '#f97316',       // Orange — danger
-                        'light_major', '#fbbf24',  // Amber — major light
-                        'light_minor', '#fde68a',  // Light amber — minor light
-                        'fairway', '#38bdf8',      // Sky blue — fairway
-                        '#94a3b8',                 // Grey — other
+                        'match',
+                        ['get', '_class'],
+                        'port',
+                        '#ef4444', // Red — port lateral
+                        'starboard',
+                        '#22c55e', // Green — starboard lateral
+                        'cardinal_n',
+                        '#facc15', // Yellow — cardinal
+                        'cardinal_s',
+                        '#facc15',
+                        'cardinal_e',
+                        '#facc15',
+                        'cardinal_w',
+                        '#facc15',
+                        'cardinal',
+                        '#facc15',
+                        'safe_water',
+                        '#ffffff', // White — safe water
+                        'danger',
+                        '#f97316', // Orange — danger
+                        'light_major',
+                        '#fbbf24', // Amber — major light
+                        'light_minor',
+                        '#fde68a', // Light amber — minor light
+                        'fairway',
+                        '#38bdf8', // Sky blue — fairway
+                        '#94a3b8', // Grey — other
                     ],
                     'circle-stroke-width': 1.5,
                     'circle-stroke-color': 'rgba(0,0,0,0.6)',
@@ -389,24 +460,46 @@ export function useMapInit(opts: UseMapInitOptions) {
             });
 
             // ── Seamark Navigation Markers ──
-            const seamarkBaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL)
-                || 'https://pcisdplnodrphauixcau.supabase.co';
+            const seamarkBaseUrl =
+                (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
+                'https://pcisdplnodrphauixcau.supabase.co';
             const markersUrl = `${seamarkBaseUrl}/storage/v1/object/public/regions/australia_se_qld/nav_markers.geojson`;
             fetch(markersUrl)
-                .then(r => r.json())
+                .then((r) => r.json())
                 .then((geojson: any) => {
                     if (!map.getSource('nav-markers')) {
                         map.addSource('nav-markers', { type: 'geojson', data: geojson });
 
                         const markerColors = [
-                            'match', ['get', '_class'],
-                            'port', '#ff1744', 'starboard', '#00e676',
-                            'cardinal_n', '#ffd600', 'cardinal_s', '#ffd600',
-                            'cardinal_e', '#ffd600', 'cardinal_w', '#ffd600',
-                            'cardinal', '#ffd600', 'danger', '#ff6d00',
-                            'safe_water', '#ff1744', 'light', '#ffffff',
-                            'special', '#ffab00', 'mooring', '#40c4ff',
-                            'anchorage', '#40c4ff', '#888888',
+                            'match',
+                            ['get', '_class'],
+                            'port',
+                            '#ff1744',
+                            'starboard',
+                            '#00e676',
+                            'cardinal_n',
+                            '#ffd600',
+                            'cardinal_s',
+                            '#ffd600',
+                            'cardinal_e',
+                            '#ffd600',
+                            'cardinal_w',
+                            '#ffd600',
+                            'cardinal',
+                            '#ffd600',
+                            'danger',
+                            '#ff6d00',
+                            'safe_water',
+                            '#ff1744',
+                            'light',
+                            '#ffffff',
+                            'special',
+                            '#ffab00',
+                            'mooring',
+                            '#40c4ff',
+                            'anchorage',
+                            '#40c4ff',
+                            '#888888',
                         ] as any;
 
                         map.addLayer({
@@ -437,15 +530,25 @@ export function useMapInit(opts: UseMapInitOptions) {
                         });
                     }
                 })
-                .catch(() => { });
+                .catch(() => {});
 
             // ── Isochrone source ──
             map.addSource('isochrones', {
                 type: 'geojson',
                 data: { type: 'FeatureCollection', features: [] },
             });
-            map.addLayer({ id: 'isochrone-fills', type: 'fill', source: 'isochrones', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.15 } });
-            map.addLayer({ id: 'isochrone-lines', type: 'line', source: 'isochrones', paint: { 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-opacity': 0.6 } });
+            map.addLayer({
+                id: 'isochrone-fills',
+                type: 'fill',
+                source: 'isochrones',
+                paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.15 },
+            });
+            map.addLayer({
+                id: 'isochrone-lines',
+                type: 'line',
+                source: 'isochrones',
+                paint: { 'line-color': ['get', 'color'], 'line-width': 1.5, 'line-opacity': 0.6 },
+            });
 
             // ── Waypoint markers ──
             map.addSource('waypoints', {
@@ -456,15 +559,23 @@ export function useMapInit(opts: UseMapInitOptions) {
                 id: 'waypoint-circles',
                 type: 'circle',
                 source: 'waypoints',
-                paint: { 'circle-radius': 8, 'circle-color': ['get', 'color'], 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 },
+                paint: {
+                    'circle-radius': 8,
+                    'circle-color': ['get', 'color'],
+                    'circle-stroke-color': '#ffffff',
+                    'circle-stroke-width': 2,
+                },
             });
             map.addLayer({
                 id: 'waypoint-labels',
                 type: 'symbol',
                 source: 'waypoints',
                 layout: {
-                    'text-field': ['get', 'name'], 'text-size': 11, 'text-offset': [0, 1.8],
-                    'text-anchor': 'top', 'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+                    'text-field': ['get', 'name'],
+                    'text-size': 11,
+                    'text-offset': [0, 1.8],
+                    'text-anchor': 'top',
+                    'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
                 },
                 paint: { 'text-color': '#ffffff', 'text-halo-color': '#0f172a', 'text-halo-width': 1.5 },
             });
@@ -474,8 +585,18 @@ export function useMapInit(opts: UseMapInitOptions) {
                 type: 'geojson',
                 data: { type: 'FeatureCollection', features: [] },
             });
-            map.addLayer({ id: 'grib-bounds-fill', type: 'fill', source: 'grib-bounds', paint: { 'fill-color': '#8b5cf6', 'fill-opacity': 0.08 } });
-            map.addLayer({ id: 'grib-bounds-line', type: 'line', source: 'grib-bounds', paint: { 'line-color': '#8b5cf6', 'line-width': 2, 'line-dasharray': [4, 4], 'line-opacity': 0.5 } });
+            map.addLayer({
+                id: 'grib-bounds-fill',
+                type: 'fill',
+                source: 'grib-bounds',
+                paint: { 'fill-color': '#8b5cf6', 'fill-opacity': 0.08 },
+            });
+            map.addLayer({
+                id: 'grib-bounds-line',
+                type: 'line',
+                source: 'grib-bounds',
+                paint: { 'line-color': '#8b5cf6', 'line-width': 2, 'line-dasharray': [4, 4], 'line-opacity': 0.5 },
+            });
 
             // ── Coastline overlays (brighter for visibility under weather layers) ──
             map.addLayer({
@@ -535,16 +656,23 @@ export function useMapInit(opts: UseMapInitOptions) {
         // Fires onMapTap for weather popup if not in picker/passage/embedded mode.
         // Uses wasDragged to ignore tap-after-drag.
         let wasDragged = false;
-        map.on('dragstart', () => { wasDragged = true; });
+        map.on('dragstart', () => {
+            wasDragged = true;
+        });
         map.on('click', (e) => {
-            if (wasDragged) { wasDragged = false; return; }
+            if (wasDragged) {
+                wasDragged = false;
+                return;
+            }
             // Don't fire while long-press timer is still running (pin drop takes priority)
             if (longPressTimer.current) return;
             if (opts.pickerMode || opts.embedded) return;
             if (opts.settingPoint || opts.showPassage) return;
             opts.onMapTap?.(e.lngLat.lat, e.lngLat.lng);
         });
-        map.on('moveend', () => { wasDragged = false; });
+        map.on('moveend', () => {
+            wasDragged = false;
+        });
 
         mapRef.current = map;
 
@@ -559,7 +687,9 @@ export function useMapInit(opts: UseMapInitOptions) {
         window.addEventListener('map-recenter', handleRecenter);
 
         // ResizeObserver
-        const resizeObserver = new ResizeObserver(() => { map.resize(); });
+        const resizeObserver = new ResizeObserver(() => {
+            map.resize();
+        });
         resizeObserver.observe(containerRef.current);
 
         return () => {
@@ -651,6 +781,8 @@ export function usePickerMode(
         };
 
         map.on('click', handleClick);
-        return () => { map.off('click', handleClick); };
+        return () => {
+            map.off('click', handleClick);
+        };
     }, [pickerMode, onLocationSelect]);
 }

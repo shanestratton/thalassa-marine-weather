@@ -1,4 +1,3 @@
-
 /// <reference types="vitest" />
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
@@ -10,110 +9,130 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export default defineConfig(({ mode }) => {
-  // 1. Load env vars from local .env files
-  const env = loadEnv(mode, __dirname, '');
+    // 1. Load env vars from local .env files
+    const env = loadEnv(mode, __dirname, '');
 
-  // 2. Helper to resolve keys from either local .env or system env (Vercel Build Context)
-  // Vercel exposes environment variables in process.env during build.
-  const getKey = (key: string) => {
-    const val = env[key] || process.env[key];
-    if (val) return val;
-    return '';
-  };
+    // 2. Helper to resolve keys from either local .env or system env (Vercel Build Context)
+    // Vercel exposes environment variables in process.env during build.
+    const getKey = (key: string) => {
+        const val = env[key] || process.env[key];
+        if (val) return val;
+        return '';
+    };
 
-
-
-  return {
-    server: {
-      port: 3000,
-      host: '0.0.0.0',
-      proxy: {
-        // Proxy Distance.tools API to avoid CORS (browser → Vite → API)
-        '/api/distance-tools': {
-          target: 'https://api.distance.tools',
-          changeOrigin: true,
-          rewrite: (path: string) => path.replace(/^\/api\/distance-tools/, '/api/v2'),
-          headers: {
-            'X-Billing-Token': getKey('VITE_DISTANCE_TOOLS_KEY'),
-          },
+    return {
+        server: {
+            port: 3000,
+            host: '0.0.0.0',
+            proxy: {
+                // Proxy Distance.tools API to avoid CORS (browser → Vite → API)
+                '/api/distance-tools': {
+                    target: 'https://api.distance.tools',
+                    changeOrigin: true,
+                    rewrite: (path: string) => path.replace(/^\/api\/distance-tools/, '/api/v2'),
+                    headers: {
+                        'X-Billing-Token': getKey('VITE_DISTANCE_TOOLS_KEY'),
+                    },
+                },
+                // Proxy Rainbow.ai API to avoid CORS in local dev
+                '/api/rainbow': {
+                    target: 'https://api.rainbow.ai',
+                    changeOrigin: true,
+                    rewrite: (path: string) => path.replace(/^\/api\/rainbow/, '/tiles/v1'),
+                },
+            },
         },
-        // Proxy Rainbow.ai API to avoid CORS in local dev
-        '/api/rainbow': {
-          target: 'https://api.rainbow.ai',
-          changeOrigin: true,
-          rewrite: (path: string) => path.replace(/^\/api\/rainbow/, '/tiles/v1'),
+        plugins: [react()],
+        define: {
+            // IMPORTANT: Do NOT set 'process.env': {} — this clobbers React's internal
+            // process.env.NODE_ENV detection and causes hooks to fail in lazy-loaded chunks.
+            // Instead, define individual keys only.
+            'process.env.NODE_ENV': JSON.stringify(mode),
+
+            // --- API KEY INJECTION ---
+            // We inject these keys directly into the build so the client can use them.
+            // This is required for Vercel static deployments where there is no runtime Node server.
+
+            // 1. Gemini / Google GenAI
+            'process.env.API_KEY': JSON.stringify(
+                getKey('VITE_GEMINI_API_KEY') || getKey('GEMINI_API_KEY') || getKey('API_KEY') || '',
+            ),
+            'process.env.GEMINI_API_KEY': JSON.stringify(
+                getKey('VITE_GEMINI_API_KEY') || getKey('GEMINI_API_KEY') || getKey('API_KEY') || '',
+            ),
+
+            // 2. Stormglass Marine Data
+            'process.env.STORMGLASS_API_KEY': JSON.stringify(
+                getKey('VITE_STORMGLASS_API_KEY') ||
+                    getKey('STORMGLASS_API_KEY') ||
+                    getKey('VITE_STORMGLASS_KEY') ||
+                    getKey('STORMGLASS_KEY') ||
+                    '',
+            ),
+
+            // 3. Open-Meteo (Optional Commercial Key)
+            'process.env.OPEN_METEO_API_KEY': JSON.stringify(
+                getKey('VITE_OPEN_METEO_API_KEY') || getKey('OPEN_METEO_API_KEY') || '',
+            ),
+
+            // 4. Mapbox / Maps
+            'process.env.MAPBOX_ACCESS_TOKEN': JSON.stringify(
+                getKey('VITE_MAPBOX_ACCESS_TOKEN') || getKey('MAPBOX_ACCESS_TOKEN') || '',
+            ),
+
+            // 5. Supabase (Backend/Auth)
+            'process.env.SUPABASE_URL': JSON.stringify(getKey('VITE_SUPABASE_URL') || getKey('SUPABASE_URL') || ''),
+            'process.env.SUPABASE_KEY': JSON.stringify(
+                getKey('VITE_SUPABASE_ANON_KEY') || getKey('VITE_SUPABASE_KEY') || getKey('SUPABASE_KEY') || '',
+            ),
         },
-      },
-    },
-    plugins: [react()],
-    define: {
-      // IMPORTANT: Do NOT set 'process.env': {} — this clobbers React's internal
-      // process.env.NODE_ENV detection and causes hooks to fail in lazy-loaded chunks.
-      // Instead, define individual keys only.
-      'process.env.NODE_ENV': JSON.stringify(mode),
-
-      // --- API KEY INJECTION ---
-      // We inject these keys directly into the build so the client can use them.
-      // This is required for Vercel static deployments where there is no runtime Node server.
-
-      // 1. Gemini / Google GenAI
-      'process.env.API_KEY': JSON.stringify(getKey('VITE_GEMINI_API_KEY') || getKey('GEMINI_API_KEY') || getKey('API_KEY') || ''),
-      'process.env.GEMINI_API_KEY': JSON.stringify(getKey('VITE_GEMINI_API_KEY') || getKey('GEMINI_API_KEY') || getKey('API_KEY') || ''),
-
-      // 2. Stormglass Marine Data
-      'process.env.STORMGLASS_API_KEY': JSON.stringify(
-        getKey('VITE_STORMGLASS_API_KEY') ||
-        getKey('STORMGLASS_API_KEY') ||
-        getKey('VITE_STORMGLASS_KEY') ||
-        getKey('STORMGLASS_KEY') ||
-        ''
-      ),
-
-      // 3. Open-Meteo (Optional Commercial Key)
-      'process.env.OPEN_METEO_API_KEY': JSON.stringify(getKey('VITE_OPEN_METEO_API_KEY') || getKey('OPEN_METEO_API_KEY') || ''),
-
-      // 4. Mapbox / Maps
-      'process.env.MAPBOX_ACCESS_TOKEN': JSON.stringify(getKey('VITE_MAPBOX_ACCESS_TOKEN') || getKey('MAPBOX_ACCESS_TOKEN') || ''),
-
-      // 5. Supabase (Backend/Auth)
-      'process.env.SUPABASE_URL': JSON.stringify(getKey('VITE_SUPABASE_URL') || getKey('SUPABASE_URL') || ''),
-      'process.env.SUPABASE_KEY': JSON.stringify(getKey('VITE_SUPABASE_ANON_KEY') || getKey('VITE_SUPABASE_KEY') || getKey('SUPABASE_KEY') || ''),
-    },
-    // Strip console.*/debugger from production builds
-    esbuild: mode === 'production' ? {
-      drop: ['console', 'debugger'],
-    } : undefined,
-    build: {
-      outDir: 'dist',
-      sourcemap: mode !== 'production',
-      cssMinify: true,
-      chunkSizeWarningLimit: 2000,
-      rollupOptions: {
-        onwarn(warning, warn) {
-          // Suppress "is dynamically imported by X but also statically imported by Y"
-          if (warning.code === 'MIXED_IMPORTS' || warning.message?.includes('dynamic import will not move module')) return;
-          warn(warning);
+        // Strip console.*/debugger from production builds
+        esbuild:
+            mode === 'production'
+                ? {
+                      drop: ['console', 'debugger'],
+                  }
+                : undefined,
+        build: {
+            outDir: 'dist',
+            sourcemap: mode !== 'production',
+            cssMinify: true,
+            chunkSizeWarningLimit: 2000,
+            rollupOptions: {
+                onwarn(warning, warn) {
+                    // Suppress "is dynamically imported by X but also statically imported by Y"
+                    if (
+                        warning.code === 'MIXED_IMPORTS' ||
+                        warning.message?.includes('dynamic import will not move module')
+                    )
+                        return;
+                    warn(warning);
+                },
+                output: {
+                    manualChunks: {
+                        'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
+                        'vendor-leaflet': ['leaflet'],
+                        'vendor-supabase': ['@supabase/supabase-js'],
+                        'vendor-capacitor': [
+                            '@capacitor/preferences',
+                            '@capacitor/share',
+                            '@capacitor/filesystem',
+                            '@capacitor/app',
+                        ],
+                        'vendor-react': ['react', 'react-dom'],
+                    },
+                },
+            },
         },
-        output: {
-          manualChunks: {
-            'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
-            'vendor-leaflet': ['leaflet'],
-            'vendor-supabase': ['@supabase/supabase-js'],
-            'vendor-capacitor': ['@capacitor/preferences', '@capacitor/share', '@capacitor/filesystem', '@capacitor/app'],
-            'vendor-react': ['react', 'react-dom'],
-          }
-        }
-      }
-    },
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, './'),
-      }
-    },
-    test: {
-      environment: 'jsdom',
-      exclude: ['**/node_modules/**', '**/e2e/**'],
-      globals: true
-    }
-  };
+        resolve: {
+            alias: {
+                '@': path.resolve(__dirname, './'),
+            },
+        },
+        test: {
+            environment: 'jsdom',
+            exclude: ['**/node_modules/**', '**/e2e/**'],
+            globals: true,
+        },
+    };
 });

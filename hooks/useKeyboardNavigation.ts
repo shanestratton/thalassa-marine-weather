@@ -17,7 +17,7 @@ export const useKeyboardNavigation = ({
     onNext,
     onRefresh,
     onSettings,
-    enabled = true
+    enabled = true,
 }: UseKeyboardNavigationProps) => {
     useEffect(() => {
         if (!enabled) return;

@@ -10,10 +10,7 @@ interface State {
     error?: Error;
 }
 
-export class ChatErrorBoundary extends React.Component<
-    { children: React.ReactNode },
-    State
-> {
+export class ChatErrorBoundary extends React.Component<{ children: React.ReactNode }, State> {
     state: State = { hasError: false };
 
     static getDerivedStateFromError(error: Error): State {
@@ -35,7 +32,8 @@ export class ChatErrorBoundary extends React.Component<
                     </div>
                     <h2 className="text-lg font-bold text-white/80 mb-2">Man overboard!</h2>
                     <p className="text-sm text-white/40 max-w-[260px] text-center leading-relaxed mb-6">
-                        Something went wrong in Crew Talk. Don't worry — your messages are safe. Let's get back on course.
+                        Something went wrong in Crew Talk. Don't worry — your messages are safe. Let's get back on
+                        course.
                     </p>
                     <button
                         onClick={this.handleRetry}

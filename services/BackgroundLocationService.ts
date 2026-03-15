@@ -1,9 +1,9 @@
 /**
  * BackgroundLocationService - TypeScript wrapper for native iOS background location
- * 
+ *
  * This service bridges JavaScript to the native iOS BackgroundLocation plugin,
  * enabling 15-minute GPS tracking even when the app is backgrounded.
- * 
+ *
  * IMPORTANT: Background location significantly increases battery usage.
  * iOS will display a blue status bar while background tracking is active.
  */
@@ -20,21 +20,27 @@ interface BackgroundLocationPlugin {
     stopBackgroundLocation(): Promise<{ stopped: boolean }>;
     getStatus(): Promise<{
         isTracking: boolean;
-        authorizationStatus: 'authorizedAlways' | 'authorizedWhenInUse' | 'denied' | 'restricted' | 'notDetermined' | 'unknown';
+        authorizationStatus:
+            | 'authorizedAlways'
+            | 'authorizedWhenInUse'
+            | 'denied'
+            | 'restricted'
+            | 'notDetermined'
+            | 'unknown';
         canTrackInBackground: boolean;
     }>;
     requestAlwaysPermission(): Promise<{ requested: boolean }>;
     addListener(
         eventName: 'locationUpdate',
-        listenerFunc: (data: LocationUpdate) => void
+        listenerFunc: (data: LocationUpdate) => void,
     ): Promise<PluginListenerHandle>;
     addListener(
         eventName: 'locationError',
-        listenerFunc: (data: { error: string }) => void
+        listenerFunc: (data: { error: string }) => void,
     ): Promise<PluginListenerHandle>;
     addListener(
         eventName: 'authorizationChange',
-        listenerFunc: (data: { status: string; canTrackInBackground: boolean }) => void
+        listenerFunc: (data: { status: string; canTrackInBackground: boolean }) => void,
     ): Promise<PluginListenerHandle>;
 }
 
@@ -72,7 +78,7 @@ class BackgroundLocationServiceClass {
             return {
                 isTracking: false,
                 authorizationStatus: 'unknown' as const,
-                canTrackInBackground: false
+                canTrackInBackground: false,
             };
         }
 
@@ -82,7 +88,7 @@ class BackgroundLocationServiceClass {
             return {
                 isTracking: false,
                 authorizationStatus: 'unknown' as const,
-                canTrackInBackground: false
+                canTrackInBackground: false,
             };
         }
     }
@@ -128,8 +134,7 @@ class BackgroundLocationServiceClass {
             });
 
             // Also listen for authorization changes
-            await BackgroundLocation.addListener('authorizationChange', (data) => {
-            });
+            await BackgroundLocation.addListener('authorizationChange', (_data) => {});
 
             // Start tracking
             const result = await BackgroundLocation.startBackgroundLocation();

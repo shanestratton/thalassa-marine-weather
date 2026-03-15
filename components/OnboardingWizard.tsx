@@ -1,11 +1,36 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('OnboardingWizard');
 import { toast } from './Toast';
-import { UserSettings, VesselProfile, LengthUnit, WeightUnit, SpeedUnit, TempUnit, DistanceUnit, VolumeUnit, WeatherModel, PolarData } from '../types';
-import { BoatIcon, SailBoatIcon, PowerBoatIcon, ArrowRightIcon, CheckIcon, CompassIcon, EyeIcon, GearIcon, SearchIcon, MapPinIcon, DropletIcon, MapIcon, XIcon, AnchorIcon } from './Icons';
+import {
+    UserSettings,
+    VesselProfile,
+    LengthUnit,
+    WeightUnit,
+    SpeedUnit,
+    TempUnit,
+    DistanceUnit,
+    VolumeUnit,
+    WeatherModel,
+    PolarData,
+} from '../types';
+import {
+    BoatIcon,
+    SailBoatIcon,
+    PowerBoatIcon,
+    ArrowRightIcon,
+    CheckIcon,
+    CompassIcon,
+    EyeIcon,
+    GearIcon,
+    SearchIcon,
+    MapPinIcon,
+    DropletIcon,
+    MapIcon,
+    XIcon,
+    AnchorIcon,
+} from './Icons';
 import { reverseGeocode } from '../services/weatherService';
 import { WeatherMap } from './WeatherMap';
 import { getSystemUnits } from '../utils';
@@ -24,12 +49,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
     const [homePort, setHomePort] = useState('');
     const [isLocating, setIsLocating] = useState(false);
     const [showMap, setShowMap] = useState(false);
-    const [tempLocation, setTempLocation] = useState<{ lat: number, lon: number, name: string } | null>(null);
+    const [tempLocation, setTempLocation] = useState<{ lat: number; lon: number; name: string } | null>(null);
 
     // Core Vessel Data
     const [vesselType, setVesselType] = useState<'sail' | 'power' | 'observer'>('sail');
     const [name, setName] = useState('');
-    const [riggingType, setRiggingType] = useState<'Sloop' | 'Cutter' | 'Ketch' | 'Yawl' | 'Schooner' | 'Catboat' | 'Solent' | 'Other'>('Sloop');
+    const [riggingType, setRiggingType] = useState<
+        'Sloop' | 'Cutter' | 'Ketch' | 'Yawl' | 'Schooner' | 'Catboat' | 'Solent' | 'Other'
+    >('Sloop');
     const [hullType, setHullType] = useState<'monohull' | 'catamaran' | 'trimaran'>('monohull');
     const [keelType, setKeelType] = useState<'fin' | 'full' | 'wing' | 'skeg' | 'centerboard' | 'bilge'>('fin');
 
@@ -79,30 +106,34 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
     const handleNext = () => {
         if (step === 2 && !homePort.trim()) return; // Require location
-        setStep(s => s + 1);
-    }
+        setStep((s) => s + 1);
+    };
 
     const handleBack = () => {
-        setStep(s => Math.max(1, s - 1));
-    }
+        setStep((s) => Math.max(1, s - 1));
+    };
 
     const handleLocate = () => {
         setIsLocating(true);
         GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then(async (pos) => {
             if (!pos) {
                 setIsLocating(false);
-                toast.error("Could not access location. Please enter manually.");
+                toast.error('Could not access location. Please enter manually.');
                 return;
             }
             const { latitude, longitude } = pos;
-            setTempLocation({ lat: latitude, lon: longitude, name: "Current Location" });
+            setTempLocation({ lat: latitude, lon: longitude, name: 'Current Location' });
             try {
                 const niceName = await reverseGeocode(latitude, longitude);
-                const finalName = niceName || `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
+                const finalName =
+                    niceName ||
+                    `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
                 setHomePort(finalName);
                 setTempLocation({ lat: latitude, lon: longitude, name: finalName });
             } catch (e) {
-                setHomePort(`WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`);
+                setHomePort(
+                    `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`,
+                );
             }
             setIsLocating(false);
         });
@@ -110,23 +141,27 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
     // UPDATE: Instant feedback + async resolution
     const handleMapSelect = async (lat: number, lon: number, name?: string) => {
-        const initialName = name || "Identifying...";
+        const initialName = name || 'Identifying...';
         setTempLocation({ lat, lon, name: initialName });
 
         if (!name) {
             try {
                 const geoName = await reverseGeocode(lat, lon);
                 if (geoName) {
-                    setTempLocation(prev => {
+                    setTempLocation((prev) => {
                         if (prev && prev.lat === lat && prev.lon === lon) {
                             return { lat, lon, name: geoName };
                         }
                         return prev;
                     });
                 } else {
-                    setTempLocation(prev => {
+                    setTempLocation((prev) => {
                         if (prev && prev.lat === lat && prev.lon === lon) {
-                            return { lat, lon, name: `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}` };
+                            return {
+                                lat,
+                                lon,
+                                name: `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}`,
+                            };
                         }
                         return prev;
                     });
@@ -134,9 +169,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
             } catch (e) {
                 log.warn(e);
                 /* Reverse geocode failed — fall back to WP coordinate format */
-                setTempLocation(prev => {
+                setTempLocation((prev) => {
                     if (prev && prev.lat === lat && prev.lon === lon) {
-                        return { lat, lon, name: `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}` };
+                        return {
+                            lat,
+                            lon,
+                            name: `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}`,
+                        };
                     }
                     return prev;
                 });
@@ -154,29 +193,29 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
     const convertValue = (val: number, toUnit: LengthUnit) => {
         if (toUnit === 'm') return Math.round(val * 0.3048 * 10) / 10;
         return Math.round(val * 3.28084);
-    }
+    };
 
     // Toggle Handlers
     const toggleLengthUnit = () => {
         const newUnit = lengthUnit === 'ft' ? 'm' : 'ft';
         if (length) setLength(convertValue(parseFloat(length), newUnit).toString());
         setLengthUnit(newUnit);
-    }
+    };
     const toggleBeamUnit = () => {
         const newUnit = beamUnit === 'ft' ? 'm' : 'ft';
         if (beam) setBeam(convertValue(parseFloat(beam), newUnit).toString());
         setBeamUnit(newUnit);
-    }
+    };
     const toggleDraftUnit = () => {
         const newUnit = draftUnit === 'ft' ? 'm' : 'ft';
         if (draft) setDraft(convertValue(parseFloat(draft), newUnit).toString());
         setDraftUnit(newUnit);
-    }
+    };
     const toggleAirDraftUnit = () => {
         const newUnit = airDraftUnit === 'ft' ? 'm' : 'ft';
         if (airDraft) setAirDraft(convertValue(parseFloat(airDraft), newUnit).toString());
         setAirDraftUnit(newUnit);
-    }
+    };
 
     const toggleDispUnit = () => {
         let newUnit: WeightUnit = 'lbs';
@@ -225,8 +264,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
         if (finalVesselType !== 'observer') {
             if (l_ft === 0) {
                 // Infer length from Beam or Displacement if available?
-                if (b_ft > 0) { l_ft = b_ft * 3; estimatedFields.push('length'); }
-                else { l_ft = 30; estimatedFields.push('length'); } // Last ditch default
+                if (b_ft > 0) {
+                    l_ft = b_ft * 3;
+                    estimatedFields.push('length');
+                } else {
+                    l_ft = 30;
+                    estimatedFields.push('length');
+                } // Last ditch default
             }
 
             if (b_ft === 0) {
@@ -246,10 +290,16 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
             }
         }
 
-        const ad_ft = airDraft ? (airDraftUnit === 'm' ? parseFloat(airDraft) * 3.28084 : parseFloat(airDraft)) : undefined;
+        const ad_ft = airDraft
+            ? airDraftUnit === 'm'
+                ? parseFloat(airDraft) * 3.28084
+                : parseFloat(airDraft)
+            : undefined;
 
         const vesselData: VesselProfile = {
-            name: (finalVesselType === 'observer' ? 'Observer' : name) || (finalVesselType === 'sail' ? 'S/Y Ocean' : 'M/Y Ocean'),
+            name:
+                (finalVesselType === 'observer' ? 'Observer' : name) ||
+                (finalVesselType === 'sail' ? 'S/Y Ocean' : 'M/Y Ocean'),
             type: finalVesselType,
             riggingType: finalVesselType === 'sail' ? riggingType : undefined,
             length: l_ft,
@@ -264,22 +314,39 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
             fuelCapacity: fuel ? parseFloat(fuel) : 0,
             waterCapacity: water ? parseFloat(water) : 0,
             crewCount: crewCount ? parseInt(crewCount) || 2 : 2,
-            estimatedFields: estimatedFields.length > 0 ? estimatedFields : undefined
+            estimatedFields: estimatedFields.length > 0 ? estimatedFields : undefined,
         };
 
         const settings: Partial<UserSettings> = {
             defaultLocation: homePort,
             vessel: vesselData,
-            units: { speed: prefSpeed, temp: prefTemp, distance: prefDist, length: prefLength, tideHeight: prefLength, waveHeight: prefWaveHeight, visibility: 'nm', volume: 'gal' },
-            vesselUnits: { length: lengthUnit, beam: beamUnit, draft: draftUnit, displacement: dispUnit, volume: volUnit },
+            units: {
+                speed: prefSpeed,
+                temp: prefTemp,
+                distance: prefDist,
+                length: prefLength,
+                tideHeight: prefLength,
+                waveHeight: prefWaveHeight,
+                visibility: 'nm',
+                volume: 'gal',
+            },
+            vesselUnits: {
+                length: lengthUnit,
+                beam: beamUnit,
+                draft: draftUnit,
+                displacement: dispUnit,
+                volume: volUnit,
+            },
             preferredModel: preferredModel,
             savedLocations: [homePort],
             // Include polar data if a yacht was selected
-            ...(selectedPolar ? {
-                polarData: selectedPolar.data,
-                polarBoatModel: selectedPolar.model,
-                polarSource_type: 'database' as const,
-            } : {}),
+            ...(selectedPolar
+                ? {
+                      polarData: selectedPolar.data,
+                      polarBoatModel: selectedPolar.model,
+                      polarSource_type: 'database' as const,
+                  }
+                : {}),
         };
 
         localStorage.setItem('thalassa_v3_onboarded', 'true');
@@ -296,7 +363,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                 <div className="fixed inset-0 z-[150] bg-slate-900 animate-in fade-in zoom-in-95 flex flex-col">
                     <div className="flex-1 relative">
                         <WeatherMap
-                            locationName={tempLocation?.name || "Select Home Port"}
+                            locationName={tempLocation?.name || 'Select Home Port'}
                             lat={tempLocation?.lat}
                             lon={tempLocation?.lon}
                             onLocationSelect={handleMapSelect}
@@ -326,7 +393,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                     className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-3 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 animate-in slide-in-from-bottom-4 transition-all hover:scale-105"
                                 >
                                     <MapPinIcon className="w-5 h-5" />
-                                    {tempLocation.name === 'Identifying...' ? 'Resolving Location...' : `Confirm: ${tempLocation.name}`}
+                                    {tempLocation.name === 'Identifying...'
+                                        ? 'Resolving Location...'
+                                        : `Confirm: ${tempLocation.name}`}
                                 </button>
                             ) : (
                                 <div className="bg-slate-900/90 text-white text-xs px-4 py-2 rounded-full border border-white/10 pointer-events-none shadow-lg text-center">
@@ -339,7 +408,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
             )}
 
             <div className="w-full max-w-lg relative">
-
                 {/* BACK BUTTON */}
                 {step > 1 && (
                     <button
@@ -362,11 +430,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                         <h1 className="text-3xl font-black text-white mb-6 tracking-tight drop-shadow-xl">
                             Thalassa
-                            <span className="block text-2xl font-light text-sky-400 mt-2 tracking-widest uppercase">Marine Weather</span>
+                            <span className="block text-2xl font-light text-sky-400 mt-2 tracking-widest uppercase">
+                                Marine Weather
+                            </span>
                         </h1>
 
                         <p className="text-lg text-slate-300 mb-12 max-w-sm mx-auto leading-relaxed font-light">
-                            Professional-grade forecasting for the modern mariner. Precision tools for safety and performance.
+                            Professional-grade forecasting for the modern mariner. Precision tools for safety and
+                            performance.
                         </p>
 
                         <button
@@ -399,7 +470,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                     onChange={(e) => setHomePort(e.target.value)}
                                     placeholder="e.g. Newport, RI"
                                     className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-12 py-4 text-white focus:border-sky-500 outline-none text-lg font-medium transition-colors"
-
                                 />
                                 <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500">
                                     <SearchIcon className="w-5 h-5" />
@@ -421,7 +491,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                         <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
                                     ) : (
                                         <>
-                                            <CompassIcon rotation={0} className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                                            <CompassIcon
+                                                rotation={0}
+                                                className="w-5 h-5 group-hover:scale-110 transition-transform"
+                                            />
                                             <span className="text-xs">Use GPS</span>
                                         </>
                                     )}
@@ -449,25 +522,62 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                 {/* STEP 3: VESSEL TYPE */}
                 {step === 3 && (
                     <div className="animate-in fade-in slide-in-from-right-8 duration-500">
-                        <h2 className="text-2xl font-bold text-white mb-6 text-center">What brings you to the water?</h2>
+                        <h2 className="text-2xl font-bold text-white mb-6 text-center">
+                            What brings you to the water?
+                        </h2>
                         <div className="grid grid-cols-1 gap-4 mb-8">
-                            <button onClick={() => setVesselType('sail')} className={`p-6 rounded-2xl border transition-all flex items-center gap-4 group ${vesselType === 'sail' ? 'bg-sky-500/20 border-sky-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}>
-                                <div className={`p-3 rounded-full ${vesselType === 'sail' ? 'bg-sky-500 text-white' : 'bg-white/10 text-gray-400'}`}><SailBoatIcon className="w-8 h-8" /></div>
-                                <div className="text-left"><span className="block text-lg font-bold text-white">Sailing</span><span className="text-sm text-gray-400">Wind-powered vessel</span></div>
+                            <button
+                                onClick={() => setVesselType('sail')}
+                                className={`p-6 rounded-2xl border transition-all flex items-center gap-4 group ${vesselType === 'sail' ? 'bg-sky-500/20 border-sky-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
+                            >
+                                <div
+                                    className={`p-3 rounded-full ${vesselType === 'sail' ? 'bg-sky-500 text-white' : 'bg-white/10 text-gray-400'}`}
+                                >
+                                    <SailBoatIcon className="w-8 h-8" />
+                                </div>
+                                <div className="text-left">
+                                    <span className="block text-lg font-bold text-white">Sailing</span>
+                                    <span className="text-sm text-gray-400">Wind-powered vessel</span>
+                                </div>
                                 {vesselType === 'sail' && <CheckIcon className="w-6 h-6 text-sky-500 ml-auto" />}
                             </button>
-                            <button onClick={() => setVesselType('power')} className={`p-6 rounded-2xl border transition-all flex items-center gap-4 group ${vesselType === 'power' ? 'bg-sky-500/20 border-sky-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}>
-                                <div className={`p-3 rounded-full ${vesselType === 'power' ? 'bg-sky-500 text-white' : 'bg-white/10 text-gray-400'}`}><PowerBoatIcon className="w-8 h-8" /></div>
-                                <div className="text-left"><span className="block text-lg font-bold text-white">Power Boating</span><span className="text-sm text-gray-400">Motor yacht or cruiser</span></div>
+                            <button
+                                onClick={() => setVesselType('power')}
+                                className={`p-6 rounded-2xl border transition-all flex items-center gap-4 group ${vesselType === 'power' ? 'bg-sky-500/20 border-sky-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
+                            >
+                                <div
+                                    className={`p-3 rounded-full ${vesselType === 'power' ? 'bg-sky-500 text-white' : 'bg-white/10 text-gray-400'}`}
+                                >
+                                    <PowerBoatIcon className="w-8 h-8" />
+                                </div>
+                                <div className="text-left">
+                                    <span className="block text-lg font-bold text-white">Power Boating</span>
+                                    <span className="text-sm text-gray-400">Motor yacht or cruiser</span>
+                                </div>
                                 {vesselType === 'power' && <CheckIcon className="w-6 h-6 text-sky-500 ml-auto" />}
                             </button>
-                            <button onClick={() => setVesselType('observer')} className={`p-6 rounded-2xl border transition-all flex items-center gap-4 group ${vesselType === 'observer' ? 'bg-sky-500/20 border-sky-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}>
-                                <div className={`p-3 rounded-full ${vesselType === 'observer' ? 'bg-sky-500 text-white' : 'bg-white/10 text-gray-400'}`}><EyeIcon className="w-8 h-8" /></div>
-                                <div className="text-left"><span className="block text-lg font-bold text-white">Observation</span><span className="text-sm text-gray-400">Surfing, fishing, or coastal watching</span></div>
+                            <button
+                                onClick={() => setVesselType('observer')}
+                                className={`p-6 rounded-2xl border transition-all flex items-center gap-4 group ${vesselType === 'observer' ? 'bg-sky-500/20 border-sky-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
+                            >
+                                <div
+                                    className={`p-3 rounded-full ${vesselType === 'observer' ? 'bg-sky-500 text-white' : 'bg-white/10 text-gray-400'}`}
+                                >
+                                    <EyeIcon className="w-8 h-8" />
+                                </div>
+                                <div className="text-left">
+                                    <span className="block text-lg font-bold text-white">Observation</span>
+                                    <span className="text-sm text-gray-400">Surfing, fishing, or coastal watching</span>
+                                </div>
                                 {vesselType === 'observer' && <CheckIcon className="w-6 h-6 text-sky-500 ml-auto" />}
                             </button>
                         </div>
-                        <button onClick={handleNext} className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all">Next</button>
+                        <button
+                            onClick={handleNext}
+                            className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
+                        >
+                            Next
+                        </button>
                     </div>
                 )}
 
@@ -478,13 +588,25 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                             <div className="text-center py-10">
                                 <SearchIcon className="w-16 h-16 text-gray-500 mx-auto mb-4" />
                                 <h2 className="text-xl font-bold text-white mb-2">Just Watching?</h2>
-                                <p className="text-gray-400 mb-8">Observers skip vessel setup. We'll optimize the display for general sea state conditions.</p>
-                                <button onClick={handleNext} className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all">Continue to Preferences</button>
+                                <p className="text-gray-400 mb-8">
+                                    Observers skip vessel setup. We'll optimize the display for general sea state
+                                    conditions.
+                                </p>
+                                <button
+                                    onClick={handleNext}
+                                    className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
+                                >
+                                    Continue to Preferences
+                                </button>
                             </div>
                         ) : (
                             <>
-                                <h2 className="text-2xl font-bold text-white mb-2 text-center">Tell us about your boat</h2>
-                                <p className="text-sm text-gray-400 text-center mb-6">Search our database or enter details manually.</p>
+                                <h2 className="text-2xl font-bold text-white mb-2 text-center">
+                                    Tell us about your boat
+                                </h2>
+                                <p className="text-sm text-gray-400 text-center mb-6">
+                                    Search our database or enter details manually.
+                                </p>
 
                                 {/* Yacht Database Search */}
                                 <div className="mb-6">
@@ -497,88 +619,240 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                                 <div className="space-y-6">
                                     <div>
-                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">Vessel Name</label>
-                                        <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Black Pearl" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-lg font-medium" />
+                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">
+                                            Vessel Name
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={name}
+                                            onChange={(e) => setName(e.target.value)}
+                                            placeholder="e.g. Black Pearl"
+                                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-lg font-medium"
+                                        />
                                     </div>
 
                                     {/* Hull Type */}
                                     <div>
-                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">Hull Type</label>
+                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">
+                                            Hull Type
+                                        </label>
                                         <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
-                                            {(['monohull', 'catamaran', 'trimaran'] as const).map(ht => (
-                                                <button key={ht} onClick={() => setHullType(ht)} className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${hullType === ht ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{ht === 'monohull' ? 'Mono' : ht === 'catamaran' ? 'Cat' : 'Tri'}</button>
+                                            {(['monohull', 'catamaran', 'trimaran'] as const).map((ht) => (
+                                                <button
+                                                    key={ht}
+                                                    onClick={() => setHullType(ht)}
+                                                    className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${hullType === ht ? 'bg-sky-500 text-white' : 'text-gray-500'}`}
+                                                >
+                                                    {ht === 'monohull' ? 'Mono' : ht === 'catamaran' ? 'Cat' : 'Tri'}
+                                                </button>
                                             ))}
                                         </div>
                                     </div>
 
                                     {/* Keel Type */}
                                     <div>
-                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">Keel Type</label>
+                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">
+                                            Keel Type
+                                        </label>
                                         <div className="grid grid-cols-3 bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
-                                            {(['fin', 'full', 'wing', 'skeg', 'centerboard', 'bilge'] as const).map(kt => (
-                                                <button key={kt} onClick={() => setKeelType(kt)} className={`py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${keelType === kt ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{kt === 'centerboard' ? 'C/Board' : kt}</button>
-                                            ))}
+                                            {(['fin', 'full', 'wing', 'skeg', 'centerboard', 'bilge'] as const).map(
+                                                (kt) => (
+                                                    <button
+                                                        key={kt}
+                                                        onClick={() => setKeelType(kt)}
+                                                        className={`py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${keelType === kt ? 'bg-sky-500 text-white' : 'text-gray-500'}`}
+                                                    >
+                                                        {kt === 'centerboard' ? 'C/Board' : kt}
+                                                    </button>
+                                                ),
+                                            )}
                                         </div>
                                     </div>
 
                                     {vesselType === 'sail' && (
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">Rigging Type</label>
+                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">
+                                                Rigging Type
+                                            </label>
                                             <select
                                                 value={riggingType}
-                                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setRiggingType(e.target.value as VesselProfile['riggingType'] & string)}
+                                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                                                    setRiggingType(
+                                                        e.target.value as VesselProfile['riggingType'] & string,
+                                                    )
+                                                }
                                                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none appearance-none"
                                             >
-                                                <option value="Sloop" className="bg-slate-900">Sloop</option>
-                                                <option value="Cutter" className="bg-slate-900">Cutter</option>
-                                                <option value="Ketch" className="bg-slate-900">Ketch</option>
-                                                <option value="Yawl" className="bg-slate-900">Yawl</option>
-                                                <option value="Schooner" className="bg-slate-900">Schooner</option>
-                                                <option value="Catboat" className="bg-slate-900">Catboat</option>
-                                                <option value="Solent" className="bg-slate-900">Solent</option>
-                                                <option value="Other" className="bg-slate-900">Other</option>
+                                                <option value="Sloop" className="bg-slate-900">
+                                                    Sloop
+                                                </option>
+                                                <option value="Cutter" className="bg-slate-900">
+                                                    Cutter
+                                                </option>
+                                                <option value="Ketch" className="bg-slate-900">
+                                                    Ketch
+                                                </option>
+                                                <option value="Yawl" className="bg-slate-900">
+                                                    Yawl
+                                                </option>
+                                                <option value="Schooner" className="bg-slate-900">
+                                                    Schooner
+                                                </option>
+                                                <option value="Catboat" className="bg-slate-900">
+                                                    Catboat
+                                                </option>
+                                                <option value="Solent" className="bg-slate-900">
+                                                    Solent
+                                                </option>
+                                                <option value="Other" className="bg-slate-900">
+                                                    Other
+                                                </option>
                                             </select>
                                         </div>
                                     )}
 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">Length <button onClick={toggleLengthUnit} className="text-sky-400 hover:text-white">{lengthUnit}</button></label>
-                                            <input type="number" value={length} onChange={(e) => setLength(e.target.value)} placeholder="0" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500" />
+                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">
+                                                Length{' '}
+                                                <button
+                                                    onClick={toggleLengthUnit}
+                                                    className="text-sky-400 hover:text-white"
+                                                >
+                                                    {lengthUnit}
+                                                </button>
+                                            </label>
+                                            <input
+                                                type="number"
+                                                value={length}
+                                                onChange={(e) => setLength(e.target.value)}
+                                                placeholder="0"
+                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500"
+                                            />
                                         </div>
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">Beam <button onClick={toggleBeamUnit} className="text-sky-400 hover:text-white">{beamUnit}</button></label>
-                                            <input type="number" value={beam} onChange={(e) => setBeam(e.target.value)} placeholder="Auto" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500" />
+                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">
+                                                Beam{' '}
+                                                <button
+                                                    onClick={toggleBeamUnit}
+                                                    className="text-sky-400 hover:text-white"
+                                                >
+                                                    {beamUnit}
+                                                </button>
+                                            </label>
+                                            <input
+                                                type="number"
+                                                value={beam}
+                                                onChange={(e) => setBeam(e.target.value)}
+                                                placeholder="Auto"
+                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500"
+                                            />
                                         </div>
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">Draft <button onClick={toggleDraftUnit} className="text-sky-400 hover:text-white">{draftUnit}</button></label>
-                                            <input type="number" value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Auto" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500" />
+                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">
+                                                Draft{' '}
+                                                <button
+                                                    onClick={toggleDraftUnit}
+                                                    className="text-sky-400 hover:text-white"
+                                                >
+                                                    {draftUnit}
+                                                </button>
+                                            </label>
+                                            <input
+                                                type="number"
+                                                value={draft}
+                                                onChange={(e) => setDraft(e.target.value)}
+                                                placeholder="Auto"
+                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500"
+                                            />
                                         </div>
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">Displacement <button onClick={toggleDispUnit} className="text-sky-400 hover:text-white">{dispUnit}</button></label>
-                                            <input type="number" value={displacement} onChange={(e) => setDisplacement(e.target.value)} placeholder="Auto" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500" />
+                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">
+                                                Displacement{' '}
+                                                <button
+                                                    onClick={toggleDispUnit}
+                                                    className="text-sky-400 hover:text-white"
+                                                >
+                                                    {dispUnit}
+                                                </button>
+                                            </label>
+                                            <input
+                                                type="number"
+                                                value={displacement}
+                                                onChange={(e) => setDisplacement(e.target.value)}
+                                                placeholder="Auto"
+                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500"
+                                            />
                                         </div>
                                     </div>
 
                                     {/* Air Draft */}
                                     <div>
-                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">Air Draft <button onClick={toggleAirDraftUnit} className="text-sky-400 hover:text-white">{airDraftUnit}</button></label>
-                                        <input type="number" value={airDraft} onChange={(e) => setAirDraft(e.target.value)} placeholder="Height above waterline" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500" />
-                                        <p className="text-[11px] text-gray-500 mt-1">Used for bridge clearance on routes</p>
+                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">
+                                            Air Draft{' '}
+                                            <button
+                                                onClick={toggleAirDraftUnit}
+                                                className="text-sky-400 hover:text-white"
+                                            >
+                                                {airDraftUnit}
+                                            </button>
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={airDraft}
+                                            onChange={(e) => setAirDraft(e.target.value)}
+                                            placeholder="Height above waterline"
+                                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500"
+                                        />
+                                        <p className="text-[11px] text-gray-500 mt-1">
+                                            Used for bridge clearance on routes
+                                        </p>
                                     </div>
 
                                     {/* Tankage */}
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center"><span className="flex items-center gap-1"><GearIcon className="w-3 h-3 text-amber-400" /> Fuel</span> <button onClick={() => setVolUnit(u => u === 'gal' ? 'l' : 'gal')} className="text-sky-400 hover:text-white uppercase">{volUnit}</button></label>
-                                            <input type="number" value={fuel} onChange={(e) => setFuel(e.target.value)} placeholder="0" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono" />
+                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
+                                                <span className="flex items-center gap-1">
+                                                    <GearIcon className="w-3 h-3 text-amber-400" /> Fuel
+                                                </span>{' '}
+                                                <button
+                                                    onClick={() => setVolUnit((u) => (u === 'gal' ? 'l' : 'gal'))}
+                                                    className="text-sky-400 hover:text-white uppercase"
+                                                >
+                                                    {volUnit}
+                                                </button>
+                                            </label>
+                                            <input
+                                                type="number"
+                                                value={fuel}
+                                                onChange={(e) => setFuel(e.target.value)}
+                                                placeholder="0"
+                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono"
+                                            />
                                         </div>
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center"><span className="flex items-center gap-1"><DropletIcon className="w-3 h-3 text-sky-400" /> Water</span> <button onClick={() => setVolUnit(u => u === 'gal' ? 'l' : 'gal')} className="text-sky-400 hover:text-white uppercase">{volUnit}</button></label>
-                                            <input type="number" value={water} onChange={(e) => setWater(e.target.value)} placeholder="0" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono" />
+                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
+                                                <span className="flex items-center gap-1">
+                                                    <DropletIcon className="w-3 h-3 text-sky-400" /> Water
+                                                </span>{' '}
+                                                <button
+                                                    onClick={() => setVolUnit((u) => (u === 'gal' ? 'l' : 'gal'))}
+                                                    className="text-sky-400 hover:text-white uppercase"
+                                                >
+                                                    {volUnit}
+                                                </button>
+                                            </label>
+                                            <input
+                                                type="number"
+                                                value={water}
+                                                onChange={(e) => setWater(e.target.value)}
+                                                placeholder="0"
+                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono"
+                                            />
                                         </div>
                                     </div>
 
@@ -587,11 +861,26 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                         <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex items-center gap-1">
                                             <AnchorIcon className="w-3 h-3 text-sky-400" /> Crew Aboard (incl. Captain)
                                         </label>
-                                        <input type="number" min="1" max="99" value={crewCount} onChange={(e) => setCrewCount(e.target.value)} placeholder="2" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono" />
-                                        <p className="text-[11px] text-gray-500 mt-1">Used for provisioning and watch schedules</p>
+                                        <input
+                                            type="number"
+                                            min="1"
+                                            max="99"
+                                            value={crewCount}
+                                            onChange={(e) => setCrewCount(e.target.value)}
+                                            placeholder="2"
+                                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono"
+                                        />
+                                        <p className="text-[11px] text-gray-500 mt-1">
+                                            Used for provisioning and watch schedules
+                                        </p>
                                     </div>
                                 </div>
-                                <button onClick={handleNext} className="w-full mt-8 bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all">Next</button>
+                                <button
+                                    onClick={handleNext}
+                                    className="w-full mt-8 bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
+                                >
+                                    Next
+                                </button>
                             </>
                         )}
                     </div>
@@ -607,7 +896,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                 <span className="text-gray-300 font-medium">Wind Speed</span>
                                 <div className="flex bg-black/20 rounded-lg p-1">
                                     {['kts', 'mph', 'kmh'].map((u) => (
-                                        <button key={u} onClick={() => setPrefSpeed(u as SpeedUnit)} className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefSpeed === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
+                                        <button
+                                            key={u}
+                                            onClick={() => setPrefSpeed(u as SpeedUnit)}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefSpeed === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}
+                                        >
+                                            {u}
+                                        </button>
                                     ))}
                                 </div>
                             </div>
@@ -617,7 +912,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                 <span className="text-gray-300 font-medium">Seas (Wave Height)</span>
                                 <div className="flex bg-black/20 rounded-lg p-1">
                                     {['m', 'ft'].map((u) => (
-                                        <button key={u} onClick={() => setPrefWaveHeight(u as LengthUnit)} className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefWaveHeight === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
+                                        <button
+                                            key={u}
+                                            onClick={() => setPrefWaveHeight(u as LengthUnit)}
+                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefWaveHeight === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}
+                                        >
+                                            {u}
+                                        </button>
                                     ))}
                                 </div>
                             </div>
@@ -627,7 +928,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                 <span className="text-gray-300 font-medium">Tide Height / Length</span>
                                 <div className="flex bg-black/20 rounded-lg p-1">
                                     {['m', 'ft'].map((u) => (
-                                        <button key={u} onClick={() => setPrefLength(u as LengthUnit)} className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefLength === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
+                                        <button
+                                            key={u}
+                                            onClick={() => setPrefLength(u as LengthUnit)}
+                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefLength === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}
+                                        >
+                                            {u}
+                                        </button>
                                     ))}
                                 </div>
                             </div>
@@ -636,7 +943,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                 <span className="text-gray-300 font-medium">Temperature</span>
                                 <div className="flex bg-black/20 rounded-lg p-1">
                                     {['C', 'F'].map((u) => (
-                                        <button key={u} onClick={() => setPrefTemp(u as TempUnit)} className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefTemp === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
+                                        <button
+                                            key={u}
+                                            onClick={() => setPrefTemp(u as TempUnit)}
+                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefTemp === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}
+                                        >
+                                            {u}
+                                        </button>
                                     ))}
                                 </div>
                             </div>
@@ -644,14 +957,22 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                 <span className="text-gray-300 font-medium">Distance</span>
                                 <div className="flex bg-black/20 rounded-lg p-1">
                                     {['nm', 'mi', 'km'].map((u) => (
-                                        <button key={u} onClick={() => setPrefDist(u as DistanceUnit)} className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefDist === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}>{u}</button>
+                                        <button
+                                            key={u}
+                                            onClick={() => setPrefDist(u as DistanceUnit)}
+                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefDist === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}
+                                        >
+                                            {u}
+                                        </button>
                                     ))}
                                 </div>
                             </div>
                         </div>
 
-
-                        <button onClick={handleFinish} className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20">
+                        <button
+                            onClick={handleFinish}
+                            className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20"
+                        >
                             Launch Dashboard
                         </button>
                     </div>
@@ -659,8 +980,11 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                 {/* Progress Dots */}
                 <div className="flex justify-center gap-2 mt-8">
-                    {[1, 2, 3, 4, 5].map(i => (
-                        <div key={i} className={`w-2 h-2 rounded-full transition-all ${step >= i ? 'bg-sky-500 w-4' : 'bg-gray-700'}`}></div>
+                    {[1, 2, 3, 4, 5].map((i) => (
+                        <div
+                            key={i}
+                            className={`w-2 h-2 rounded-full transition-all ${step >= i ? 'bg-sky-500 w-4' : 'bg-gray-700'}`}
+                        ></div>
                     ))}
                 </div>
             </div>

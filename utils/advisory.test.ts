@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { generateTacticalAdvice } from './advisory';
 import { WeatherMetrics, VesselProfile } from '../types';
 
@@ -18,7 +18,7 @@ const MOCK_METRICS: WeatherMetrics = {
     dewPoint: 15,
     windGust: 7,
     swellPeriod: 6,
-    description: "Mock Description"
+    description: 'Mock Description',
 };
 
 const MOCK_VESSEL: VesselProfile = {
@@ -30,38 +30,38 @@ const MOCK_VESSEL: VesselProfile = {
     beam: 3,
     maxWindSpeed: 25,
     maxWaveHeight: 8,
-    cruisingSpeed: 6
+    cruisingSpeed: 6,
 };
 
 describe('generateTacticalAdvice', () => {
     it('should generate "Good" advice for calm conditions', () => {
-        const advice = generateTacticalAdvice(MOCK_METRICS, false, "Test Loc", MOCK_VESSEL);
-        expect(advice).toContain("Conditions are excellent");
+        const advice = generateTacticalAdvice(MOCK_METRICS, false, 'Test Loc', MOCK_VESSEL);
+        expect(advice).toContain('Conditions are excellent');
     });
 
     it('should warn when wind exceeds vessel limits', () => {
         const highWind = { ...MOCK_METRICS, windSpeed: 26 }; // > maxWindSpeed (25)
-        const advice = generateTacticalAdvice(highWind, false, "Test Loc", MOCK_VESSEL);
-        expect(advice).toContain("CRITICAL: Winds > 25kts exceed safety limits");
+        const advice = generateTacticalAdvice(highWind, false, 'Test Loc', MOCK_VESSEL);
+        expect(advice).toContain('CRITICAL: Winds > 25kts exceed safety limits');
     });
 
     it('should warn when waves exceed vessel limits', () => {
         const bigWeaves = { ...MOCK_METRICS, waveHeight: 9 }; // > maxWaveHeight (8)
-        const advice = generateTacticalAdvice(bigWeaves, false, "Test Loc", MOCK_VESSEL);
-        expect(advice).toContain("DANGER: Seas > 8ft exceed handling limits");
+        const advice = generateTacticalAdvice(bigWeaves, false, 'Test Loc', MOCK_VESSEL);
+        expect(advice).toContain('DANGER: Seas > 8ft exceed handling limits');
     });
 
     it('should provide specific advice for "landlocked" locations', () => {
         // Landlocked implies no waves usually, but function logic might just omit sea state
-        const advice = generateTacticalAdvice(MOCK_METRICS, true, "Mountain Lake", MOCK_VESSEL);
-        expect(advice).not.toContain("Seas are flat"); // Should skip sea state block check
-        expect(advice).toContain("Mountain Lake");
+        const advice = generateTacticalAdvice(MOCK_METRICS, true, 'Mountain Lake', MOCK_VESSEL);
+        expect(advice).not.toContain('Seas are flat'); // Should skip sea state block check
+        expect(advice).toContain('Mountain Lake');
     });
 
     it('should warn about fog when visibility is low', () => {
         const fogMetrics = { ...MOCK_METRICS, visibility: 0.5 };
-        const advice = generateTacticalAdvice(fogMetrics, false, "Foggy Bay", MOCK_VESSEL);
-        expect(advice).toContain("Fog banks reported");
+        const advice = generateTacticalAdvice(fogMetrics, false, 'Foggy Bay', MOCK_VESSEL);
+        expect(advice).toContain('Fog banks reported');
     });
 
     it('should generate sunset warnings if late', () => {
@@ -69,8 +69,8 @@ describe('generateTacticalAdvice', () => {
         const date = new Date(2000, 1, 1, 17, 0, 0);
         vi.setSystemTime(date);
 
-        const advice = generateTacticalAdvice(MOCK_METRICS, false, "Test", MOCK_VESSEL, [], "18:00");
-        expect(advice).toContain("Sunset at 18:00");
+        const advice = generateTacticalAdvice(MOCK_METRICS, false, 'Test', MOCK_VESSEL, [], '18:00');
+        expect(advice).toContain('Sunset at 18:00');
 
         vi.useRealTimers();
     });

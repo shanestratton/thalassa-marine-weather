@@ -15,7 +15,7 @@
 
 import React, { useMemo } from 'react';
 import type { TrackPoint, GhostShipState } from '../../types/spatiotemporal';
-import { FONT, SIZE, LABEL_STYLE, DATA_STYLE, FOOTNOTE_STYLE } from '../../styles/typeScale';
+import { FONT, SIZE, LABEL_STYLE, DATA_STYLE } from '../../styles/typeScale';
 import '../../styles/bioluminescent.css';
 
 // ── Colour Tokens ───────────────────────────────────────────────────
@@ -53,8 +53,13 @@ interface SparklinePathProps {
 }
 
 const SparklinePath: React.FC<SparklinePathProps> = ({
-    track, dataKey, maxVal, height = 40, color,
-    threshold, cursorFraction,
+    track,
+    dataKey,
+    maxVal,
+    height = 40,
+    color,
+    threshold,
+    cursorFraction,
 }) => {
     const pathD = useMemo(() => {
         if (!track.length || maxVal === 0) return '';
@@ -78,13 +83,9 @@ const SparklinePath: React.FC<SparklinePathProps> = ({
         return `M 0,${height} L ${points.join(' L ')} L 100,${height} Z`;
     }, [track, dataKey, maxVal, height]);
 
-    const thresholdY = threshold !== undefined
-        ? height - (threshold / maxVal) * height
-        : null;
+    const thresholdY = threshold !== undefined ? height - (threshold / maxVal) * height : null;
 
-    const cursorX = cursorFraction !== undefined
-        ? cursorFraction * 100
-        : null;
+    const cursorX = cursorFraction !== undefined ? cursorFraction * 100 : null;
 
     return (
         <svg
@@ -94,37 +95,55 @@ const SparklinePath: React.FC<SparklinePathProps> = ({
         >
             <path d={areaD} fill={color} opacity={0.08} />
             <path
-                d={pathD} fill="none" stroke={color} strokeWidth="1.5"
+                d={pathD}
+                fill="none"
+                stroke={color}
+                strokeWidth="1.5"
                 vectorEffect="non-scaling-stroke"
                 style={{ filter: `drop-shadow(0px 0px 3px ${color})` }}
             />
             {thresholdY !== null && (
-                <line x1="0" y1={thresholdY} x2="100" y2={thresholdY}
-                    stroke={C.warning} strokeDasharray="2 2"
-                    vectorEffect="non-scaling-stroke" opacity={0.5}
+                <line
+                    x1="0"
+                    y1={thresholdY}
+                    x2="100"
+                    y2={thresholdY}
+                    stroke={C.warning}
+                    strokeDasharray="2 2"
+                    vectorEffect="non-scaling-stroke"
+                    opacity={0.5}
                 />
             )}
             {cursorX !== null && (
                 <>
-                    <line x1={cursorX} y1={0} x2={cursorX} y2={height}
-                        stroke="rgba(255, 255, 255, 0.35)" strokeWidth="1"
-                        vectorEffect="non-scaling-stroke" strokeDasharray="3 3"
+                    <line
+                        x1={cursorX}
+                        y1={0}
+                        x2={cursorX}
+                        y2={height}
+                        stroke="rgba(255, 255, 255, 0.35)"
+                        strokeWidth="1"
+                        vectorEffect="non-scaling-stroke"
+                        strokeDasharray="3 3"
                     />
-                    {track.length > 1 && (() => {
-                        const idx = Math.min(
-                            Math.floor(cursorFraction! * (track.length - 1)),
-                            track.length - 1
-                        );
-                        const val = track[idx].conditions[dataKey] ?? 0;
-                        const dotY = height - (val / maxVal) * height;
-                        return (
-                            <circle cx={cursorX} cy={dotY} r="2.5"
-                                fill={color} stroke="white" strokeWidth="0.8"
-                                vectorEffect="non-scaling-stroke"
-                                style={{ filter: `drop-shadow(0px 0px 4px ${color})` }}
-                            />
-                        );
-                    })()}
+                    {track.length > 1 &&
+                        (() => {
+                            const idx = Math.min(Math.floor(cursorFraction! * (track.length - 1)), track.length - 1);
+                            const val = track[idx].conditions[dataKey] ?? 0;
+                            const dotY = height - (val / maxVal) * height;
+                            return (
+                                <circle
+                                    cx={cursorX}
+                                    cy={dotY}
+                                    r="2.5"
+                                    fill={color}
+                                    stroke="white"
+                                    strokeWidth="0.8"
+                                    vectorEffect="non-scaling-stroke"
+                                    style={{ filter: `drop-shadow(0px 0px 4px ${color})` }}
+                                />
+                            );
+                        })()}
                 </>
             )}
         </svg>
@@ -145,15 +164,19 @@ interface PassageHUDProps {
 }
 
 const PassageHUD: React.FC<PassageHUDProps> = ({
-    track, ghostShip, currentTimeHours,
-    totalDistanceNM, totalDurationHours, costScore,
+    track,
+    ghostShip,
+    currentTimeHours,
+    totalDistanceNM,
+    totalDurationHours,
+    costScore,
 }) => {
     const peaks = useMemo(() => {
         if (!track || track.length < 2) return { wind: 0, wave: 0, depth: 0 };
         return {
-            wind: Math.max(...track.map(t => t.conditions.wind_spd_kts)),
-            wave: Math.max(...track.map(t => t.conditions.wave_ht_m)),
-            depth: Math.max(...track.map(t => Math.abs(t.conditions.depth_m ?? 0))),
+            wind: Math.max(...track.map((t) => t.conditions.wind_spd_kts)),
+            wave: Math.max(...track.map((t) => t.conditions.wave_ht_m)),
+            depth: Math.max(...track.map((t) => Math.abs(t.conditions.depth_m ?? 0))),
         };
     }, [track]);
 
@@ -170,47 +193,60 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
     const waveColor = semanticColor(c?.wave_ht_m ?? 0, 2, 3);
 
     return (
-        <div className="bio-animate-in" style={{
-            background: 'rgba(15, 23, 42, 0.85)',
+        <div
+            className="bio-animate-in"
+            style={{
+                background: 'rgba(15, 23, 42, 0.85)',
 
-
-            border: '1px solid rgba(255, 255, 255, 0.08)',
-            borderRadius: 16,
-            borderTopLeftRadius: 0,
-            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
-            width: 280,
-            padding: '14px 16px',
-            pointerEvents: 'auto',
-            color: C.text,
-        }}>
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: 16,
+                borderTopLeftRadius: 0,
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
+                width: 280,
+                padding: '14px 16px',
+                pointerEvents: 'auto',
+                color: C.text,
+            }}
+        >
             {/* ── HEADER ── */}
-            <h2 style={{
-                fontFamily: FONT.ui,
-                fontWeight: 600,
-                fontSize: SIZE.body,
-                letterSpacing: '0.1em',
-                textTransform: 'uppercase',
-                color: C.textMuted,
-                marginBottom: 12,
-                paddingBottom: 8,
-                borderBottom: `1px solid ${C.divider}`,
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-            }}>
+            <h2
+                style={{
+                    fontFamily: FONT.ui,
+                    fontWeight: 600,
+                    fontSize: SIZE.body,
+                    letterSpacing: '0.1em',
+                    textTransform: 'uppercase',
+                    color: C.textMuted,
+                    marginBottom: 12,
+                    paddingBottom: 8,
+                    borderBottom: `1px solid ${C.divider}`,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                }}
+            >
                 <span>Passage Telemetry</span>
-                <div style={{
-                    display: 'flex', alignItems: 'center', gap: 5,
-                    padding: '2px 8px',
-                    fontSize: SIZE.xs,
-                    fontWeight: 700, letterSpacing: '0.12em',
-                    color: C.primary,
-                }}>
-                    <div style={{
-                        width: 5, height: 5, borderRadius: '50%',
-                        background: C.primary,
-                        boxShadow: `0 0 6px ${C.primary}`,
-                    }} />
+                <div
+                    style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        padding: '2px 8px',
+                        fontSize: SIZE.xs,
+                        fontWeight: 700,
+                        letterSpacing: '0.12em',
+                        color: C.primary,
+                    }}
+                >
+                    <div
+                        style={{
+                            width: 5,
+                            height: 5,
+                            borderRadius: '50%',
+                            background: C.primary,
+                            boxShadow: `0 0 6px ${C.primary}`,
+                        }}
+                    />
                     LIVE
                 </div>
             </h2>
@@ -227,9 +263,7 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
                 <div style={{ textAlign: 'right' }}>
                     <div style={LABEL_STYLE}>DURATION</div>
                     <div style={{ ...DATA_STYLE, fontSize: SIZE.display, color: C.text }}>
-                        {totalDurationHours
-                            ? `${(totalDurationHours / 24).toFixed(1)}`
-                            : '—'}
+                        {totalDurationHours ? `${(totalDurationHours / 24).toFixed(1)}` : '—'}
                         <span style={{ fontSize: SIZE.caption, opacity: 0.4, marginLeft: 2 }}>DAYS</span>
                     </div>
                 </div>
@@ -237,11 +271,15 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
 
             {/* ── LIVE TELEMETRY ROW ── */}
             {ghostShip && c && (
-                <div style={{
-                    display: 'flex', gap: 14,
-                    marginBottom: 10, paddingBottom: 8,
-                    borderBottom: `1px solid ${C.dividerSubtle}`,
-                }}>
+                <div
+                    style={{
+                        display: 'flex',
+                        gap: 14,
+                        marginBottom: 10,
+                        paddingBottom: 8,
+                        borderBottom: `1px solid ${C.dividerSubtle}`,
+                    }}
+                >
                     <div>
                         <div style={LABEL_STYLE}>BRG</div>
                         <div style={{ ...DATA_STYLE, fontSize: SIZE.title, color: C.primary }}>
@@ -257,20 +295,28 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
                     </div>
                     <div>
                         <div style={LABEL_STYLE}>WIND</div>
-                        <div style={{
-                            ...DATA_STYLE, fontSize: SIZE.title, color: windColor,
-                            textShadow: windColor !== C.primary ? `0 0 8px ${windColor}55` : 'none',
-                        }}>
+                        <div
+                            style={{
+                                ...DATA_STYLE,
+                                fontSize: SIZE.title,
+                                color: windColor,
+                                textShadow: windColor !== C.primary ? `0 0 8px ${windColor}55` : 'none',
+                            }}
+                        >
                             {c.wind_spd_kts.toFixed(1)}
                             <span style={{ fontSize: SIZE.xs, opacity: 0.4 }}>kts</span>
                         </div>
                     </div>
                     <div>
                         <div style={LABEL_STYLE}>WAVE</div>
-                        <div style={{
-                            ...DATA_STYLE, fontSize: SIZE.title, color: waveColor,
-                            textShadow: waveColor !== C.primary ? `0 0 8px ${waveColor}55` : 'none',
-                        }}>
+                        <div
+                            style={{
+                                ...DATA_STYLE,
+                                fontSize: SIZE.title,
+                                color: waveColor,
+                                textShadow: waveColor !== C.primary ? `0 0 8px ${waveColor}55` : 'none',
+                            }}
+                        >
                             {c.wave_ht_m.toFixed(1)}
                             <span style={{ fontSize: SIZE.xs, opacity: 0.4 }}>m</span>
                         </div>
@@ -280,53 +326,75 @@ const PassageHUD: React.FC<PassageHUDProps> = ({
 
             {/* ═══ WIND SPARKLINE ═══ */}
             <div style={{ marginBottom: 4 }}>
-                <div style={{
-                    display: 'flex', justifyContent: 'space-between',
-                    ...DATA_STYLE, fontSize: SIZE.caption, color: C.label,
-                    marginBottom: 2,
-                }}>
+                <div
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        ...DATA_STYLE,
+                        fontSize: SIZE.caption,
+                        color: C.label,
+                        marginBottom: 2,
+                    }}
+                >
                     <span>WIND (KTS)</span>
                     <span style={{ color: C.textMuted }}>PEAK: {peaks.wind.toFixed(1)}</span>
                 </div>
                 <SparklinePath
-                    track={track} dataKey="wind_spd_kts"
-                    maxVal={Math.max(peaks.wind, 35)} color={C.primary}
-                    threshold={25} cursorFraction={cursorFraction}
+                    track={track}
+                    dataKey="wind_spd_kts"
+                    maxVal={Math.max(peaks.wind, 35)}
+                    color={C.primary}
+                    threshold={25}
+                    cursorFraction={cursorFraction}
                 />
             </div>
 
             {/* ═══ WAVE SPARKLINE ═══ */}
             <div style={{ marginBottom: 8 }}>
-                <div style={{
-                    display: 'flex', justifyContent: 'space-between',
-                    ...DATA_STYLE, fontSize: SIZE.caption, color: C.label,
-                    marginBottom: 2,
-                }}>
+                <div
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        ...DATA_STYLE,
+                        fontSize: SIZE.caption,
+                        color: C.label,
+                        marginBottom: 2,
+                    }}
+                >
                     <span>WAVES (M)</span>
                     <span style={{ color: C.textMuted }}>PEAK: {peaks.wave.toFixed(1)}</span>
                 </div>
                 <SparklinePath
-                    track={track} dataKey="wave_ht_m"
-                    maxVal={Math.max(peaks.wave, 4)} color={C.primary}
-                    threshold={2.5} cursorFraction={cursorFraction}
+                    track={track}
+                    dataKey="wave_ht_m"
+                    maxVal={Math.max(peaks.wave, 4)}
+                    color={C.primary}
+                    threshold={2.5}
+                    cursorFraction={cursorFraction}
                 />
             </div>
 
             {/* ═══ COST SCORE ═══ */}
-            <div style={{
-                display: 'flex', justifyContent: 'space-between',
-                alignItems: 'flex-end', paddingTop: 8,
-                borderTop: `1px solid ${C.divider}`,
-            }}>
+            <div
+                style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-end',
+                    paddingTop: 8,
+                    borderTop: `1px solid ${C.divider}`,
+                }}
+            >
                 <span style={LABEL_STYLE}>ROUTE COST</span>
-                <span style={{
-                    ...DATA_STYLE,
-                    fontSize: SIZE.hero,
-                    fontWeight: 700,
-                    color: C.primary,
-                    filter: `drop-shadow(0 0 8px ${C.primaryGlow})`,
-                    letterSpacing: '0.03em',
-                }}>
+                <span
+                    style={{
+                        ...DATA_STYLE,
+                        fontSize: SIZE.hero,
+                        fontWeight: 700,
+                        color: C.primary,
+                        filter: `drop-shadow(0 0 8px ${C.primaryGlow})`,
+                        letterSpacing: '0.03em',
+                    }}
+                >
                     {costScore?.toFixed(1) ?? '—'}
                 </span>
             </div>

@@ -1,14 +1,14 @@
 /**
  * Ship's Log Service
  * Automatic GPS-based logging for maritime navigation
- * 
+ *
  * Features:
  * - 15-minute automatic position tracking
  * - Distance/speed calculations (Haversine formula)
  * - Weather snapshots per entry
  * - Auto-pause when anchored (no movement for 1 hour)
  * - Manual entry support
- * 
+ *
  * GPS Engine: @transistorsoft/capacitor-background-geolocation (Premium)
  * - Bulletproof background tracking (survives app kill, screen lock)
  * - Native SQLite persistence (zero data loss on crash)
@@ -27,12 +27,23 @@ import { createLogger } from '../utils/logger';
 
 // --- Extracted modules ---
 import {
-    calculateDistanceNM, calculateBearing, formatPositionDMS,
-    getNextQuarterHour, toDbFormat, fromDbFormat,
-    getWeatherSnapshot, determineLoggingZone, getIntervalForZone, getZoneLabel,
+    calculateDistanceNM,
+    calculateBearing,
+    formatPositionDMS,
+    getNextQuarterHour,
+    toDbFormat,
+    fromDbFormat,
+    getWeatherSnapshot,
+    determineLoggingZone,
+    getIntervalForZone,
+    getZoneLabel,
     getIntervalForSpeed,
-    SHIP_LOGS_TABLE, NEARSHORE_INTERVAL_MS, COASTAL_INTERVAL_MS, OFFSHORE_INTERVAL_MS,
-    type LoggingZone, type SpeedTier,
+    SHIP_LOGS_TABLE,
+    NEARSHORE_INTERVAL_MS,
+    COASTAL_INTERVAL_MS,
+    OFFSHORE_INTERVAL_MS,
+    type LoggingZone,
+    type SpeedTier,
 } from './shiplog/helpers';
 import { GpsTrackBuffer, thinTrack, bearing, headingDelta } from './shiplog/GpsTrackBuffer';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
@@ -178,8 +189,25 @@ class ShipLogServiceClass {
      * N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW
      */
     private static degreesToCardinal16(deg: number): string {
-        const cardinals = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
-        const index = Math.round(((deg % 360) + 360) % 360 / 22.5) % 16;
+        const cardinals = [
+            'N',
+            'NNE',
+            'NE',
+            'ENE',
+            'E',
+            'ESE',
+            'SE',
+            'SSE',
+            'S',
+            'SSW',
+            'SW',
+            'WSW',
+            'W',
+            'WNW',
+            'NW',
+            'NNW',
+        ];
+        const index = Math.round((((deg % 360) + 360) % 360) / 22.5) % 16;
         return cardinals[index];
     }
 
@@ -193,13 +221,13 @@ class ShipLogServiceClass {
                 this.trackingState = JSON.parse(value);
 
                 // STALE STATE DETECTION: If tracking was left on from a previous app session
-                // but no interval is running (intervalId is undefined on cold start), 
+                // but no interval is running (intervalId is undefined on cold start),
                 // this means the app was force-closed while tracking.
                 //
                 // Behavior depends on autoTrackEnabled:
                 // - OFF: Reset to stopped state so the Start button shows correctly.
                 // - ON:  Auto-resume the voyage (handled by autoStartIfEnabled called from App.tsx)
-                // 
+                //
                 // IMPORTANT: When navigating between pages within an active session,
                 // intervalId WILL be set, so this won't affect active tracking.
                 if (this.trackingState.isTracking && !this.trackingState.isPaused && !this.intervalId) {
@@ -211,7 +239,7 @@ class ShipLogServiceClass {
                         // Preserve voyage info so autoStartIfEnabled can decide to resume or start fresh
                         currentVoyageId: this.trackingState.currentVoyageId,
                         voyageStartTime: this.trackingState.voyageStartTime,
-                        voyageEndTime: this.trackingState.voyageEndTime || new Date().toISOString()
+                        voyageEndTime: this.trackingState.voyageEndTime || new Date().toISOString(),
                     };
                     await this.saveTrackingState();
                 }
@@ -234,12 +262,15 @@ class ShipLogServiceClass {
             // WEB FALLBACK: Also listen for browser visibility changes (for PWA/web)
             if (typeof document !== 'undefined') {
                 document.addEventListener('visibilitychange', async () => {
-                    if (document.visibilityState === 'visible' && this.trackingState.isTracking && !this.trackingState.isPaused) {
+                    if (
+                        document.visibilityState === 'visible' &&
+                        this.trackingState.isTracking &&
+                        !this.trackingState.isPaused
+                    ) {
                         await this.checkMissedEntries();
                     }
                 });
             }
-
         } catch (error) {
             log.error('initialize failed', error);
         }
@@ -331,21 +362,23 @@ class ShipLogServiceClass {
         const { nextTime, msUntil } = getNextQuarterHour();
 
         this.quarterTimeoutId = setTimeout(() => {
-            this.captureLogEntry().then(entry => {
-                if (entry) {
-                } else {
-                }
-            }).catch(err => {
-            });
-
-            // Start regular interval
-            this.intervalId = setInterval(() => {
-                this.captureLogEntry().then(entry => {
+            this.captureLogEntry()
+                .then((entry) => {
                     if (entry) {
                     } else {
                     }
-                }).catch(err => {
-                });
+                })
+                .catch((err) => {});
+
+            // Start regular interval
+            this.intervalId = setInterval(() => {
+                this.captureLogEntry()
+                    .then((entry) => {
+                        if (entry) {
+                        } else {
+                        }
+                    })
+                    .catch((err) => {});
             }, TRACKING_INTERVAL_MS);
         }, msUntil);
     }
@@ -407,18 +440,17 @@ class ShipLogServiceClass {
         const msToNext = intervalMs - (now % intervalMs);
         const nextMark = new Date(now + msToNext);
 
-
         // Wait until the next clock-aligned mark, then fire
         this.quarterTimeoutId = setTimeout(() => {
-            this.flushBufferedTrack().then(() => {
-            }).catch(err => {
-            });
+            this.flushBufferedTrack()
+                .then(() => {})
+                .catch((err) => {});
 
             // Now setInterval for every subsequent mark
             this.intervalId = setInterval(() => {
-                this.flushBufferedTrack().then(() => {
-                }).catch(err => {
-                });
+                this.flushBufferedTrack()
+                    .then(() => {})
+                    .catch((err) => {});
             }, intervalMs);
         }, msToNext) as unknown as ReturnType<typeof setInterval>;
     }
@@ -463,8 +495,8 @@ class ShipLogServiceClass {
             isPaused: false,
             isRapidMode: false, // Start in normal mode, user can activate rapid via long-press
             currentVoyageId: voyageId,
-            voyageStartTime: (resume || continueVoyageId) ? this.trackingState.voyageStartTime : new Date().toISOString(),
-            lastMovementTime: new Date().toISOString()
+            voyageStartTime: resume || continueVoyageId ? this.trackingState.voyageStartTime : new Date().toISOString(),
+            lastMovementTime: new Date().toISOString(),
         };
 
         await this.saveTrackingState();
@@ -477,7 +509,7 @@ class ShipLogServiceClass {
 
         // IMMEDIATE ENTRY: Fire-and-forget — GPS acquisition runs in background
         // so the UI is not blocked by the 3s GPS warm-up loop.
-        this.captureImmediateEntry().catch(() => { });
+        this.captureImmediateEntry().catch(() => {});
 
         // Reset position-based bearing tracker for new voyage
         this.lastValidPos = null;
@@ -497,7 +529,7 @@ class ShipLogServiceClass {
         this.scheduleClockAlignedInterval(initialInterval, initialZone);
 
         // Kick off async zone refinement in the background — won't block UI
-        this.rescheduleAdaptiveInterval().catch(() => { });
+        this.rescheduleAdaptiveInterval().catch(() => {});
 
         // --- 60-SECOND ENVIRONMENT POLLING ---
         // Checks water/land status and re-evaluates logging zone every minute.
@@ -642,7 +674,7 @@ class ShipLogServiceClass {
                 const currentInterval = this.trackingState.currentIntervalMs || TRACKING_INTERVAL_MS;
                 if (elapsed >= currentInterval) {
                     // We missed a scheduled entry (timer was suspended) — flush buffer now
-                    this.flushBufferedTrack().catch(() => { });
+                    this.flushBufferedTrack().catch(() => {});
                 }
             }
         });
@@ -695,22 +727,20 @@ class ShipLogServiceClass {
 
             // 2. Distance check — filters GPS jitter when stationary
             const R = 6371000;
-            const dLat = (currentPos.lat - this.lastValidPos.lat) * Math.PI / 180;
-            const dLon = (currentPos.lon - this.lastValidPos.lon) * Math.PI / 180;
-            const a = Math.sin(dLat / 2) ** 2 +
-                Math.cos(this.lastValidPos.lat * Math.PI / 180) *
-                Math.cos(currentPos.lat * Math.PI / 180) *
-                Math.sin(dLon / 2) ** 2;
+            const dLat = ((currentPos.lat - this.lastValidPos.lat) * Math.PI) / 180;
+            const dLon = ((currentPos.lon - this.lastValidPos.lon) * Math.PI) / 180;
+            const a =
+                Math.sin(dLat / 2) ** 2 +
+                Math.cos((this.lastValidPos.lat * Math.PI) / 180) *
+                    Math.cos((currentPos.lat * Math.PI) / 180) *
+                    Math.sin(dLon / 2) ** 2;
             const distM = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
             const minMovement = GpsPrecision.getAdaptedThresholds().courseChangeMinMovementM;
             if (distM < minMovement) return;
 
             // 3. Calculate RECENT bearing — short vector from last position to current
-            const recentBearing = bearing(
-                this.lastValidPos.lat, this.lastValidPos.lon,
-                currentPos.lat, currentPos.lon
-            );
+            const recentBearing = bearing(this.lastValidPos.lat, this.lastValidPos.lon, currentPos.lat, currentPos.lon);
 
             // 4. CRITICAL: Slide position anchor forward EVERY tick.
             //    This ensures the bearing vector is always SHORT and RECENT,
@@ -740,8 +770,10 @@ class ShipLogServiceClass {
                     'waypoint',
                     `Auto: COG ${oldCardinal} → ${newCardinal}`,
                     `COG ${oldCardinal} → ${newCardinal}`,
-                    'navigation'
-                ).catch(() => { /* best effort */ });
+                    'navigation',
+                ).catch(() => {
+                    /* best effort */
+                });
             }
             // No else — baseline heading stays locked at last committed turn
         }, ShipLogServiceClass.COURSE_CHECK_INTERVAL_MS);
@@ -751,8 +783,12 @@ class ShipLogServiceClass {
      * Clean up all BgGeoManager subscriptions.
      */
     private cleanupGpsSubscriptions(): void {
-        this.bgUnsubscribers.forEach(unsub => {
-            try { unsub(); } catch (e) { console.warn('[ShipLog] already cleaned up:', e); }
+        this.bgUnsubscribers.forEach((unsub) => {
+            try {
+                unsub();
+            } catch (e) {
+                console.warn('[ShipLog] already cleaned up:', e);
+            }
         });
         this.bgUnsubscribers = [];
     }
@@ -802,9 +838,9 @@ class ShipLogServiceClass {
         if (!pos) return 'none';
 
         const ageMs = Date.now() - pos.receivedAt;
-        if (ageMs < GPS_STALE_LIMIT_MS) return 'locked';   // < 60s
-        if (ageMs < 5 * 60 * 1000) return 'stale';          // 60s – 5min
-        return 'none';                                       // > 5min
+        if (ageMs < GPS_STALE_LIMIT_MS) return 'locked'; // < 60s
+        if (ageMs < 5 * 60 * 1000) return 'stale'; // 60s – 5min
+        return 'none'; // > 5min
     }
 
     /**
@@ -818,12 +854,11 @@ class ShipLogServiceClass {
         const ageMs = Date.now() - pos.receivedAt;
         if (ageMs > GPS_STALE_LIMIT_MS) return { sogKts: null, cogDeg: null };
 
-        const sogKts = pos.speed != null && pos.speed >= 0
-            ? parseFloat((pos.speed * 1.94384).toFixed(1))  // m/s → knots
-            : null;
-        const cogDeg = pos.heading != null && pos.heading >= 0
-            ? Math.round(pos.heading)
-            : null;
+        const sogKts =
+            pos.speed != null && pos.speed >= 0
+                ? parseFloat((pos.speed * 1.94384).toFixed(1)) // m/s → knots
+                : null;
+        const cogDeg = pos.heading != null && pos.heading >= 0 ? Math.round(pos.heading) : null;
         return { sogKts, cogDeg };
     }
 
@@ -852,7 +887,6 @@ class ShipLogServiceClass {
         this.trackingState.isTracking = false;
         this.trackingState.isPaused = true;
         await this.saveTrackingState();
-
     }
 
     /**
@@ -863,7 +897,11 @@ class ShipLogServiceClass {
         this.clearAllTimers();
 
         // Flush any remaining buffered GPS points before stopping
-        try { await this.flushBufferedTrack(); } catch (e) { console.warn('[ShipLog] best effort:', e); }
+        try {
+            await this.flushBufferedTrack();
+        } catch (e) {
+            console.warn('[ShipLog] best effort:', e);
+        }
         this.trackBuffer.clear();
         // Update state immediately so UI responds instantly
         // IMPORTANT: Store end time now (before async ops) to ensure it's always recorded
@@ -877,7 +915,7 @@ class ShipLogServiceClass {
             // Preserve voyage info for reference
             currentVoyageId: previousVoyageId,
             voyageStartTime: this.trackingState.voyageStartTime,
-            voyageEndTime: voyageEndTime
+            voyageEndTime: voyageEndTime,
         };
         await this.saveTrackingState();
 
@@ -899,8 +937,7 @@ class ShipLogServiceClass {
 
         // Capture final entry BEFORE cleaning up GPS — ensures end coordinates are captured
         // GPS subscriptions are still alive here so getBestPosition() can use cached fix
-        await this.captureImmediateEntry(previousVoyageId, 'Voyage End').catch((err: unknown) => {
-        });
+        await this.captureImmediateEntry(previousVoyageId, 'Voyage End').catch((err: unknown) => {});
 
         // NOW clean up GPS stream subscriptions (after final entry has GPS)
         this.cleanupGpsSubscriptions();
@@ -911,7 +948,6 @@ class ShipLogServiceClass {
 
         // Stop Transistorsoft background tracking (ref-counted — only stops if no other consumer)
         await BgGeoManager.requestStop();
-
     }
 
     /**
@@ -919,10 +955,12 @@ class ShipLogServiceClass {
      * The entry is created instantly with timestamp, GPS position is fetched async
      * This ensures the card appears in the UI immediately
      */
-    async captureImmediateEntry(voyageId?: string, waypointLabel: string = 'Voyage Start'): Promise<ShipLogEntry | null> {
+    async captureImmediateEntry(
+        voyageId?: string,
+        waypointLabel: string = 'Voyage Start',
+    ): Promise<ShipLogEntry | null> {
         const timestamp = new Date().toISOString();
         const effectiveVoyageId = voyageId || this.trackingState.currentVoyageId || `voyage_${Date.now()}`;
-
 
         // Get weather snapshot (SYNC — instant from localStorage)
         const weatherSnapshot = getWeatherSnapshot();
@@ -941,7 +979,7 @@ class ShipLogServiceClass {
             ...weatherSnapshot,
             entryType: 'waypoint',
             waypointName: waypointLabel,
-            source: 'device'
+            source: 'device',
         };
 
         // Flag to track if GPS failed and needs background retry
@@ -953,12 +991,12 @@ class ShipLogServiceClass {
         const GPS_WARMUP_DELAY_MS = 500;
 
         let bestPos = this.lastBgLocation;
-        if (!bestPos || (Date.now() - bestPos.receivedAt > GPS_STALE_LIMIT_MS)) {
+        if (!bestPos || Date.now() - bestPos.receivedAt > GPS_STALE_LIMIT_MS) {
             // No fresh cached position — try warm-up loop
             for (let i = 0; i < GPS_WARMUP_ATTEMPTS; i++) {
-                await new Promise(resolve => setTimeout(resolve, GPS_WARMUP_DELAY_MS));
+                await new Promise((resolve) => setTimeout(resolve, GPS_WARMUP_DELAY_MS));
                 bestPos = this.lastBgLocation;
-                if (bestPos && (Date.now() - bestPos.receivedAt < GPS_STALE_LIMIT_MS)) {
+                if (bestPos && Date.now() - bestPos.receivedAt < GPS_STALE_LIMIT_MS) {
                     break; // Got a fresh fix
                 }
                 // Also try getCurrentPosition as a final fallback on last attempt
@@ -968,7 +1006,7 @@ class ShipLogServiceClass {
             }
         }
 
-        if (bestPos && (Date.now() - bestPos.receivedAt < GPS_STALE_LIMIT_MS)) {
+        if (bestPos && Date.now() - bestPos.receivedAt < GPS_STALE_LIMIT_MS) {
             entry.latitude = bestPos.latitude;
             entry.longitude = bestPos.longitude;
             entry.positionFormatted = formatPositionDMS(bestPos.latitude, bestPos.longitude);
@@ -982,7 +1020,7 @@ class ShipLogServiceClass {
                 latitude: bestPos.latitude,
                 longitude: bestPos.longitude,
                 timestamp,
-                cumulativeDistanceNM: 0
+                cumulativeDistanceNM: 0,
             });
 
             // On-water check (fire-and-forget, fail-open)
@@ -1001,46 +1039,48 @@ class ShipLogServiceClass {
         // Track entry ID for potential GPS update later
         let savedEntryId: string | null = null;
 
-            // Save the entry (online or offline queue)
-            // OFFLINE-FAST-PATH: If we know we're offline, skip Supabase entirely.
-            // This prevents the tracking pipeline from stalling on hung network calls.
-            const isOnline = typeof navigator !== 'undefined' && navigator.onLine && !isSatelliteMode();
-            if (supabase && isOnline) {
-                try {
-                    // 5-second timeout: safety net in case navigator.onLine lies
-                    const saveResult = await Promise.race([
-                        (async () => {
-                            const { data: { user } } = await supabase.auth.getUser();
-                            if (user) {
-                                const { data, error } = await supabase
-                                    .from(SHIP_LOGS_TABLE)
-                                    .insert(toDbFormat({ ...entry, userId: user.id }))
-                                    .select()
-                                    .single();
-                                if (error) return 'offline' as const;
-                                savedEntryId = data.id;
-                                return fromDbFormat(data);
-                            }
-                            return 'offline' as const;
-                        })(),
-                        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5000))
-                    ]);
-
-                    if (saveResult === 'offline' || saveResult === 'timeout') {
-                        await this.queueOfflineEntry(entry);
-                    } else {
-                        // If GPS failed initially, retry in background
-                        if (needsGpsRetry && savedEntryId) {
-                            this.retryGpsAndUpdateEntry(savedEntryId);
+        // Save the entry (online or offline queue)
+        // OFFLINE-FAST-PATH: If we know we're offline, skip Supabase entirely.
+        // This prevents the tracking pipeline from stalling on hung network calls.
+        const isOnline = typeof navigator !== 'undefined' && navigator.onLine && !isSatelliteMode();
+        if (supabase && isOnline) {
+            try {
+                // 5-second timeout: safety net in case navigator.onLine lies
+                const saveResult = await Promise.race([
+                    (async () => {
+                        const {
+                            data: { user },
+                        } = await supabase.auth.getUser();
+                        if (user) {
+                            const { data, error } = await supabase
+                                .from(SHIP_LOGS_TABLE)
+                                .insert(toDbFormat({ ...entry, userId: user.id }))
+                                .select()
+                                .single();
+                            if (error) return 'offline' as const;
+                            savedEntryId = data.id;
+                            return fromDbFormat(data);
                         }
-                        return saveResult;
-                    }
-                } catch (networkError) {
+                        return 'offline' as const;
+                    })(),
+                    new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5000)),
+                ]);
+
+                if (saveResult === 'offline' || saveResult === 'timeout') {
                     await this.queueOfflineEntry(entry);
+                } else {
+                    // If GPS failed initially, retry in background
+                    if (needsGpsRetry && savedEntryId) {
+                        this.retryGpsAndUpdateEntry(savedEntryId);
+                    }
+                    return saveResult;
                 }
-            } else {
+            } catch (networkError) {
                 await this.queueOfflineEntry(entry);
             }
+        } else {
+            await this.queueOfflineEntry(entry);
+        }
 
         // Track when this entry was created for background resume catch-up
         this.trackingState.lastEntryTime = timestamp;
@@ -1057,9 +1097,8 @@ class ShipLogServiceClass {
         const maxRetries = 6;
         const retryDelayMs = 5000;
 
-
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
-            await new Promise(resolve => setTimeout(resolve, retryDelayMs));
+            await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
 
             try {
                 // Use BgGeoManager fresh position (force a new sample for retry)
@@ -1074,26 +1113,22 @@ class ShipLogServiceClass {
                     const updateData = toDbFormat({
                         latitude,
                         longitude,
-                        positionFormatted
+                        positionFormatted,
                     });
                     if (heading !== null && heading !== undefined && heading !== 0) {
                         updateData.course_deg = Math.round(heading);
                     }
 
-                    const { error } = await supabase
-                        .from(SHIP_LOGS_TABLE)
-                        .update(updateData)
-                        .eq('id', entryId);
+                    const { error } = await supabase.from(SHIP_LOGS_TABLE).update(updateData).eq('id', entryId);
 
                     if (error) {
                     } else {
-
                         // Update last position
                         await this.saveLastPosition({
                             latitude,
                             longitude,
                             timestamp: new Date().toISOString(),
-                            cumulativeDistanceNM: 0
+                            cumulativeDistanceNM: 0,
                         });
                     }
                 }
@@ -1102,7 +1137,6 @@ class ShipLogServiceClass {
                 log.warn('retryGpsAndUpdateEntry: GPS retry failed', gpsError);
             }
         }
-
     }
 
     /**
@@ -1113,7 +1147,9 @@ class ShipLogServiceClass {
     private async demotePreviousAutoWaypoint(voyageId: string): Promise<void> {
         if (!supabase || !voyageId) return;
         try {
-            const { data: { user } } = await supabase.auth.getUser();
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
             if (!user) return;
 
             // Find the most recent 'Latest Position' waypoint in this voyage
@@ -1147,13 +1183,20 @@ class ShipLogServiceClass {
         entryType: 'auto' | 'manual' | 'waypoint' = 'auto',
         notes?: string,
         waypointName?: string,
-        eventCategory?: 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation',
+        eventCategory?:
+            | 'navigation'
+            | 'weather'
+            | 'equipment'
+            | 'crew'
+            | 'arrival'
+            | 'departure'
+            | 'safety'
+            | 'observation',
         engineStatus?: 'running' | 'stopped' | 'maneuvering',
         voyageId?: string,
-        skipDedup?: boolean
+        skipDedup?: boolean,
     ): Promise<ShipLogEntry | null> {
         try {
-
             // Get current position from cached onLocation stream (instant, no blocking)
             const bestPos = await this.getBestPosition();
             if (!bestPos) {
@@ -1192,12 +1235,7 @@ class ShipLogServiceClass {
 
             if (lastPos) {
                 // Calculate distance from last position
-                distanceNM = calculateDistanceNM(
-                    lastPos.latitude,
-                    lastPos.longitude,
-                    latitude,
-                    longitude
-                );
+                distanceNM = calculateDistanceNM(lastPos.latitude, lastPos.longitude, latitude, longitude);
 
                 // DEDUP FILTER: If this is an auto entry and the vessel hasn't moved
                 // more than ~5 meters, discard it to avoid cluttering the logbook.
@@ -1242,12 +1280,7 @@ class ShipLogServiceClass {
                 courseDeg = Math.round(heading);
             } else if (lastPos && distanceNM >= STATIONARY_THRESHOLD_NM) {
                 // Calculate bearing from previous position (only if actually moved)
-                courseDeg = Math.round(calculateBearing(
-                    lastPos.latitude,
-                    lastPos.longitude,
-                    latitude,
-                    longitude
-                ));
+                courseDeg = Math.round(calculateBearing(lastPos.latitude, lastPos.longitude, latitude, longitude));
             }
             // If stationary or no previous position, courseDeg stays undefined
 
@@ -1260,9 +1293,9 @@ class ShipLogServiceClass {
 
             // Demote previous auto-promoted waypoint (fire-and-forget)
             if (entryType === 'auto') {
-                this.demotePreviousAutoWaypoint(
-                    voyageId || this.trackingState.currentVoyageId || ''
-                ).catch(() => { /* best effort */ });
+                this.demotePreviousAutoWaypoint(voyageId || this.trackingState.currentVoyageId || '').catch(() => {
+                    /* best effort */
+                });
             }
 
             // Create log entry with voyage ID
@@ -1298,7 +1331,9 @@ class ShipLogServiceClass {
                     // 5-second timeout: safety net in case navigator.onLine lies
                     const saveResult = await Promise.race([
                         (async () => {
-                            const { data: { user } } = await supabase.auth.getUser();
+                            const {
+                                data: { user },
+                            } = await supabase.auth.getUser();
                             if (user) {
                                 const { data, error } = await supabase
                                     .from(SHIP_LOGS_TABLE)
@@ -1313,14 +1348,14 @@ class ShipLogServiceClass {
                                     latitude,
                                     longitude,
                                     timestamp,
-                                    cumulativeDistanceNM
+                                    cumulativeDistanceNM,
                                 });
 
                                 return fromDbFormat(data);
                             }
                             return 'offline' as const;
                         })(),
-                        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5000))
+                        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5000)),
                     ]);
 
                     if (saveResult === 'offline' || saveResult === 'timeout') {
@@ -1342,7 +1377,7 @@ class ShipLogServiceClass {
                 latitude,
                 longitude,
                 timestamp,
-                cumulativeDistanceNM
+                cumulativeDistanceNM,
             });
 
             // Track when this entry was created for background resume catch-up
@@ -1353,7 +1388,7 @@ class ShipLogServiceClass {
 
             // Re-evaluate logging zone after each successful fix
             // This allows the interval to adapt as the vessel moves closer/further from shore
-            this.rescheduleAdaptiveInterval().catch(err => {
+            this.rescheduleAdaptiveInterval().catch((err) => {
                 log.warn('captureLogEntry: adaptive reschedule failed', err);
             });
 
@@ -1415,9 +1450,17 @@ class ShipLogServiceClass {
     async addManualEntry(
         notes?: string,
         waypointName?: string,
-        eventCategory?: 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation',
+        eventCategory?:
+            | 'navigation'
+            | 'weather'
+            | 'equipment'
+            | 'crew'
+            | 'arrival'
+            | 'departure'
+            | 'safety'
+            | 'observation',
         engineStatus?: 'running' | 'stopped' | 'maneuvering',
-        voyageId?: string
+        voyageId?: string,
     ): Promise<ShipLogEntry | null> {
         const timestamp = new Date().toISOString();
         const entryType = waypointName ? 'waypoint' : 'manual';
@@ -1428,7 +1471,6 @@ class ShipLogServiceClass {
         if (!effectiveVoyageId) {
             return null;
         }
-
 
         // Get weather snapshot (SYNC — instant from localStorage)
         const weatherSnapshot = getWeatherSnapshot();
@@ -1448,7 +1490,7 @@ class ShipLogServiceClass {
             eventCategory,
             engineStatus,
             notes,
-            waypointName
+            waypointName,
         };
 
         // Try to get GPS position from cached onLocation stream (instant)
@@ -1468,10 +1510,7 @@ class ShipLogServiceClass {
                 // Get last position for distance calculation
                 const lastPos = await this.getLastPosition();
                 if (lastPos) {
-                    const distanceNM = calculateDistanceNM(
-                        lastPos.latitude, lastPos.longitude,
-                        latitude, longitude
-                    );
+                    const distanceNM = calculateDistanceNM(lastPos.latitude, lastPos.longitude, latitude, longitude);
                     entry.distanceNM = Math.round(distanceNM * 100) / 100;
                     entry.cumulativeDistanceNM = Math.round((lastPos.cumulativeDistanceNM + distanceNM) * 100) / 100;
                 }
@@ -1481,7 +1520,7 @@ class ShipLogServiceClass {
                     latitude,
                     longitude,
                     timestamp,
-                    cumulativeDistanceNM: entry.cumulativeDistanceNM || 0
+                    cumulativeDistanceNM: entry.cumulativeDistanceNM || 0,
                 });
             }
         } catch (gpsError: unknown) {
@@ -1494,7 +1533,9 @@ class ShipLogServiceClass {
             try {
                 const saveResult = await Promise.race([
                     (async () => {
-                        const { data: { user } } = await supabase.auth.getUser();
+                        const {
+                            data: { user },
+                        } = await supabase.auth.getUser();
                         if (user) {
                             const { data, error } = await supabase
                                 .from(SHIP_LOGS_TABLE)
@@ -1506,7 +1547,7 @@ class ShipLogServiceClass {
                         }
                         return 'offline' as const;
                     })(),
-                    new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5000))
+                    new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5000)),
                 ]);
 
                 if (saveResult === 'offline' || saveResult === 'timeout') {
@@ -1529,12 +1570,15 @@ class ShipLogServiceClass {
      * @param timeoutMs - Maximum time to wait for capture (default 5000ms)
      * @param voyageId - Optional voyage ID to use for the entry
      */
-    private async captureLogEntryWithTimeout(timeoutMs: number = 5000, voyageId?: string): Promise<ShipLogEntry | null> {
+    private async captureLogEntryWithTimeout(
+        timeoutMs: number = 5000,
+        voyageId?: string,
+    ): Promise<ShipLogEntry | null> {
         return Promise.race([
             this.captureLogEntry('auto', undefined, undefined, undefined, undefined, voyageId),
             new Promise<null>((_, reject) =>
-                setTimeout(() => reject(new Error(`Capture timed out after ${timeoutMs}ms`)), timeoutMs)
-            )
+                setTimeout(() => reject(new Error(`Capture timed out after ${timeoutMs}ms`)), timeoutMs),
+            ),
         ]);
     }
 
@@ -1588,16 +1632,16 @@ class ShipLogServiceClass {
             }, RAPID_AUTO_DISABLE_MS);
 
             // Capture first entry immediately when entering rapid mode
-            this.captureLogEntry().catch(err => {
-            });
+            this.captureLogEntry().catch((err) => {});
 
             // Start 5-second interval
             this.intervalId = setInterval(() => {
-                this.captureLogEntry().then(entry => {
-                    if (entry) {
-                    }
-                }).catch(err => {
-                });
+                this.captureLogEntry()
+                    .then((entry) => {
+                        if (entry) {
+                        }
+                    })
+                    .catch((err) => {});
             }, RAPID_INTERVAL_MS);
         } else {
             // ADAPTIVE MODE: Restore zone-based intervals
@@ -1660,7 +1704,7 @@ class ShipLogServiceClass {
     private async saveTrackingState(): Promise<void> {
         await Preferences.set({
             key: TRACKING_STATE_KEY,
-            value: JSON.stringify(this.trackingState)
+            value: JSON.stringify(this.trackingState),
         });
     }
 
@@ -1678,7 +1722,7 @@ class ShipLogServiceClass {
     private async saveLastPosition(position: StoredPosition): Promise<void> {
         await Preferences.set({
             key: LAST_POSITION_KEY,
-            value: JSON.stringify(position)
+            value: JSON.stringify(position),
         });
     }
 
@@ -1694,9 +1738,12 @@ class ShipLogServiceClass {
 
     private startSyncInterval(): void {
         if (this.syncIntervalId) return;
-        this.syncIntervalId = setInterval(() => {
-            this.syncOfflineQueue();
-        }, 2 * 60 * 1000);
+        this.syncIntervalId = setInterval(
+            () => {
+                this.syncOfflineQueue();
+            },
+            2 * 60 * 1000,
+        );
     }
 
     async getOfflineQueueCount(): Promise<number> {
@@ -1724,7 +1771,7 @@ class ShipLogServiceClass {
                 });
             }
 
-            for (const wp of (plan.waypoints || [])) {
+            for (const wp of plan.waypoints || []) {
                 if (wp.coordinates) {
                     allPoints.push({
                         lat: wp.coordinates.lat,
@@ -1795,9 +1842,11 @@ class ShipLogServiceClass {
             let savedOnline = false;
             if (supabase) {
                 try {
-                    const { data: { user } } = await supabase.auth.getUser();
+                    const {
+                        data: { user },
+                    } = await supabase.auth.getUser();
                     if (user) {
-                        const dbEntries = entries.map(e => toDbFormat({ ...e, userId: user.id }));
+                        const dbEntries = entries.map((e) => toDbFormat({ ...e, userId: user.id }));
                         const { error } = await supabase.from(SHIP_LOGS_TABLE).insert(dbEntries);
                         if (error) {
                             log.warn('savePassagePlan: Supabase insert failed, queuing offline:', error.message);
@@ -1819,7 +1868,9 @@ class ShipLogServiceClass {
                 }
             }
 
-            log.info(`✓ Saved planned route "${plan.origin} → ${plan.destination}" with ${entries.length} waypoints (${cumulativeNM.toFixed(1)} NM) [${savedOnline ? 'online' : 'offline'}]`);
+            log.info(
+                `✓ Saved planned route "${plan.origin} → ${plan.destination}" with ${entries.length} waypoints (${cumulativeNM.toFixed(1)} NM) [${savedOnline ? 'online' : 'offline'}]`,
+            );
             return voyageId;
         } catch (err) {
             log.error('savePassagePlanToLogbook error:', err);

@@ -47,20 +47,26 @@ const slides = [
 
 export const OnboardingOverlay: React.FC = () => {
     const [visible, setVisible] = useState(() => {
-        try { return !localStorage.getItem(STORAGE_KEY); }
-        catch { return true; }
+        try {
+            return !localStorage.getItem(STORAGE_KEY);
+        } catch {
+            return true;
+        }
     });
     const [current, setCurrent] = useState(0);
 
     const dismiss = useCallback(() => {
-        try { localStorage.setItem(STORAGE_KEY, 'true'); }
-        catch { /* noop */ }
+        try {
+            localStorage.setItem(STORAGE_KEY, 'true');
+        } catch {
+            /* noop */
+        }
         setVisible(false);
     }, []);
 
     const next = useCallback(() => {
         if (current < slides.length - 1) {
-            setCurrent(c => c + 1);
+            setCurrent((c) => c + 1);
         } else {
             dismiss();
         }

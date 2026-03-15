@@ -59,8 +59,7 @@ export interface WaveConditions {
 
 // ── Config ────────────────────────────────────────────────────────
 
-const getSupabaseUrl = (): string =>
-    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+const getSupabaseUrl = (): string => (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 
 const STORAGE_BUCKET = 'ww3-cache';
 
@@ -75,7 +74,7 @@ const METADATA_TTL = 10 * 60 * 1000; // 10 min
 
 async function fetchMetadata(): Promise<WW3Metadata | null> {
     const now = Date.now();
-    if (metadataCache && (now - metadataFetchedAt) < METADATA_TTL) {
+    if (metadataCache && now - metadataFetchedAt < METADATA_TTL) {
         return metadataCache;
     }
 
@@ -88,7 +87,7 @@ async function fetchMetadata(): Promise<WW3Metadata | null> {
         metadataFetchedAt = now;
         return metadataCache;
     } catch (e) {
-            console.warn('[ww3Cache]', e);
+        console.warn('[ww3Cache]', e);
         return null;
     }
 }
@@ -107,7 +106,7 @@ async function fetchShard(cycle: string, forecastHour: number): Promise<WW3Shard
         shardCache.set(key, shard);
         return shard;
     } catch (e) {
-            console.warn('[ww3Cache]', e);
+        console.warn('[ww3Cache]', e);
         return null;
     }
 }
@@ -131,9 +130,8 @@ export async function fetchWW3Grid(durationHours: number = 120): Promise<WindGri
     }
 
     // Determine which forecast hours to fetch (3-hourly, capped by duration)
-    const hoursNeeded = meta.hours_available.filter(h => h <= durationHours);
+    const hoursNeeded = meta.hours_available.filter((h) => h <= durationHours);
     if (hoursNeeded.length === 0) return null;
-
 
     // Fetch all shards in parallel (capped at 10 concurrent)
     const shards: (WW3Shard | null)[] = [];
@@ -141,9 +139,7 @@ export async function fetchWW3Grid(durationHours: number = 120): Promise<WindGri
 
     for (let i = 0; i < hoursNeeded.length; i += batchSize) {
         const batch = hoursNeeded.slice(i, i + batchSize);
-        const results = await Promise.all(
-            batch.map(h => fetchShard(meta.cycle, h))
-        );
+        const results = await Promise.all(batch.map((h) => fetchShard(meta.cycle, h)));
         shards.push(...results);
     }
 
@@ -152,7 +148,6 @@ export async function fetchWW3Grid(durationHours: number = 120): Promise<WindGri
     if (validShards.length === 0) {
         return null;
     }
-
 
     // Use first shard's grid info
     const gridInfo = validShards[0].grid;
@@ -196,7 +191,7 @@ export async function fetchWW3Grid(durationHours: number = 120): Promise<WindGri
                 const pseudoSpeed = ht * 5;
 
                 // Direction FROM → direction TO (add 180°)
-                const toRad = ((dir + 180) % 360) * Math.PI / 180;
+                const toRad = (((dir + 180) % 360) * Math.PI) / 180;
 
                 u[i] = pseudoSpeed * Math.sin(toRad);
                 v[i] = pseudoSpeed * Math.cos(toRad);
@@ -231,17 +226,13 @@ export async function fetchWW3Grid(durationHours: number = 120): Promise<WindGri
  * Sample wave conditions at a specific lat/lon from the cached shards.
  * Uses bilinear interpolation on the nearest forecast hour.
  */
-export async function sampleWaveAt(
-    lat: number,
-    lon: number,
-    forecastHour: number = 0,
-): Promise<WaveConditions | null> {
+export async function sampleWaveAt(lat: number, lon: number, forecastHour: number = 0): Promise<WaveConditions | null> {
     const meta = await fetchMetadata();
     if (!meta) return null;
 
     // Find nearest available hour
     const nearest = meta.hours_available.reduce((prev, curr) =>
-        Math.abs(curr - forecastHour) < Math.abs(prev - forecastHour) ? curr : prev
+        Math.abs(curr - forecastHour) < Math.abs(prev - forecastHour) ? curr : prev,
     );
 
     const shard = await fetchShard(meta.cycle, nearest);

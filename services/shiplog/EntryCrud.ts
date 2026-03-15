@@ -9,10 +9,7 @@ import { ShipLogEntry } from '../../types';
 import { supabase } from '../supabase';
 import { createLogger } from '../../utils/logger';
 import { SHIP_LOGS_TABLE, toDbFormat, fromDbFormat } from './helpers';
-import {
-    deleteVoyageFromOfflineQueue,
-    deleteEntryFromOfflineQueue,
-} from './OfflineQueue';
+import { deleteVoyageFromOfflineQueue, deleteEntryFromOfflineQueue } from './OfflineQueue';
 
 const log = createLogger('EntryCrud');
 
@@ -26,7 +23,9 @@ export async function getLogEntries(limit: number = 50): Promise<ShipLogEntry[]>
 
     try {
         // Check if user is authenticated
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) {
             return [];
         }
@@ -43,7 +42,7 @@ export async function getLogEntries(limit: number = 50): Promise<ShipLogEntry[]>
             const { data, error } = await supabase
                 .from(SHIP_LOGS_TABLE)
                 .select('*')
-                .or('archived.is.null,archived.eq.false')  // Exclude archived entries
+                .or('archived.is.null,archived.eq.false') // Exclude archived entries
                 .order('timestamp', { ascending: false })
                 .range(offset, offset + batchSize - 1);
 
@@ -52,7 +51,7 @@ export async function getLogEntries(limit: number = 50): Promise<ShipLogEntry[]>
             }
 
             const rows = data || [];
-            allEntries.push(...rows.map(row => fromDbFormat(row)));
+            allEntries.push(...rows.map((row) => fromDbFormat(row)));
 
             // If we got fewer rows than requested, we've fetched everything
             if (rows.length < batchSize) break;
@@ -72,7 +71,9 @@ export async function getLogEntries(limit: number = 50): Promise<ShipLogEntry[]>
 export async function getArchivedEntries(limit: number = 10000): Promise<ShipLogEntry[]> {
     if (!supabase) return [];
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return [];
 
         // Paginate to fetch all archived entries
@@ -92,7 +93,7 @@ export async function getArchivedEntries(limit: number = 10000): Promise<ShipLog
             if (error) break;
 
             const rows = data || [];
-            allEntries.push(...rows.map(row => fromDbFormat(row)));
+            allEntries.push(...rows.map((row) => fromDbFormat(row)));
 
             if (rows.length < batchSize) break;
             offset += batchSize;
@@ -112,18 +113,20 @@ export async function getArchivedEntries(limit: number = 10000): Promise<ShipLog
 export async function getAllEntriesForCareer(): Promise<ShipLogEntry[]> {
     if (!supabase) return [];
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return [];
 
         const { data, error } = await supabase
             .from(SHIP_LOGS_TABLE)
             .select('voyage_id, timestamp, cumulative_distance_nm, is_on_water, source, archived')
-            .or('source.is.null,source.eq.device')  // Career = device-only
+            .or('source.is.null,source.eq.device') // Career = device-only
             .order('timestamp', { ascending: false })
             .limit(10000);
 
         if (error) return [];
-        return (data || []).map(row => fromDbFormat(row));
+        return (data || []).map((row) => fromDbFormat(row));
     } catch (error) {
         log.error('getAllEntriesForCareer failed', error);
         return [];
@@ -136,7 +139,9 @@ export async function getAllEntriesForCareer(): Promise<ShipLogEntry[]> {
 export async function archiveVoyage(voyageId: string): Promise<boolean> {
     if (!supabase) return false;
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return false;
 
         const { error } = await supabase
@@ -162,7 +167,9 @@ export async function archiveVoyage(voyageId: string): Promise<boolean> {
 export async function unarchiveVoyage(voyageId: string): Promise<boolean> {
     if (!supabase) return false;
     try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         if (!user) return false;
 
         const { error } = await supabase
@@ -182,24 +189,21 @@ export async function unarchiveVoyage(voyageId: string): Promise<boolean> {
     }
 }
 
-
 /**
  * Delete a voyage and all its entries (from both DB and offline queue).
  */
 export async function deleteVoyage(voyageId: string): Promise<boolean> {
-
     // First, try to delete from offline queue (local storage)
     const offlineDeleted = await deleteVoyageFromOfflineQueue(voyageId);
 
     // If Supabase is available, also delete from there
     if (supabase) {
         try {
-            const { data: { user } } = await supabase.auth.getUser();
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
             if (user) {
-                let query = supabase
-                    .from(SHIP_LOGS_TABLE)
-                    .delete()
-                    .eq('user_id', user.id);
+                let query = supabase.from(SHIP_LOGS_TABLE).delete().eq('user_id', user.id);
 
                 // Handle 'default_voyage' - these are entries with null/empty voyageId
                 if (voyageId === 'default_voyage') {
@@ -226,14 +230,15 @@ export async function deleteVoyage(voyageId: string): Promise<boolean> {
  * Delete a single entry by ID (from both DB and offline queue).
  */
 export async function deleteEntry(entryId: string): Promise<boolean> {
-
     // First, try to delete from offline queue (local storage)
     const offlineDeleted = await deleteEntryFromOfflineQueue(entryId);
 
     // If Supabase is available, also delete from there
     if (supabase) {
         try {
-            const { data: { user } } = await supabase.auth.getUser();
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
             if (user) {
                 const { error } = await supabase
                     .from(SHIP_LOGS_TABLE)
@@ -258,7 +263,9 @@ export async function deleteEntry(entryId: string): Promise<boolean> {
  * All entries are stamped with source: 'gpx_import' to prevent
  * them from being used as an official logbook record.
  */
-export async function importGPXVoyage(entries: Partial<ShipLogEntry>[]): Promise<{ voyageId: string; savedCount: number }> {
+export async function importGPXVoyage(
+    entries: Partial<ShipLogEntry>[],
+): Promise<{ voyageId: string; savedCount: number }> {
     if (entries.length === 0) {
         throw new Error('No entries to import');
     }
@@ -269,19 +276,23 @@ export async function importGPXVoyage(entries: Partial<ShipLogEntry>[]): Promise
         throw new Error('Database not available — connect to import tracks');
     }
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
     if (!user) {
         throw new Error('Login required to import tracks');
     }
 
     // Prepare all entries for batch insert
-    const dbEntries = entries.map((entry, index) => {
+    const dbEntries = entries.map((entry, _index) => {
         const fullEntry: Partial<ShipLogEntry> = {
             ...entry,
             id: crypto.randomUUID(),
             userId: user.id,
             voyageId,
-            source: ('source' in entry ? (entry as Partial<ShipLogEntry> & { source?: string }).source : undefined) || 'gpx_import',
+            source:
+                ('source' in entry ? (entry as Partial<ShipLogEntry> & { source?: string }).source : undefined) ||
+                'gpx_import',
             distanceNM: entry.distanceNM || 0,
             cumulativeDistanceNM: entry.cumulativeDistanceNM || 0,
             speedKts: entry.speedKts || 0,
@@ -295,9 +306,7 @@ export async function importGPXVoyage(entries: Partial<ShipLogEntry>[]): Promise
 
     for (let i = 0; i < dbEntries.length; i += CHUNK_SIZE) {
         const chunk = dbEntries.slice(i, i + CHUNK_SIZE);
-        const { error } = await supabase
-            .from(SHIP_LOGS_TABLE)
-            .insert(chunk);
+        const { error } = await supabase.from(SHIP_LOGS_TABLE).insert(chunk);
 
         if (error) {
             throw new Error(`Import failed at entry ${i}: ${error.message}`);

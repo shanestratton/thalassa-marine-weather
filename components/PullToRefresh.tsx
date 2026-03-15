@@ -49,8 +49,16 @@ export const PullToRefresh: React.FC<PullToRefreshProps> = ({ onRefresh, childre
             onTouchMove={handleTouchMove}
             onTouchEnd={handleTouchEnd}
         >
-            {pullDistance > 20 && <div className="animate-spin rounded-full h-8 w-8 border-4 border-sky-400 border-t-transparent shadow-lg filter drop-shadow-[0_0_8px_rgba(56,189,248,0.8)]"></div>}
-            <div style={{ transform: `translateY(${pullDistance}px)`, transition: startY === 0 ? 'transform 0.3s ease-out' : 'none' }} className={`flex-grow flex flex-col ${disabled ? 'h-full' : 'min-h-[101%]'}`}>
+            {pullDistance > 20 && (
+                <div className="animate-spin rounded-full h-8 w-8 border-4 border-sky-400 border-t-transparent shadow-lg filter drop-shadow-[0_0_8px_rgba(56,189,248,0.8)]"></div>
+            )}
+            <div
+                style={{
+                    transform: `translateY(${pullDistance}px)`,
+                    transition: startY === 0 ? 'transform 0.3s ease-out' : 'none',
+                }}
+                className={`flex-grow flex flex-col ${disabled ? 'h-full' : 'min-h-[101%]'}`}
+            >
                 {children}
             </div>
         </div>

@@ -12,13 +12,13 @@ import { toast } from '../components/Toast';
 import { GpsService } from '../services/GpsService';
 
 const DEFAULT_BACKGROUNDS = {
-    sunny: "https://images.unsplash.com/photo-1566371486490-560ded23b5e4?q=80&w=1080&fm=jpg&fit=crop",
-    cloudy: "https://images.unsplash.com/photo-1534008753122-a83776b29f6c?q=80&w=1080&fm=jpg&fit=crop",
-    rain: "https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?q=80&w=1080&fm=jpg&fit=crop",
-    storm: "https://images.unsplash.com/photo-1505672675380-4d329615699c?q=80&w=1080&fm=jpg&fit=crop",
-    fog: "https://images.unsplash.com/photo-1485230905346-71acb9518d9c?q=80&w=1080&fm=jpg&fit=crop",
-    night: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=1080&fm=jpg&fit=crop",
-    default: "https://images.unsplash.com/photo-1478359844494-1092259d93e4?q=80&w=1080&fm=jpg&fit=crop"
+    sunny: 'https://images.unsplash.com/photo-1566371486490-560ded23b5e4?q=80&w=1080&fm=jpg&fit=crop',
+    cloudy: 'https://images.unsplash.com/photo-1534008753122-a83776b29f6c?q=80&w=1080&fm=jpg&fit=crop',
+    rain: 'https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?q=80&w=1080&fm=jpg&fit=crop',
+    storm: 'https://images.unsplash.com/photo-1505672675380-4d329615699c?q=80&w=1080&fm=jpg&fit=crop',
+    fog: 'https://images.unsplash.com/photo-1485230905346-71acb9518d9c?q=80&w=1080&fm=jpg&fit=crop',
+    night: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=1080&fm=jpg&fit=crop',
+    default: 'https://images.unsplash.com/photo-1478359844494-1092259d93e4?q=80&w=1080&fm=jpg&fit=crop',
 };
 
 const mapConditionToKey = (cond: string): WeatherConditionKey => {
@@ -83,8 +83,11 @@ export const useAppController = () => {
                 // DOES NOT match: "Brisbane, QLD", "27.47°S, 153.03°E" (already human-readable)
                 const isPlaceholder = /^(Location|WP\b|Waypoint)/i.test(weatherData.locationName);
                 const isRawDecimal = /^-?\d+\.\d+\s*,\s*-?\d+\.\d+$/.test(weatherData.locationName.trim());
-                const isWaterBody = /^(North|South|East|West|Central|Indian|Arctic|Atlantic|Pacific)?\s*(Ocean|Sea|Reef)$/i.test(weatherData.locationName.trim());
-                const isOceanPoint = weatherData.locationName.includes("Ocean Point");
+                const isWaterBody =
+                    /^(North|South|East|West|Central|Indian|Arctic|Atlantic|Pacific)?\s*(Ocean|Sea|Reef)$/i.test(
+                        weatherData.locationName.trim(),
+                    );
+                const isOceanPoint = weatherData.locationName.includes('Ocean Point');
                 const isSafeCoord = isPlaceholder || isRawDecimal || isWaterBody;
 
                 // Only force WP naming if it's truly a raw coordinate or generic placeholder
@@ -133,12 +136,15 @@ export const useAppController = () => {
     };
 
     const handleLocate = () => {
-        if (isOffline) { toast.error("GPS requires network."); return; }
-        setQuery("Locating...");
+        if (isOffline) {
+            toast.error('GPS requires network.');
+            return;
+        }
+        setQuery('Locating...');
         GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 15 }).then(async (pos) => {
             if (!pos) {
-                showToast("GPS Error: Unable to get position");
-                setQuery("");
+                showToast('GPS Error: Unable to get position');
+                setQuery('');
                 return;
             }
             const { latitude, longitude } = pos;
@@ -171,7 +177,7 @@ export const useAppController = () => {
         const isFav = settings.savedLocations.includes(loc);
         let newLocs;
         if (isFav) {
-            newLocs = settings.savedLocations.filter(l => l !== loc);
+            newLocs = settings.savedLocations.filter((l) => l !== loc);
             showToast(`Removed ${loc} from favorites`);
         } else {
             newLocs = [loc, ...settings.savedLocations];
@@ -180,90 +186,100 @@ export const useAppController = () => {
         updateSettings({ savedLocations: newLocs });
     }, [weatherData, settings.savedLocations, showToast, updateSettings]);
 
-    const handleMapTargetSelect = useCallback(async (lat: number, lon: number, name?: string) => {
-        // Normalize Longitude (-180 to 180)
-        // Map libraries sometimes return wrapped coords (e.g. 190, 370 etc)
-        let normalizedLon = lon;
-        while (normalizedLon > 180) normalizedLon -= 360;
-        while (normalizedLon < -180) normalizedLon += 360;
+    const handleMapTargetSelect = useCallback(
+        async (lat: number, lon: number, name?: string) => {
+            // Normalize Longitude (-180 to 180)
+            // Map libraries sometimes return wrapped coords (e.g. 190, 370 etc)
+            let normalizedLon = lon;
+            while (normalizedLon > 180) normalizedLon -= 360;
+            while (normalizedLon < -180) normalizedLon += 360;
 
-        const finalCoords = { lat, lon: normalizedLon };
+            const finalCoords = { lat, lon: normalizedLon };
 
-        // Resolve a human-readable name if the map didn't provide one or it's a raw coordinate
-        let locationQuery = name || '';
-        if (!locationQuery || /^-?\d/.test(locationQuery) || locationQuery.startsWith('WP ')) {
-            try {
-                const geoName = await reverseGeocode(lat, normalizedLon);
-                if (geoName) locationQuery = geoName;
-            } catch (e) {
-                log.warn(e);
-                // Geocode failed — fall through
+            // Resolve a human-readable name if the map didn't provide one or it's a raw coordinate
+            let locationQuery = name || '';
+            if (!locationQuery || /^-?\d/.test(locationQuery) || locationQuery.startsWith('WP ')) {
+                try {
+                    const geoName = await reverseGeocode(lat, normalizedLon);
+                    if (geoName) locationQuery = geoName;
+                } catch (e) {
+                    log.warn(e);
+                    // Geocode failed — fall through
+                }
             }
-        }
-        // Final fallback: WP coordinates
-        if (!locationQuery || locationQuery.startsWith('WP ')) {
-            // Reformat nicely if it's still a WP string or empty
-            locationQuery = `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(normalizedLon).toFixed(4)}°${normalizedLon >= 0 ? 'E' : 'W'}`;
-        }
+            // Final fallback: WP coordinates
+            if (!locationQuery || locationQuery.startsWith('WP ')) {
+                // Reformat nicely if it's still a WP string or empty
+                locationQuery = `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(normalizedLon).toFixed(4)}°${normalizedLon >= 0 ? 'E' : 'W'}`;
+            }
 
+            setQuery(locationQuery);
+            setSheetOpen(false);
 
-        setQuery(locationQuery);
-        setSheetOpen(false);
+            // NAVIGATION FIRST (Optimistic UI)
+            // Default to full dashboard — inland locations are auto-forced to essential by Dashboard
+            updateSettings({ dashboardMode: 'full' });
+            setPage('dashboard');
 
-        // NAVIGATION FIRST (Optimistic UI)
-        // Default to full dashboard — inland locations are auto-forced to essential by Dashboard
-        updateSettings({ dashboardMode: 'full' });
-        setPage('dashboard');
-
-        // Fire-and-forget fetch
-        selectLocation(locationQuery, finalCoords).catch(e => {
-            showToast("Location update failed, check network.");
-        });
-    }, [setQuery, selectLocation, setPage, showToast]);
+            // Fire-and-forget fetch
+            selectLocation(locationQuery, finalCoords).catch((e) => {
+                showToast('Location update failed, check network.');
+            });
+        },
+        [setQuery, selectLocation, setPage, showToast],
+    );
 
     // Same as handleMapTargetSelect but stays on the current page (for Map tab — user must press back chevron)
-    const handleMapStaySelect = useCallback(async (lat: number, lon: number, name?: string) => {
-        let normalizedLon = lon;
-        while (normalizedLon > 180) normalizedLon -= 360;
-        while (normalizedLon < -180) normalizedLon += 360;
+    const handleMapStaySelect = useCallback(
+        async (lat: number, lon: number, name?: string) => {
+            let normalizedLon = lon;
+            while (normalizedLon > 180) normalizedLon -= 360;
+            while (normalizedLon < -180) normalizedLon += 360;
 
-        const finalCoords = { lat, lon: normalizedLon };
-        let locationQuery = name || '';
-        if (!locationQuery || /^-?\d/.test(locationQuery) || locationQuery.startsWith('WP ')) {
-            try {
-                const geoName = await reverseGeocode(lat, normalizedLon);
-                if (geoName) locationQuery = geoName;
-            } catch (e) { log.warn(e); }
-        }
-        if (!locationQuery || locationQuery.startsWith('WP ')) {
-            locationQuery = `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(normalizedLon).toFixed(4)}°${normalizedLon >= 0 ? 'E' : 'W'}`;
-        }
+            const finalCoords = { lat, lon: normalizedLon };
+            let locationQuery = name || '';
+            if (!locationQuery || /^-?\d/.test(locationQuery) || locationQuery.startsWith('WP ')) {
+                try {
+                    const geoName = await reverseGeocode(lat, normalizedLon);
+                    if (geoName) locationQuery = geoName;
+                } catch (e) {
+                    log.warn(e);
+                }
+            }
+            if (!locationQuery || locationQuery.startsWith('WP ')) {
+                locationQuery = `WP ${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(normalizedLon).toFixed(4)}°${normalizedLon >= 0 ? 'E' : 'W'}`;
+            }
 
-        setQuery(locationQuery);
-        setSheetOpen(false);
-        updateSettings({ dashboardMode: 'full' });
-        // Don't navigate — stay on map
-        selectLocation(locationQuery, finalCoords).catch(e => {
-            showToast("Location update failed, check network.");
-        });
-    }, [setQuery, selectLocation, showToast, updateSettings]);
+            setQuery(locationQuery);
+            setSheetOpen(false);
+            updateSettings({ dashboardMode: 'full' });
+            // Don't navigate — stay on map
+            selectLocation(locationQuery, finalCoords).catch((e) => {
+                showToast('Location update failed, check network.');
+            });
+        },
+        [setQuery, selectLocation, showToast, updateSettings],
+    );
 
-    const handleFavoriteSelect = useCallback((loc: string) => {
-        setQuery(loc);
-        const oceanMatch = loc.match(/Ocean Point\s+(\d+\.\d+)([NS])\s+(\d+\.\d+)([EW])/);
-        if (oceanMatch) {
-            const rawLat = parseFloat(oceanMatch[1]);
-            const latDir = oceanMatch[2];
-            const rawLon = parseFloat(oceanMatch[3]);
-            const lonDir = oceanMatch[4];
-            const lat = latDir === 'S' ? -rawLat : rawLat;
-            const lon = lonDir === 'W' ? -rawLon : rawLon;
-            selectLocation(loc, { lat, lon });
-        } else {
-            selectLocation(loc);
-        }
-        setPage('dashboard');
-    }, [setQuery, selectLocation, setPage]);
+    const handleFavoriteSelect = useCallback(
+        (loc: string) => {
+            setQuery(loc);
+            const oceanMatch = loc.match(/Ocean Point\s+(\d+\.\d+)([NS])\s+(\d+\.\d+)([EW])/);
+            if (oceanMatch) {
+                const rawLat = parseFloat(oceanMatch[1]);
+                const latDir = oceanMatch[2];
+                const rawLon = parseFloat(oceanMatch[3]);
+                const lonDir = oceanMatch[4];
+                const lat = latDir === 'S' ? -rawLat : rawLat;
+                const lon = lonDir === 'W' ? -rawLon : rawLon;
+                selectLocation(loc, { lat, lon });
+            } else {
+                selectLocation(loc);
+            }
+            setPage('dashboard');
+        },
+        [setQuery, selectLocation, setPage],
+    );
 
     // Navigation Handlers (Encapsulate DOM/Window logic)
     const handleTabDashboard = useCallback(() => {
@@ -284,7 +300,6 @@ export const useAppController = () => {
     const handleTabPassage = useCallback(() => setPage('voyage'), [setPage]);
     const handleTabMap = useCallback(() => setPage('map'), [setPage]);
     const handleTabSettings = useCallback(() => setPage('settings'), [setPage]);
-
 
     // Calculate Display Mode
     let effectiveMode: DisplayMode = settings.displayMode;
@@ -307,8 +322,15 @@ export const useAppController = () => {
     }
 
     return {
-        query, setQuery, bgImage, showOnboarding, setShowOnboarding, showToast,
-        handleSearchSubmit, handleLocate, effectiveMode,
+        query,
+        setQuery,
+        bgImage,
+        showOnboarding,
+        setShowOnboarding,
+        showToast,
+        handleSearchSubmit,
+        handleLocate,
+        effectiveMode,
 
         // Extracted Handlers & State
         toggleFavorite,
@@ -317,9 +339,12 @@ export const useAppController = () => {
         handleFavoriteSelect,
         handleOnboardingComplete,
 
-        sheetData, setSheetData,
-        sheetOpen, setSheetOpen,
-        isUpgradeOpen, setIsUpgradeOpen,
+        sheetData,
+        setSheetData,
+        sheetOpen,
+        setSheetOpen,
+        isUpgradeOpen,
+        setIsUpgradeOpen,
         isMobileLandscape,
 
         // Navigation
@@ -327,6 +352,6 @@ export const useAppController = () => {
         handleTabMetrics,
         handleTabPassage,
         handleTabMap,
-        handleTabSettings
+        handleTabSettings,
     };
 };

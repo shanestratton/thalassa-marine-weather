@@ -53,7 +53,8 @@ export async function fetchPointWeather(lat: number, lon: number): Promise<Point
     const sea = marine.status === 'fulfilled' ? marine.value : null;
 
     return {
-        lat, lon,
+        lat,
+        lon,
         windSpeedKmh: wx.windSpeedKmh,
         windDirectionDeg: wx.windDirectionDeg,
         windGustsKmh: wx.windGustsKmh,

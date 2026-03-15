@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { UserSettings } from '../types';
 import { getSystemUnits } from '../utils';
 import { useAuth } from './AuthContext';
@@ -25,7 +25,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
         uv: { enabled: false, threshold: 8 },
         tempHigh: { enabled: false, threshold: 35 },
         tempLow: { enabled: false, threshold: 5 },
-        precipitation: { enabled: false }
+        precipitation: { enabled: false },
     },
     units: { ...getSystemUnits(), waveHeight: 'm' },
     defaultLocation: undefined,
@@ -41,7 +41,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     mapboxToken: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN,
     dynamicHeaderMetrics: false, // Default to static header (current behavior)
     dashboardMode: 'full', // 'essential' = simplified, 'full' = all widgets (default)
-    screenOrientation: 'auto' // 'auto' | 'portrait' | 'landscape' - in-app orientation lock
+    screenOrientation: 'auto', // 'auto' | 'portrait' | 'landscape' - in-app orientation lock
 };
 
 interface SettingsContextType {
@@ -126,21 +126,26 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 const { value } = await Preferences.get({ key: 'thalassa_settings' });
                 if (value) {
                     const parsed = JSON.parse(value);
-                    const validHeroWidgets = Array.isArray(parsed.heroWidgets) && parsed.heroWidgets.length > 0 ? parsed.heroWidgets : DEFAULT_SETTINGS.heroWidgets;
+                    const validHeroWidgets =
+                        Array.isArray(parsed.heroWidgets) && parsed.heroWidgets.length > 0
+                            ? parsed.heroWidgets
+                            : DEFAULT_SETTINGS.heroWidgets;
 
-                    setSettings(prev => ({
+                    setSettings((prev) => ({
                         ...DEFAULT_SETTINGS,
                         ...parsed,
                         notifications: { ...DEFAULT_SETTINGS.notifications, ...(parsed.notifications || {}) },
                         units: {
                             ...DEFAULT_SETTINGS.units,
                             ...(parsed.units || {}),
-                            waveHeight: parsed.units?.waveHeight || parsed.units?.length || 'm'
+                            waveHeight: parsed.units?.waveHeight || parsed.units?.length || 'm',
                         },
                         vessel: { ...DEFAULT_SETTINGS.vessel, ...(parsed.vessel || {}) },
                         heroWidgets: validHeroWidgets,
                         rowOrder: (() => {
-                            const saved = Array.isArray(parsed.rowOrder) ? [...parsed.rowOrder] : [...(DEFAULT_SETTINGS.rowOrder || [])];
+                            const saved = Array.isArray(parsed.rowOrder)
+                                ? [...parsed.rowOrder]
+                                : [...(DEFAULT_SETTINGS.rowOrder || [])];
 
                             // Migration: Remove legacy 'charts' and 'forecastChart' entries
                             const chartsIdx = saved.indexOf('charts');
@@ -167,7 +172,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                             // Clean up duplicates just in case
                             return [...new Set(saved)];
                         })(),
-                        isPro: true
+                        isPro: true,
                     }));
                     const order = validHeroWidgets.join(', ');
                     addDebugLog(`LOADED: [${order}] from Disk.`);
@@ -185,40 +190,45 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const syncUp = async (userId: string, newSettings: UserSettings) => {
         if (!supabase) return;
-        await supabase.from('profiles').upsert({ id: userId, settings: newSettings, updated_at: new Date().toISOString() });
+        await supabase
+            .from('profiles')
+            .upsert({ id: userId, settings: newSettings, updated_at: new Date().toISOString() });
     };
 
-    const updateSettings = useCallback(async (newSettings: Partial<UserSettings>) => {
-        if (loading) {
-            return;
-        }
-
-        let updatedState: UserSettings | undefined;
-
-        setSettings(prev => {
-            const temp = { ...prev, ...newSettings };
-            updatedState = temp;
-            return temp;
-        });
-
-        // Effect: Persist to Storage (Outside Reducer)
-        if (updatedState) {
-            try {
-                await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(updatedState) });
-
-                if (newSettings.heroWidgets) {
-                    const order = newSettings.heroWidgets.join(', ');
-                    addDebugLog(`SAVE OK: [${order}]`);
-                } else {
-                    addDebugLog(`SAVE OK: Settings Updated`);
-                }
-            } catch (err: unknown) {
-                addDebugLog(`SAVE FAIL: ${getErrorMessage(err)}`);
+    const updateSettings = useCallback(
+        async (newSettings: Partial<UserSettings>) => {
+            if (loading) {
+                return;
             }
 
-            if (user && user.id) syncUp(user.id, updatedState);
-        }
-    }, [user, addDebugLog, loading]);
+            let updatedState: UserSettings | undefined;
+
+            setSettings((prev) => {
+                const temp = { ...prev, ...newSettings };
+                updatedState = temp;
+                return temp;
+            });
+
+            // Effect: Persist to Storage (Outside Reducer)
+            if (updatedState) {
+                try {
+                    await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(updatedState) });
+
+                    if (newSettings.heroWidgets) {
+                        const order = newSettings.heroWidgets.join(', ');
+                        addDebugLog(`SAVE OK: [${order}]`);
+                    } else {
+                        addDebugLog(`SAVE OK: Settings Updated`);
+                    }
+                } catch (err: unknown) {
+                    addDebugLog(`SAVE FAIL: ${getErrorMessage(err)}`);
+                }
+
+                if (user && user.id) syncUp(user.id, updatedState);
+            }
+        },
+        [user, addDebugLog, loading],
+    );
 
     const resetSettings = useCallback(async () => {
         setSettings(DEFAULT_SETTINGS);
@@ -228,20 +238,19 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     const togglePro = useCallback(() => updateSettings({ isPro: true }), [updateSettings]);
 
-    const contextValue = useMemo(() => ({
-        settings,
-        loading,
-        quotaLimit: DAILY_STORMGLASS_LIMIT,
-        updateSettings,
-        togglePro,
-        resetSettings
-    }), [settings, loading, updateSettings, togglePro, resetSettings]);
-
-    return (
-        <SettingsContext.Provider value={contextValue}>
-            {children}
-        </SettingsContext.Provider>
+    const contextValue = useMemo(
+        () => ({
+            settings,
+            loading,
+            quotaLimit: DAILY_STORMGLASS_LIMIT,
+            updateSettings,
+            togglePro,
+            resetSettings,
+        }),
+        [settings, loading, updateSettings, togglePro, resetSettings],
     );
+
+    return <SettingsContext.Provider value={contextValue}>{children}</SettingsContext.Provider>;
 };
 
 export const useSettings = () => {

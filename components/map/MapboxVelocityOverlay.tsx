@@ -14,7 +14,7 @@
  *   <MapboxVelocityOverlay mapboxMap={mapboxInstance} visible={activeLayer === 'velocity'} />
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('MapboxVelocityOverlay');
@@ -36,7 +36,7 @@ interface MapboxVelocityOverlayProps {
     mapboxMap: mapboxgl.Map | null;
     visible: boolean;
     windHour?: number;
-    windGrid?: any;  // WindGrid from WindStore
+    windGrid?: any; // WindGrid from WindStore
     hideBadge?: boolean;
 }
 
@@ -54,7 +54,7 @@ const WIND_COLORS = [
 
 function createVelocityLayer(data: any[]): L.Layer {
     return (L as any).velocityLayer({
-        displayValues: false,  // No mouse readout (overlay has pointer-events: none)
+        displayValues: false, // No mouse readout (overlay has pointer-events: none)
         data,
         maxVelocity: 40,
         velocityScale: 0.015,
@@ -73,14 +73,14 @@ const HEATMAP_LAYER = 'wind-heatmap-layer';
 
 /** Monochrome color stops: [maxKts, r, g, b] */
 const BEAUFORT_STOPS: [number, number, number, number][] = [
-    [5, 15, 18, 23],       // calm — near-black
-    [10, 30, 33, 40],      // light — dark slate
-    [15, 50, 53, 60],      // moderate — mid slate
-    [20, 75, 78, 84],      // fresh — grey
-    [25, 107, 107, 110],   // strong — light grey
-    [30, 140, 102, 76],    // gale — muted amber
-    [40, 166, 76, 71],     // storm — muted coral
-    [999, 178, 64, 76],    // violent — warm red
+    [5, 15, 18, 23], // calm — near-black
+    [10, 30, 33, 40], // light — dark slate
+    [15, 50, 53, 60], // moderate — mid slate
+    [20, 75, 78, 84], // fresh — grey
+    [25, 107, 107, 110], // strong — light grey
+    [30, 140, 102, 76], // gale — muted amber
+    [40, 166, 76, 71], // storm — muted coral
+    [999, 178, 64, 76], // violent — warm red
 ];
 
 function ktsToColor(kts: number): [number, number, number] {
@@ -91,9 +91,15 @@ function ktsToColor(kts: number): [number, number, number] {
 }
 
 function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
-    const uRecord = windData.find((d: any) => d.header?.parameterNumberName?.includes('U-component') || d.header?.parameterNumber === 2);
-    const vRecord = windData.find((d: any) => d.header?.parameterNumberName?.includes('V-component') || d.header?.parameterNumber === 3);
-    if (!uRecord || !vRecord) { return; }
+    const uRecord = windData.find(
+        (d: any) => d.header?.parameterNumberName?.includes('U-component') || d.header?.parameterNumber === 2,
+    );
+    const vRecord = windData.find(
+        (d: any) => d.header?.parameterNumberName?.includes('V-component') || d.header?.parameterNumber === 3,
+    );
+    if (!uRecord || !vRecord) {
+        return;
+    }
 
     const header = uRecord.header;
     const nx = header.nx;
@@ -139,14 +145,19 @@ function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
     // Helper: slice a column range from the canvas, upscale, return dataURL
     const sliceToDataUrl = (startX: number, w: number) => {
         const slice = document.createElement('canvas');
-        slice.width = w; slice.height = ny;
+        slice.width = w;
+        slice.height = ny;
         slice.getContext('2d')!.drawImage(canvas, startX, 0, w, ny, 0, 0, w, ny);
         const sm = document.createElement('canvas');
-        sm.width = w * 2; sm.height = ny * 2;
+        sm.width = w * 2;
+        sm.height = ny * 2;
         const sc = sm.getContext('2d')!;
         sc.imageSmoothingEnabled = true;
         sc.imageSmoothingQuality = 'high';
-        if (flipY) { sc.translate(0, sm.height); sc.scale(1, -1); }
+        if (flipY) {
+            sc.translate(0, sm.height);
+            sc.scale(1, -1);
+        }
         sc.drawImage(slice, 0, 0, sm.width, sm.height);
         return sm.toDataURL('image/png');
     };
@@ -164,27 +175,41 @@ function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
 
         // Left: west → 180°
         map.addSource(HEATMAP_SOURCE, {
-            type: 'image', url: sliceToDataUrl(0, leftW),
-            coordinates: [[west, north], [180, north], [180, south], [west, south]],
+            type: 'image',
+            url: sliceToDataUrl(0, leftW),
+            coordinates: [
+                [west, north],
+                [180, north],
+                [180, south],
+                [west, south],
+            ],
         });
         map.addLayer({
-            id: HEATMAP_LAYER, type: 'raster', source: HEATMAP_SOURCE,
-            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 }
+            id: HEATMAP_LAYER,
+            type: 'raster',
+            source: HEATMAP_SOURCE,
+            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 },
         });
 
         // Right: -180° → (east - 360)
         const rSrc = HEATMAP_SOURCE + '_r';
         const rLyr = HEATMAP_LAYER + '_r';
         map.addSource(rSrc, {
-            type: 'image', url: sliceToDataUrl(splitCol, rightW),
-            coordinates: [[-180, north], [east - 360, north], [east - 360, south], [-180, south]],
+            type: 'image',
+            url: sliceToDataUrl(splitCol, rightW),
+            coordinates: [
+                [-180, north],
+                [east - 360, north],
+                [east - 360, south],
+                [-180, south],
+            ],
         });
         map.addLayer({
-            id: rLyr, type: 'raster', source: rSrc,
-            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 }
+            id: rLyr,
+            type: 'raster',
+            source: rSrc,
+            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 },
         });
-
-
     } else if (lonSpan > 180) {
         // ── Global GFS data: lon 0°→359.5° ──
         // Must split into two ≤180° image sources for Mapbox.
@@ -208,12 +233,20 @@ function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
             const westLonMax = west + (westColEnd - 1) * dx - 360; // ≈ -0.5°
 
             map.addSource(HEATMAP_SOURCE, {
-                type: 'image', url: sliceToDataUrl(westColStart, westSliceW),
-                coordinates: [[westLonMin, north], [westLonMax, north], [westLonMax, south], [westLonMin, south]],
+                type: 'image',
+                url: sliceToDataUrl(westColStart, westSliceW),
+                coordinates: [
+                    [westLonMin, north],
+                    [westLonMax, north],
+                    [westLonMax, south],
+                    [westLonMin, south],
+                ],
             });
             map.addLayer({
-                id: HEATMAP_LAYER, type: 'raster', source: HEATMAP_SOURCE,
-                paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 }
+                id: HEATMAP_LAYER,
+                type: 'raster',
+                source: HEATMAP_SOURCE,
+                paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 },
             });
         }
 
@@ -225,28 +258,41 @@ function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
             const rSrc = HEATMAP_SOURCE + '_r';
             const rLyr = HEATMAP_LAYER + '_r';
             map.addSource(rSrc, {
-                type: 'image', url: sliceToDataUrl(eastColStart, eastSliceW),
-                coordinates: [[eastLonMin, north], [eastLonMax, north], [eastLonMax, south], [eastLonMin, south]],
+                type: 'image',
+                url: sliceToDataUrl(eastColStart, eastSliceW),
+                coordinates: [
+                    [eastLonMin, north],
+                    [eastLonMax, north],
+                    [eastLonMax, south],
+                    [eastLonMin, south],
+                ],
             });
             map.addLayer({
-                id: rLyr, type: 'raster', source: rSrc,
-                paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 }
+                id: rLyr,
+                type: 'raster',
+                source: rSrc,
+                paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 },
             });
         }
-
-
     } else {
         // Standard single image — fits within 180° span
         const url = sliceToDataUrl(0, nx);
         map.addSource(HEATMAP_SOURCE, {
-            type: 'image', url,
-            coordinates: [[west, north], [east, north], [east, south], [west, south]],
+            type: 'image',
+            url,
+            coordinates: [
+                [west, north],
+                [east, north],
+                [east, south],
+                [west, south],
+            ],
         });
         map.addLayer({
-            id: HEATMAP_LAYER, type: 'raster', source: HEATMAP_SOURCE,
-            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 }
+            id: HEATMAP_LAYER,
+            type: 'raster',
+            source: HEATMAP_SOURCE,
+            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 },
         });
-
     }
 }
 
@@ -258,7 +304,9 @@ function removeHeatMap(map: mapboxgl.Map): void {
         const rSrc = HEATMAP_SOURCE + '_r';
         if (map.getLayer(rLyr)) map.removeLayer(rLyr);
         if (map.getSource(rSrc)) map.removeSource(rSrc);
-    } catch (_) { /* ok */ }
+    } catch (_) {
+        /* ok */
+    }
 }
 
 // ── Helper: Relative time formatter ──────────────────────────
@@ -322,8 +370,8 @@ async function fetchWindData(map: mapboxgl.Map): Promise<WindFetchResult> {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'apikey': SUPABASE_KEY,
-                'Authorization': `Bearer ${SUPABASE_KEY}`,
+                apikey: SUPABASE_KEY,
+                Authorization: `Bearer ${SUPABASE_KEY}`,
             },
             body,
         });
@@ -335,9 +383,7 @@ async function fetchWindData(map: mapboxgl.Map): Promise<WindFetchResult> {
         await cache.put(cacheKey, res.clone());
 
         return { data: await res.json(), source: 'live' };
-
     } catch (err) {
-
         const cache = await caches.open(WIND_CACHE_NAME);
         const cached = await cache.match(cacheKey);
 
@@ -368,7 +414,10 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     const moveRef = useRef<(() => void) | null>(null);
     const resizeRef = useRef<(() => void) | null>(null);
     const [windData, setWindData] = useState<any[] | null>(null);
-    const [dataInfo, setDataInfo] = useState<{ refTime: string | null; source: 'live' | 'cached' | 'static' | null }>({ refTime: null, source: null });
+    const [dataInfo, setDataInfo] = useState<{ refTime: string | null; source: 'live' | 'cached' | 'static' | null }>({
+        refTime: null,
+        source: null,
+    });
 
     const lastFetchZoom = useRef<number | null>(null);
     const fetchingRef = useRef(false);
@@ -463,7 +512,10 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         const dy = windGrid.lats.length > 1 ? Math.abs(windGrid.lats[1] - windGrid.lats[0]) : 1;
 
         const header = {
-            nx, ny, dx, dy,
+            nx,
+            ny,
+            dx,
+            dy,
             lo1: windGrid.west,
             lo2: windGrid.east,
             la1: windGrid.north,
@@ -528,7 +580,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
 
         mapboxMap.on('zoom', onZoom);
         onZoom();
-        return () => { mapboxMap.off('zoom', onZoom); };
+        return () => {
+            mapboxMap.off('zoom', onZoom);
+        };
     }, [mapboxMap, visible]);
 
     // ── Create/destroy particle overlay ──────────────────────────
@@ -548,7 +602,8 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
 
             // Create overlay div on top of Mapbox
             const div = document.createElement('div');
-            div.style.cssText = 'position:absolute;inset:0;z-index:400;pointer-events:none;opacity:0;transition:opacity 0.4s ease;';
+            div.style.cssText =
+                'position:absolute;inset:0;z-index:400;pointer-events:none;opacity:0;transition:opacity 0.4s ease;';
             container.appendChild(div);
             overlayRef.current = div;
 
@@ -611,7 +666,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     } else {
                         overlayRef.current.style.transform = '';
                     }
-                } catch (_) { /* velocity canvas not ready yet */ }
+                } catch (_) {
+                    /* velocity canvas not ready yet */
+                }
                 _syncing = false;
             };
 
@@ -625,7 +682,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     const dx = mapboxPx.x - leafletPx.x;
                     const dy = mapboxPx.y - leafletPx.y;
                     overlayRef.current.style.transform = `translate(${dx}px, ${dy}px)`;
-                } catch (_) { /* ok */ }
+                } catch (_) {
+                    /* ok */
+                }
             };
 
             const onResize = () => {
@@ -653,7 +712,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             });
         };
 
-        setup().catch(err => log.error('[VelocityOverlay] Setup failed:', err));
+        setup().catch((err) => log.error('[VelocityOverlay] Setup failed:', err));
 
         // ── Cleanup ──────────────────────────────────────────────
         return () => {
@@ -666,7 +725,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     mapboxMap.off('zoom', syncRef.current);
                 }
                 if (resizeRef.current) mapboxMap.off('resize', resizeRef.current);
-            } catch (_) { /* ok */ }
+            } catch (_) {
+                /* ok */
+            }
             syncRef.current = null;
             moveRef.current = null;
             resizeRef.current = null;
@@ -679,7 +740,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 if (velocityLayerRef.current && leafletMapRef.current?.hasLayer(velocityLayerRef.current)) {
                     leafletMapRef.current.removeLayer(velocityLayerRef.current);
                 }
-            } catch (_) { /* ok */ }
+            } catch (_) {
+                /* ok */
+            }
             velocityLayerRef.current = null;
 
             // Destroy Leaflet map (also detaches its container div)
@@ -687,7 +750,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 if (leafletMapRef.current) {
                     leafletMapRef.current.remove();
                 }
-            } catch (_) { /* ok */ }
+            } catch (_) {
+                /* ok */
+            }
             leafletMapRef.current = null;
 
             // Remove overlay div (may already be gone after lMap.remove())
@@ -695,7 +760,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 if (overlayRef.current?.parentNode) {
                     overlayRef.current.parentNode.removeChild(overlayRef.current);
                 }
-            } catch (_) { /* ok */ }
+            } catch (_) {
+                /* ok */
+            }
             overlayRef.current = null;
         };
     }, [mapboxMap, visible, windData]);
@@ -706,7 +773,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     const isOffline = dataInfo.source === 'cached' || dataInfo.source === 'static';
     const ageStr = formatRelativeTime(dataInfo.refTime);
 
-    const isSmallContainer = mapboxMap?.getContainer()?.clientHeight ? mapboxMap.getContainer().clientHeight < 300 : false;
+    const isSmallContainer = mapboxMap?.getContainer()?.clientHeight
+        ? mapboxMap.getContainer().clientHeight < 300
+        : false;
 
     return (
         <div

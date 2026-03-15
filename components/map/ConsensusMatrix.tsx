@@ -25,16 +25,18 @@ const ScatterBar: React.FC<{ models: ModelPoint[]; maxScale?: number }> = ({ mod
     return (
         <div className="relative h-8 bg-white/[0.03] rounded-lg border border-white/[0.06] overflow-hidden">
             {/* Scale ticks */}
-            {[0, 10, 20, 30, 40, 50].filter(v => v <= maxScale).map(v => (
-                <div
-                    key={v}
-                    className="absolute top-0 bottom-0 w-px bg-white/[0.05]"
-                    style={{ left: `${(v / maxScale) * 100}%` }}
-                />
-            ))}
+            {[0, 10, 20, 30, 40, 50]
+                .filter((v) => v <= maxScale)
+                .map((v) => (
+                    <div
+                        key={v}
+                        className="absolute top-0 bottom-0 w-px bg-white/[0.05]"
+                        style={{ left: `${(v / maxScale) * 100}%` }}
+                    />
+                ))}
 
             {/* Model dots */}
-            {models.map(m => {
+            {models.map((m) => {
                 const pct = Math.min(100, (m.windKts / maxScale) * 100);
                 const isOutlier = m.isOutlier;
                 return (
@@ -72,8 +74,8 @@ const ConsensusRowView: React.FC<{
     const bgClass = row.exceedsComfort
         ? 'bg-red-500/[0.06] border-red-500/20'
         : row.confidence === 'low'
-            ? 'bg-amber-500/[0.04] border-amber-500/15'
-            : 'bg-transparent border-white/[0.04]';
+          ? 'bg-amber-500/[0.04] border-amber-500/15'
+          : 'bg-transparent border-white/[0.04]';
 
     return (
         <div
@@ -87,16 +89,18 @@ const ConsensusRowView: React.FC<{
             <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                     {/* Time — LARGE for cockpit readability */}
-                    <span className="text-base font-black text-white tabular-nums tracking-tight">
-                        {row.timeLabel}
-                    </span>
+                    <span className="text-base font-black text-white tabular-nums tracking-tight">{row.timeLabel}</span>
 
                     {/* Confidence badge */}
-                    <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${
-                        row.confidence === 'high' ? 'bg-emerald-500/15 text-emerald-400'
-                        : row.confidence === 'medium' ? 'bg-amber-500/15 text-amber-400'
-                        : 'bg-red-500/15 text-red-400'
-                    }`}>
+                    <span
+                        className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${
+                            row.confidence === 'high'
+                                ? 'bg-emerald-500/15 text-emerald-400'
+                                : row.confidence === 'medium'
+                                  ? 'bg-amber-500/15 text-amber-400'
+                                  : 'bg-red-500/15 text-red-400'
+                        }`}
+                    >
                         {row.confidence === 'high' ? '✓ AGREE' : row.confidence === 'medium' ? '~ MIXED' : '⚠ SPLIT'}
                     </span>
 
@@ -121,7 +125,7 @@ const ConsensusRowView: React.FC<{
             <div className="flex items-center justify-between mt-2">
                 {/* Model dots legend */}
                 <div className="flex items-center gap-3">
-                    {row.models.map(m => (
+                    {row.models.map((m) => (
                         <div key={m.model} className="flex items-center gap-1">
                             <div
                                 className="rounded-full"
@@ -131,11 +135,13 @@ const ConsensusRowView: React.FC<{
                                     backgroundColor: m.color,
                                 }}
                             />
-                            <span className={`tabular-nums ${
-                                m.isOutlier
-                                    ? 'text-sm font-black text-white'
-                                    : 'text-[10px] font-bold text-gray-500'
-                            }`}>
+                            <span
+                                className={`tabular-nums ${
+                                    m.isOutlier
+                                        ? 'text-sm font-black text-white'
+                                        : 'text-[10px] font-bold text-gray-500'
+                                }`}
+                            >
                                 {m.windKts.toFixed(0)}
                             </span>
                         </div>
@@ -149,9 +155,7 @@ const ConsensusRowView: React.FC<{
                         {row.worstCase.windKts.toFixed(0)}
                     </span>
                     <span className="text-[9px] text-gray-500 ml-0.5">kts</span>
-                    <span className="text-[9px] text-gray-600 ml-1.5">
-                        G{row.worstCase.gustKts.toFixed(0)}
-                    </span>
+                    <span className="text-[9px] text-gray-600 ml-1.5">G{row.worstCase.gustKts.toFixed(0)}</span>
                 </div>
             </div>
 
@@ -162,14 +166,18 @@ const ConsensusRowView: React.FC<{
                     <div className="flex-1 h-1 rounded-full bg-white/[0.04] overflow-hidden">
                         <div
                             className={`h-full rounded-full transition-all ${
-                                row.confidence === 'high' ? 'bg-emerald-500/40'
-                                : row.confidence === 'medium' ? 'bg-amber-500/40'
-                                : 'bg-red-500/40'
+                                row.confidence === 'high'
+                                    ? 'bg-emerald-500/40'
+                                    : row.confidence === 'medium'
+                                      ? 'bg-amber-500/40'
+                                      : 'bg-red-500/40'
                             }`}
                             style={{ width: `${Math.min(100, (row.spreadKts / 25) * 100)}%` }}
                         />
                     </div>
-                    <span className="text-[9px] font-bold text-gray-500 tabular-nums">±{(row.spreadKts / 2).toFixed(0)} kts</span>
+                    <span className="text-[9px] font-bold text-gray-500 tabular-nums">
+                        ±{(row.spreadKts / 2).toFixed(0)} kts
+                    </span>
                 </div>
             )}
         </div>
@@ -178,11 +186,7 @@ const ConsensusRowView: React.FC<{
 
 // ── Main Component ────────────────────────────────────────────
 
-export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({
-    data,
-    onScrubPosition,
-    onClose,
-}) => {
+export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubPosition, onClose }) => {
     const scrollRef = useRef<HTMLDivElement>(null);
     const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
@@ -230,7 +234,9 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({
                 <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full bg-gradient-to-r from-sky-400 to-purple-400 animate-pulse" />
-                        <h2 className="text-[11px] font-black text-white uppercase tracking-[0.15em]">Consensus Matrix</h2>
+                        <h2 className="text-[11px] font-black text-white uppercase tracking-[0.15em]">
+                            Consensus Matrix
+                        </h2>
                     </div>
                     {onClose && (
                         <button
@@ -238,7 +244,13 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({
                             className="w-9 h-9 flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] hover:bg-white/10 transition-colors active:scale-95"
                             aria-label="Close consensus matrix"
                         >
-                            <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <svg
+                                className="w-4 h-4 text-gray-400"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2.5}
+                            >
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>
@@ -247,18 +259,28 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({
 
                 {/* Data source + model legend */}
                 <div className="flex items-center gap-3 mb-2">
-                    <span className={`px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-widest ${
-                        data.dataSource === 'live'
-                            ? 'bg-emerald-500/15 text-emerald-400'
-                            : 'bg-amber-500/15 text-amber-400'
-                    }`}>
+                    <span
+                        className={`px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-widest ${
+                            data.dataSource === 'live'
+                                ? 'bg-emerald-500/15 text-emerald-400'
+                                : 'bg-amber-500/15 text-amber-400'
+                        }`}
+                    >
                         {data.dataSource === 'live' ? '● LIVE MULTI-MODEL' : '○ GRID ESTIMATE'}
                     </span>
-                    {data.modelsUsed.map(model => {
-                        const colorMap: Record<string, string> = { GFS: '#38bdf8', ECMWF: '#a78bfa', ICON: '#34d399', GEM: '#fb923c' };
+                    {data.modelsUsed.map((model) => {
+                        const colorMap: Record<string, string> = {
+                            GFS: '#38bdf8',
+                            ECMWF: '#a78bfa',
+                            ICON: '#34d399',
+                            GEM: '#fb923c',
+                        };
                         return (
                             <div key={model} className="flex items-center gap-1">
-                                <div className="w-2 h-2 rounded-full" style={{ backgroundColor: colorMap[model] || '#888' }} />
+                                <div
+                                    className="w-2 h-2 rounded-full"
+                                    style={{ backgroundColor: colorMap[model] || '#888' }}
+                                />
                                 <span className="text-[9px] font-bold text-gray-500">{model}</span>
                             </div>
                         );
@@ -269,18 +291,24 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({
                 <div className="flex items-center gap-3">
                     <div className="flex items-center gap-1">
                         <span className="text-[8px] font-bold text-gray-600 uppercase">Avg Spread</span>
-                        <span className="text-[11px] font-black text-white tabular-nums">{data.summary.avgSpreadKts} kts</span>
+                        <span className="text-[11px] font-black text-white tabular-nums">
+                            {data.summary.avgSpreadKts} kts
+                        </span>
                     </div>
                     {data.summary.lowConfidenceCount > 0 && (
                         <div className="flex items-center gap-1">
                             <span className="text-[8px] font-bold text-amber-500 uppercase">⚠ Low Conf</span>
-                            <span className="text-[11px] font-black text-amber-400 tabular-nums">{data.summary.lowConfidenceCount}</span>
+                            <span className="text-[11px] font-black text-amber-400 tabular-nums">
+                                {data.summary.lowConfidenceCount}
+                            </span>
                         </div>
                     )}
                     {data.summary.comfortBreachCount > 0 && (
                         <div className="flex items-center gap-1">
                             <span className="text-[8px] font-bold text-red-500 uppercase">🚫 No-Go</span>
-                            <span className="text-[11px] font-black text-red-400 tabular-nums">{data.summary.comfortBreachCount}</span>
+                            <span className="text-[11px] font-black text-red-400 tabular-nums">
+                                {data.summary.comfortBreachCount}
+                            </span>
                         </div>
                     )}
                 </div>

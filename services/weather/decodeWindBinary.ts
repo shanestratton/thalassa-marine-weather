@@ -25,9 +25,7 @@ export function decodeWindBinary(buffer: ArrayBuffer): DecodedWindField {
     const view = new DataView(buffer);
 
     if (buffer.byteLength < 8) {
-        throw new Error(
-            `[decodeWindBinary] Buffer too small: ${buffer.byteLength} bytes (need ≥8 for header)`,
-        );
+        throw new Error(`[decodeWindBinary] Buffer too small: ${buffer.byteLength} bytes (need ≥8 for header)`);
     }
 
     // First 8 bytes: grid dimensions as uint32 little-endian
@@ -39,7 +37,7 @@ export function decodeWindBinary(buffer: ArrayBuffer): DecodedWindField {
     if (buffer.byteLength < expectedBytes) {
         throw new Error(
             `[decodeWindBinary] Buffer size mismatch: got ${buffer.byteLength}, ` +
-            `expected ${expectedBytes} for ${width}×${height} grid`,
+                `expected ${expectedBytes} for ${width}×${height} grid`,
         );
     }
 
@@ -77,7 +75,7 @@ export function decodeWindBinarySeparate(buffer: ArrayBuffer): DecodedWindField 
     if (buffer.byteLength < expectedBytes) {
         throw new Error(
             `[decodeWindBinarySeparate] Buffer size mismatch: got ${buffer.byteLength}, ` +
-            `expected ${expectedBytes} for ${width}×${height} grid`,
+                `expected ${expectedBytes} for ${width}×${height} grid`,
         );
     }
 

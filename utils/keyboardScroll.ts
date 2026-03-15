@@ -45,16 +45,20 @@ function ensureHideListener() {
     hideListenerRegistered = true;
 
     if (Capacitor.isNativePlatform()) {
-        import('@capacitor/keyboard').then(({ Keyboard }) => {
-            Keyboard.addListener('keyboardWillHide', () => {
-                if (lastScrollParent) {
-                    lastScrollParent.scrollTo({
-                        top: 0,
-                        behavior: 'smooth',
-                    });
-                }
+        import('@capacitor/keyboard')
+            .then(({ Keyboard }) => {
+                Keyboard.addListener('keyboardWillHide', () => {
+                    if (lastScrollParent) {
+                        lastScrollParent.scrollTo({
+                            top: 0,
+                            behavior: 'smooth',
+                        });
+                    }
+                });
+            })
+            .catch(() => {
+                /* Keyboard plugin not available */
             });
-        }).catch(() => { /* Keyboard plugin not available */ });
     } else {
         // Web fallback: listen for visualViewport resize
         const vp = window.visualViewport;

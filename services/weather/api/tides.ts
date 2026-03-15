@@ -17,19 +17,22 @@ export interface TideGUIDetails {
  * Called from BOTH openmeteo.ts AND stormglass.ts, so caching here
  * prevents double-hitting WorldTides on every single weather refresh.
  */
-export const fetchRealTides = async (lat: number, lon: number): Promise<{ tides: Tide[], guiDetails?: TideGUIDetails }> => {
+export const fetchRealTides = async (
+    lat: number,
+    lon: number,
+): Promise<{ tides: Tide[]; guiDetails?: TideGUIDetails }> => {
     // Check cache first (24h TTL — predictions don't change)
-    const cached = apiCacheGet<{ tides: Tide[], guiDetails?: TideGUIDetails }>('tides', lat, lon);
+    const cached = apiCacheGet<{ tides: Tide[]; guiDetails?: TideGUIDetails }>('tides', lat, lon);
     if (cached) return cached;
 
     try {
         const wtData = await fetchWorldTides(lat, lon, 14);
 
         if (wtData && wtData.extremes) {
-            const mappedTides: Tide[] = wtData.extremes.map(e => ({
+            const mappedTides: Tide[] = wtData.extremes.map((e) => ({
                 time: e.date,
                 type: e.type,
-                height: e.height
+                height: e.height,
             }));
 
             // Use the station name returned by the WorldTides API
@@ -44,8 +47,7 @@ export const fetchRealTides = async (lat: number, lon: number): Promise<{ tides:
             apiCacheSet('tides', lat, lon, result);
             return result;
         }
-    } catch (err) {
-    }
+    } catch (err) {}
 
     // FALLBACK: Network Failure / No Data
     // Return empty so transformers.ts correctly classifies as INLAND/OFFSHORE.

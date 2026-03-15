@@ -40,8 +40,7 @@ class AlarmAudioServiceClass {
                 await AlarmAudioPlugin.startAlarm();
                 this.isPlaying = true;
                 return;
-            } catch (err) {
-            }
+            } catch (err) {}
         }
 
         // Web fallback
@@ -59,7 +58,7 @@ class AlarmAudioServiceClass {
             try {
                 await AlarmAudioPlugin.stopAlarm();
             } catch (e) {
-            console.warn('[AlarmAudio]', e);
+                console.warn('[AlarmAudio]', e);
                 /* best effort */
             }
         }
@@ -77,7 +76,8 @@ class AlarmAudioServiceClass {
 
     private startWebAlarm(): void {
         try {
-            const AudioCtx = window.AudioContext ||
+            const AudioCtx =
+                window.AudioContext ||
                 ('webkitAudioContext' in window
                     ? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
                     : AudioContext);
@@ -110,8 +110,7 @@ class AlarmAudioServiceClass {
 
             playTone();
             this.webAlarmInterval = setInterval(playTone, 1500);
-        } catch (e) {
-        }
+        } catch (e) {}
     }
 
     private stopWebAlarm(): void {

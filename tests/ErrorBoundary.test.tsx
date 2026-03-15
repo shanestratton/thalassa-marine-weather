@@ -2,7 +2,7 @@
  * Tests for ErrorBoundary component
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { ErrorBoundary, CompactErrorFallback } from '../components/ErrorBoundary';
 
 // Component that throws on render
@@ -14,14 +14,14 @@ const ThrowingComponent = ({ shouldThrow = true }: { shouldThrow?: boolean }) =>
 describe('ErrorBoundary', () => {
     // Suppress React error boundary console.error noise in tests
     beforeEach(() => {
-        vi.spyOn(console, 'error').mockImplementation(() => { });
+        vi.spyOn(console, 'error').mockImplementation(() => {});
     });
 
     it('renders children when no error occurs', () => {
         render(
             <ErrorBoundary>
                 <p>Hello World</p>
-            </ErrorBoundary>
+            </ErrorBoundary>,
         );
         expect(screen.getByText('Hello World')).toBeInTheDocument();
     });
@@ -30,7 +30,7 @@ describe('ErrorBoundary', () => {
         render(
             <ErrorBoundary boundaryName="TestBoundary">
                 <ThrowingComponent />
-            </ErrorBoundary>
+            </ErrorBoundary>,
         );
         expect(screen.getByText('Something went wrong')).toBeInTheDocument();
         expect(screen.getByText(/Error in TestBoundary/)).toBeInTheDocument();
@@ -40,7 +40,7 @@ describe('ErrorBoundary', () => {
         render(
             <ErrorBoundary>
                 <ThrowingComponent />
-            </ErrorBoundary>
+            </ErrorBoundary>,
         );
         expect(screen.getByText('Test explosion')).toBeInTheDocument();
     });
@@ -49,7 +49,7 @@ describe('ErrorBoundary', () => {
         render(
             <ErrorBoundary>
                 <ThrowingComponent />
-            </ErrorBoundary>
+            </ErrorBoundary>,
         );
         const retryBtn = screen.getByText('Try Again');
         expect(retryBtn).toBeInTheDocument();
@@ -59,7 +59,7 @@ describe('ErrorBoundary', () => {
         render(
             <ErrorBoundary fallback={<p>Custom Error UI</p>}>
                 <ThrowingComponent />
-            </ErrorBoundary>
+            </ErrorBoundary>,
         );
         expect(screen.getByText('Custom Error UI')).toBeInTheDocument();
     });
@@ -69,21 +69,19 @@ describe('ErrorBoundary', () => {
         render(
             <ErrorBoundary onError={onError}>
                 <ThrowingComponent />
-            </ErrorBoundary>
+            </ErrorBoundary>,
         );
         expect(onError).toHaveBeenCalledTimes(1);
         expect(onError).toHaveBeenCalledWith(
             expect.any(Error),
-            expect.objectContaining({ componentStack: expect.any(String) })
+            expect.objectContaining({ componentStack: expect.any(String) }),
         );
     });
 
     it('getDerivedStateFromError returns null for readonly property errors (iOS WKWebView)', () => {
         // Verify the static method suppresses the error — jsdom re-throws
         // regardless, but in real WebKit the boundary correctly swallows it.
-        const result = (ErrorBoundary as any).getDerivedStateFromError(
-            new Error('Cannot set readonly property')
-        );
+        const result = (ErrorBoundary as any).getDerivedStateFromError(new Error('Cannot set readonly property'));
         expect(result).toBeNull();
     });
 });

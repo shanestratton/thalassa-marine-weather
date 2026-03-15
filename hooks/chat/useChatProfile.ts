@@ -4,7 +4,13 @@
  */
 import { useState, useRef, useCallback } from 'react';
 import { ChatService } from '../../services/ChatService';
-import { uploadProfilePhoto, getCachedAvatar, removeProfilePhoto, getProfile, updateProfile } from '../../services/ProfilePhotoService';
+import {
+    uploadProfilePhoto,
+    getCachedAvatar,
+    removeProfilePhoto,
+    getProfile,
+    updateProfile,
+} from '../../services/ProfilePhotoService';
 
 export interface UseChatProfileOptions {
     avatarMap: Map<string, string>;
@@ -32,7 +38,10 @@ export function useChatProfile(options: UseChatProfileOptions) {
     /** Load profile data from Supabase (called during init) */
     const loadProfile = useCallback(async () => {
         const user = await ChatService.getCurrentUser();
-        if (!user) { setProfileLoaded(true); return; }
+        if (!user) {
+            setProfileLoaded(true);
+            return;
+        }
         const profile = await getProfile(user.id);
         if (profile) {
             setProfileDisplayName(profile.display_name || '');
@@ -80,26 +89,40 @@ export function useChatProfile(options: UseChatProfileOptions) {
         ChatService.clearDisplayNameCache();
         setProfileSaving(false);
         setProfileSaved(true);
-        setTimeout(() => { setProfileSaved(false); setView('channels'); }, 1200);
+        setTimeout(() => {
+            setProfileSaved(false);
+            setView('channels');
+        }, 1200);
     }, [profileDisplayName, profileVesselName, profileLookingForLove, setView]);
 
     /** Resolve avatar URL for a user — uses myAvatarUrl for 'self', then map, then cache */
-    const getAvatar = useCallback((userId: string): string | null => {
-        if (userId === 'self') return myAvatarUrl;
-        return avatarMap.get(userId) || getCachedAvatar(userId) || null;
-    }, [myAvatarUrl, avatarMap]);
+    const getAvatar = useCallback(
+        (userId: string): string | null => {
+            if (userId === 'self') return myAvatarUrl;
+            return avatarMap.get(userId) || getCachedAvatar(userId) || null;
+        },
+        [myAvatarUrl, avatarMap],
+    );
 
     return {
         // State
-        myAvatarUrl, setMyAvatarUrl,
-        showPhotoUpload, setShowPhotoUpload,
-        uploadProgress, uploadError,
+        myAvatarUrl,
+        setMyAvatarUrl,
+        showPhotoUpload,
+        setShowPhotoUpload,
+        uploadProgress,
+        uploadError,
         fileInputRef,
-        profileDisplayName, setProfileDisplayName,
-        profileVesselName, setProfileVesselName,
-        profileLoaded, setProfileLoaded,
-        profileSaving, profileSaved,
-        profileLookingForLove, setProfileLookingForLove,
+        profileDisplayName,
+        setProfileDisplayName,
+        profileVesselName,
+        setProfileVesselName,
+        profileLoaded,
+        setProfileLoaded,
+        profileSaving,
+        profileSaved,
+        profileLookingForLove,
+        setProfileLookingForLove,
 
         // Actions
         loadProfile,

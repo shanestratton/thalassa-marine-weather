@@ -12,9 +12,7 @@ export type DeviceMode = 'helm' | 'deck';
 const TABLET_BREAKPOINT = 768;
 
 export function useDeviceMode(): DeviceMode {
-    const [mode, setMode] = useState<DeviceMode>(
-        () => window.innerWidth >= TABLET_BREAKPOINT ? 'helm' : 'deck'
-    );
+    const [mode, setMode] = useState<DeviceMode>(() => (window.innerWidth >= TABLET_BREAKPOINT ? 'helm' : 'deck'));
 
     useEffect(() => {
         const mq = window.matchMedia(`(min-width: ${TABLET_BREAKPOINT}px)`);

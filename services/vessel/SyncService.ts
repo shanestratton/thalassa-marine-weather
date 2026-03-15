@@ -45,7 +45,7 @@ const SYNCABLE_TABLES = [
     'ship_documents',
 ] as const;
 
-type SyncableTable = typeof SYNCABLE_TABLES[number];
+type SyncableTable = (typeof SYNCABLE_TABLES)[number];
 
 /** Tables that have file URIs which need uploading before sync */
 const FILE_URI_FIELDS: Partial<Record<SyncableTable, string>> = {
@@ -65,7 +65,7 @@ const statusListeners: StatusListener[] = [];
 
 function setStatus(status: SyncStatus) {
     currentStatus = status;
-    statusListeners.forEach(fn => fn(status));
+    statusListeners.forEach((fn) => fn(status));
 }
 
 export function getSyncStatus(): SyncStatus {
@@ -107,12 +107,14 @@ export function startSyncEngine(): void {
     }
 
     // Periodic sync every 5 minutes when online
-    syncInterval = setInterval(() => {
-        if (navigator.onLine && !isSyncing) {
-            syncNow();
-        }
-    }, 5 * 60 * 1000);
-
+    syncInterval = setInterval(
+        () => {
+            if (navigator.onLine && !isSyncing) {
+                syncNow();
+            }
+        },
+        5 * 60 * 1000,
+    );
 }
 
 /**
@@ -187,7 +189,7 @@ export async function syncNow(): Promise<SyncResult> {
     }
 
     // Notify listeners
-    listeners.forEach(fn => fn(result));
+    listeners.forEach((fn) => fn(result));
 
     if (result.pushed > 0 || result.pulled > 0) {
     }
@@ -201,9 +203,8 @@ async function pushMutations(): Promise<{ count: number; errors: string[] }> {
     const pending = getPendingQueue();
     if (pending.length === 0) return { count: 0, errors: [] };
 
-
     // Lock items
-    const ids = pending.map(q => q.id);
+    const ids = pending.map((q) => q.id);
     await markSyncing(ids);
 
     const succeeded: string[] = [];
@@ -238,7 +239,9 @@ async function pushSingleMutation(item: SyncQueueItem): Promise<void> {
 
     switch (item.mutation_type) {
         case 'INSERT': {
-            const { data: { user } } = await supabase.auth.getUser();
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
             if (!user) throw new Error('Not authenticated');
 
             const row = { ...payload, user_id: user.id };
@@ -247,9 +250,7 @@ async function pushSingleMutation(item: SyncQueueItem): Promise<void> {
             // Upload file if this table has a file URI field
             await uploadFileIfNeeded(table, row, user.id);
 
-            const { error } = await supabase
-                .from(table)
-                .upsert(row, { onConflict: 'id' });
+            const { error } = await supabase.from(table).upsert(row, { onConflict: 'id' });
 
             if (error) throw new Error(error.message);
             break;
@@ -257,25 +258,21 @@ async function pushSingleMutation(item: SyncQueueItem): Promise<void> {
 
         case 'UPDATE': {
             // Upload file if this table has a file URI field
-            const { data: { user } } = await supabase.auth.getUser();
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
             if (user) {
                 await uploadFileIfNeeded(table, payload, user.id);
             }
 
-            const { error } = await supabase
-                .from(table)
-                .update(payload)
-                .eq('id', item.record_id);
+            const { error } = await supabase.from(table).update(payload).eq('id', item.record_id);
 
             if (error) throw new Error(error.message);
             break;
         }
 
         case 'DELETE': {
-            const { error } = await supabase
-                .from(table)
-                .delete()
-                .eq('id', item.record_id);
+            const { error } = await supabase.from(table).delete().eq('id', item.record_id);
 
             if (error) throw new Error(error.message);
             break;
@@ -287,11 +284,7 @@ async function pushSingleMutation(item: SyncQueueItem): Promise<void> {
  * If a row has a local file URI (e.g. capacitor://... or file://...),
  * upload it to the vessel_vault bucket and replace the field with the cloud URL.
  */
-async function uploadFileIfNeeded(
-    table: SyncableTable,
-    row: Record<string, unknown>,
-    userId: string
-): Promise<void> {
+async function uploadFileIfNeeded(table: SyncableTable, row: Record<string, unknown>, userId: string): Promise<void> {
     const field = FILE_URI_FIELDS[table];
     if (!field) return;
 
@@ -318,9 +311,7 @@ async function uploadFileIfNeeded(
         });
 
         // Convert base64 to Uint8Array for upload
-        const raw = typeof base64Data.data === 'string'
-            ? base64Data.data
-            : '';
+        const raw = typeof base64Data.data === 'string' ? base64Data.data : '';
         const binaryString = atob(raw);
         const bytes = new Uint8Array(binaryString.length);
         for (let i = 0; i < binaryString.length; i++) {
@@ -330,18 +321,19 @@ async function uploadFileIfNeeded(
         // Detect content type
         const ext = originalName.split('.').pop()?.toLowerCase() || '';
         const contentType =
-            ext === 'pdf' ? 'application/pdf'
-                : (ext === 'jpg' || ext === 'jpeg') ? 'image/jpeg'
-                    : ext === 'png' ? 'image/png'
-                        : 'application/octet-stream';
+            ext === 'pdf'
+                ? 'application/pdf'
+                : ext === 'jpg' || ext === 'jpeg'
+                  ? 'image/jpeg'
+                  : ext === 'png'
+                    ? 'image/png'
+                    : 'application/octet-stream';
 
         // Upload to vessel_vault
-        const { error: uploadError } = await supabase!.storage
-            .from('vessel_vault')
-            .upload(storagePath, bytes, {
-                contentType,
-                upsert: true,
-            });
+        const { error: uploadError } = await supabase!.storage.from('vessel_vault').upload(storagePath, bytes, {
+            contentType,
+            upsert: true,
+        });
 
         if (uploadError) {
             console.error(`[SyncService] File upload failed for ${storagePath}:`, uploadError.message);
@@ -400,7 +392,7 @@ async function pullTable(table: SyncableTable, since: string): Promise<number> {
             normalizedSince = d.toISOString(); // Always ends with 'Z'
         }
     } catch (e) {
-            console.warn('[Sync]', e);
+        console.warn('[Sync]', e);
         // Keep original if parsing fails (should not happen with valid ISO strings)
     }
 
@@ -418,7 +410,7 @@ async function pullTable(table: SyncableTable, since: string): Promise<number> {
     // Compare server updated_at vs local updated_at.
     // Server wins if its timestamp is newer.
     const localRecords = getAll<{ id: string; updated_at?: string }>(table);
-    const localMap = new Map(localRecords.map(r => [r.id, r]));
+    const localMap = new Map(localRecords.map((r) => [r.id, r]));
 
     const toUpsert: unknown[] = [];
 

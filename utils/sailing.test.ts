@@ -56,7 +56,7 @@ describe('calculateDLR', () => {
 });
 
 describe('getTideStatus', () => {
-    const mkHourly = (heights: number[]) => heights.map(h => ({ tideHeight: h }));
+    const mkHourly = (heights: number[]) => heights.map((h) => ({ tideHeight: h }));
 
     it('returns "high" at local peak', () => {
         const hourly = mkHourly([1.0, 2.0, 3.0, 2.0, 1.0]);

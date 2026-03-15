@@ -30,12 +30,15 @@ export function usePullToRefresh(onRefresh: () => Promise<void>): PullToRefreshR
     const [isRefreshing, setIsRefreshing] = useState(false);
     const pulling = useRef(false);
 
-    const onTouchStart = useCallback((e: React.TouchEvent) => {
-        const el = containerRef.current;
-        if (!el || el.scrollTop > 0 || isRefreshing) return;
-        startY.current = e.touches[0].clientY;
-        pulling.current = true;
-    }, [isRefreshing]);
+    const onTouchStart = useCallback(
+        (e: React.TouchEvent) => {
+            const el = containerRef.current;
+            if (!el || el.scrollTop > 0 || isRefreshing) return;
+            startY.current = e.touches[0].clientY;
+            pulling.current = true;
+        },
+        [isRefreshing],
+    );
 
     const onTouchMove = useCallback((e: React.TouchEvent) => {
         if (!pulling.current) return;

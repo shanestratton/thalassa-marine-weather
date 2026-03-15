@@ -13,24 +13,46 @@ import { renderHook, act } from '@testing-library/react';
 
 // --- Hoisted mocks ---
 const {
-    mockInitialize, mockGetChannels, mockGetMessages,
-    mockSendMessage, mockSubscribeToChannel, mockSubscribeToDMs,
-    mockGetDMConversations, mockGetDMThread, mockIsBlocked,
-    mockSendDM, mockBlockUser, mockUnblockUser,
-    mockDeleteMessage, mockPinMessage, mockMuteUser, mockMarkHelpful,
-    mockGetCurrentUser, mockGetProfile,
-    mockBatchFetchAvatars, mockClientFilter, mockTriggerHaptic,
-    mockGetAvatarUrl, mockDestroy, mockClearDisplayNameCache,
-    mockRemoveProfilePhoto, mockUpdateProfile, mockUploadProfilePhoto,
-    mockCreateChannel, mockProposeChannel, mockIsChannelMember,
-    mockRequestJoinChannel, mockToastSuccess, mockToastError,
+    mockInitialize,
+    mockGetChannels,
+    mockGetMessages,
+    mockSendMessage,
+    mockSubscribeToChannel,
+    mockSubscribeToDMs,
+    mockGetDMConversations,
+    mockGetDMThread,
+    mockIsBlocked,
+    mockSendDM,
+    mockBlockUser,
+    mockUnblockUser,
+    mockDeleteMessage,
+    mockPinMessage,
+    mockMuteUser,
+    mockMarkHelpful,
+    mockGetCurrentUser,
+    mockGetProfile,
+    mockBatchFetchAvatars,
+    mockClientFilter,
+    mockTriggerHaptic,
+    mockGetAvatarUrl,
+    mockDestroy,
+    mockClearDisplayNameCache,
+    mockRemoveProfilePhoto,
+    mockUpdateProfile,
+    mockUploadProfilePhoto,
+    mockCreateChannel,
+    mockProposeChannel,
+    mockIsChannelMember,
+    mockRequestJoinChannel,
+    mockToastSuccess,
+    mockToastError,
 } = vi.hoisted(() => ({
     mockInitialize: vi.fn().mockResolvedValue(undefined),
     mockGetChannels: vi.fn().mockResolvedValue([]),
     mockGetMessages: vi.fn().mockResolvedValue([]),
     mockSendMessage: vi.fn().mockResolvedValue(undefined),
-    mockSubscribeToChannel: vi.fn().mockReturnValue(() => { }),
-    mockSubscribeToDMs: vi.fn().mockReturnValue(() => { }),
+    mockSubscribeToChannel: vi.fn().mockReturnValue(() => {}),
+    mockSubscribeToDMs: vi.fn().mockReturnValue(() => {}),
     mockGetDMConversations: vi.fn().mockResolvedValue([]),
     mockGetDMThread: vi.fn().mockResolvedValue([]),
     mockIsBlocked: vi.fn().mockResolvedValue(false),
@@ -118,12 +140,15 @@ vi.mock('../../components/Toast', () => ({
 }));
 
 // --- Test Helpers ---
-const noop = () => { };
+const noop = () => {};
 const defaultMessageOpts = { setView: vi.fn(), setNavDirection: vi.fn(), setLoading: vi.fn() };
 const defaultDMOpts = { setView: vi.fn(), setNavDirection: vi.fn(), setLoading: vi.fn() };
 
 describe('useChatMessages', () => {
-    beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); });
+    beforeEach(() => {
+        vi.clearAllMocks();
+        localStorage.clear();
+    });
 
     it('initializes with empty messages', () => {
         const { result } = renderHook(() => useChatMessages(defaultMessageOpts));
@@ -156,7 +181,9 @@ describe('useChatMessages', () => {
     it('openChannel navigates to Marketplace view', async () => {
         const opts = { ...defaultMessageOpts };
         const { result } = renderHook(() => useChatMessages(opts));
-        await act(() => result.current.openChannel({ id: 'mp', name: 'Marketplace', description: '', icon: '' } as any));
+        await act(() =>
+            result.current.openChannel({ id: 'mp', name: 'Marketplace', description: '', icon: '' } as any),
+        );
         expect(opts.setView).toHaveBeenCalledWith('marketplace');
     });
 
@@ -284,7 +311,9 @@ describe('useChatMessages', () => {
 // ═══════════════════════════════════════
 
 describe('useChatDMs', () => {
-    beforeEach(() => { vi.clearAllMocks(); });
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
 
     it('initializes with empty state', () => {
         const { result } = renderHook(() => useChatDMs(defaultDMOpts));
@@ -297,7 +326,9 @@ describe('useChatDMs', () => {
 
     it('subscribe calls ChatService.subscribeToDMs', () => {
         const { result } = renderHook(() => useChatDMs(defaultDMOpts));
-        act(() => { result.current.subscribe(); });
+        act(() => {
+            result.current.subscribe();
+        });
         expect(mockSubscribeToDMs).toHaveBeenCalledWith(expect.any(Function));
     });
 
@@ -376,9 +407,7 @@ describe('useChatDMs', () => {
     });
 
     it('loadUnreadCount aggregates from conversations', async () => {
-        mockGetDMConversations.mockResolvedValueOnce([
-            { unread_count: 3 }, { unread_count: 2 },
-        ]);
+        mockGetDMConversations.mockResolvedValueOnce([{ unread_count: 3 }, { unread_count: 2 }]);
         const { result } = renderHook(() => useChatDMs(defaultDMOpts));
         await act(() => result.current.loadUnreadCount());
         expect(result.current.unreadDMs).toBe(5);
@@ -388,7 +417,9 @@ describe('useChatDMs', () => {
 // ═══════════════════════════════════════
 
 describe('useChatProfile', () => {
-    beforeEach(() => { vi.clearAllMocks(); });
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
 
     const defaultProfileOpts = {
         avatarMap: new Map<string, string>(),
@@ -482,7 +513,9 @@ describe('useChatProfile', () => {
 // ═══════════════════════════════════════
 
 describe('useChatProposals', () => {
-    beforeEach(() => { vi.clearAllMocks(); });
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
 
     const defaultProposalOpts = {
         channels: [] as any[],
@@ -568,7 +601,10 @@ describe('useChatProposals', () => {
 // ═══════════════════════════════════════
 
 describe('useChatMessages — edge cases', () => {
-    beforeEach(() => { vi.clearAllMocks(); localStorage.clear(); });
+    beforeEach(() => {
+        vi.clearAllMocks();
+        localStorage.clear();
+    });
 
     it('sendChannelMessage with empty text is no-op', async () => {
         const { result } = renderHook(() => useChatMessages(defaultMessageOpts));
@@ -611,7 +647,9 @@ describe('useChatMessages — edge cases', () => {
 // ═══════════════════════════════════════
 
 describe('useChatDMs — edge cases', () => {
-    beforeEach(() => { vi.clearAllMocks(); });
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
 
     it('sendDMMessage without partner is no-op', async () => {
         const { result } = renderHook(() => useChatDMs(defaultDMOpts));
@@ -639,4 +677,3 @@ describe('useChatDMs — edge cases', () => {
         expect(mockUnblockUser).not.toHaveBeenCalled();
     });
 });
-

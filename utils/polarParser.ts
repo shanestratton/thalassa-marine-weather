@@ -23,24 +23,30 @@ export function parsePolarFile(content: string, filename: string): PolarData {
  * Subsequent: 45\t5.2\t6.1\t6.8\t7.2\t7.5\t7.6\t7.4
  */
 function parseExpeditionPol(content: string): PolarData {
-    const lines = content.trim().split(/\r?\n/).filter(l => l.trim().length > 0);
+    const lines = content
+        .trim()
+        .split(/\r?\n/)
+        .filter((l) => l.trim().length > 0);
     if (lines.length < 2) throw new Error('Polar file must have at least a header and one data row');
 
-    const headerParts = lines[0].split(/\t+/).map(s => s.trim());
+    const headerParts = lines[0].split(/\t+/).map((s) => s.trim());
     // First column is the label (TWA or similar), rest are wind speeds
-    const windSpeeds = headerParts.slice(1).map(Number).filter(n => !isNaN(n) && n > 0);
+    const windSpeeds = headerParts
+        .slice(1)
+        .map(Number)
+        .filter((n) => !isNaN(n) && n > 0);
     if (windSpeeds.length === 0) throw new Error('No valid wind speeds found in header');
 
     const angles: number[] = [];
     const matrix: number[][] = [];
 
     for (let i = 1; i < lines.length; i++) {
-        const parts = lines[i].split(/\t+/).map(s => s.trim());
+        const parts = lines[i].split(/\t+/).map((s) => s.trim());
         const angle = parseFloat(parts[0]);
         if (isNaN(angle) || angle < 0 || angle > 180) continue;
 
         angles.push(angle);
-        const row = parts.slice(1, windSpeeds.length + 1).map(v => {
+        const row = parts.slice(1, windSpeeds.length + 1).map((v) => {
             const n = parseFloat(v);
             return isNaN(n) ? 0 : clampSpeed(n);
         });
@@ -59,25 +65,31 @@ function parseExpeditionPol(content: string): PolarData {
  * 45,5.2,6.1,6.8,7.2,7.5,7.6,7.4
  */
 function parseCSVPolar(content: string): PolarData {
-    const lines = content.trim().split(/\r?\n/).filter(l => l.trim().length > 0);
+    const lines = content
+        .trim()
+        .split(/\r?\n/)
+        .filter((l) => l.trim().length > 0);
     if (lines.length < 2) throw new Error('Polar file must have at least a header and one data row');
 
     // Handle both comma and semicolon delimiters
     const delimiter = lines[0].includes(';') ? ';' : ',';
-    const headerParts = lines[0].split(delimiter).map(s => s.trim());
-    const windSpeeds = headerParts.slice(1).map(Number).filter(n => !isNaN(n) && n > 0);
+    const headerParts = lines[0].split(delimiter).map((s) => s.trim());
+    const windSpeeds = headerParts
+        .slice(1)
+        .map(Number)
+        .filter((n) => !isNaN(n) && n > 0);
     if (windSpeeds.length === 0) throw new Error('No valid wind speeds found in header');
 
     const angles: number[] = [];
     const matrix: number[][] = [];
 
     for (let i = 1; i < lines.length; i++) {
-        const parts = lines[i].split(delimiter).map(s => s.trim());
+        const parts = lines[i].split(delimiter).map((s) => s.trim());
         const angle = parseFloat(parts[0]);
         if (isNaN(angle) || angle < 0 || angle > 180) continue;
 
         angles.push(angle);
-        const row = parts.slice(1, windSpeeds.length + 1).map(v => {
+        const row = parts.slice(1, windSpeeds.length + 1).map((v) => {
             const n = parseFloat(v);
             return isNaN(n) ? 0 : clampSpeed(n);
         });
@@ -100,7 +112,8 @@ export function validatePolarData(data: PolarData): { valid: boolean; warnings: 
 
     if (data.windSpeeds.length === 0) return { valid: false, warnings: ['No wind speeds defined'] };
     if (data.angles.length === 0) return { valid: false, warnings: ['No wind angles defined'] };
-    if (data.matrix.length !== data.angles.length) return { valid: false, warnings: ['Matrix rows don\'t match angle count'] };
+    if (data.matrix.length !== data.angles.length)
+        return { valid: false, warnings: ["Matrix rows don't match angle count"] };
 
     // Check for anomalous values (potential typos)
     for (let a = 0; a < data.angles.length; a++) {
@@ -115,7 +128,9 @@ export function validatePolarData(data: PolarData): { valid: boolean; warnings: 
     // Check for non-monotonic wind speeds
     for (let i = 1; i < data.windSpeeds.length; i++) {
         if (data.windSpeeds[i] <= data.windSpeeds[i - 1]) {
-            warnings.push(`Wind speeds not monotonically increasing: ${data.windSpeeds[i - 1]} ≥ ${data.windSpeeds[i]}`);
+            warnings.push(
+                `Wind speeds not monotonically increasing: ${data.windSpeeds[i - 1]} ≥ ${data.windSpeeds[i]}`,
+            );
         }
     }
 

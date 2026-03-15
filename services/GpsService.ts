@@ -29,8 +29,8 @@ export interface GpsPosition {
     accuracy: number;
     altitude: number | null;
     heading: number | null;
-    speed: number;         // m/s
-    timestamp: number;     // epoch-ms
+    speed: number; // m/s
+    timestamp: number; // epoch-ms
 }
 
 export type GpsCallback = (pos: GpsPosition) => void;
@@ -58,11 +58,7 @@ class GpsServiceClass {
      * Returns null if GPS unavailable or timed out.
      */
     async getCurrentPosition(options: GetPositionOptions = {}): Promise<GpsPosition | null> {
-        const {
-            staleLimitMs = 30_000,
-            timeoutSec = 15,
-            enableHighAccuracy = true,
-        } = options;
+        const { staleLimitMs = 30_000, timeoutSec = 15, enableHighAccuracy = true } = options;
 
         if (this.isNative) {
             return this._nativeGetPosition(staleLimitMs, timeoutSec);
@@ -110,40 +106,44 @@ class GpsServiceClass {
         let unsubscribe: (() => void) | null = null;
         let cancelled = false;
 
-        import('./BgGeoManager').then(({ BgGeoManager }) => {
-            if (cancelled) return;
-
-            // Ensure the engine is ready (idempotent)
-            BgGeoManager.ensureReady().then(() => {
+        import('./BgGeoManager')
+            .then(({ BgGeoManager }) => {
                 if (cancelled) return;
 
-                unsubscribe = BgGeoManager.subscribeLocation((cached) => {
-                    callback({
-                        latitude: cached.latitude,
-                        longitude: cached.longitude,
-                        accuracy: cached.accuracy,
-                        altitude: cached.altitude,
-                        heading: cached.heading,
-                        speed: cached.speed,
-                        timestamp: cached.timestamp,
-                    });
-                });
+                // Ensure the engine is ready (idempotent)
+                BgGeoManager.ensureReady()
+                    .then(() => {
+                        if (cancelled) return;
 
-                // Also emit the current cached position immediately if available
-                const last = BgGeoManager.getLastPosition();
-                if (last) {
-                    callback({
-                        latitude: last.latitude,
-                        longitude: last.longitude,
-                        accuracy: last.accuracy,
-                        altitude: last.altitude,
-                        heading: last.heading,
-                        speed: last.speed,
-                        timestamp: last.timestamp,
-                    });
-                }
-            }).catch(e => console.warn('[GpsService] ensureReady failed:', e));
-        }).catch(e => console.warn('[GpsService] import BgGeoManager failed:', e));
+                        unsubscribe = BgGeoManager.subscribeLocation((cached) => {
+                            callback({
+                                latitude: cached.latitude,
+                                longitude: cached.longitude,
+                                accuracy: cached.accuracy,
+                                altitude: cached.altitude,
+                                heading: cached.heading,
+                                speed: cached.speed,
+                                timestamp: cached.timestamp,
+                            });
+                        });
+
+                        // Also emit the current cached position immediately if available
+                        const last = BgGeoManager.getLastPosition();
+                        if (last) {
+                            callback({
+                                latitude: last.latitude,
+                                longitude: last.longitude,
+                                accuracy: last.accuracy,
+                                altitude: last.altitude,
+                                heading: last.heading,
+                                speed: last.speed,
+                                timestamp: last.timestamp,
+                            });
+                        }
+                    })
+                    .catch((e) => console.warn('[GpsService] ensureReady failed:', e));
+            })
+            .catch((e) => console.warn('[GpsService] import BgGeoManager failed:', e));
 
         return () => {
             cancelled = true;
@@ -160,7 +160,27 @@ class GpsServiceClass {
                 return;
             }
             navigator.geolocation.getCurrentPosition(
-                (pos) => resolve({
+                (pos) =>
+                    resolve({
+                        latitude: pos.coords.latitude,
+                        longitude: pos.coords.longitude,
+                        accuracy: pos.coords.accuracy,
+                        altitude: pos.coords.altitude,
+                        heading: pos.coords.heading,
+                        speed: pos.coords.speed ?? 0,
+                        timestamp: pos.timestamp,
+                    }),
+                () => resolve(null),
+                { enableHighAccuracy, timeout: timeoutMs, maximumAge: 30000 },
+            );
+        });
+    }
+
+    private _webWatch(callback: GpsCallback): () => void {
+        if (!navigator.geolocation) return () => {};
+        const id = navigator.geolocation.watchPosition(
+            (pos) =>
+                callback({
                     latitude: pos.coords.latitude,
                     longitude: pos.coords.longitude,
                     accuracy: pos.coords.accuracy,
@@ -169,26 +189,8 @@ class GpsServiceClass {
                     speed: pos.coords.speed ?? 0,
                     timestamp: pos.timestamp,
                 }),
-                () => resolve(null),
-                { enableHighAccuracy, timeout: timeoutMs, maximumAge: 30000 }
-            );
-        });
-    }
-
-    private _webWatch(callback: GpsCallback): () => void {
-        if (!navigator.geolocation) return () => { };
-        const id = navigator.geolocation.watchPosition(
-            (pos) => callback({
-                latitude: pos.coords.latitude,
-                longitude: pos.coords.longitude,
-                accuracy: pos.coords.accuracy,
-                altitude: pos.coords.altitude,
-                heading: pos.coords.heading,
-                speed: pos.coords.speed ?? 0,
-                timestamp: pos.timestamp,
-            }),
             (err) => console.warn('[GpsService] web watch error:', err),
-            { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+            { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 },
         );
         return () => navigator.geolocation.clearWatch(id);
     }

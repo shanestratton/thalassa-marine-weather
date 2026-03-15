@@ -1,4 +1,3 @@
-
 import { describe, it, expect } from 'vitest';
 import { ktsToMph, ktsToKmh, celsiusToFahrenheit, fahrenheitToCelsius, ftToM, mToFt } from '../utils/units';
 

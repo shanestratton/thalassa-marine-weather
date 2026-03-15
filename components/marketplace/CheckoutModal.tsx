@@ -1,10 +1,10 @@
 /**
  * CheckoutModal — Thalassa Marketplace Checkout
- * 
+ *
  * Hybrid payment bottom-sheet:
  * A) Cash on the Dock (Free) — triggers DM thread
  * B) Secure Escrow (6% fee) — auth-only Stripe hold + 4-digit PIN handoff
- * 
+ *
  * After successful escrow hold, displays a prominent PIN that the buyer
  * gives to the seller only after inspecting the gear. The hold expires
  * automatically after 48 hours if no handoff occurs.
@@ -19,7 +19,9 @@ import type { MarketplaceListing } from '../../services/MarketplaceService';
 const formatPrice = (price: number, currency: string): string => {
     const symbols: Record<string, string> = { AUD: 'A$', USD: '$', EUR: '€', GBP: '£', NZD: 'NZ$' };
     const sym = symbols[currency] || `${currency} `;
-    return price % 1 === 0 ? `${sym}${price.toLocaleString()}` : `${sym}${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return price % 1 === 0
+        ? `${sym}${price.toLocaleString()}`
+        : `${sym}${price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
 const formatCents = (cents: number, currency: string): string => {
@@ -64,7 +66,11 @@ type ModalMode = 'choose' | 'escrow_loading' | 'pin_display' | 'escrow_error';
 // --- COMPONENT ---
 
 export const CheckoutModal: React.FC<CheckoutModalProps> = ({
-    listing, isOpen, onClose, onCashDeal, onEscrowComplete,
+    listing,
+    isOpen,
+    onClose,
+    onCashDeal,
+    onEscrowComplete,
 }) => {
     const [mode, setMode] = useState<ModalMode>('choose');
     const [holdData, setHoldData] = useState<EscrowHoldData | null>(null);
@@ -101,7 +107,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         setErrorMsg(null);
 
         try {
-            const { data: { session } } = await supabase.auth.getSession();
+            const {
+                data: { session },
+            } = await supabase.auth.getSession();
             if (!session) {
                 setErrorMsg('Please sign in to use Secure Escrow');
                 setMode('escrow_error');
@@ -137,7 +145,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
         <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70" onClick={handleClose}>
             <div
                 className="w-full max-w-lg bg-slate-900/98 border-t border-white/10 rounded-t-3xl shadow-2xl max-h-[85vh] overflow-y-auto"
-                onClick={e => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
             >
                 {/* Drag handle */}
                 <div className="flex justify-center pt-3 pb-1">
@@ -151,15 +159,21 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                     )}
                     <div className="flex-1 min-w-0">
                         <h3 className="text-sm font-semibold text-white truncate">{listing.title}</h3>
-                        <p className="text-[11px] text-white/60 mt-0.5">{listing.condition} · {listing.category}</p>
-                        <p className="text-sm font-bold text-emerald-400 mt-1">{formatPrice(listing.price, listing.currency)}</p>
+                        <p className="text-[11px] text-white/60 mt-0.5">
+                            {listing.condition} · {listing.category}
+                        </p>
+                        <p className="text-sm font-bold text-emerald-400 mt-1">
+                            {formatPrice(listing.price, listing.currency)}
+                        </p>
                     </div>
                 </div>
 
                 {/* ═══════ CHOOSE MODE ═══════ */}
                 {mode === 'choose' && (
                     <div className="px-5 pb-8 space-y-3">
-                        <h2 className="text-xs font-bold text-white/60 uppercase tracking-wider mb-3">How would you like to buy?</h2>
+                        <h2 className="text-xs font-bold text-white/60 uppercase tracking-wider mb-3">
+                            How would you like to buy?
+                        </h2>
 
                         {/* Option A: Cash on Dock */}
                         <button
@@ -168,13 +182,17 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         >
                             <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center gap-2.5">
-                                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-xl">💵</div>
+                                    <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center text-xl">
+                                        💵
+                                    </div>
                                     <div>
                                         <h3 className="text-sm font-bold text-white">Cash on the Dock</h3>
                                         <p className="text-[11px] text-emerald-400 font-semibold">FREE — No fees</p>
                                     </div>
                                 </div>
-                                <span className="text-white/60 text-lg group-hover:text-emerald-400 transition-colors">›</span>
+                                <span className="text-white/60 text-lg group-hover:text-emerald-400 transition-colors">
+                                    ›
+                                </span>
                             </div>
                             <p className="text-[11px] text-white/60 leading-relaxed pl-[52px]">
                                 Opens a direct message with the seller to arrange cash payment and pickup in person.
@@ -187,11 +205,15 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                             className="w-full p-4 rounded-2xl border-2 border-sky-500/30 bg-gradient-to-br from-sky-500/[0.06] to-sky-500/[0.03] text-left group hover:border-sky-500/50 transition-all active:scale-[0.98] relative overflow-hidden"
                         >
                             <div className="absolute top-2.5 right-3 px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-500/30">
-                                <span className="text-[11px] font-bold text-sky-300 uppercase tracking-wider">Recommended</span>
+                                <span className="text-[11px] font-bold text-sky-300 uppercase tracking-wider">
+                                    Recommended
+                                </span>
                             </div>
 
                             <div className="flex items-center gap-2.5 mb-2">
-                                <div className="w-10 h-10 rounded-xl bg-sky-500/10 flex items-center justify-center text-xl">🔒</div>
+                                <div className="w-10 h-10 rounded-xl bg-sky-500/10 flex items-center justify-center text-xl">
+                                    🔒
+                                </div>
                                 <div>
                                     <h3 className="text-sm font-bold text-white">Thalassa Secure Escrow</h3>
                                     <p className="text-[11px] text-sky-400 font-semibold">6% Platform Fee</p>
@@ -199,23 +221,30 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                             </div>
                             <p className="text-[11px] text-white/60 leading-relaxed pl-[52px] mb-3">
                                 A hold is placed on your card. You receive a 4-digit PIN. Give the PIN to the seller
-                                <strong className="text-white/60"> only after you've inspected the gear</strong>. The hold auto-expires in 48 hours.
+                                <strong className="text-white/60"> only after you've inspected the gear</strong>. The
+                                hold auto-expires in 48 hours.
                             </p>
 
                             {/* Fee breakdown */}
                             <div className="ml-[52px] p-2.5 rounded-xl bg-black/20 border border-white/[0.06] space-y-1">
                                 <div className="flex justify-between text-[11px]">
                                     <span className="text-white/60">Item price</span>
-                                    <span className="text-white/70 font-medium">{formatPrice(listing.price, listing.currency)}</span>
+                                    <span className="text-white/70 font-medium">
+                                        {formatPrice(listing.price, listing.currency)}
+                                    </span>
                                 </div>
                                 <div className="flex justify-between text-[11px]">
                                     <span className="text-white/60">Escrow fee (6%)</span>
-                                    <span className="text-sky-400/70 font-medium">+{formatPrice(platformFee, listing.currency)}</span>
+                                    <span className="text-sky-400/70 font-medium">
+                                        +{formatPrice(platformFee, listing.currency)}
+                                    </span>
                                 </div>
                                 <div className="h-px bg-white/[0.08] my-1" />
                                 <div className="flex justify-between text-xs">
                                     <span className="text-white/60 font-semibold">Total hold</span>
-                                    <span className="text-white font-bold">{formatPrice(totalWithFee, listing.currency)}</span>
+                                    <span className="text-white font-bold">
+                                        {formatPrice(totalWithFee, listing.currency)}
+                                    </span>
                                 </div>
                             </div>
                         </button>
@@ -248,7 +277,9 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
                         {/* THE PIN — large, prominent */}
                         <div className="p-5 rounded-2xl bg-gradient-to-br from-sky-500/[0.08] to-sky-500/[0.04] border-2 border-sky-500/30 text-center">
-                            <p className="text-[11px] font-bold text-sky-400/70 uppercase tracking-widest mb-3">Your Handoff PIN</p>
+                            <p className="text-[11px] font-bold text-sky-400/70 uppercase tracking-widest mb-3">
+                                Your Handoff PIN
+                            </p>
                             <div className="flex justify-center gap-3 mb-4">
                                 {holdData.escrowPin.split('').map((digit, i) => (
                                     <div
@@ -268,12 +299,14 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         {/* Instructions */}
                         <div className="p-3.5 rounded-xl bg-amber-500/[0.06] border border-amber-500/20">
                             <p className="text-xs text-amber-200/80 leading-relaxed">
-                                <strong>Give this PIN to the seller only when you have inspected the gear
-                                    and are ready to finalize the purchase.</strong>
+                                <strong>
+                                    Give this PIN to the seller only when you have inspected the gear and are ready to
+                                    finalize the purchase.
+                                </strong>
                             </p>
                             <p className="text-[11px] text-white/60 mt-2 leading-relaxed">
-                                If the deal falls through, simply walk away. The hold will automatically
-                                expire in 48 hours and no charge will be made.
+                                If the deal falls through, simply walk away. The hold will automatically expire in 48
+                                hours and no charge will be made.
                             </p>
                         </div>
 
@@ -281,15 +314,21 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         <div className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.06] space-y-1.5">
                             <div className="flex justify-between text-[11px]">
                                 <span className="text-white/60">Hold amount</span>
-                                <span className="text-white font-bold">{formatCents(holdData.amountCents, holdData.currency)}</span>
+                                <span className="text-white font-bold">
+                                    {formatCents(holdData.amountCents, holdData.currency)}
+                                </span>
                             </div>
                             <div className="flex justify-between text-[11px]">
                                 <span className="text-white/60">Seller receives on capture</span>
-                                <span className="text-emerald-400 font-medium">{formatCents(holdData.sellerPayoutCents, holdData.currency)}</span>
+                                <span className="text-emerald-400 font-medium">
+                                    {formatCents(holdData.sellerPayoutCents, holdData.currency)}
+                                </span>
                             </div>
                             <div className="flex justify-between text-[11px]">
                                 <span className="text-white/60">Platform fee (6%)</span>
-                                <span className="text-sky-400/70 font-medium">{formatCents(holdData.platformFeeCents, holdData.currency)}</span>
+                                <span className="text-sky-400/70 font-medium">
+                                    {formatCents(holdData.platformFeeCents, holdData.currency)}
+                                </span>
                             </div>
                         </div>
 

@@ -39,7 +39,9 @@ class SellerRatingServiceClass {
 
     async initialize(): Promise<void> {
         if (!supabase) return;
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
         this.userId = user?.id || null;
     }
 
@@ -107,7 +109,7 @@ class SellerRatingServiceClass {
         listingId: string,
         sellerId: string,
         stars: number,
-        comment?: string
+        comment?: string,
     ): Promise<SellerRating | null> {
         if (!supabase || !this.userId) return null;
         if (this.userId === sellerId) return null; // Can't rate yourself
@@ -140,11 +142,7 @@ class SellerRatingServiceClass {
     async deleteRating(ratingId: string): Promise<boolean> {
         if (!supabase || !this.userId) return false;
 
-        const { error } = await supabase
-            .from(RATINGS_TABLE)
-            .delete()
-            .eq('id', ratingId)
-            .eq('buyer_id', this.userId); // RLS: can only delete own
+        const { error } = await supabase.from(RATINGS_TABLE).delete().eq('id', ratingId).eq('buyer_id', this.userId); // RLS: can only delete own
 
         return !error;
     }

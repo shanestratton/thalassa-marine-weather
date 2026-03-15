@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { AuthProvider, useAuth } from './AuthContext';
 import { SettingsProvider, useSettings } from './SettingsContext';
@@ -20,9 +19,7 @@ export const ThalassaProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             <UIProvider>
                 <SettingsProvider>
                     <WeatherProvider>
-                        <ThemeProvider>
-                            {children}
-                        </ThemeProvider>
+                        <ThemeProvider>{children}</ThemeProvider>
                     </WeatherProvider>
                 </SettingsProvider>
             </UIProvider>
@@ -32,7 +29,7 @@ export const ThalassaProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
 /**
  * useThalassa: A legacy aggregation hook that combines all contexts.
- * 
+ *
  * WARNING: Using this hook binds the component to updates from ALL contexts (Auth, Weather, Settings, UI).
  * To improve performance and reduce re-renders, migrate components to use specific hooks:
  * - useAuth()

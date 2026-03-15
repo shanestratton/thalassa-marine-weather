@@ -16,16 +16,10 @@ export const Skeleton: React.FC<SkeletonProps> = ({ className = '' }) => (
 );
 
 // Skeleton for text lines
-export const SkeletonText: React.FC<{ lines?: number; className?: string }> = ({
-    lines = 1,
-    className = ''
-}) => (
+export const SkeletonText: React.FC<{ lines?: number; className?: string }> = ({ lines = 1, className = '' }) => (
     <div className={`space-y-2 ${className}`}>
         {Array.from({ length: lines }).map((_, i) => (
-            <Skeleton
-                key={i}
-                className={`h-3 ${i === lines - 1 ? 'w-3/4' : 'w-full'}`}
-            />
+            <Skeleton key={i} className={`h-3 ${i === lines - 1 ? 'w-3/4' : 'w-full'}`} />
         ))}
     </div>
 );
@@ -102,7 +96,7 @@ export const DashboardSkeleton: React.FC = () => (
 export const SkeletonChannelList: React.FC = () => (
     <div className="px-4 py-3 space-y-2 animate-in fade-in duration-300">
         <Skeleton className="h-2.5 w-20 mb-3" />
-        {[0, 1, 2, 3, 4].map(i => (
+        {[0, 1, 2, 3, 4].map((i) => (
             <div
                 key={i}
                 className="flex items-center gap-3.5 p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.03] stagger-item"
@@ -122,7 +116,7 @@ export const SkeletonChannelList: React.FC = () => (
 // Logbook voyage list skeleton
 export const SkeletonVoyageList: React.FC = () => (
     <div className="px-3 space-y-3 animate-in fade-in duration-300">
-        {[0, 1, 2].map(i => (
+        {[0, 1, 2].map((i) => (
             <div key={i} className="rounded-2xl border border-white/5 bg-slate-900/40 p-4 space-y-3">
                 <div className="flex justify-between">
                     <Skeleton className="h-3 w-2/5" />
@@ -130,7 +124,7 @@ export const SkeletonVoyageList: React.FC = () => (
                 </div>
                 <Skeleton className="h-5 w-3/4" />
                 <div className="grid grid-cols-4 gap-2">
-                    {[0, 1, 2, 3].map(j => (
+                    {[0, 1, 2, 3].map((j) => (
                         <Skeleton key={j} className="h-8" />
                     ))}
                 </div>
@@ -162,10 +156,13 @@ export const SkeletonMessageList: React.FC = () => (
                             <Skeleton className="h-3 w-16" />
                         </div>
                     )}
-                    <div className={`rounded-2xl p-3.5 ${msg.side === 'right'
-                            ? 'bg-sky-500/[0.06] border border-sky-500/[0.08] rounded-br-lg'
-                            : 'bg-white/[0.03] border border-white/[0.03] rounded-bl-lg'
-                        }`}>
+                    <div
+                        className={`rounded-2xl p-3.5 ${
+                            msg.side === 'right'
+                                ? 'bg-sky-500/[0.06] border border-sky-500/[0.08] rounded-br-lg'
+                                : 'bg-white/[0.03] border border-white/[0.03] rounded-bl-lg'
+                        }`}
+                    >
                         <div className="space-y-1.5">
                             {Array.from({ length: msg.lines }).map((_, j) => (
                                 <Skeleton key={j} className={`h-3 ${j === msg.lines - 1 ? 'w-3/4' : 'w-full'}`} />

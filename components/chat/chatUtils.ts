@@ -20,7 +20,7 @@ const AVATAR_GRADIENTS = [
 export function getAvatarGradient(userId: string): string {
     let hash = 0;
     for (let i = 0; i < userId.length; i++) {
-        hash = ((hash << 5) - hash) + userId.charCodeAt(i);
+        hash = (hash << 5) - hash + userId.charCodeAt(i);
         hash |= 0;
     }
     return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
@@ -49,7 +49,7 @@ export const CREW_RANKS: { min: number; badge: string; title: string }[] = [
 ];
 
 export function getCrewRank(helpful: number) {
-    return CREW_RANKS.find(r => helpful >= r.min) || CREW_RANKS[CREW_RANKS.length - 1];
+    return CREW_RANKS.find((r) => helpful >= r.min) || CREW_RANKS[CREW_RANKS.length - 1];
 }
 
 // ─── Static Map URL ──────────────────────────────────────────────────

@@ -41,11 +41,7 @@ const SORT_OPTIONS = [
     { value: 'distance_nm', label: 'Distance' },
 ] as const;
 
-export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
-    isOpen,
-    onClose,
-    onImportComplete,
-}) => {
+export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ isOpen, onClose, onImportComplete }) => {
     const [tracks, setTracks] = useState<SharedTrack[]>([]);
     const [total, setTotal] = useState(0);
     const [loading, setLoading] = useState(false);
@@ -63,28 +59,31 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
     const [myTracksLoading, setMyTracksLoading] = useState(false);
     const [deletingId, setDeletingId] = useState<string | null>(null);
 
-    const fetchTracks = useCallback(async (searchQuery?: string) => {
-        setLoading(true);
-        setError(null);
-        try {
-            const filters: BrowseFilters = {
-                sortBy: sortBy,
-                sortOrder: sortBy === 'distance_nm' ? 'desc' : 'desc',
-                limit: 30,
-            };
-            if (category) filters.category = category;
-            if (regionFilter) filters.region = regionFilter;
-            if (searchQuery || search) filters.search = searchQuery ?? search;
+    const fetchTracks = useCallback(
+        async (searchQuery?: string) => {
+            setLoading(true);
+            setError(null);
+            try {
+                const filters: BrowseFilters = {
+                    sortBy: sortBy,
+                    sortOrder: sortBy === 'distance_nm' ? 'desc' : 'desc',
+                    limit: 30,
+                };
+                if (category) filters.category = category;
+                if (regionFilter) filters.region = regionFilter;
+                if (searchQuery || search) filters.search = searchQuery ?? search;
 
-            const result = await TrackSharingService.browseSharedTracks(filters);
-            setTracks(result.tracks);
-            setTotal(result.total);
-        } catch (err: unknown) {
-            setError(getErrorMessage(err) || 'Failed to load tracks');
-        } finally {
-            setLoading(false);
-        }
-    }, [category, regionFilter, sortBy, search]);
+                const result = await TrackSharingService.browseSharedTracks(filters);
+                setTracks(result.tracks);
+                setTotal(result.total);
+            } catch (err: unknown) {
+                setError(getErrorMessage(err) || 'Failed to load tracks');
+            } finally {
+                setLoading(false);
+            }
+        },
+        [category, regionFilter, sortBy, search],
+    );
 
     // Fetch on open and when filters change
     useEffect(() => {
@@ -96,7 +95,9 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
     // Fetch available regions once on open
     useEffect(() => {
         if (isOpen) {
-            TrackSharingService.getDistinctRegions().then(setAvailableRegions).catch(() => { });
+            TrackSharingService.getDistinctRegions()
+                .then(setAvailableRegions)
+                .catch(() => {});
         }
     }, [isOpen]);
 
@@ -116,8 +117,9 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
             // ── Duplicate-import guard ──
             // Check if we already have entries from this community track
             const existingEntries = await ShipLogService.getLogEntries();
-            const alreadyImported = existingEntries.some((e: { source?: string; voyageId?: string }) =>
-                e.source === 'community_download' && e.voyageId?.includes(track.id.slice(0, 8))
+            const alreadyImported = existingEntries.some(
+                (e: { source?: string; voyageId?: string }) =>
+                    e.source === 'community_download' && e.voyageId?.includes(track.id.slice(0, 8)),
             );
             if (alreadyImported) {
                 setImportStatus('⚠️ Already imported — delete the existing copy first to re-download');
@@ -139,7 +141,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
             }
 
             // Stamp as community download for provenance tracking
-            importedEntries.forEach(e => {
+            importedEntries.forEach((e) => {
                 Object.assign(e, { source: 'community_download' });
             });
 
@@ -173,10 +175,10 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
         try {
             const success = await TrackSharingService.deleteSharedTrack(trackId);
             if (success) {
-                setMyTracks(prev => prev.filter(t => t.id !== trackId));
+                setMyTracks((prev) => prev.filter((t) => t.id !== trackId));
                 // Also remove from browse list immediately
-                setTracks(prev => prev.filter(t => t.id !== trackId));
-                setTotal(prev => Math.max(0, prev - 1));
+                setTracks((prev) => prev.filter((t) => t.id !== trackId));
+                setTotal((prev) => Math.max(0, prev - 1));
                 setImportStatus('✓ Track removed from community');
                 setTimeout(() => setImportStatus(null), 3000);
             } else {
@@ -199,13 +201,23 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950" role="dialog" aria-modal="true" aria-label="Community track browser">
+        <div
+            className="fixed inset-0 z-50 flex flex-col bg-slate-950"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Community track browser"
+        >
             {/* Header */}
             <div className="shrink-0 bg-slate-900/90 border-b border-white/10 px-4 pt-3 pb-3">
                 <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
                         <svg className="w-5 h-5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
                         </svg>
                         <h2 className="text-lg font-bold text-white">Community Tracks</h2>
                     </div>
@@ -213,9 +225,15 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
                         <button
                             onClick={onClose}
                             className="p-2 text-slate-400 hover:text-white transition-colors"
-                            aria-label="Close">
+                            aria-label="Close"
+                        >
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M6 18L18 6M6 6l12 12"
+                                />
                             </svg>
                         </button>
                     </div>
@@ -225,19 +243,21 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
                 <div className="flex gap-2 mb-3">
                     <button
                         onClick={() => setActiveTab('browse')}
-                        className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'browse'
-                            ? 'bg-emerald-600 text-white'
-                            : `bg-slate-800/60 text-slate-400 border border-white/10`
-                            }`}
+                        className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${
+                            activeTab === 'browse'
+                                ? 'bg-emerald-600 text-white'
+                                : `bg-slate-800/60 text-slate-400 border border-white/10`
+                        }`}
                     >
                         Browse {total > 0 && `(${total})`}
                     </button>
                     <button
                         onClick={() => setActiveTab('mine')}
-                        className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'mine'
-                            ? 'bg-amber-600 text-white'
-                            : `bg-slate-800/60 text-slate-400 ${t.border.default}`
-                            }`}
+                        className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${
+                            activeTab === 'mine'
+                                ? 'bg-amber-600 text-white'
+                                : `bg-slate-800/60 text-slate-400 ${t.border.default}`
+                        }`}
                     >
                         My Shared Tracks
                     </button>
@@ -248,8 +268,18 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
                     <>
                         {/* Search */}
                         <div className="relative mb-3">
-                            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            <svg
+                                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+                                />
                             </svg>
                             <input
                                 type="text"
@@ -269,8 +299,10 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
                                 className={`flex-1 bg-slate-800/60 ${t.border.default} rounded-lg px-2 py-2 text-white text-sm font-bold focus:border-emerald-500 focus:outline-none`}
                             >
                                 <option value="">All Categories</option>
-                                {(Object.keys(CATEGORY_LABELS) as TrackCategory[]).map(cat => (
-                                    <option key={cat} value={cat}>{CATEGORY_LABELS[cat]}</option>
+                                {(Object.keys(CATEGORY_LABELS) as TrackCategory[]).map((cat) => (
+                                    <option key={cat} value={cat}>
+                                        {CATEGORY_LABELS[cat]}
+                                    </option>
                                 ))}
                             </select>
                             {/* Region filter */}
@@ -280,8 +312,10 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
                                 className={`flex-1 bg-slate-800/60 ${t.border.default} rounded-lg px-2 py-2 text-white text-sm font-bold focus:border-emerald-500 focus:outline-none`}
                             >
                                 <option value="">All Regions</option>
-                                {availableRegions.map(r => (
-                                    <option key={r} value={r}>{r}</option>
+                                {availableRegions.map((r) => (
+                                    <option key={r} value={r}>
+                                        {r}
+                                    </option>
                                 ))}
                             </select>
                             {/* Sort */}
@@ -290,8 +324,10 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
                                 onChange={(e) => setSortBy(e.target.value as BrowseFilters['sortBy'])}
                                 className={`bg-slate-800/60 ${t.border.default} rounded-lg px-2 py-2 text-white text-sm font-bold focus:border-emerald-500 focus:outline-none`}
                             >
-                                {SORT_OPTIONS.map(opt => (
-                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                {SORT_OPTIONS.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>
+                                        {opt.label}
+                                    </option>
                                 ))}
                             </select>
                         </div>
@@ -301,10 +337,13 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
 
             {/* Import Status Banner */}
             {importStatus && (
-                <div className={`mx-4 mt-3 px-4 py-2.5 rounded-lg text-sm font-bold ${importStatus.startsWith('✓')
-                    ? 'bg-emerald-900/40 border border-emerald-500/30 text-emerald-400'
-                    : 'bg-red-900/40 border border-red-500/30 text-red-400'
-                    }`}>
+                <div
+                    className={`mx-4 mt-3 px-4 py-2.5 rounded-lg text-sm font-bold ${
+                        importStatus.startsWith('✓')
+                            ? 'bg-emerald-900/40 border border-emerald-500/30 text-emerald-400'
+                            : 'bg-red-900/40 border border-red-500/30 text-red-400'
+                    }`}
+                >
                     {importStatus}
                 </div>
             )}
@@ -316,7 +355,10 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
                     <div>
                         <p className="text-sm font-bold text-amber-300">Navigation Disclaimer</p>
                         <p className="text-sm text-amber-400/70 leading-relaxed mt-0.5">
-                            Community tracks are user-contributed, unverified, and <span className="font-bold">not suitable for navigation</span>. Depths vary with tide, weather, and vessel draft. Always verify conditions independently using official charts and local knowledge.
+                            Community tracks are user-contributed, unverified, and{' '}
+                            <span className="font-bold">not suitable for navigation</span>. Depths vary with tide,
+                            weather, and vessel draft. Always verify conditions independently using official charts and
+                            local knowledge.
                         </p>
                     </div>
                 </div>
@@ -338,7 +380,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
                         </div>
                     ) : (
                         <div className="space-y-2">
-                            {myTracks.map(track => (
+                            {myTracks.map((track) => (
                                 <MyTrackCard
                                     key={track.id}
                                     track={track}
@@ -365,15 +407,25 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({
                     </div>
                 ) : tracks.length === 0 ? (
                     <div className="flex flex-col items-center justify-center h-48 text-slate-500">
-                        <svg className="w-12 h-12 mb-3 text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        <svg
+                            className="w-12 h-12 mb-3 text-slate-700"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={1.5}
+                                d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                            />
                         </svg>
                         <p className="text-sm font-bold text-slate-400 mb-1">No tracks found</p>
                         <p className="text-sm text-slate-500">Be the first to share a track!</p>
                     </div>
                 ) : (
                     <div className="space-y-2">
-                        {tracks.map(track => (
+                        {tracks.map((track) => (
                             <TrackCard
                                 key={track.id}
                                 track={track}
@@ -417,16 +469,23 @@ const TrackCard: React.FC<{
                 <button
                     onClick={onDownload}
                     disabled={isDownloading}
-                    className={`shrink-0 px-3 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-1.5 ${isDownloading
-                        ? 'bg-emerald-900/30 text-emerald-500/50 cursor-not-allowed'
-                        : 'bg-emerald-600 hover:bg-emerald-500 text-white active:scale-95'
-                        }`}
-                    aria-label="Download">
+                    className={`shrink-0 px-3 py-2 rounded-lg text-sm font-bold transition-all flex items-center gap-1.5 ${
+                        isDownloading
+                            ? 'bg-emerald-900/30 text-emerald-500/50 cursor-not-allowed'
+                            : 'bg-emerald-600 hover:bg-emerald-500 text-white active:scale-95'
+                    }`}
+                    aria-label="Download"
+                >
                     {isDownloading ? (
                         <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     ) : (
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                            />
                         </svg>
                     )}
                     {isDownloading ? '...' : 'Import'}
@@ -435,12 +494,8 @@ const TrackCard: React.FC<{
 
             {/* Stats row */}
             <div className="flex items-center gap-3 text-sm text-slate-500">
-                <span className="bg-slate-800/60 px-2 py-0.5 rounded text-slate-400 font-bold">
-                    {categoryLabel}
-                </span>
-                {track.region && (
-                    <span className="truncate">📍 {track.region}</span>
-                )}
+                <span className="bg-slate-800/60 px-2 py-0.5 rounded text-slate-400 font-bold">{categoryLabel}</span>
+                {track.region && <span className="truncate">📍 {track.region}</span>}
                 <span>{track.distance_nm.toFixed(1)} NM</span>
                 <span>{track.point_count} pts</span>
                 <span className="ml-auto shrink-0">{dateStr}</span>
@@ -502,13 +557,18 @@ const MyTrackCard: React.FC<{
                 {confirmDelete ? (
                     <div className="flex items-center gap-1.5 shrink-0">
                         <button
-                            onClick={() => { onDelete(); setConfirmDelete(false); }}
+                            onClick={() => {
+                                onDelete();
+                                setConfirmDelete(false);
+                            }}
                             disabled={isDeleting}
                             className="px-3 py-2 rounded-lg text-sm font-bold bg-red-600 hover:bg-red-500 text-white transition-all active:scale-95 flex items-center gap-1"
                         >
                             {isDeleting ? (
                                 <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                            ) : 'Confirm'}
+                            ) : (
+                                'Confirm'
+                            )}
                         </button>
                         <button
                             onClick={() => setConfirmDelete(false)}
@@ -523,7 +583,12 @@ const MyTrackCard: React.FC<{
                         className="shrink-0 px-3 py-2 rounded-lg text-sm font-bold bg-red-900/30 hover:bg-red-900/50 text-red-400 border border-red-500/20 transition-all active:scale-95 flex items-center gap-1.5"
                     >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                            />
                         </svg>
                         Remove
                     </button>
@@ -532,12 +597,8 @@ const MyTrackCard: React.FC<{
 
             {/* Stats row */}
             <div className="flex items-center gap-3 text-sm text-slate-500">
-                <span className="bg-slate-800/60 px-2 py-0.5 rounded text-slate-400 font-bold">
-                    {categoryLabel}
-                </span>
-                {track.region && (
-                    <span className="truncate">📍 {track.region}</span>
-                )}
+                <span className="bg-slate-800/60 px-2 py-0.5 rounded text-slate-400 font-bold">{categoryLabel}</span>
+                {track.region && <span className="truncate">📍 {track.region}</span>}
                 <span>{track.distance_nm.toFixed(1)} NM</span>
                 <span>{track.point_count} pts</span>
                 <span className="ml-auto shrink-0">{dateStr}</span>

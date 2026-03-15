@@ -84,18 +84,24 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
 
     const colors = THEMES[theme];
 
-    const handleStart = useCallback((clientX: number) => {
-        if (disabled || loading) return;
-        setIsDragging(true);
-    }, [disabled, loading]);
+    const handleStart = useCallback(
+        (_clientX: number) => {
+            if (disabled || loading) return;
+            setIsDragging(true);
+        },
+        [disabled, loading],
+    );
 
-    const handleMove = useCallback((clientX: number) => {
-        if (!isDragging || !trackRef.current) return;
-        const rect = trackRef.current.getBoundingClientRect();
-        const maxTravel = rect.width - THUMB_SIZE;
-        const offset = clientX - rect.left - THUMB_SIZE / 2;
-        setSlideX(Math.max(0, Math.min(offset, maxTravel)));
-    }, [isDragging]);
+    const handleMove = useCallback(
+        (clientX: number) => {
+            if (!isDragging || !trackRef.current) return;
+            const rect = trackRef.current.getBoundingClientRect();
+            const maxTravel = rect.width - THUMB_SIZE;
+            const offset = clientX - rect.left - THUMB_SIZE / 2;
+            setSlideX(Math.max(0, Math.min(offset, maxTravel)));
+        },
+        [isDragging],
+    );
 
     const handleEnd = useCallback(() => {
         if (!isDragging || !trackRef.current) return;
@@ -120,7 +126,9 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
                 className="w-full h-14 rounded-full flex items-center justify-center gap-3"
                 style={{ background: colors.loadingTrack, border: colors.loadingBorder }}
             >
-                <div className={`w-5 h-5 border-2 ${colors.spinnerBorder} border-t-transparent rounded-full animate-spin`} />
+                <div
+                    className={`w-5 h-5 border-2 ${colors.spinnerBorder} border-t-transparent rounded-full animate-spin`}
+                />
                 <span className={`text-sm ${colors.loadingTextColor} font-bold`}>{loadingText}</span>
             </div>
         );
@@ -128,7 +136,7 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
 
     const trackWidth = trackRef.current?.getBoundingClientRect().width ?? 300;
     const maxTravel = trackWidth - THUMB_SIZE;
-    const labelOpacity = 1 - (slideX / maxTravel);
+    const labelOpacity = 1 - slideX / maxTravel;
 
     return (
         <div
@@ -140,20 +148,23 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
                 touchAction: 'none',
                 opacity: disabled ? 0.4 : 1,
             }}
-            onMouseDown={e => handleStart(e.clientX)}
-            onMouseMove={e => handleMove(e.clientX)}
+            onMouseDown={(e) => handleStart(e.clientX)}
+            onMouseMove={(e) => handleMove(e.clientX)}
             onMouseUp={handleEnd}
             onMouseLeave={handleEnd}
-            onTouchStart={e => handleStart(e.touches[0].clientX)}
-            onTouchMove={e => handleMove(e.touches[0].clientX)}
+            onTouchStart={(e) => handleStart(e.touches[0].clientX)}
+            onTouchMove={(e) => handleMove(e.touches[0].clientX)}
             onTouchEnd={handleEnd}
         >
             {/* Shimmer animation */}
             <div className="absolute inset-0 overflow-hidden rounded-full pointer-events-none">
-                <div className="absolute inset-0" style={{
-                    background: `linear-gradient(90deg, transparent 0%, ${colors.shimmer} 30%, ${colors.shimmerPeak} 50%, ${colors.shimmer} 70%, transparent 100%)`,
-                    animation: 'slideToActionShimmer 2.5s ease-in-out infinite',
-                }} />
+                <div
+                    className="absolute inset-0"
+                    style={{
+                        background: `linear-gradient(90deg, transparent 0%, ${colors.shimmer} 30%, ${colors.shimmerPeak} 50%, ${colors.shimmer} 70%, transparent 100%)`,
+                        animation: 'slideToActionShimmer 2.5s ease-in-out infinite',
+                    }}
+                />
             </div>
 
             {/* Label text */}
@@ -161,9 +172,7 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
                 className="absolute inset-0 flex items-center justify-center pointer-events-none"
                 style={{ opacity: labelOpacity }}
             >
-                <span className={`text-sm font-bold ${colors.labelColor} tracking-wider uppercase`}>
-                    {label}
-                </span>
+                <span className={`text-sm font-bold ${colors.labelColor} tracking-wider uppercase`}>{label}</span>
             </div>
 
             {/* Draggable thumb */}

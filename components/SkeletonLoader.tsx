@@ -4,13 +4,14 @@ import { WindIcon } from './Icons';
 export const SkeletonDashboard = () => {
     return (
         <div className="w-full max-w-5xl mx-auto pb-20 space-y-6 px-2 md:px-0">
-
             {/* LOADING HEADER (Professional & Fast Feel) */}
             <div className="flex flex-col items-center justify-center py-6 animate-in fade-in duration-700">
                 <div className="w-12 h-12 bg-sky-500/20 rounded-xl flex items-center justify-center mb-3 border border-sky-500/30 shadow-lg shadow-sky-500/10">
                     <WindIcon className="w-7 h-7 text-sky-400 animate-pulse" />
                 </div>
-                <span className="text-xs font-bold text-sky-300 uppercase tracking-[0.2em] animate-pulse">Loading Marine Data...</span>
+                <span className="text-xs font-bold text-sky-300 uppercase tracking-[0.2em] animate-pulse">
+                    Loading Marine Data...
+                </span>
                 <span className="text-[10px] text-white/30 mt-1">Weather · Tides · Sea State</span>
             </div>
 
@@ -57,7 +58,10 @@ export const SkeletonDashboard = () => {
             {/* Primary Metrics Grid Skeleton */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 px-2 opacity-40">
                 {[...Array(4)].map((_, i) => (
-                    <div key={i} className="h-32 bg-slate-900/40 border border-white/5 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 animate-pulse">
+                    <div
+                        key={i}
+                        className="h-32 bg-slate-900/40 border border-white/5 rounded-2xl p-6 flex flex-col items-center justify-center gap-3 animate-pulse"
+                    >
                         <div className="h-6 w-6 bg-sky-500/20 rounded-full"></div>
                         <div className="h-3 w-16 bg-white/10 rounded"></div>
                         <div className="h-8 w-12 bg-white/10 rounded"></div>
@@ -102,7 +106,10 @@ export const SkeletonDashboard = () => {
                 <div className="h-6 w-40 bg-white/10 rounded ml-2 animate-pulse"></div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3 px-2">
                     {[...Array(7)].map((_, idx) => (
-                        <div key={idx} className="bg-slate-900/40 rounded-2xl p-3 border border-white/5 h-56 animate-pulse flex flex-col items-center justify-between">
+                        <div
+                            key={idx}
+                            className="bg-slate-900/40 rounded-2xl p-3 border border-white/5 h-56 animate-pulse flex flex-col items-center justify-between"
+                        >
                             <div className="h-4 w-12 bg-white/10 rounded mb-2"></div>
                             <div className="h-8 w-8 bg-white/10 rounded-full mb-2"></div>
                             <div className="h-6 w-10 bg-white/10 rounded mb-4"></div>

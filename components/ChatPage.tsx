@@ -1,7 +1,7 @@
 /**
  * ChatPage — "Crew Talk"
  * Best-in-class community chat with channels, PMs, and anti-toxicity design.
- * 
+ *
  * Premium features:
  * - Dynamic user-seeded color avatars
  * - Animated message entrance
@@ -32,7 +32,13 @@ import { ChatComposer } from './chat/ChatComposer';
 import { ChatProfileView } from './chat/ChatProfileView';
 import { ChatHeader } from './chat/ChatHeader';
 import { ChatDMInbox, ChatDMThread, ChatDMCompose } from './chat/ChatDMView';
-import { ReportModal, PinDropSheet, PoiPickerSheet, TrackPickerSheet, TrackDisclaimerModal } from './chat/ChatAttachmentSheets';
+import {
+    ReportModal,
+    PinDropSheet,
+    PoiPickerSheet,
+    TrackPickerSheet,
+    TrackDisclaimerModal,
+} from './chat/ChatAttachmentSheets';
 import { SkeletonChannelList, SkeletonMessageList } from './ui/Skeleton';
 import { ChatErrorBoundary } from './chat/ChatErrorBoundary';
 import { triggerHaptic } from '../utils/system';
@@ -45,12 +51,18 @@ import { useTrackSharing } from '../hooks/chat/useTrackSharing';
 import { useChatProfile } from '../hooks/chat/useChatProfile';
 import { useChatProposals } from '../hooks/chat/useChatProposals';
 
-import {
-    CREW_RANKS,
-} from './chat/chatUtils';
+import { CREW_RANKS } from './chat/chatUtils';
 
 // --- TYPES ---
-type ChatView = 'channels' | 'messages' | 'dm_inbox' | 'dm_thread' | 'profile' | 'find_crew' | 'marketplace' | 'admin_panel';
+type ChatView =
+    | 'channels'
+    | 'messages'
+    | 'dm_inbox'
+    | 'dm_thread'
+    | 'profile'
+    | 'find_crew'
+    | 'marketplace'
+    | 'admin_panel';
 
 // --- CSS KEYFRAMES (injected once) ---
 const STYLE_ID = 'crew-talk-animations';
@@ -97,24 +109,52 @@ export const ChatPage: React.FC = () => {
     // --- Extracted Hooks ---
     const chatMessages = useChatMessages({ setView: setView as (v: string) => void, setNavDirection, setLoading });
     const {
-        messages, setMessages, activeChannel, setActiveChannel,
-        messageText, setMessageText, isQuestion, setIsQuestion,
-        filterWarning, setFilterWarning,
-        showModMenu, setShowModMenu, showRankTooltip, setShowRankTooltip,
-        avatarMap, pinnedMessages, likedMessages,
+        messages,
+        setMessages,
+        activeChannel,
+        setActiveChannel,
+        messageText,
+        setMessageText,
+        isQuestion,
+        setIsQuestion,
+        filterWarning,
+        setFilterWarning,
+        showModMenu,
+        setShowModMenu,
+        showRankTooltip,
+        setShowRankTooltip,
+        avatarMap,
+        pinnedMessages,
+        likedMessages,
         messageEndRef,
-        openChannel, sendChannelMessage,
-        handleMarkHelpful, handleDeleteMessage, handlePinMessage, handleMuteUser,
+        openChannel,
+        sendChannelMessage,
+        handleMarkHelpful,
+        handleDeleteMessage,
+        handlePinMessage,
+        handleMuteUser,
         cleanup: cleanupMessages,
     } = chatMessages;
 
     const chatDMs = useChatDMs({ setView: setView as (v: string) => void, setNavDirection, setLoading });
     const {
-        dmConversations, dmThread, dmPartner, setDmPartner,
-        dmText, setDmText, isUserBlocked,
-        showBlockConfirm, setShowBlockConfirm, unreadDMs,
-        subscribe: subscribeDMs, openDMInbox, openDMThread,
-        sendDMMessage, handleBlockUser, handleUnblockUser, loadUnreadCount,
+        dmConversations,
+        dmThread,
+        dmPartner,
+        setDmPartner,
+        dmText,
+        setDmText,
+        isUserBlocked,
+        showBlockConfirm,
+        setShowBlockConfirm,
+        unreadDMs,
+        subscribe: subscribeDMs,
+        openDMInbox,
+        openDMThread,
+        sendDMMessage,
+        handleBlockUser,
+        handleUnblockUser,
+        loadUnreadCount,
     } = chatDMs;
 
     // Mod
@@ -130,26 +170,35 @@ export const ChatPage: React.FC = () => {
     // --- Extracted Hook: Proposals + Private Channels + Report ---
     const proposalHook = useChatProposals({ channels, setChannels, isAdmin });
     const {
-        showProposalForm, setShowProposalForm,
-        proposalName, setProposalName,
-        proposalDesc, setProposalDesc,
-        proposalIcon, setProposalIcon,
+        showProposalForm,
+        setShowProposalForm,
+        proposalName,
+        setProposalName,
+        proposalDesc,
+        setProposalDesc,
+        proposalIcon,
+        setProposalIcon,
         proposalSent,
-        proposalIsPrivate, setProposalIsPrivate,
-        proposalParentId, setProposalParentId,
+        proposalIsPrivate,
+        setProposalIsPrivate,
+        proposalParentId,
+        setProposalParentId,
         memberChannelIds,
-        joinRequestChannel, setJoinRequestChannel,
-        joinRequestMessage, setJoinRequestMessage,
+        joinRequestChannel,
+        setJoinRequestChannel,
+        joinRequestMessage,
+        setJoinRequestMessage,
         joinRequestSent,
-        reportingMsg, setReportingMsg,
-        reportReason, setReportReason,
-        reportSent, setReportSent,
+        reportingMsg,
+        setReportingMsg,
+        reportReason,
+        setReportReason,
+        reportSent,
+        setReportSent,
         handleProposeChannel,
         handleRequestAccess,
         handleSubmitJoinRequest,
     } = proposalHook;
-
-
 
     // Keyboard offset — shrinks chat container height so compose stays visible above iOS keyboard
     const [keyboardOffset, setKeyboardOffset] = useState(0);
@@ -183,31 +232,33 @@ export const ChatPage: React.FC = () => {
         let usingNativePlugin = false;
 
         // Try Capacitor Keyboard plugin first (accurate on native iOS)
-        import('@capacitor/keyboard').then(({ Keyboard }) => {
-            usingNativePlugin = true;
-            kbShowHandle = Keyboard.addListener('keyboardWillShow', (info) => {
-                setKeyboardOffset(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
+        import('@capacitor/keyboard')
+            .then(({ Keyboard }) => {
+                usingNativePlugin = true;
+                kbShowHandle = Keyboard.addListener('keyboardWillShow', (info) => {
+                    setKeyboardOffset(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
+                });
+                kbHideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                    setKeyboardOffset(0);
+                });
+            })
+            .catch(() => {
+                // Fallback to visualViewport for web (Capacitor plugin not available)
+                const vv = window.visualViewport;
+                if (!vv) return;
+                const handleResize = () => {
+                    const offset = window.innerHeight - vv.height - vv.offsetTop;
+                    setKeyboardOffset(offset > 50 ? offset : 0);
+                };
+                vv.addEventListener('resize', handleResize);
+                vv.addEventListener('scroll', handleResize);
+                handleResize();
+                // Store cleanup refs on window for the teardown below
+                (window as any).__chatKbCleanup = () => {
+                    vv.removeEventListener('resize', handleResize);
+                    vv.removeEventListener('scroll', handleResize);
+                };
             });
-            kbHideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                setKeyboardOffset(0);
-            });
-        }).catch(() => {
-            // Fallback to visualViewport for web (Capacitor plugin not available)
-            const vv = window.visualViewport;
-            if (!vv) return;
-            const handleResize = () => {
-                const offset = window.innerHeight - vv.height - vv.offsetTop;
-                setKeyboardOffset(offset > 50 ? offset : 0);
-            };
-            vv.addEventListener('resize', handleResize);
-            vv.addEventListener('scroll', handleResize);
-            handleResize();
-            // Store cleanup refs on window for the teardown below
-            (window as any).__chatKbCleanup = () => {
-                vv.removeEventListener('resize', handleResize);
-                vv.removeEventListener('scroll', handleResize);
-            };
-        });
 
         return () => {
             if (usingNativePlugin) {
@@ -226,37 +277,60 @@ export const ChatPage: React.FC = () => {
     const profileHook = useChatProfile({ avatarMap, setView: setView as (v: string) => void });
     const {
         myAvatarUrl,
-        uploadProgress, uploadError,
+        uploadProgress,
+        uploadError,
         fileInputRef,
-        profileDisplayName, setProfileDisplayName,
-        profileVesselName, setProfileVesselName,
-        profileSaving, profileSaved,
-        loadProfile, handleFileSelect, handleRemovePhoto, handleSaveProfile,
+        profileDisplayName,
+        setProfileDisplayName,
+        profileVesselName,
+        setProfileVesselName,
+        profileSaving,
+        profileSaved,
+        loadProfile,
+        handleFileSelect,
+        handleRemovePhoto,
+        handleSaveProfile,
         getAvatar,
     } = profileHook;
 
     // --- Extracted Hooks: Pin Drop + Track Sharing ---
     const pinDrop = usePinDrop({ activeChannel, setMessages, setMessageText, messageEndRef });
     const {
-        showAttachMenu, setShowAttachMenu,
-        showPinSheet, setShowPinSheet,
-        showPoiSheet, setShowPoiSheet,
-        pinLat, setPinLat, pinLng, setPinLng,
-        pinCaption, setPinCaption,
-        pinLoading, savedPins,
+        showAttachMenu,
+        setShowAttachMenu,
+        showPinSheet,
+        setShowPinSheet,
+        showPoiSheet,
+        setShowPoiSheet,
+        pinLat,
+        setPinLat,
+        pinLng,
+        setPinLng,
+        pinCaption,
+        setPinCaption,
+        pinLoading,
+        savedPins,
         poiMapRef,
-        openPinDrop, sendPin,
-        openPoiPicker, sendPoi,
+        openPinDrop,
+        sendPin,
+        openPoiPicker,
+        sendPoi,
     } = pinDrop;
 
     const trackSharingHook = useTrackSharing({ activeChannel, setMessages, messageEndRef, setShowAttachMenu });
     const {
-        showTrackPicker, setShowTrackPicker,
-        voyageList, trackSharing: isTrackSharing,
+        showTrackPicker,
+        setShowTrackPicker,
+        voyageList,
+        trackSharing: isTrackSharing,
         trackLoadingVoyages,
-        importingTrackId, trackImportStatus,
-        showTrackDisclaimer, setShowTrackDisclaimer,
-        openTrackPicker, sendTrack, handleImportTrack,
+        importingTrackId,
+        trackImportStatus,
+        showTrackDisclaimer,
+        setShowTrackDisclaimer,
+        openTrackPicker,
+        sendTrack,
+        handleImportTrack,
     } = trackSharingHook;
 
     // Refs
@@ -272,7 +346,7 @@ export const ChatPage: React.FC = () => {
             const returnChannelId = sessionStorage.getItem('chat_return_to_channel');
             if (returnChannelId) {
                 sessionStorage.removeItem('chat_return_to_channel');
-                const ch = chs.find(c => c.id === returnChannelId);
+                const ch = chs.find((c) => c.id === returnChannelId);
                 if (ch) openChannel(ch);
             }
 
@@ -308,17 +382,18 @@ export const ChatPage: React.FC = () => {
     const loadChannels = async (): Promise<ChatChannel[]> => {
         // getChannels returns cached data instantly (or fetches if no cache)
         const chs = await ChatService.getChannels();
-        const result = chs.length > 0 ? chs : DEFAULT_CHANNELS.map((c, i) => ({
-            ...c,
-            id: `default-${i}`,
-            created_at: new Date().toISOString(),
-        }));
+        const result =
+            chs.length > 0
+                ? chs
+                : DEFAULT_CHANNELS.map((c, i) => ({
+                      ...c,
+                      id: `default-${i}`,
+                      created_at: new Date().toISOString(),
+                  }));
         setChannels(result);
         setLoading(false); // Channels visible — kill spinner immediately
         return result;
     };
-
-
 
     // openChannel and sendChannelMessage now provided by useChatMessages hook
 
@@ -329,9 +404,14 @@ export const ChatPage: React.FC = () => {
         const userId = (await ChatService.getCurrentUser())?.id;
         if (!userId) return;
         await reportMessage(reportingMsg.id, userId, reportReason);
-        moderateMessage(reportingMsg.id, reportingMsg.message, reportingMsg.user_id, reportingMsg.channel_id).catch(() => { });
+        moderateMessage(reportingMsg.id, reportingMsg.message, reportingMsg.user_id, reportingMsg.channel_id).catch(
+            () => {},
+        );
         setReportSent(true);
-        setTimeout(() => { setReportingMsg(null); setReportSent(false); }, 1500);
+        setTimeout(() => {
+            setReportingMsg(null);
+            setReportSent(false);
+        }, 1500);
     };
 
     // Proposals, private channels, and join requests now provided by useChatProposals hook
@@ -386,25 +466,35 @@ export const ChatPage: React.FC = () => {
     const goBack = () => {
         setShowModMenu(null);
         setNavDirection('back');
-        if (view === 'messages') { setView('channels'); setActiveChannel(null); }
-        else if (view === 'dm_thread') { setView('dm_inbox'); setDmPartner(null); }
-        else if (view === 'dm_inbox') { setView('channels'); }
-        else if (view === 'profile') { setView('channels'); }
-
-        else if (view === 'find_crew') { setView('channels'); }
-        else if (view === 'marketplace') { setView('channels'); }
-        else if (view === 'admin_panel') { setView('channels'); }
+        if (view === 'messages') {
+            setView('channels');
+            setActiveChannel(null);
+        } else if (view === 'dm_thread') {
+            setView('dm_inbox');
+            setDmPartner(null);
+        } else if (view === 'dm_inbox') {
+            setView('channels');
+        } else if (view === 'profile') {
+            setView('channels');
+        } else if (view === 'find_crew') {
+            setView('channels');
+        } else if (view === 'marketplace') {
+            setView('channels');
+        } else if (view === 'admin_panel') {
+            setView('channels');
+        }
     };
-
-
 
     // --- RENDER ---
     return (
         <div
             className="flex flex-col h-full bg-slate-950 text-white overflow-hidden"
-            style={keyboardOffset > 0 ? { height: `calc(100% - ${keyboardOffset}px)`, transition: 'height 0.15s ease-out' } : undefined}
+            style={
+                keyboardOffset > 0
+                    ? { height: `calc(100% - ${keyboardOffset}px)`, transition: 'height 0.15s ease-out' }
+                    : undefined
+            }
         >
-
             {/* ═══════════════════ HEADER ═══════════════════ */}
             <ChatHeader
                 view={view}
@@ -416,27 +506,34 @@ export const ChatPage: React.FC = () => {
                 isUserBlocked={isUserBlocked}
                 hasDMPartner={!!dmPartner}
                 onGoBack={goBack}
-                onOpenProfile={() => { setNavDirection('forward'); setView('profile'); }}
+                onOpenProfile={() => {
+                    setNavDirection('forward');
+                    setView('profile');
+                }}
                 onOpenDMInbox={openDMInbox}
                 onToggleBlock={() => setShowBlockConfirm(true)}
-                onLeaveChannel={activeChannel?.is_private ? () => {
-                    setConfirmAction({
-                        title: 'Leave Channel',
-                        message: `Leave "${activeChannel.name}"? You'll need to request access again to rejoin.`,
-                        destructive: true,
-                        onConfirm: async () => {
-                            const ok = await ChatService.leaveChannel(activeChannel.id);
-                            if (ok) {
-                                toast.success(`Left ${activeChannel.name}`);
-                                setActiveChannel(null);
-                                setView('channels');
-                            } else {
-                                toast.error('Cannot leave — channel owners must delete the channel instead');
-                            }
-                            setConfirmAction(null);
-                        },
-                    });
-                } : undefined}
+                onLeaveChannel={
+                    activeChannel?.is_private
+                        ? () => {
+                              setConfirmAction({
+                                  title: 'Leave Channel',
+                                  message: `Leave "${activeChannel.name}"? You'll need to request access again to rejoin.`,
+                                  destructive: true,
+                                  onConfirm: async () => {
+                                      const ok = await ChatService.leaveChannel(activeChannel.id);
+                                      if (ok) {
+                                          toast.success(`Left ${activeChannel.name}`);
+                                          setActiveChannel(null);
+                                          setView('channels');
+                                      } else {
+                                          toast.error('Cannot leave — channel owners must delete the channel instead');
+                                      }
+                                      setConfirmAction(null);
+                                  },
+                              });
+                          }
+                        : undefined
+                }
                 onPropose={() => setShowProposalForm(true)}
             />
 
@@ -453,28 +550,43 @@ export const ChatPage: React.FC = () => {
                                     <p className="text-base font-bold text-sky-300">Welcome aboard, sailor! 🌊</p>
                                     <p className="text-xs text-white/50 mt-0.5">Your crew is ready to help</p>
                                 </div>
-                                <button onClick={dismissWelcome} aria-label="Dismiss welcome message" className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/40 hover:text-white/70 text-sm transition-all min-w-[44px] min-h-[44px]">✕</button>
+                                <button
+                                    onClick={dismissWelcome}
+                                    aria-label="Dismiss welcome message"
+                                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/40 hover:text-white/70 text-sm transition-all min-w-[44px] min-h-[44px]"
+                                >
+                                    ✕
+                                </button>
                             </div>
                             <div className="space-y-2.5">
                                 <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.04]">
                                     <span className="text-lg">📢</span>
-                                    <p className="text-xs text-white/60">Tap the <span className="text-amber-400 font-semibold">horn</span> to mark your message as a question — the crew will help</p>
+                                    <p className="text-xs text-white/60">
+                                        Tap the <span className="text-amber-400 font-semibold">horn</span> to mark your
+                                        message as a question — the crew will help
+                                    </p>
                                 </div>
                                 <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.04]">
                                     <span className="text-lg">📍</span>
-                                    <p className="text-xs text-white/60">Use <span className="text-sky-400 font-semibold">➕</span> to drop pins, share POIs, or send voyage tracks</p>
+                                    <p className="text-xs text-white/60">
+                                        Use <span className="text-sky-400 font-semibold">➕</span> to drop pins, share
+                                        POIs, or send voyage tracks
+                                    </p>
                                 </div>
                                 <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.04]">
                                     <span className="text-lg">⭐</span>
-                                    <p className="text-xs text-white/60">Help others to rank up: {CREW_RANKS.slice(0, 4).map(r => `${r.badge}`).join(' → ')}</p>
+                                    <p className="text-xs text-white/60">
+                                        Help others to rank up:{' '}
+                                        {CREW_RANKS.slice(0, 4)
+                                            .map((r) => `${r.badge}`)
+                                            .join(' → ')}
+                                    </p>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
             )}
-
-
 
             {/* Hidden file input */}
             <input
@@ -514,7 +626,11 @@ export const ChatPage: React.FC = () => {
                             {pullRefresh.isRefreshing ? (
                                 <div className="w-5 h-5 border-2 border-sky-400/30 rounded-full border-t-sky-400 animate-spin" />
                             ) : (
-                                <span className={`text-white/30 text-sm transition-transform ${pullRefresh.pullDistance > 28 ? 'rotate-180' : ''}`}>↓</span>
+                                <span
+                                    className={`text-white/30 text-sm transition-transform ${pullRefresh.pullDistance > 28 ? 'rotate-180' : ''}`}
+                                >
+                                    ↓
+                                </span>
                             )}
                         </div>
                     )}
@@ -589,7 +705,10 @@ export const ChatPage: React.FC = () => {
                             proposalSent={proposalSent}
                             onProposeChannel={handleProposeChannel}
                             isAdmin={isAdmin}
-                            onOpenAdmin={() => { setNavDirection('forward'); setView('admin_panel'); }}
+                            onOpenAdmin={() => {
+                                setNavDirection('forward');
+                                setView('admin_panel');
+                            }}
                             memberChannelIds={memberChannelIds}
                             proposalParentId={proposalParentId}
                             setProposalParentId={setProposalParentId}
@@ -603,10 +722,13 @@ export const ChatPage: React.FC = () => {
 
                     {/* ══════ JOIN REQUEST MODAL ══════ */}
                     {joinRequestChannel && (
-                        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70" onClick={() => setJoinRequestChannel(null)}>
+                        <div
+                            className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70"
+                            onClick={() => setJoinRequestChannel(null)}
+                        >
                             <div
                                 className="w-full max-w-lg bg-slate-950 border-t border-purple-500/20 rounded-t-3xl shadow-2xl p-5 space-y-4"
-                                onClick={e => e.stopPropagation()}
+                                onClick={(e) => e.stopPropagation()}
                                 role="dialog"
                                 aria-modal="true"
                                 aria-label={`Request access to ${joinRequestChannel.name}`}
@@ -617,17 +739,20 @@ export const ChatPage: React.FC = () => {
                                     </div>
                                     <div>
                                         <h3 className="text-sm font-bold text-white">Request Access</h3>
-                                        <p className="text-[11px] text-purple-400/60">{joinRequestChannel.name} — Private Channel</p>
+                                        <p className="text-[11px] text-purple-400/60">
+                                            {joinRequestChannel.name} — Private Channel
+                                        </p>
                                     </div>
                                 </div>
 
                                 <p className="text-xs text-white/50">
-                                    This is a private channel. Write a message to the channel owner explaining why you'd like to join.
+                                    This is a private channel. Write a message to the channel owner explaining why you'd
+                                    like to join.
                                 </p>
 
                                 <textarea
                                     value={joinRequestMessage}
-                                    onChange={e => setJoinRequestMessage(e.target.value)}
+                                    onChange={(e) => setJoinRequestMessage(e.target.value)}
                                     placeholder="Why do you want to join this channel?"
                                     aria-label="Join request message"
                                     rows={3}
@@ -671,7 +796,10 @@ export const ChatPage: React.FC = () => {
                                 getAvatar={getAvatar}
                                 onOpenDMThread={openDMThread}
                                 onMarkHelpful={handleMarkHelpful}
-                                onReportMsg={(msg) => { setReportingMsg(msg); setReportSent(false); }}
+                                onReportMsg={(msg) => {
+                                    setReportingMsg(msg);
+                                    setReportSent(false);
+                                }}
                                 onToggleModMenu={(msgId) => setShowModMenu(showModMenu === msgId ? null : msgId)}
                                 onDeleteMessage={handleDeleteMessage}
                                 onPinMessage={handlePinMessage}
@@ -801,13 +929,18 @@ export const ChatPage: React.FC = () => {
 
             {/* ═══════════ TRACK IMPORT STATUS TOAST ═══════════ */}
             {trackImportStatus && (
-                <div className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[9998] px-5 py-3 rounded-xl shadow-2xl border max-w-[320px] text-center"
+                <div
+                    className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[9998] px-5 py-3 rounded-xl shadow-2xl border max-w-[320px] text-center"
                     style={{
                         background: trackImportStatus!.startsWith('✅') ? 'rgba(6,78,59,0.95)' : 'rgba(127,29,29,0.95)',
-                        borderColor: trackImportStatus!.startsWith('✅') ? 'rgba(16,185,129,0.3)' : 'rgba(239,68,68,0.3)',
-
-                    }}>
-                    <p className={`text-sm font-bold ${trackImportStatus!.startsWith('✅') ? 'text-emerald-300' : 'text-red-300'}`}>
+                        borderColor: trackImportStatus!.startsWith('✅')
+                            ? 'rgba(16,185,129,0.3)'
+                            : 'rgba(239,68,68,0.3)',
+                    }}
+                >
+                    <p
+                        className={`text-sm font-bold ${trackImportStatus!.startsWith('✅') ? 'text-emerald-300' : 'text-red-300'}`}
+                    >
                         {trackImportStatus}
                     </p>
                 </div>
@@ -819,7 +952,7 @@ export const ChatPage: React.FC = () => {
                 message={confirmAction?.message || ''}
                 destructive={confirmAction?.destructive || false}
                 confirmLabel={confirmAction?.destructive ? 'Block' : 'Confirm'}
-                onConfirm={confirmAction?.onConfirm || (() => { })}
+                onConfirm={confirmAction?.onConfirm || (() => {})}
                 onCancel={() => setConfirmAction(null)}
             />
         </div>

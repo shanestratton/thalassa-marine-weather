@@ -18,19 +18,19 @@ import { loadLargeDataSync, DATA_CACHE_KEY } from '../nativeStorage';
 const EARTH_RADIUS_NM = 3440.065;
 
 // Shore distance thresholds in kilometers (1nm = 1.852km)
-const NEARSHORE_THRESHOLD_KM = 1.852;   // < 1nm from shore
-const COASTAL_THRESHOLD_KM = 9.26;      // < 5nm from shore
+const NEARSHORE_THRESHOLD_KM = 1.852; // < 1nm from shore
+const COASTAL_THRESHOLD_KM = 9.26; // < 5nm from shore
 
 // Adaptive logging intervals (zone-based — fallback when no speed data)
-export const NEARSHORE_INTERVAL_MS = 15 * 1000;       // 15 seconds (< 1nm from shore / on land)
-export const COASTAL_INTERVAL_MS = 10 * 1000;          // 10 seconds (1-5nm from shore)
-export const OFFSHORE_INTERVAL_MS = 30 * 1000;         // 30 seconds (> 5nm offshore)
+export const NEARSHORE_INTERVAL_MS = 15 * 1000; // 15 seconds (< 1nm from shore / on land)
+export const COASTAL_INTERVAL_MS = 10 * 1000; // 10 seconds (1-5nm from shore)
+export const OFFSHORE_INTERVAL_MS = 30 * 1000; // 30 seconds (> 5nm offshore)
 
 // Speed-adaptive logging intervals (primary — based on SOG)
-export const STATIONARY_INTERVAL_MS = 60 * 1000;      // 60 seconds (< 1 kt)
-export const SLOW_INTERVAL_MS = 15 * 1000;             // 15 seconds (1-6 kts)
-export const MEDIUM_INTERVAL_MS = 5 * 1000;            // 5 seconds (6-60 kts)
-export const FAST_INTERVAL_MS = 15 * 1000;             // 15 seconds (60+ kts)
+export const STATIONARY_INTERVAL_MS = 60 * 1000; // 60 seconds (< 1 kt)
+export const SLOW_INTERVAL_MS = 15 * 1000; // 15 seconds (1-6 kts)
+export const MEDIUM_INTERVAL_MS = 5 * 1000; // 5 seconds (6-60 kts)
+export const FAST_INTERVAL_MS = 15 * 1000; // 15 seconds (60+ kts)
 
 export type SpeedTier = 'stationary' | 'slow' | 'medium' | 'fast';
 
@@ -44,12 +44,11 @@ export const SHIP_LOGS_TABLE = 'ship_logs';
  * @returns Distance in nautical miles
  */
 export function calculateDistanceNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
     const a =
         Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return EARTH_RADIUS_NM * c;
 }
@@ -59,15 +58,14 @@ export function calculateDistanceNM(lat1: number, lon1: number, lat2: number, lo
  * @returns Bearing in degrees True (0-360)
  */
 export function calculateBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const lat1Rad = lat1 * Math.PI / 180;
-    const lat2Rad = lat2 * Math.PI / 180;
-    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const lat1Rad = (lat1 * Math.PI) / 180;
+    const lat2Rad = (lat2 * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
 
     const x = Math.sin(dLon) * Math.cos(lat2Rad);
-    const y = Math.cos(lat1Rad) * Math.sin(lat2Rad) -
-        Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
+    const y = Math.cos(lat1Rad) * Math.sin(lat2Rad) - Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
 
-    let bearing = Math.atan2(x, y) * 180 / Math.PI;
+    let bearing = (Math.atan2(x, y) * 180) / Math.PI;
 
     // Normalize to 0-360
     bearing = (bearing + 360) % 360;
@@ -95,7 +93,7 @@ export function formatPositionDMS(lat: number, lon: number): string {
  * Calculate the next quarter-hour time (snaps to :00, :15, :30, :45)
  * Example: If current time is 07:14, returns 07:15
  *          If current time is 07:15, returns 07:30
- * 
+ *
  * IMPORTANT: Adds 30-second buffer to account for GPS acquisition time.
  * Timer fires at :00:30, :15:30, :30:30, :45:30 to ensure the entry
  * timestamp falls on or after the quarter hour.
@@ -165,7 +163,7 @@ export function toDbFormat(entry: Partial<ShipLogEntry>): Record<string, any> {
         createdAt: 'created_at',
         isOnWater: 'is_on_water',
         archived: 'archived',
-        linkedPlanId: 'linked_plan_id'
+        linkedPlanId: 'linked_plan_id',
     };
 
     const dbEntry: Record<string, any> = {};
@@ -215,7 +213,7 @@ export function fromDbFormat(row: Record<string, any>): ShipLogEntry {
         createdAt: row.created_at,
         isOnWater: row.is_on_water,
         archived: row.archived ?? false,
-        linkedPlanId: row.linked_plan_id
+        linkedPlanId: row.linked_plan_id,
     };
 }
 
@@ -264,7 +262,7 @@ export function getWeatherSnapshot(): Partial<ShipLogEntry> {
             visibility,
             beaufortScale,
             seaState,
-            watchPeriod
+            watchPeriod,
         };
     } catch (error) {
         return { watchPeriod };
@@ -299,9 +297,9 @@ export function determineLoggingZone(): LoggingZone {
 
         // If we have actual distance to land, use it (most reliable signal)
         if (distKm !== undefined && distKm !== null && typeof distKm === 'number') {
-            if (distKm <= NEARSHORE_THRESHOLD_KM) return 'nearshore';   // < 1nm
-            if (distKm <= COASTAL_THRESHOLD_KM) return 'coastal';       // < 5nm
-            return 'offshore';                                           // > 5nm — confirmed
+            if (distKm <= NEARSHORE_THRESHOLD_KM) return 'nearshore'; // < 1nm
+            if (distKm <= COASTAL_THRESHOLD_KM) return 'coastal'; // < 5nm
+            return 'offshore'; // > 5nm — confirmed
         }
 
         // Fall back to locationType classification
@@ -310,7 +308,7 @@ export function determineLoggingZone(): LoggingZone {
 
         return 'nearshore'; // Safe default
     } catch (e) {
-            console.warn('[helpers]', e);
+        console.warn('[helpers]', e);
         return 'nearshore'; // Fail safe
     }
 }
@@ -320,9 +318,12 @@ export function determineLoggingZone(): LoggingZone {
  */
 export function getIntervalForZone(zone: LoggingZone): number {
     switch (zone) {
-        case 'nearshore': return NEARSHORE_INTERVAL_MS;   // 5 seconds
-        case 'coastal': return COASTAL_INTERVAL_MS;     // 5 seconds
-        case 'offshore': return OFFSHORE_INTERVAL_MS;    // 30 seconds
+        case 'nearshore':
+            return NEARSHORE_INTERVAL_MS; // 5 seconds
+        case 'coastal':
+            return COASTAL_INTERVAL_MS; // 5 seconds
+        case 'offshore':
+            return OFFSHORE_INTERVAL_MS; // 30 seconds
     }
 }
 
@@ -331,9 +332,12 @@ export function getIntervalForZone(zone: LoggingZone): number {
  */
 export function getZoneLabel(zone: LoggingZone): string {
     switch (zone) {
-        case 'nearshore': return '< 1nm (15s intervals)';
-        case 'coastal': return '1-5nm (10s intervals)';
-        case 'offshore': return '> 5nm (30s intervals)';
+        case 'nearshore':
+            return '< 1nm (15s intervals)';
+        case 'coastal':
+            return '1-5nm (10s intervals)';
+        case 'offshore':
+            return '> 5nm (30s intervals)';
     }
 }
 
@@ -359,9 +363,9 @@ const MS_TO_KNOTS = 1.94384;
 export function getIntervalForSpeed(sogMs: number): { interval: number; tier: SpeedTier } {
     const sogKts = sogMs * MS_TO_KNOTS;
 
-    if (sogKts < 1)   return { interval: STATIONARY_INTERVAL_MS, tier: 'stationary' };
-    if (sogKts < 6)   return { interval: SLOW_INTERVAL_MS, tier: 'slow' };
-    if (sogKts < 60)  return { interval: MEDIUM_INTERVAL_MS, tier: 'medium' };
+    if (sogKts < 1) return { interval: STATIONARY_INTERVAL_MS, tier: 'stationary' };
+    if (sogKts < 6) return { interval: SLOW_INTERVAL_MS, tier: 'slow' };
+    if (sogKts < 60) return { interval: MEDIUM_INTERVAL_MS, tier: 'medium' };
     return { interval: FAST_INTERVAL_MS, tier: 'fast' };
 }
 
@@ -370,9 +374,13 @@ export function getIntervalForSpeed(sogMs: number): { interval: number; tier: Sp
  */
 export function getSpeedTierLabel(tier: SpeedTier): string {
     switch (tier) {
-        case 'stationary': return 'Stationary (60s intervals)';
-        case 'slow': return 'Slow (15s intervals)';
-        case 'medium': return 'Cruising (5s intervals)';
-        case 'fast': return 'Fast (15s intervals)';
+        case 'stationary':
+            return 'Stationary (60s intervals)';
+        case 'slow':
+            return 'Slow (15s intervals)';
+        case 'medium':
+            return 'Cruising (5s intervals)';
+        case 'fast':
+            return 'Fast (15s intervals)';
     }
 }

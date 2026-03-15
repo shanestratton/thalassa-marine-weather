@@ -30,14 +30,13 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
 
     if (!isOpen || !entry) return null;
 
-
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setSaving(true);
 
         onSave(entry.id, {
             notes: notes.trim() || undefined,
-            waypointName: waypointName.trim() || undefined
+            waypointName: waypointName.trim() || undefined,
         });
 
         setSaving(false);
@@ -49,24 +48,38 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
     const dateStr = timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/80" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="edit-entry-title" ref={focusTrapRef}>
-            <div className="bg-slate-900 border border-white/20 rounded-t-2xl sm:rounded-2xl p-4 w-full sm:max-w-md sm:mx-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div
+            className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center bg-black/80"
+            onClick={onClose}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-entry-title"
+            ref={focusTrapRef}
+        >
+            <div
+                className="bg-slate-900 border border-white/20 rounded-t-2xl sm:rounded-2xl p-4 w-full sm:max-w-md sm:mx-4 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+            >
                 {/* Header */}
                 <div className="flex justify-between items-start mb-4">
                     <div>
-                        <h2 id="edit-entry-title" className="text-xl font-bold text-white">Edit Entry</h2>
+                        <h2 id="edit-entry-title" className="text-xl font-bold text-white">
+                            Edit Entry
+                        </h2>
                         <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
                             <span className="font-mono">{timeStr}</span>
                             <span>•</span>
                             <span>{dateStr}</span>
                         </div>
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="text-slate-400 hover:text-white transition-colors p-1"
-                    >
+                    <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors p-1">
                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M6 18L18 6M6 6l12 12"
+                            />
                         </svg>
                     </button>
                 </div>

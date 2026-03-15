@@ -1,10 +1,10 @@
 /**
  * Content Moderation Service — Three-Tier Defence
- * 
+ *
  * Layer 1: Client-side regex filter (free, instant, catches obvious abuse)
  * Layer 2: Async Gemini Flash classification (post-send, flags/auto-removes)
  * Layer 3: User reports → flag for mod review
- * 
+ *
  * Design: Messages are NEVER blocked on send. The client filter warns
  * the user before sending; Gemini checks asynchronously after posting.
  * If flagged, the message is soft-deleted within ~1-2 seconds.
@@ -24,7 +24,9 @@ const getSupabaseUrl = (): string => {
         if (typeof process !== 'undefined' && process.env?.SUPABASE_URL) {
             return process.env.SUPABASE_URL;
         }
-    } catch (e) { console.warn('[ContentModeration] browser env:', e); }
+    } catch (e) {
+        console.warn('[ContentModeration] browser env:', e);
+    }
     return '';
 };
 
@@ -35,8 +37,8 @@ export type ModerationVerdict = 'clean' | 'warning' | 'remove' | 'escalate';
 export interface ModerationResult {
     verdict: ModerationVerdict;
     reason: string;
-    confidence: number;       // 0-1
-    category: string;         // e.g. 'harassment', 'spam', 'hate_speech'
+    confidence: number; // 0-1
+    category: string; // e.g. 'harassment', 'spam', 'hate_speech'
     processingTimeMs: number;
 }
 
@@ -53,7 +55,7 @@ export interface ContentReport {
 /**
  * Fast, free, zero-latency filter. Catches obvious slurs, spam patterns,
  * and phishing attempts. Returns a pre-send warning if triggered.
- * 
+ *
  * NOT a blocker — the user is warned but can still send.
  * This also catches excessive caps, repetition, and link spam.
  */
@@ -153,7 +155,6 @@ export const clientFilter = (text: string): ClientFilterResult => {
     return { blocked: false, warning: null };
 };
 
-
 // --- LAYER 2: ASYNC GEMINI FLASH CLASSIFICATION (via Edge Proxy) ---
 
 const MODERATION_PROMPT = `You are a content moderation system for a community chat app used by sailors. 
@@ -248,9 +249,9 @@ export const geminiModerate = async (text: string): Promise<ModerationResult> =>
             };
         }
 
-        const verdict = (['clean', 'warning', 'remove', 'escalate'].includes(parsed.verdict)
-            ? parsed.verdict
-            : 'clean') as ModerationVerdict;
+        const verdict = (
+            ['clean', 'warning', 'remove', 'escalate'].includes(parsed.verdict) ? parsed.verdict : 'clean'
+        ) as ModerationVerdict;
 
         return {
             verdict,
@@ -271,7 +272,6 @@ export const geminiModerate = async (text: string): Promise<ModerationResult> =>
     }
 };
 
-
 // --- LAYER 3: USER REPORTS ---
 
 /**
@@ -281,23 +281,21 @@ export const reportMessage = async (
     messageId: string,
     reporterId: string,
     reason: ContentReport['reason'],
-    details?: string
+    details?: string,
 ): Promise<boolean> => {
     if (!supabase) return false;
 
     try {
-        const { error } = await supabase
-            .from(REPORTS_TABLE)
-            .insert({
-                message_id: messageId,
-                reporter_id: reporterId,
-                reason,
-                details: details || null,
-            });
+        const { error } = await supabase.from(REPORTS_TABLE).insert({
+            message_id: messageId,
+            reporter_id: reporterId,
+            reason,
+            details: details || null,
+        });
 
         return !error;
     } catch (e) {
-            console.warn('[ContentModeration]', e);
+        console.warn('[ContentModeration]', e);
         return false;
     }
 };
@@ -308,34 +306,29 @@ export const reportMessage = async (
 export const getPendingReports = async (): Promise<ContentReport[]> => {
     if (!supabase) return [];
 
-    const { data } = await supabase
-        .from(REPORTS_TABLE)
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(50);
+    const { data } = await supabase.from(REPORTS_TABLE).select('*').order('created_at', { ascending: false }).limit(50);
 
     return (data || []) as ContentReport[];
 };
-
 
 // --- ORCHESTRATOR ---
 
 /**
  * Main moderation pipeline. Called after a message is successfully posted.
- * 
+ *
  * Flow:
  * 1. Run Gemini Flash classification (async, ~1s)
  * 2. If "remove" or "escalate" → soft-delete the message
  * 3. If "warning" → flag for mod review (no removal)
  * 4. Log all moderation actions for audit trail
- * 
+ *
  * This is fire-and-forget — it never blocks the sender.
  */
 export const moderateMessage = async (
     messageId: string,
     messageText: string,
     userId: string,
-    channelId: string
+    channelId: string,
 ): Promise<void> => {
     try {
         const result = await geminiModerate(messageText);
@@ -360,13 +353,11 @@ export const moderateMessage = async (
         if (result.verdict === 'warning') {
             // Flag for mod review — could set a "flagged" column in future
         }
-
     } catch (error) {
         // Moderation failure should never crash the app — fail open
         console.error('[MODERATION] Pipeline error:', error);
     }
 };
-
 
 // --- AUDIT LOGGING ---
 
@@ -388,7 +379,7 @@ const logModerationAction = async (
     messageId: string,
     userId: string,
     channelId: string,
-    result: ModerationResult
+    result: ModerationResult,
 ): Promise<void> => {
     // Only log non-clean results to save DB writes
     if (result.verdict === 'clean') return;
@@ -410,11 +401,10 @@ const logModerationAction = async (
     try {
         await supabase.from(MODERATION_LOG_TABLE).insert(log);
     } catch (e) {
-            console.warn('[ContentModeration]', e);
+        console.warn('[ContentModeration]', e);
         // Best effort — moderation logging is non-critical
     }
 };
-
 
 // --- STATS ---
 
@@ -431,7 +421,10 @@ export const getModerationStats = async (): Promise<{
 
     const [flagged, removed, reports] = await Promise.all([
         supabase.from(MODERATION_LOG_TABLE).select('*', { count: 'exact', head: true }).eq('verdict', 'warning'),
-        supabase.from(MODERATION_LOG_TABLE).select('*', { count: 'exact', head: true }).in('verdict', ['remove', 'escalate']),
+        supabase
+            .from(MODERATION_LOG_TABLE)
+            .select('*', { count: 'exact', head: true })
+            .in('verdict', ['remove', 'escalate']),
         supabase.from(REPORTS_TABLE).select('*', { count: 'exact', head: true }),
     ]);
 

@@ -15,7 +15,15 @@ import { toast } from './Toast';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 
 // Event category type for type safety
-type EventCategory = 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation';
+type EventCategory =
+    | 'navigation'
+    | 'weather'
+    | 'equipment'
+    | 'crew'
+    | 'arrival'
+    | 'departure'
+    | 'safety'
+    | 'observation';
 
 // Event categories with icons and descriptions
 const EVENT_CATEGORIES: { value: EventCategory; label: string; icon: string }[] = [
@@ -76,7 +84,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                 trimmedWaypoint,
                 eventCategory,
                 undefined, // engineStatus
-                selectedVoyageId || undefined // Add to selected voyage if available
+                selectedVoyageId || undefined, // Add to selected voyage if available
             );
 
             // Auto-create a Repair task in R&M when event type is Repair
@@ -113,24 +121,38 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
     };
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/80" onClick={onClose} role="dialog" aria-modal="true" aria-labelledby="add-entry-title" ref={focusTrapRef}>
-            <div className="bg-slate-900 border-t border-x border-white/20 rounded-t-2xl p-4 w-full shadow-2xl h-[calc(100%-10px)] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div
+            className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/80"
+            onClick={onClose}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-entry-title"
+            ref={focusTrapRef}
+        >
+            <div
+                className="bg-slate-900 border-t border-x border-white/20 rounded-t-2xl p-4 w-full shadow-2xl h-[calc(100%-10px)] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+            >
                 {/* Header with Watch Info */}
                 <div className="flex justify-between items-start mb-4">
                     <div>
-                        <h2 id="add-entry-title" className="text-xl font-bold text-white">Add Log Entry</h2>
+                        <h2 id="add-entry-title" className="text-xl font-bold text-white">
+                            Add Log Entry
+                        </h2>
                         <div className="text-xs text-slate-400 mt-1 flex items-center gap-2">
                             <span className="font-mono">{currentTime}</span>
                             <span>•</span>
                             <span>{getWatchPeriodName(currentWatch)}</span>
                         </div>
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="text-slate-400 hover:text-white transition-colors p-1"
-                    >
+                    <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors p-1">
                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M6 18L18 6M6 6l12 12"
+                            />
                         </svg>
                     </button>
                 </div>
@@ -146,10 +168,11 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                                     key={cat.value}
                                     type="button"
                                     onClick={() => setEventCategory(cat.value)}
-                                    className={`p-2 rounded-lg border text-center transition-colors ${eventCategory === cat.value
-                                        ? 'bg-sky-500/20 border-sky-500/50 text-sky-400'
-                                        : 'bg-slate-800 border-white/10 text-slate-400 hover:border-white/20'
-                                        }`}
+                                    className={`p-2 rounded-lg border text-center transition-colors ${
+                                        eventCategory === cat.value
+                                            ? 'bg-sky-500/20 border-sky-500/50 text-sky-400'
+                                            : 'bg-slate-800 border-white/10 text-slate-400 hover:border-white/20'
+                                    }`}
                                 >
                                     <div className="text-lg">{cat.icon}</div>
                                     <div className="text-[11px] mt-0.5 truncate">{cat.label}</div>
@@ -188,9 +211,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
 
                     {/* Notes */}
                     <div>
-                        <label className="block text-sm text-slate-300 mb-2">
-                            Notes {!isWaypoint && '*'}
-                        </label>
+                        <label className="block text-sm text-slate-300 mb-2">Notes {!isWaypoint && '*'}</label>
                         <textarea
                             value={notes}
                             onChange={(e) => setNotes(e.target.value)}

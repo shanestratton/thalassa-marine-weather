@@ -15,9 +15,7 @@ describe('ConfirmDialog', () => {
     };
 
     it('renders nothing when isOpen is false', () => {
-        const { container } = render(
-            <ConfirmDialog {...baseProps} isOpen={false} />
-        );
+        const { container } = render(<ConfirmDialog {...baseProps} isOpen={false} />);
         expect(container.innerHTML).toBe('');
     });
 
@@ -34,9 +32,7 @@ describe('ConfirmDialog', () => {
     });
 
     it('shows custom button labels', () => {
-        render(
-            <ConfirmDialog {...baseProps} confirmLabel="Delete" cancelLabel="Keep" />
-        );
+        render(<ConfirmDialog {...baseProps} confirmLabel="Delete" cancelLabel="Keep" />);
         expect(screen.getByText('Delete')).toBeInTheDocument();
         expect(screen.getByText('Keep')).toBeInTheDocument();
     });

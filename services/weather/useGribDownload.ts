@@ -66,9 +66,7 @@ function computeAreaDeg2(bounds: GribBounds): number {
 
 // ── Hook ───────────────────────────────────────────────────────
 
-export function useGribDownload(
-    options: UseGribDownloadOptions,
-): GribDownloadState & GribDownloadActions {
+export function useGribDownload(options: UseGribDownloadOptions): GribDownloadState & GribDownloadActions {
     const { endpoint, globalEndpoint, mapRef, onWindData } = options;
     const { isSatelliteMode, maxSatelliteAreaDeg2 } = useNetworkMode();
 
@@ -126,9 +124,7 @@ export function useGribDownload(
                 signal: abortController.signal,
                 onProgress: ({ downloadedBytes, totalBytes }) => {
                     if (totalBytes && totalBytes > 0) {
-                        setDownloadProgress(
-                            Math.min(99, Math.round((downloadedBytes / totalBytes) * 100)),
-                        );
+                        setDownloadProgress(Math.min(99, Math.round((downloadedBytes / totalBytes) * 100)));
                     }
                 },
             });

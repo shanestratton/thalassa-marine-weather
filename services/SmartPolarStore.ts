@@ -3,14 +3,14 @@
  * Fine-grained 2kt TWS × 5° TWA grid persisted to Capacitor Filesystem.
  * Exports to standard PolarData format for chart rendering.
  */
-import type { SmartPolarBucket, SmartPolarBucketGrid, PolarData } from '../types';
+import type { SmartPolarBucketGrid, PolarData } from '../types';
 import { saveLargeData, loadLargeData } from './nativeStorage';
 
 const STORAGE_KEY = 'thalassa_smart_polars_v1';
 
 // ── Grid configuration ──
-const TWS_BUCKET_SIZE = 2;   // kts
-const TWA_BUCKET_SIZE = 5;   // degrees
+const TWS_BUCKET_SIZE = 2; // kts
+const TWA_BUCKET_SIZE = 5; // degrees
 const TWS_MIN = 0;
 const TWS_MAX = 30;
 const TWA_MIN = 40;
@@ -49,7 +49,7 @@ class SmartPolarStoreClass {
         // Outlier rejection: if we have enough samples, reject >3σ outliers
         if (bucket.count >= 10) {
             const mean = bucket.sumSTW / bucket.count;
-            const variance = (bucket.sumSTW2 / bucket.count) - (mean * mean);
+            const variance = bucket.sumSTW2 / bucket.count - mean * mean;
             const stdDev = Math.sqrt(Math.max(0, variance));
             if (Math.abs(stw - mean) > 3 * stdDev) {
                 return; // Reject outlier
@@ -78,26 +78,33 @@ class SmartPolarStoreClass {
         const windSpeeds = [6, 8, 10, 12, 15, 20, 25];
         const angles = [45, 60, 90, 120, 150, 180];
 
-        const matrix = angles.map(targetAngle => {
-            return windSpeeds.map(targetTws => {
+        const matrix = angles.map((targetAngle) => {
+            return windSpeeds.map((targetTws) => {
                 // Find closest bucket(s) and interpolate
                 return this.interpolateBucket(targetTws, targetAngle);
             });
         });
 
         // Check if we have any data at all
-        const hasData = matrix.some(row => row.some(v => v > 0));
+        const hasData = matrix.some((row) => row.some((v) => v > 0));
         if (!hasData) return null;
 
         return { windSpeeds, angles, matrix };
     }
 
     /** Get statistics about the current grid */
-    getStats(): { totalSamples: number; filledBuckets: number; totalBuckets: number; oldestSample: number | null; newestSample: number | null } {
-        if (!this.grid) return { totalSamples: 0, filledBuckets: 0, totalBuckets: 0, oldestSample: null, newestSample: null };
+    getStats(): {
+        totalSamples: number;
+        filledBuckets: number;
+        totalBuckets: number;
+        oldestSample: number | null;
+        newestSample: number | null;
+    } {
+        if (!this.grid)
+            return { totalSamples: 0, filledBuckets: 0, totalBuckets: 0, oldestSample: null, newestSample: null };
 
         const entries = Object.values(this.grid.buckets);
-        const filled = entries.filter(b => b.count > 0);
+        const filled = entries.filter((b) => b.count > 0);
         const totalBuckets = ((TWS_MAX - TWS_MIN) / TWS_BUCKET_SIZE) * ((TWA_MAX - TWA_MIN) / TWA_BUCKET_SIZE);
 
         let oldest: number | null = null;
@@ -124,7 +131,9 @@ class SmartPolarStoreClass {
     }
 
     /** Get raw grid (for advanced inspection) */
-    getGrid(): SmartPolarBucketGrid | null { return this.grid; }
+    getGrid(): SmartPolarBucketGrid | null {
+        return this.grid;
+    }
 
     // ── Private ──
 
@@ -144,7 +153,8 @@ class SmartPolarStoreClass {
             for (let da = -TWA_BUCKET_SIZE; da <= TWA_BUCKET_SIZE; da += TWA_BUCKET_SIZE) {
                 const key = `tws_${twsBucket + dw}_twa_${twaBucket + da}`;
                 const bucket = this.grid.buckets[key];
-                if (bucket && bucket.count >= 3) { // Minimum 3 samples for reliability
+                if (bucket && bucket.count >= 3) {
+                    // Minimum 3 samples for reliability
                     const avg = bucket.sumSTW / bucket.count;
                     // Weight by distance (closer = heavier) and sample count
                     const dist = Math.sqrt((dw / TWS_BUCKET_SIZE) ** 2 + (da / TWA_BUCKET_SIZE) ** 2) + 0.1;

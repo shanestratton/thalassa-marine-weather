@@ -17,7 +17,10 @@ export const calculateDLR = (disp: number, lwl: number): number => {
     return longTons / Math.pow(0.01 * lwl, 3);
 };
 
-export const getTideStatus = (idx: number, hourly: HourlyForecast[]): 'rising' | 'falling' | 'high' | 'low' | 'steady' => {
+export const getTideStatus = (
+    idx: number,
+    hourly: HourlyForecast[],
+): 'rising' | 'falling' | 'high' | 'low' | 'steady' => {
     if (!hourly || idx === 0 || idx >= hourly.length - 1) return 'steady';
     const prev = hourly[idx - 1].tideHeight || 0;
     const curr = hourly[idx].tideHeight || 0;
@@ -58,18 +61,18 @@ export const getSailingConditionText = (score: number): string => {
 };
 
 export const getBeaufort = (knots: number | null | undefined) => {
-    if (knots === null || knots === undefined) return { force: 0, desc: "Unknown", sea: "Calm" };
-    if (knots < 1) return { force: 0, desc: "Calm", sea: "Sea like a mirror" };
-    if (knots < 4) return { force: 1, desc: "Light Air", sea: "Ripples but no foam crests" };
-    if (knots < 7) return { force: 2, desc: "Light Breeze", sea: "Small wavelets, glassy crests" };
-    if (knots < 11) return { force: 3, desc: "Gentle Breeze", sea: "Large wavelets, crests break" };
-    if (knots < 17) return { force: 4, desc: "Moderate Breeze", sea: "Small waves, becoming longer" };
-    if (knots < 22) return { force: 5, desc: "Fresh Breeze", sea: "Moderate waves, many whitecaps" };
-    if (knots < 28) return { force: 6, desc: "Strong Breeze", sea: "Large waves, foam crests everywhere" };
-    if (knots < 34) return { force: 7, desc: "Near Gale", sea: "Sea heaps up, white foam streaks" };
-    if (knots < 41) return { force: 8, desc: "Gale", sea: "Moderately high waves, spindrift" };
-    if (knots < 48) return { force: 9, desc: "Strong Gale", sea: "High waves, dense foam streaks" };
-    if (knots < 56) return { force: 10, desc: "Storm", sea: "Very high waves, visibility reduced" };
-    if (knots < 64) return { force: 11, desc: "Violent Storm", sea: "Exceptionally high waves" };
-    return { force: 12, desc: "Hurricane", sea: "Air filled with foam and spray" };
+    if (knots === null || knots === undefined) return { force: 0, desc: 'Unknown', sea: 'Calm' };
+    if (knots < 1) return { force: 0, desc: 'Calm', sea: 'Sea like a mirror' };
+    if (knots < 4) return { force: 1, desc: 'Light Air', sea: 'Ripples but no foam crests' };
+    if (knots < 7) return { force: 2, desc: 'Light Breeze', sea: 'Small wavelets, glassy crests' };
+    if (knots < 11) return { force: 3, desc: 'Gentle Breeze', sea: 'Large wavelets, crests break' };
+    if (knots < 17) return { force: 4, desc: 'Moderate Breeze', sea: 'Small waves, becoming longer' };
+    if (knots < 22) return { force: 5, desc: 'Fresh Breeze', sea: 'Moderate waves, many whitecaps' };
+    if (knots < 28) return { force: 6, desc: 'Strong Breeze', sea: 'Large waves, foam crests everywhere' };
+    if (knots < 34) return { force: 7, desc: 'Near Gale', sea: 'Sea heaps up, white foam streaks' };
+    if (knots < 41) return { force: 8, desc: 'Gale', sea: 'Moderately high waves, spindrift' };
+    if (knots < 48) return { force: 9, desc: 'Strong Gale', sea: 'High waves, dense foam streaks' };
+    if (knots < 56) return { force: 10, desc: 'Storm', sea: 'Very high waves, visibility reduced' };
+    if (knots < 64) return { force: 11, desc: 'Violent Storm', sea: 'Exceptionally high waves' };
+    return { force: 12, desc: 'Hurricane', sea: 'Air filled with foam and spray' };
 };

@@ -1,6 +1,6 @@
 /**
  * PushNotificationService — Manages APNs device token registration & storage
- * 
+ *
  * Handles:
  * - Requesting push notification permissions
  * - Registering for remote notifications
@@ -26,7 +26,9 @@ class PushNotificationServiceClass {
     onNotificationTap: ((data: Record<string, unknown>) => void) | null = null;
 
     // Callback for foreground push notifications (show in-app toast)
-    onForegroundPush: ((notification: { title?: string; body?: string; data?: Record<string, unknown> }) => void) | null = null;
+    onForegroundPush:
+        | ((notification: { title?: string; body?: string; data?: Record<string, unknown> }) => void)
+        | null = null;
 
     /**
      * Initialize push notifications.
@@ -41,11 +43,13 @@ class PushNotificationServiceClass {
             await PushNotifications.addListener('registration', (token) => {
                 log.info('APNs token received');
                 this.deviceToken = token.value;
-                this.tokenListeners.forEach(l => l(token.value));
+                this.tokenListeners.forEach((l) => l(token.value));
 
                 // Auto-save to Supabase if we have a user
                 if (this.userId) {
-                    this.saveTokenToSupabase().catch(() => { /* best effort */ });
+                    this.saveTokenToSupabase().catch(() => {
+                        /* best effort */
+                    });
                 }
             });
 
@@ -187,14 +191,17 @@ class PushNotificationServiceClass {
         if (!supabase || !this.userId || !this.deviceToken) return;
 
         try {
-            const { error } = await supabase.from('push_device_tokens').upsert({
-                user_id: this.userId,
-                device_token: this.deviceToken,
-                platform: 'ios',
-                updated_at: new Date().toISOString(),
-            }, {
-                onConflict: 'user_id,device_token',
-            });
+            const { error } = await supabase.from('push_device_tokens').upsert(
+                {
+                    user_id: this.userId,
+                    device_token: this.deviceToken,
+                    platform: 'ios',
+                    updated_at: new Date().toISOString(),
+                },
+                {
+                    onConflict: 'user_id,device_token',
+                },
+            );
 
             if (error) {
                 log.warn('Failed to save push token:', error.message);

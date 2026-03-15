@@ -70,10 +70,19 @@ function classifyDepth(depth_m: number, draft_m: number): 'safe' | 'caution' | '
 
 /** Navigation mark classes relevant for channel routing */
 const NAV_CLASSES = new Set([
-    'port', 'starboard', 'lateral',
-    'cardinal_n', 'cardinal_s', 'cardinal_e', 'cardinal_w', 'cardinal',
-    'safe_water', 'fairway',
-    'light_major', 'light_minor', 'light',
+    'port',
+    'starboard',
+    'lateral',
+    'cardinal_n',
+    'cardinal_s',
+    'cardinal_e',
+    'cardinal_w',
+    'cardinal',
+    'safe_water',
+    'fairway',
+    'light_major',
+    'light_minor',
+    'light',
 ]);
 
 /** Max distance to search for marks near departure/arrival */
@@ -93,7 +102,7 @@ export async function routeChannel(
     log.info(`Channel routing: ~${totalNM.toFixed(1)} NM, ${seamarks.features.length} seamarks`);
 
     // Filter to navigation marks
-    const navMarks = seamarks.features.filter(f => NAV_CLASSES.has(f.properties._class));
+    const navMarks = seamarks.features.filter((f) => NAV_CLASSES.has(f.properties._class));
     log.info(`Nav marks: ${navMarks.length}`);
 
     if (navMarks.length === 0) {
@@ -139,20 +148,22 @@ export async function routeChannel(
 
     // Nearest mark to departure
     const nearestMark = marksInRange[0];
-    log.info(`Nearest mark: "${nearestMark.mark.properties.name || nearestMark.mark.properties._class}" @ ${nearestMark.distToStart.toFixed(2)} NM`);
+    log.info(
+        `Nearest mark: "${nearestMark.mark.properties.name || nearestMark.mark.properties._class}" @ ${nearestMark.distToStart.toFixed(2)} NM`,
+    );
 
     // Channel exit: the mark closest to the gate (farthest from departure in gate direction)
-    const channelExit = marksInRange.reduce((best, m) =>
-        m.distToEnd < best.distToEnd ? m : best
+    const channelExit = marksInRange.reduce((best, m) => (m.distToEnd < best.distToEnd ? m : best));
+    log.info(
+        `Channel exit: "${channelExit.mark.properties.name || channelExit.mark.properties._class}" @ ${channelExit.distToEnd.toFixed(1)} NM from gate`,
     );
-    log.info(`Channel exit: "${channelExit.mark.properties.name || channelExit.mark.properties._class}" @ ${channelExit.distToEnd.toFixed(1)} NM from gate`);
 
     // Deduplicate co-located marks (port/starboard pairs at same spot)
     // Keep only one mark per ~90m area to avoid zigzagging across channel
     const deduped: MarkWithDist[] = [];
     for (const m of marksInRange) {
-        const tooClose = deduped.some(d =>
-            distNM(d.lat, d.lon, m.lat, m.lon) < 0.05 // 0.05 NM ≈ 90m
+        const tooClose = deduped.some(
+            (d) => distNM(d.lat, d.lon, m.lat, m.lon) < 0.05, // 0.05 NM ≈ 90m
         );
         if (!tooClose) deduped.push(m);
     }
@@ -202,14 +213,14 @@ export async function routeChannel(
     // Add gate
     chain.push({ lat: endLat, lon: endLon });
 
-    log.info(`Chain: ${chain.length} waypoints (${chain.filter(p => p.mark).length} marks)`);
+    log.info(`Chain: ${chain.length} waypoints (${chain.filter((p) => p.mark).length} marks)`);
 
     // ── Query depth at waypoints ──
-    const wpPoints = chain.map(p => ({ lat: p.lat, lon: p.lon }));
+    const wpPoints = chain.map((p) => ({ lat: p.lat, lon: p.lon }));
     let wpDepths: (number | null)[] = new Array(wpPoints.length).fill(-100);
     try {
         const results = await GebcoDepthService.queryDepths(wpPoints);
-        wpDepths = results.map(r => r.depth_m);
+        wpDepths = results.map((r) => r.depth_m);
     } catch {
         log.warn('Waypoint depth query failed — using defaults');
     }
@@ -228,8 +239,11 @@ export async function routeChannel(
         if (depth < minDepth) minDepth = depth;
 
         const wp: ChannelWaypoint = {
-            lat: point.lat, lon: point.lon,
-            depth_m: depth, safety, distanceNM: cumDist,
+            lat: point.lat,
+            lon: point.lon,
+            depth_m: depth,
+            safety,
+            distanceNM: cumDist,
         };
 
         if (point.mark) {
@@ -259,8 +273,10 @@ export async function routeChannel(
 // ── Direct Route Fallback ──────────────────────────────────────
 
 async function buildDirectRoute(
-    startLat: number, startLon: number,
-    endLat: number, endLon: number,
+    startLat: number,
+    startLon: number,
+    endLat: number,
+    endLon: number,
     draft_m: number,
     seamarks: SeamarkCollection,
 ): Promise<ChannelRouteResult> {

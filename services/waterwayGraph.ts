@@ -48,8 +48,8 @@ interface AdjEntry {
 // ── Graph loading ──────────────────────────────────────────────────
 
 let graphData: GraphData | null = null;
-let canalAdj: Map<string, AdjEntry[]> | null = null;  // canal-only adjacency
-let canalNodeIds: Set<string> | null = null;  // nodes that belong to canal edges
+let canalAdj: Map<string, AdjEntry[]> | null = null; // canal-only adjacency
+let canalNodeIds: Set<string> | null = null; // nodes that belong to canal edges
 
 async function loadGraph(): Promise<void> {
     if (graphData && canalAdj) return;
@@ -79,7 +79,8 @@ async function loadGraph(): Promise<void> {
             canalAdj.get(edge.to)!.push({ nodeId: edge.from, dist_m: edge.dist_m, name: edge.name });
         }
 
-        const ms = (performance.now() - t0).toFixed(0);    } catch (err) {
+        const ms = (performance.now() - t0).toFixed(0);
+    } catch (err) {
         console.error('[WaterwayGraph] Failed to load graph:', err);
         graphData = null;
         canalAdj = null;
@@ -90,7 +91,7 @@ async function loadGraph(): Promise<void> {
 // ── Geometry helpers ───────────────────────────────────────────────
 
 function fastDistM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const dx = (lon2 - lon1) * Math.cos(((lat1 + lat2) / 2) * Math.PI / 180) * 111320;
+    const dx = (lon2 - lon1) * Math.cos((((lat1 + lat2) / 2) * Math.PI) / 180) * 111320;
     const dy = (lat2 - lat1) * 111320;
     return Math.sqrt(dx * dx + dy * dy);
 }
@@ -98,7 +99,9 @@ function fastDistM(lat1: number, lon1: number, lat2: number, lon2: number): numb
 // ── Spatial snap (canal nodes only) ────────────────────────────────
 
 function snapToCanalNode(
-    lat: number, lon: number, maxDistM: number = 2000
+    lat: number,
+    lon: number,
+    maxDistM: number = 2000,
 ): { nodeId: string; distM: number; lat: number; lon: number } | null {
     if (!graphData || !canalNodeIds) return null;
 
@@ -149,7 +152,8 @@ function findReachableCanalNodes(startId: string): Set<string> {
 
 function findExitNode(
     reachable: Set<string>,
-    destLat: number, destLon: number,
+    destLat: number,
+    destLon: number,
 ): { nodeId: string; distM: number } | null {
     if (!graphData) return null;
 
@@ -239,8 +243,10 @@ function astarCanal(startId: string, goalId: string): string[] | null {
 // ── Public API ─────────────────────────────────────────────────────
 
 export async function graphRoute(
-    originLat: number, originLon: number,
-    destLat: number, destLon: number,
+    originLat: number,
+    originLon: number,
+    destLat: number,
+    destLon: number,
 ): Promise<{ coords: [number, number][]; distNM: number; snapDistM: number } | null> {
     await loadGraph();
     if (!graphData || !canalAdj) return null;
@@ -249,7 +255,8 @@ export async function graphRoute(
 
     // Step 1: Snap origin to nearest CANAL node
     const originSnap = snapToCanalNode(originLat, originLon, 2000);
-    if (!originSnap) {        return null;
+    if (!originSnap) {
+        return null;
     }
     // Step 2: BFS through CANAL edges only
     const reachable = findReachableCanalNodes(originSnap.nodeId);

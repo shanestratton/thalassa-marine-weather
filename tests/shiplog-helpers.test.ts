@@ -38,7 +38,7 @@ describe('calculateDistanceNM', () => {
 
     it('calculates short harbour distance (~0.5 nm)', () => {
         // ~1km apart in Moreton Bay
-        const d = calculateDistanceNM(-27.4500, 153.1000, -27.4590, 153.1000);
+        const d = calculateDistanceNM(-27.45, 153.1, -27.459, 153.1);
         expect(d).toBeGreaterThan(0.4);
         expect(d).toBeLessThan(0.7);
     });

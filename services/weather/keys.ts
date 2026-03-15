@@ -1,4 +1,3 @@
-
 import { CapacitorHttp } from '@capacitor/core';
 import { getErrorMessage } from '../../utils/logger';
 
@@ -19,7 +18,12 @@ export const getApiKey = () => {
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_STORMGLASS_API_KEY) {
         return import.meta.env.VITE_STORMGLASS_API_KEY;
     }
-    if (typeof process !== 'undefined' && process.env && process.env.VITE_STORMGLASS_API_KEY && process.env.VITE_STORMGLASS_API_KEY.length > 20) {
+    if (
+        typeof process !== 'undefined' &&
+        process.env &&
+        process.env.VITE_STORMGLASS_API_KEY &&
+        process.env.VITE_STORMGLASS_API_KEY.length > 20
+    ) {
         return process.env.VITE_STORMGLASS_API_KEY;
     }
     // No hardcoded fallback — key lives in Supabase Secrets
@@ -38,7 +42,12 @@ export const getWorldTidesKey = () => {
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_WORLDTIDES_API_KEY) {
         return import.meta.env.VITE_WORLDTIDES_API_KEY;
     }
-    if (typeof process !== 'undefined' && process.env && process.env.VITE_WORLDTIDES_API_KEY && process.env.VITE_WORLDTIDES_API_KEY.length > 10) {
+    if (
+        typeof process !== 'undefined' &&
+        process.env &&
+        process.env.VITE_WORLDTIDES_API_KEY &&
+        process.env.VITE_WORLDTIDES_API_KEY.length > 10
+    ) {
         return process.env.VITE_WORLDTIDES_API_KEY;
     }
     // No hardcoded fallback — key lives in Supabase Secrets
@@ -54,7 +63,7 @@ export const getMapboxKey = () => {
 
 export const getApiKeySuffix = () => {
     const key = getApiKey();
-    if (!key) return "PROXY";
+    if (!key) return 'PROXY';
     return `...${key.slice(-4)}`;
 };
 
@@ -71,39 +80,43 @@ export const isWorldTidesKeyPresent = () => {
 // Returns RAW string for debugging UI
 export const debugStormglassConnection = async (): Promise<string> => {
     const key = getApiKey();
-    if (!key) return "Mode: Supabase Edge Proxy (key server-side)";
+    if (!key) return 'Mode: Supabase Edge Proxy (key server-side)';
 
     const url = 'https://api.stormglass.io/v2/weather/point?lat=0&lng=0&params=windSpeed';
     try {
         const options = {
             url: url,
-            headers: { 'Authorization': key }
+            headers: { Authorization: key },
         };
         const res = await CapacitorHttp.get(options);
 
         const headers = res.headers;
-        let quotaInfo = "";
+        let quotaInfo = '';
         if (headers && headers['x-quota-remaining']) {
             quotaInfo = ` | Quota: ${headers['x-quota-remaining']}/${headers['x-quota-total']}`;
         }
 
         if (res.status === 200) return `Success: Connected (direct)${quotaInfo}`;
         if (res.status === 402 || res.status === 429) return `Error: Quota Exceeded${quotaInfo}`;
-        if (res.status === 401 || res.status === 403) return "Error: Invalid API Key";
+        if (res.status === 401 || res.status === 403) return 'Error: Invalid API Key';
         return `Error: HTTP ${res.status}`;
     } catch (e: unknown) {
         return `Error: Network Fail (${getErrorMessage(e)})`;
     }
 };
 
-export const checkStormglassStatus = async (): Promise<{ status: 'OK' | 'ERROR' | 'MISSING_KEY', message: string, code?: number }> => {
+export const checkStormglassStatus = async (): Promise<{
+    status: 'OK' | 'ERROR' | 'MISSING_KEY';
+    message: string;
+    code?: number;
+}> => {
     const key = getApiKey();
     if (!key) return { status: 'OK', message: 'Using Supabase Edge Proxy' };
 
     try {
         const options = {
             url: 'https://api.stormglass.io/v2/weather/point?lat=58.5&lng=17.8&params=windSpeed&start=2024-01-01&end=2024-01-01',
-            headers: { 'Authorization': key }
+            headers: { Authorization: key },
         };
         const res = await CapacitorHttp.get(options);
 

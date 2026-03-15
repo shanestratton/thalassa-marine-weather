@@ -98,9 +98,7 @@ export class ResumableGribFetcher {
         }
 
         if (!response.ok && response.status !== 206) {
-            throw new Error(
-                `[ResumableGribFetcher] HTTP ${response.status} ${response.statusText}`,
-            );
+            throw new Error(`[ResumableGribFetcher] HTTP ${response.status} ${response.statusText}`);
         }
 
         const body = response.body;
@@ -111,7 +109,7 @@ export class ResumableGribFetcher {
         const reader = body.getReader();
 
         try {
-            for (; ;) {
+            for (;;) {
                 const { done, value } = await reader.read();
                 if (done) break;
 
@@ -154,7 +152,7 @@ export class ResumableGribFetcher {
     }
 
     private sleep(ms: number): Promise<void> {
-        return new Promise(resolve => setTimeout(resolve, ms));
+        return new Promise((resolve) => setTimeout(resolve, ms));
     }
 }
 
@@ -173,10 +171,7 @@ export class ResumableGribFetcher {
  * );
  * ```
  */
-export async function fetchGribResumable(
-    url: string,
-    options?: ResumableGribFetcherOptions,
-): Promise<ArrayBuffer> {
+export async function fetchGribResumable(url: string, options?: ResumableGribFetcherOptions): Promise<ArrayBuffer> {
     const fetcher = new ResumableGribFetcher(url, options);
     return fetcher.fetch();
 }

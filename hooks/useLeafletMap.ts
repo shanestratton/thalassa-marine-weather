@@ -9,7 +9,7 @@ export const useLeafletMap = (
     enableZoom: boolean,
     mapboxToken?: string,
     showZoomControl: boolean = true,
-    enableWrapping: boolean = false
+    enableWrapping: boolean = false,
 ) => {
     const mapInstance = useRef<L.Map | null>(null);
     const [mapReady, setMapReady] = useState(false);
@@ -41,7 +41,12 @@ export const useLeafletMap = (
 
             maxBoundsViscosity: 1.0,
             worldCopyJump: enableWrapping, // Loop the world markers
-            maxBounds: enableWrapping ? undefined : [[-90, -180], [90, 180]] // Constrain ONLY if wrapping disabled
+            maxBounds: enableWrapping
+                ? undefined
+                : [
+                      [-90, -180],
+                      [90, 180],
+                  ], // Constrain ONLY if wrapping disabled
         });
 
         // Priority: Prop > Env Var
@@ -49,28 +54,41 @@ export const useLeafletMap = (
 
         if (effectiveToken && effectiveToken.length > 10) {
             // Dark nautical chart style with depth contours and maritime labels
-            L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/navigation-night-v1/tiles/{z}/{x}/{y}?access_token=${effectiveToken}`, {
-                tileSize: 512,
-                zoomOffset: -1,
-                attribution: '© Mapbox',
-                maxZoom: 20,
-                noWrap: !enableWrapping,
-                bounds: enableWrapping ? undefined : [[-90, -180], [90, 180]]
-            }).addTo(map);
+            L.tileLayer(
+                `https://api.mapbox.com/styles/v1/mapbox/navigation-night-v1/tiles/{z}/{x}/{y}?access_token=${effectiveToken}`,
+                {
+                    tileSize: 512,
+                    zoomOffset: -1,
+                    attribution: '© Mapbox',
+                    maxZoom: 20,
+                    noWrap: !enableWrapping,
+                    bounds: enableWrapping
+                        ? undefined
+                        : [
+                              [-90, -180],
+                              [90, 180],
+                          ],
+                },
+            ).addTo(map);
         } else {
             // Fallback to dark CartoDB for consistent dark theme
             L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
                 maxZoom: 20,
                 attribution: '© OpenStreetMap, © CartoDB',
                 noWrap: !enableWrapping,
-                bounds: enableWrapping ? undefined : [[-90, -180], [90, 180]]
+                bounds: enableWrapping
+                    ? undefined
+                    : [
+                          [-90, -180],
+                          [90, 180],
+                      ],
             }).addTo(map);
         }
 
         // OpenSeaMap Overlay (always on top)
         L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
             maxZoom: 18,
-            attribution: 'Map data: © OpenSeaMap contributors'
+            attribution: 'Map data: © OpenSeaMap contributors',
         }).addTo(map);
 
         map.setView([lat, lon], 10);

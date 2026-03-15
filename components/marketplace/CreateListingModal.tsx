@@ -55,36 +55,43 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     // ── Keyboard height detection — same pattern as DiaryPage/AuthModal ──
     const [keyboardHeight, setKeyboardHeight] = useState(0);
     useEffect(() => {
-        if (!isOpen) { setKeyboardHeight(0); return; }
+        if (!isOpen) {
+            setKeyboardHeight(0);
+            return;
+        }
         let cleanup: (() => void) | undefined;
 
         if (Capacitor.isNativePlatform()) {
-            import('@capacitor/keyboard').then(({ Keyboard }) => {
-                const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
-                    setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
-                    // Scroll focused input into view WITHIN the scroll container only
-                    setTimeout(() => {
-                        const focused = document.activeElement as HTMLElement;
-                        const container = scrollRef.current;
-                        if (!focused || !container) return;
-                        if (focused.tagName !== 'INPUT' && focused.tagName !== 'TEXTAREA') return;
-                        // Calculate position of focused element relative to scroll container
-                        const focusRect = focused.getBoundingClientRect();
-                        const containerRect = container.getBoundingClientRect();
-                        const offsetInContainer = focusRect.top - containerRect.top + container.scrollTop;
-                        // Scroll so the input sits roughly 1/3 from the top of the container
-                        const targetScroll = offsetInContainer - containerRect.height * 0.3;
-                        container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
-                    }, 50);
+            import('@capacitor/keyboard')
+                .then(({ Keyboard }) => {
+                    const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
+                        setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
+                        // Scroll focused input into view WITHIN the scroll container only
+                        setTimeout(() => {
+                            const focused = document.activeElement as HTMLElement;
+                            const container = scrollRef.current;
+                            if (!focused || !container) return;
+                            if (focused.tagName !== 'INPUT' && focused.tagName !== 'TEXTAREA') return;
+                            // Calculate position of focused element relative to scroll container
+                            const focusRect = focused.getBoundingClientRect();
+                            const containerRect = container.getBoundingClientRect();
+                            const offsetInContainer = focusRect.top - containerRect.top + container.scrollTop;
+                            // Scroll so the input sits roughly 1/3 from the top of the container
+                            const targetScroll = offsetInContainer - containerRect.height * 0.3;
+                            container.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+                        }, 50);
+                    });
+                    const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                        setKeyboardHeight(0);
+                    });
+                    cleanup = () => {
+                        showHandle.then((h) => h.remove());
+                        hideHandle.then((h) => h.remove());
+                    };
+                })
+                .catch(() => {
+                    /* Keyboard plugin not available */
                 });
-                const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                    setKeyboardHeight(0);
-                });
-                cleanup = () => {
-                    showHandle.then(h => h.remove());
-                    hideHandle.then(h => h.remove());
-                };
-            }).catch(() => { /* Keyboard plugin not available */ });
         } else {
             const vp = window.visualViewport;
             if (vp) {
@@ -97,7 +104,10 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
             }
         }
 
-        return () => { cleanup?.(); setKeyboardHeight(0); };
+        return () => {
+            cleanup?.();
+            setKeyboardHeight(0);
+        };
     }, [isOpen]);
 
     // ── Boat-specific state ──
@@ -131,36 +141,59 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
             setGpsLon(pos.longitude);
             autoFilledLocRef.current = { lat: pos.latitude, lon: pos.longitude };
             // Reverse-geocode to auto-fill Country / State / Suburb
-            fetch(`https://nominatim.openstreetmap.org/reverse?lat=${pos.latitude}&lon=${pos.longitude}&format=json&zoom=10`)
-                .then(r => r.json())
-                .then(data => {
+            fetch(
+                `https://nominatim.openstreetmap.org/reverse?lat=${pos.latitude}&lon=${pos.longitude}&format=json&zoom=10`,
+            )
+                .then((r) => r.json())
+                .then((data) => {
                     if (data?.address) {
                         setLocCountry(data.address.country || '');
                         setLocState(data.address.state || data.address.region || '');
-                        setLocSuburb(data.address.suburb || data.address.town || data.address.city || data.address.village || '');
+                        setLocSuburb(
+                            data.address.suburb || data.address.town || data.address.city || data.address.village || '',
+                        );
                     }
                 })
-                .catch(() => { /* best effort */ });
+                .catch(() => {
+                    /* best effort */
+                });
         }
     }, [isOpen]);
 
     /** Check if user-edited location is suspiciously far from GPS */
     const checkLocationDistance = useCallback(async (country: string, state: string, suburb: string) => {
-        if (!autoFilledLocRef.current) { setLocationWarning(null); return; }
+        if (!autoFilledLocRef.current) {
+            setLocationWarning(null);
+            return;
+        }
         const query = [suburb, state, country].filter(Boolean).join(', ');
-        if (!query) { setLocationWarning(null); return; }
+        if (!query) {
+            setLocationWarning(null);
+            return;
+        }
         try {
-            const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`);
+            const r = await fetch(
+                `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
+            );
             const results = await r.json();
             if (results?.[0]) {
-                const dist = haversineNm(autoFilledLocRef.current.lat, autoFilledLocRef.current.lon, parseFloat(results[0].lat), parseFloat(results[0].lon));
+                const dist = haversineNm(
+                    autoFilledLocRef.current.lat,
+                    autoFilledLocRef.current.lon,
+                    parseFloat(results[0].lat),
+                    parseFloat(results[0].lon),
+                );
                 if (dist > 100) {
-                    setLocationWarning(`⚠️ This location is ~${Math.round(dist)}nm from your current GPS position. Buyers may see this as suspicious.`);
+                    setLocationWarning(
+                        `⚠️ This location is ~${Math.round(dist)}nm from your current GPS position. Buyers may see this as suspicious.`,
+                    );
                 } else {
                     setLocationWarning(null);
                 }
             }
-        } catch { setLocationWarning(null); }
+        } catch {
+            setLocationWarning(null);
+        }
     }, []);
 
     const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -184,26 +217,60 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     };
 
     const reset = () => {
-        setTitle(''); setDescription(''); setPrice(''); setCurrency('AUD');
-        setCategory(null); setCondition(null);
-        setLocCountry(''); setLocState(''); setLocSuburb('');
-        setLocationWarning(null); autoFilledLocRef.current = null;
-        setImages([]); setImagePreviews([]); setStep('details');
-        setError(null); setSubmitting(false);
+        setTitle('');
+        setDescription('');
+        setPrice('');
+        setCurrency('AUD');
+        setCategory(null);
+        setCondition(null);
+        setLocCountry('');
+        setLocState('');
+        setLocSuburb('');
+        setLocationWarning(null);
+        autoFilledLocRef.current = null;
+        setImages([]);
+        setImagePreviews([]);
+        setStep('details');
+        setError(null);
+        setSubmitting(false);
         // Boat fields
-        setBoatMake(''); setBoatModel(''); setBoatYear(''); setBoatLoa('');
-        setBoatBeam(''); setBoatDraft(''); setBoatHull(null);
-        setBoatEngineType(null); setBoatEngineMake(''); setBoatHp('');
-        setBoatHours(''); setBoatFuel(null); setBoatBerths('');
-        setBoatCabins(''); setBoatHeads(''); setBoatRego('');
-        setBoatSurveyed(false); setBoatFeatures([]);
+        setBoatMake('');
+        setBoatModel('');
+        setBoatYear('');
+        setBoatLoa('');
+        setBoatBeam('');
+        setBoatDraft('');
+        setBoatHull(null);
+        setBoatEngineType(null);
+        setBoatEngineMake('');
+        setBoatHp('');
+        setBoatHours('');
+        setBoatFuel(null);
+        setBoatBerths('');
+        setBoatCabins('');
+        setBoatHeads('');
+        setBoatRego('');
+        setBoatSurveyed(false);
+        setBoatFeatures([]);
     };
 
     const handleSubmit = async () => {
-        if (!title.trim()) { setError('Title is required'); return; }
-        if (!price || parseFloat(price) <= 0) { setError('Valid price is required'); return; }
-        if (!category) { setError('Select a category'); return; }
-        if (!condition) { setError('Select condition'); return; }
+        if (!title.trim()) {
+            setError('Title is required');
+            return;
+        }
+        if (!price || parseFloat(price) <= 0) {
+            setError('Valid price is required');
+            return;
+        }
+        if (!category) {
+            setError('Select a category');
+            return;
+        }
+        if (!condition) {
+            setError('Select condition');
+            return;
+        }
 
         setSubmitting(true);
         setError(null);
@@ -218,7 +285,8 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
             images: images.length > 0 ? images : undefined,
             latitude: gpsLat || undefined,
             longitude: gpsLon || undefined,
-            location_name: [locSuburb.trim(), locState.trim(), locCountry.trim()].filter(Boolean).join(', ') || undefined,
+            location_name:
+                [locSuburb.trim(), locState.trim(), locCountry.trim()].filter(Boolean).join(', ') || undefined,
         };
 
         // Attach boat details if Boats category
@@ -270,15 +338,26 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
             <div
                 className="w-full max-w-lg bg-slate-950 border-t border-white/10 rounded-3xl shadow-2xl flex flex-col"
                 style={{
-                    maxHeight: 'calc(100dvh - 5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 8px)',
+                    maxHeight:
+                        'calc(100dvh - 5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 8px)',
                     marginBottom: 'calc(4rem + env(safe-area-inset-bottom, 0px) + 8px)',
                 }}
-                onClick={e => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
             >
                 {/* Header — sticky at top of modal */}
                 <div className="shrink-0 flex items-center justify-between px-5 py-4 bg-slate-900/95 border-b border-white/[0.06] rounded-t-3xl">
-                    <button onClick={() => { reset(); onClose(); }} className="text-xs text-white/60 font-medium">Cancel</button>
-                    <h2 className="text-sm font-bold text-white">{isBoat ? 'List a Boat for Sale' : 'List Gear for Sale'}</h2>
+                    <button
+                        onClick={() => {
+                            reset();
+                            onClose();
+                        }}
+                        className="text-xs text-white/60 font-medium"
+                    >
+                        Cancel
+                    </button>
+                    <h2 className="text-sm font-bold text-white">
+                        {isBoat ? 'List a Boat for Sale' : 'List Gear for Sale'}
+                    </h2>
                     <button
                         onClick={handleSubmit}
                         disabled={submitting || !title.trim() || !price || !category || !condition}
@@ -288,7 +367,11 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                     </button>
                 </div>
 
-                <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-5" style={{ paddingBottom: scrollPadBottom, WebkitOverflowScrolling: 'touch' as any }}>
+                <div
+                    ref={scrollRef}
+                    className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-5"
+                    style={{ paddingBottom: scrollPadBottom, WebkitOverflowScrolling: 'touch' as any }}
+                >
                     {/* Error */}
                     {error && (
                         <div className="px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400">
@@ -298,15 +381,19 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
 
                     {/* Category */}
                     <div>
-                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">Category</label>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">
+                            Category
+                        </label>
                         <div className="flex flex-wrap gap-2">
-                            {LISTING_CATEGORIES.map(cat => (
+                            {LISTING_CATEGORIES.map((cat) => (
                                 <button
                                     key={cat}
                                     onClick={() => setCategory(cat)}
-                                    className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${category === cat
-                                        ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
-                                        : 'bg-white/[0.04] border-white/10 text-white/60 hover:border-white/20'}`}
+                                    className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
+                                        category === cat
+                                            ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
+                                            : 'bg-white/[0.04] border-white/10 text-white/60 hover:border-white/20'
+                                    }`}
                                 >
                                     {CATEGORY_ICONS[cat]} {cat}
                                 </button>
@@ -316,11 +403,12 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
 
                     {/* Title */}
                     <div>
-                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">{isBoat ? 'Listing Title' : 'Title'}</label>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                            {isBoat ? 'Listing Title' : 'Title'}
+                        </label>
                         <input
                             value={title}
-                            onChange={e => setTitle(e.target.value)}
-
+                            onChange={(e) => setTitle(e.target.value)}
                             placeholder={isBoat ? 'e.g. 2019 Beneteau Oceanis 40.1' : 'e.g. Raymarine Axiom 12 MFD'}
                             maxLength={100}
                             className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
@@ -329,11 +417,12 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
 
                     {/* Description */}
                     <div>
-                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Description</label>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                            Description
+                        </label>
                         <textarea
                             value={description}
-                            onChange={e => setDescription(e.target.value)}
-
+                            onChange={(e) => setDescription(e.target.value)}
                             placeholder="Describe the item, any defects, model year, etc."
                             rows={3}
                             maxLength={1000}
@@ -347,94 +436,173 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             {/* Make & Model */}
                             <div className="flex gap-2">
                                 <div className="flex-1">
-                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Make</label>
-                                    <input value={boatMake} onChange={e => setBoatMake(e.target.value)} placeholder="Beneteau" maxLength={60}
-                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                                        Make
+                                    </label>
+                                    <input
+                                        value={boatMake}
+                                        onChange={(e) => setBoatMake(e.target.value)}
+                                        placeholder="Beneteau"
+                                        maxLength={60}
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                                    />
                                 </div>
                                 <div className="flex-1">
-                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Model</label>
-                                    <input value={boatModel} onChange={e => setBoatModel(e.target.value)} placeholder="Oceanis 40.1" maxLength={60}
-                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                                        Model
+                                    </label>
+                                    <input
+                                        value={boatModel}
+                                        onChange={(e) => setBoatModel(e.target.value)}
+                                        placeholder="Oceanis 40.1"
+                                        maxLength={60}
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                                    />
                                 </div>
                             </div>
 
                             {/* Year & LOA */}
                             <div className="flex gap-2">
                                 <div className="flex-1">
-                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Year Built</label>
-                                    <input value={boatYear} onChange={e => setBoatYear(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="2019" inputMode="numeric"
-                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                                        Year Built
+                                    </label>
+                                    <input
+                                        value={boatYear}
+                                        onChange={(e) => setBoatYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                        placeholder="2019"
+                                        inputMode="numeric"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                                    />
                                 </div>
                                 <div className="flex-1">
-                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Length (ft)</label>
-                                    <input value={boatLoa} onChange={e => setBoatLoa(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="40" inputMode="decimal"
-                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                                        Length (ft)
+                                    </label>
+                                    <input
+                                        value={boatLoa}
+                                        onChange={(e) => setBoatLoa(e.target.value.replace(/[^0-9.]/g, ''))}
+                                        placeholder="40"
+                                        inputMode="decimal"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                                    />
                                 </div>
                             </div>
 
                             {/* Beam & Draft */}
                             <div className="flex gap-2">
                                 <div className="flex-1">
-                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Beam (ft)</label>
-                                    <input value={boatBeam} onChange={e => setBoatBeam(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="13" inputMode="decimal"
-                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                                        Beam (ft)
+                                    </label>
+                                    <input
+                                        value={boatBeam}
+                                        onChange={(e) => setBoatBeam(e.target.value.replace(/[^0-9.]/g, ''))}
+                                        placeholder="13"
+                                        inputMode="decimal"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                                    />
                                 </div>
                                 <div className="flex-1">
-                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Draft (ft)</label>
-                                    <input value={boatDraft} onChange={e => setBoatDraft(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="6.5" inputMode="decimal"
-                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                                        Draft (ft)
+                                    </label>
+                                    <input
+                                        value={boatDraft}
+                                        onChange={(e) => setBoatDraft(e.target.value.replace(/[^0-9.]/g, ''))}
+                                        placeholder="6.5"
+                                        inputMode="decimal"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                                    />
                                 </div>
                             </div>
 
                             {/* Hull Material */}
                             <div>
-                                <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">Hull Material</label>
+                                <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">
+                                    Hull Material
+                                </label>
                                 <div className="flex flex-wrap gap-1.5">
-                                    {HULL_MATERIALS.map(h => (
-                                        <button key={h} onClick={() => setBoatHull(h)}
-                                            className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all ${boatHull === h
-                                                ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
-                                                : 'bg-white/[0.04] border-white/10 text-white/60'}`}
-                                        >{h}</button>
+                                    {HULL_MATERIALS.map((h) => (
+                                        <button
+                                            key={h}
+                                            onClick={() => setBoatHull(h)}
+                                            className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all ${
+                                                boatHull === h
+                                                    ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
+                                                    : 'bg-white/[0.04] border-white/10 text-white/60'
+                                            }`}
+                                        >
+                                            {h}
+                                        </button>
                                     ))}
                                 </div>
                             </div>
 
                             {/* Engine section */}
                             <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.06] space-y-3">
-                                <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider block">Engine</label>
+                                <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider block">
+                                    Engine
+                                </label>
                                 <div className="flex flex-wrap gap-1.5">
-                                    {ENGINE_TYPES.map(et => (
-                                        <button key={et} onClick={() => setBoatEngineType(et)}
-                                            className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all ${boatEngineType === et
-                                                ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
-                                                : 'bg-white/[0.04] border-white/10 text-white/60'}`}
-                                        >{et}</button>
+                                    {ENGINE_TYPES.map((et) => (
+                                        <button
+                                            key={et}
+                                            onClick={() => setBoatEngineType(et)}
+                                            className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all ${
+                                                boatEngineType === et
+                                                    ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
+                                                    : 'bg-white/[0.04] border-white/10 text-white/60'
+                                            }`}
+                                        >
+                                            {et}
+                                        </button>
                                     ))}
                                 </div>
                                 <div className="flex gap-2">
                                     <div className="flex-1">
-                                        <input value={boatEngineMake} onChange={e => setBoatEngineMake(e.target.value)} placeholder="Engine make (e.g. Yanmar)" maxLength={40}
-                                            className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                        <input
+                                            value={boatEngineMake}
+                                            onChange={(e) => setBoatEngineMake(e.target.value)}
+                                            placeholder="Engine make (e.g. Yanmar)"
+                                            maxLength={40}
+                                            className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                                        />
                                     </div>
                                     <div className="w-20">
-                                        <input value={boatHp} onChange={e => setBoatHp(e.target.value.replace(/\D/g, ''))} placeholder="HP" inputMode="numeric"
-                                            className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                        <input
+                                            value={boatHp}
+                                            onChange={(e) => setBoatHp(e.target.value.replace(/\D/g, ''))}
+                                            placeholder="HP"
+                                            inputMode="numeric"
+                                            className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                                        />
                                     </div>
                                 </div>
                                 <div className="flex gap-2">
                                     <div className="flex-1">
-                                        <input value={boatHours} onChange={e => setBoatHours(e.target.value.replace(/\D/g, ''))} placeholder="Engine hours" inputMode="numeric"
-                                            className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                        <input
+                                            value={boatHours}
+                                            onChange={(e) => setBoatHours(e.target.value.replace(/\D/g, ''))}
+                                            placeholder="Engine hours"
+                                            inputMode="numeric"
+                                            className="w-full px-3 py-2 rounded-xl bg-white/[0.06] border border-white/10 text-xs text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                                        />
                                     </div>
                                     <div className="flex-1">
                                         <div className="flex flex-wrap gap-1">
-                                            {FUEL_TYPES.map(f => (
-                                                <button key={f} onClick={() => setBoatFuel(f)}
-                                                    className={`px-2 py-1 rounded-lg border text-[10px] font-medium transition-all ${boatFuel === f
-                                                        ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
-                                                        : 'bg-white/[0.04] border-white/10 text-white/50'}`}
-                                                >{f}</button>
+                                            {FUEL_TYPES.map((f) => (
+                                                <button
+                                                    key={f}
+                                                    onClick={() => setBoatFuel(f)}
+                                                    className={`px-2 py-1 rounded-lg border text-[10px] font-medium transition-all ${
+                                                        boatFuel === f
+                                                            ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
+                                                            : 'bg-white/[0.04] border-white/10 text-white/50'
+                                                    }`}
+                                                >
+                                                    {f}
+                                                </button>
                                             ))}
                                         </div>
                                     </div>
@@ -444,34 +612,64 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             {/* Accommodation */}
                             <div className="flex gap-2">
                                 <div className="flex-1">
-                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Berths</label>
-                                    <input value={boatBerths} onChange={e => setBoatBerths(e.target.value.replace(/\D/g, ''))} placeholder="6" inputMode="numeric"
-                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                                        Berths
+                                    </label>
+                                    <input
+                                        value={boatBerths}
+                                        onChange={(e) => setBoatBerths(e.target.value.replace(/\D/g, ''))}
+                                        placeholder="6"
+                                        inputMode="numeric"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                                    />
                                 </div>
                                 <div className="flex-1">
-                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Cabins</label>
-                                    <input value={boatCabins} onChange={e => setBoatCabins(e.target.value.replace(/\D/g, ''))} placeholder="3" inputMode="numeric"
-                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                                        Cabins
+                                    </label>
+                                    <input
+                                        value={boatCabins}
+                                        onChange={(e) => setBoatCabins(e.target.value.replace(/\D/g, ''))}
+                                        placeholder="3"
+                                        inputMode="numeric"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                                    />
                                 </div>
                                 <div className="flex-1">
-                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Heads</label>
-                                    <input value={boatHeads} onChange={e => setBoatHeads(e.target.value.replace(/\D/g, ''))} placeholder="2" inputMode="numeric"
-                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                                        Heads
+                                    </label>
+                                    <input
+                                        value={boatHeads}
+                                        onChange={(e) => setBoatHeads(e.target.value.replace(/\D/g, ''))}
+                                        placeholder="2"
+                                        inputMode="numeric"
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                                    />
                                 </div>
                             </div>
 
                             {/* Rego & Survey */}
                             <div className="flex gap-2 items-end">
                                 <div className="flex-1">
-                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Rego Number</label>
-                                    <input value={boatRego} onChange={e => setBoatRego(e.target.value)} placeholder="Optional" maxLength={30}
-                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors" />
+                                    <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                                        Rego Number
+                                    </label>
+                                    <input
+                                        value={boatRego}
+                                        onChange={(e) => setBoatRego(e.target.value)}
+                                        placeholder="Optional"
+                                        maxLength={30}
+                                        className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
+                                    />
                                 </div>
                                 <button
                                     onClick={() => setBoatSurveyed(!boatSurveyed)}
-                                    className={`px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${boatSurveyed
-                                        ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
-                                        : 'bg-white/[0.04] border-white/10 text-white/50'}`}
+                                    className={`px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${
+                                        boatSurveyed
+                                            ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+                                            : 'bg-white/[0.04] border-white/10 text-white/50'
+                                    }`}
                                 >
                                     {boatSurveyed ? '✅ Surveyed' : '📋 Surveyed?'}
                                 </button>
@@ -479,18 +677,28 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
 
                             {/* Features (tag chips) */}
                             <div>
-                                <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">Features & Equipment</label>
+                                <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">
+                                    Features & Equipment
+                                </label>
                                 <div className="flex flex-wrap gap-1.5">
-                                    {BOAT_FEATURES.filter((v, i, a) => a.indexOf(v) === i).map(feat => {
+                                    {BOAT_FEATURES.filter((v, i, a) => a.indexOf(v) === i).map((feat) => {
                                         const selected = boatFeatures.includes(feat);
                                         return (
-                                            <button key={feat}
-                                                onClick={() => setBoatFeatures(prev => selected ? prev.filter(f => f !== feat) : [...prev, feat])}
-                                                className={`px-2 py-1 rounded-lg border text-[10px] font-medium transition-all ${selected
-                                                    ? 'bg-sky-500/15 border-sky-500/30 text-sky-300'
-                                                    : 'bg-white/[0.03] border-white/[0.06] text-white/40'}`}
+                                            <button
+                                                key={feat}
+                                                onClick={() =>
+                                                    setBoatFeatures((prev) =>
+                                                        selected ? prev.filter((f) => f !== feat) : [...prev, feat],
+                                                    )
+                                                }
+                                                className={`px-2 py-1 rounded-lg border text-[10px] font-medium transition-all ${
+                                                    selected
+                                                        ? 'bg-sky-500/15 border-sky-500/30 text-sky-300'
+                                                        : 'bg-white/[0.03] border-white/[0.06] text-white/40'
+                                                }`}
                                             >
-                                                {selected ? '✓ ' : ''}{feat}
+                                                {selected ? '✓ ' : ''}
+                                                {feat}
                                             </button>
                                         );
                                     })}
@@ -501,15 +709,19 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
 
                     {/* Condition */}
                     <div>
-                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">Condition</label>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">
+                            Condition
+                        </label>
                         <div className="flex flex-wrap gap-2">
-                            {LISTING_CONDITIONS.map(cond => (
+                            {LISTING_CONDITIONS.map((cond) => (
                                 <button
                                     key={cond}
                                     onClick={() => setCondition(cond)}
-                                    className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${condition === cond
-                                        ? `${getConditionColor(cond)}`
-                                        : 'bg-white/[0.04] border-white/10 text-white/60 hover:border-white/20'}`}
+                                    className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
+                                        condition === cond
+                                            ? `${getConditionColor(cond)}`
+                                            : 'bg-white/[0.04] border-white/10 text-white/60 hover:border-white/20'
+                                    }`}
                                 >
                                     {cond}
                                 </button>
@@ -520,24 +732,31 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                     {/* Price + Currency */}
                     <div className="flex gap-3">
                         <div className="flex-1">
-                            <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Price</label>
+                            <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                                Price
+                            </label>
                             <input
                                 value={price}
-                                onChange={e => setPrice(e.target.value.replace(/[^0-9.]/g, ''))}
-    
+                                onChange={(e) => setPrice(e.target.value.replace(/[^0-9.]/g, ''))}
                                 placeholder="0.00"
                                 inputMode="decimal"
                                 className="w-full px-3.5 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-emerald-400 font-mono placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                             />
                         </div>
                         <div className="w-24">
-                            <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">Currency</label>
+                            <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5 block">
+                                Currency
+                            </label>
                             <select
                                 value={currency}
-                                onChange={e => setCurrency(e.target.value)}
+                                onChange={(e) => setCurrency(e.target.value)}
                                 className="w-full px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white outline-none"
                             >
-                                {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                                {CURRENCIES.map((c) => (
+                                    <option key={c} value={c}>
+                                        {c}
+                                    </option>
+                                ))}
                             </select>
                         </div>
                     </div>
@@ -550,22 +769,28 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         <div className="flex gap-2 flex-wrap">
                             <input
                                 value={locCountry}
-                                onChange={e => { setLocCountry(e.target.value); checkLocationDistance(e.target.value, locState, locSuburb); }}
-    
+                                onChange={(e) => {
+                                    setLocCountry(e.target.value);
+                                    checkLocationDistance(e.target.value, locState, locSuburb);
+                                }}
                                 placeholder="Country"
                                 className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                             />
                             <input
                                 value={locState}
-                                onChange={e => { setLocState(e.target.value); checkLocationDistance(locCountry, e.target.value, locSuburb); }}
-    
+                                onChange={(e) => {
+                                    setLocState(e.target.value);
+                                    checkLocationDistance(locCountry, e.target.value, locSuburb);
+                                }}
                                 placeholder="State"
                                 className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                             />
                             <input
                                 value={locSuburb}
-                                onChange={e => { setLocSuburb(e.target.value); checkLocationDistance(locCountry, locState, e.target.value); }}
-    
+                                onChange={(e) => {
+                                    setLocSuburb(e.target.value);
+                                    checkLocationDistance(locCountry, locState, e.target.value);
+                                }}
                                 placeholder="Suburb"
                                 className="flex-1 px-3 py-2.5 rounded-xl bg-white/[0.06] border border-white/10 text-sm text-white placeholder-white/30 outline-none focus:border-sky-500/40 transition-colors"
                             />
@@ -577,19 +802,24 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         )}
                     </div>
 
-
-
                     {/* Photos */}
                     <div>
-                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">Photos (up to {MAX_PHOTOS})</label>
+                        <label className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-2 block">
+                            Photos (up to {MAX_PHOTOS})
+                        </label>
                         <div className="flex gap-2 flex-wrap">
                             {imagePreviews.map((url, i) => (
-                                <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden border border-white/10">
+                                <div
+                                    key={i}
+                                    className="relative w-20 h-20 rounded-xl overflow-hidden border border-white/10"
+                                >
                                     <img src={url} className="w-full h-full object-cover" alt="" />
                                     <button
                                         onClick={() => removeImage(i)}
                                         className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded-full bg-black/70 text-white text-[11px]"
-                                    >✕</button>
+                                    >
+                                        ✕
+                                    </button>
                                 </div>
                             ))}
                             {images.length < MAX_PHOTOS && (
@@ -602,7 +832,14 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 </button>
                             )}
                         </div>
-                        <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleImageSelect} />
+                        <input
+                            ref={fileRef}
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={handleImageSelect}
+                        />
                     </div>
 
                     {/* Bottom spacer inside scroll area */}
@@ -614,9 +851,11 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                     <button
                         onClick={handleSubmit}
                         disabled={submitting || !title.trim() || !price || !category || !condition}
-                        className={`w-full py-3.5 rounded-2xl font-bold text-sm uppercase tracking-wider transition-all active:scale-[0.98] ${submitting || !title.trim() || !price || !category || !condition
-                            ? 'bg-white/[0.04] text-white/60 border border-white/[0.06]'
-                            : 'bg-gradient-to-r from-sky-500 to-sky-500 text-white shadow-lg shadow-sky-500/20'}`}
+                        className={`w-full py-3.5 rounded-2xl font-bold text-sm uppercase tracking-wider transition-all active:scale-[0.98] ${
+                            submitting || !title.trim() || !price || !category || !condition
+                                ? 'bg-white/[0.04] text-white/60 border border-white/[0.06]'
+                                : 'bg-gradient-to-r from-sky-500 to-sky-500 text-white shadow-lg shadow-sky-500/20'
+                        }`}
                     >
                         {submitting ? '⏳ Creating Listing...' : '🏪 Post to Marketplace'}
                     </button>

@@ -1,6 +1,6 @@
 /**
  * AnchorWatchService — Core anchor watch engine (Premium)
- * 
+ *
  * Handles:
  * - Anchor position management
  * - Swing radius calculation from rode length + depth + scope
@@ -9,7 +9,7 @@
  * - Position history for track visualization
  * - Alarm state management with haptic + audio feedback
  * - Screen wake-lock via @capacitor-community/keep-awake
- * 
+ *
  * Architecture:
  * - Uses @transistorsoft/capacitor-background-geolocation for bulletproof
  *   background GPS and native hardware geofencing
@@ -84,11 +84,11 @@ export type AnchorWatchListener = (snapshot: AnchorWatchSnapshot) => void;
 // ------- CONSTANTS -------
 
 const TRANSISTOR_LICENSE_KEY = import.meta.env.VITE_TRANSISTOR_LICENSE_KEY || '';
-const GPS_INTERVAL_MS = 3000;       // High-frequency GPS when watching
-const HISTORY_MAX_POINTS = 500;     // Max position trail points
-const JITTER_WINDOW = 5;            // Default moving average window (adaptive via GpsPrecision)
-const ALARM_CONFIRM_COUNT = 3;      // # consecutive readings outside circle before alarm
-const MIN_GPS_ACCURACY = 50;        // Ignore readings worse than 50m accuracy
+const GPS_INTERVAL_MS = 3000; // High-frequency GPS when watching
+const HISTORY_MAX_POINTS = 500; // Max position trail points
+const JITTER_WINDOW = 5; // Default moving average window (adaptive via GpsPrecision)
+const ALARM_CONFIRM_COUNT = 3; // # consecutive readings outside circle before alarm
+const MIN_GPS_ACCURACY = 50; // Ignore readings worse than 50m accuracy
 const GEOFENCE_ID = 'anchor-swing-radius';
 const ANCHOR_WATCH_KEY = 'thalassa_anchor_watch_state';
 
@@ -104,37 +104,28 @@ interface PersistedWatchState {
 // ------- HELPERS -------
 
 /** Haversine distance in meters between two lat/lng points */
-function haversineDistance(
-    lat1: number, lon1: number,
-    lat2: number, lon2: number
-): number {
+function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371000; // Earth radius in meters
-    const φ1 = lat1 * Math.PI / 180;
-    const φ2 = lat2 * Math.PI / 180;
-    const Δφ = (lat2 - lat1) * Math.PI / 180;
-    const Δλ = (lon2 - lon1) * Math.PI / 180;
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
 
-    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-        Math.cos(φ1) * Math.cos(φ2) *
-        Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+    const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
 
     return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 /** Bearing from point 1 to point 2 in degrees (0-360) */
-function bearing(
-    lat1: number, lon1: number,
-    lat2: number, lon2: number
-): number {
-    const φ1 = lat1 * Math.PI / 180;
-    const φ2 = lat2 * Math.PI / 180;
-    const Δλ = (lon2 - lon1) * Math.PI / 180;
+function bearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const Δλ = ((lon2 - lon1) * Math.PI) / 180;
 
     const y = Math.sin(Δλ) * Math.cos(φ2);
-    const x = Math.cos(φ1) * Math.sin(φ2) -
-        Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
 
-    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
 }
 
 /**
@@ -158,7 +149,7 @@ function calculateSwingRadius(config: AnchorWatchConfig): number {
         horizontalDistance = Math.sqrt(rodeLength * rodeLength - waterDepth * waterDepth) * 0.95;
     } else {
         // Mixed: between chain and rope
-        horizontalDistance = Math.sqrt(rodeLength * rodeLength - waterDepth * waterDepth) * 0.90;
+        horizontalDistance = Math.sqrt(rodeLength * rodeLength - waterDepth * waterDepth) * 0.9;
     }
 
     return horizontalDistance + safetyMargin;
@@ -279,7 +270,11 @@ class AnchorWatchServiceClass {
             this.persistWatchState();
 
             // Keep screen awake during anchor watch
-            try { await KeepAwake.keepAwake(); } catch (e) { console.warn('[AnchorWatch] Web fallback:', e); }
+            try {
+                await KeepAwake.keepAwake();
+            } catch (e) {
+                console.warn('[AnchorWatch] Web fallback:', e);
+            }
 
             // Start GPS monitoring + geofence
             await this.startGpsMonitoring();
@@ -318,7 +313,11 @@ class AnchorWatchServiceClass {
         this.persistWatchState();
 
         // Keep screen awake during anchor watch
-        try { await KeepAwake.keepAwake(); } catch (e) { console.warn('[AnchorWatch] Web fallback:', e); }
+        try {
+            await KeepAwake.keepAwake();
+        } catch (e) {
+            console.warn('[AnchorWatch] Web fallback:', e);
+        }
 
         await BgGeoManager.ensureReady();
         await this.startGpsMonitoring();
@@ -348,7 +347,11 @@ class AnchorWatchServiceClass {
         this.stopAlarm();
 
         // Allow screen to sleep again
-        try { await KeepAwake.allowSleep(); } catch (e) { console.warn('[AnchorWatch] Web fallback:', e); }
+        try {
+            await KeepAwake.allowSleep();
+        } catch (e) {
+            console.warn('[AnchorWatch] Web fallback:', e);
+        }
 
         this.state = 'idle';
         this.anchorPosition = null;
@@ -449,7 +452,11 @@ class AnchorWatchServiceClass {
             this.alarmTriggeredAt = null;
 
             // Re-establish GPS monitoring and geofence
-            try { await KeepAwake.keepAwake(); } catch (e) { console.warn('[AnchorWatch] Web fallback:', e); }
+            try {
+                await KeepAwake.keepAwake();
+            } catch (e) {
+                console.warn('[AnchorWatch] Web fallback:', e);
+            }
             await BgGeoManager.ensureReady();
             await this.startGpsMonitoring();
 
@@ -543,7 +550,6 @@ class AnchorWatchServiceClass {
 
             // Start tracking (ref-counted)
             await BgGeoManager.requestStart();
-
         } catch (error) {
             log.warn('startGpsMonitoring: failed to start GPS', error);
         }
@@ -568,7 +574,6 @@ class AnchorWatchServiceClass {
             notifyOnExit: true,
             notifyOnDwell: false,
         });
-
     }
 
     /** Stop GPS monitoring and clean up */
@@ -584,8 +589,12 @@ class AnchorWatchServiceClass {
 
     /** Remove all event subscriptions */
     private cleanupSubscriptions(): void {
-        this.bgUnsubscribers.forEach(unsub => {
-            try { unsub(); } catch (e) { console.warn('[AnchorWatch] already cleaned:', e); }
+        this.bgUnsubscribers.forEach((unsub) => {
+            try {
+                unsub();
+            } catch (e) {
+                console.warn('[AnchorWatch] already cleaned:', e);
+            }
         });
         this.bgUnsubscribers = [];
     }
@@ -620,8 +629,9 @@ class AnchorWatchServiceClass {
 
         // Add to history (throttled — every 3rd reading or if moved > 2m)
         const lastHistoryPoint = this.positionHistory[this.positionHistory.length - 1];
-        const shouldRecord = !lastHistoryPoint ||
-            (position.timestamp - lastHistoryPoint.timestamp > GPS_INTERVAL_MS) ||
+        const shouldRecord =
+            !lastHistoryPoint ||
+            position.timestamp - lastHistoryPoint.timestamp > GPS_INTERVAL_MS ||
             haversineDistance(filtered.lat, filtered.lon, lastHistoryPoint.latitude, lastHistoryPoint.longitude) > 2;
 
         if (shouldRecord) {
@@ -634,12 +644,16 @@ class AnchorWatchServiceClass {
         // Calculate distance from anchor
         if (this.anchorPosition) {
             this.distanceFromAnchor = haversineDistance(
-                filtered.lat, filtered.lon,
-                this.anchorPosition.latitude, this.anchorPosition.longitude
+                filtered.lat,
+                filtered.lon,
+                this.anchorPosition.latitude,
+                this.anchorPosition.longitude,
             );
             this.bearingToAnchor = bearing(
-                filtered.lat, filtered.lon,
-                this.anchorPosition.latitude, this.anchorPosition.longitude
+                filtered.lat,
+                filtered.lon,
+                this.anchorPosition.latitude,
+                this.anchorPosition.longitude,
             );
             this.maxDistanceRecorded = Math.max(this.maxDistanceRecorded, this.distanceFromAnchor);
 
@@ -655,10 +669,10 @@ class AnchorWatchServiceClass {
         if (this.jitterBuffer.length === 1) return this.jitterBuffer[0];
 
         // Moving average
-        const sum = this.jitterBuffer.reduce(
-            (acc, p) => ({ lat: acc.lat + p.lat, lon: acc.lon + p.lon }),
-            { lat: 0, lon: 0 }
-        );
+        const sum = this.jitterBuffer.reduce((acc, p) => ({ lat: acc.lat + p.lat, lon: acc.lon + p.lon }), {
+            lat: 0,
+            lon: 0,
+        });
         return {
             lat: sum.lat / this.jitterBuffer.length,
             lon: sum.lon / this.jitterBuffer.length,
@@ -696,7 +710,9 @@ class AnchorWatchServiceClass {
             // Triple vibrate
             setTimeout(() => Haptics.impact({ style: ImpactStyle.Heavy }), 200);
             setTimeout(() => Haptics.impact({ style: ImpactStyle.Heavy }), 400);
-        } catch (e) { console.warn('[AnchorWatch] No haptics on web:', e); }
+        } catch (e) {
+            console.warn('[AnchorWatch] No haptics on web:', e);
+        }
 
         // Start repeating alarm
         this.startAlarmSound();
@@ -714,13 +730,13 @@ class AnchorWatchServiceClass {
 
     private startAlarmSound(): void {
         // Use native alarm audio that bypasses iOS mute switch
-        AlarmAudioService.startAlarm().catch(err => {
+        AlarmAudioService.startAlarm().catch((err) => {
             log.warn('startAlarmSound: native alarm failed', err);
         });
 
         // Also re-trigger haptics every 2 seconds
         this.alarmInterval = setInterval(() => {
-            Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => { });
+            Haptics.impact({ style: ImpactStyle.Heavy }).catch(() => {});
         }, 2000);
     }
 
@@ -729,12 +745,12 @@ class AnchorWatchServiceClass {
             clearInterval(this.alarmInterval);
             this.alarmInterval = null;
         }
-        AlarmAudioService.stopAlarm().catch(() => { });
+        AlarmAudioService.stopAlarm().catch(() => {});
     }
 
     private notify(): void {
         const snapshot = this.getSnapshot();
-        this.listeners.forEach(listener => {
+        this.listeners.forEach((listener) => {
             try {
                 listener(snapshot);
             } catch (e) {

@@ -49,7 +49,10 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         cancelRef.current?.focus();
 
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') { onCancel(); return; }
+            if (e.key === 'Escape') {
+                onCancel();
+                return;
+            }
             if (e.key !== 'Tab') return;
 
             const focusable = [cancelRef.current, confirmRef.current].filter(Boolean) as HTMLElement[];
@@ -57,9 +60,15 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             const last = focusable[focusable.length - 1];
 
             if (e.shiftKey) {
-                if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+                if (document.activeElement === first) {
+                    e.preventDefault();
+                    last.focus();
+                }
             } else {
-                if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+                if (document.activeElement === last) {
+                    e.preventDefault();
+                    first.focus();
+                }
             }
         };
 
@@ -93,22 +102,46 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             <div className="absolute inset-0 bg-black/60" />
             <div
                 className="relative w-full max-w-sm bg-slate-900 border border-white/10 rounded-2xl p-6 animate-in fade-in zoom-in-95 duration-200"
-                onClick={e => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
             >
                 {/* Icon */}
-                <div className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 ${destructive ? 'bg-red-500/20' : 'bg-sky-500/20'}`}>
+                <div
+                    className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 ${destructive ? 'bg-red-500/20' : 'bg-sky-500/20'}`}
+                >
                     {destructive ? (
-                        <svg className="w-6 h-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        <svg
+                            className="w-6 h-6 text-red-400"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                            />
                         </svg>
                     ) : (
-                        <svg className="w-6 h-6 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                        <svg
+                            className="w-6 h-6 text-sky-400"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+                            />
                         </svg>
                     )}
                 </div>
 
-                <h3 id="confirm-title" className="text-lg font-black text-white text-center mb-2">{title}</h3>
+                <h3 id="confirm-title" className="text-lg font-black text-white text-center mb-2">
+                    {title}
+                </h3>
                 <p className="text-sm text-gray-400 text-center mb-6">{message}</p>
 
                 <div className="flex gap-3">
@@ -127,7 +160,9 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                     >
                         {loading ? (
                             <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin mx-auto" />
-                        ) : confirmLabel}
+                        ) : (
+                            confirmLabel
+                        )}
                     </button>
                 </div>
             </div>

@@ -69,7 +69,6 @@ export interface ThemeTokens {
     environment: Environment;
 }
 
-
 // ══════════════════════════════════════════════════════════════════
 //   OFFSHORE THEME — Deep ocean, cool blues, sky accents
 // ══════════════════════════════════════════════════════════════════
@@ -143,7 +142,6 @@ const offshoreColors: ThemeColors = {
         glass: 'border border-white/[0.06]',
     },
 };
-
 
 // ══════════════════════════════════════════════════════════════════
 //   ONSHORE THEME — Warm earth tones, stone grays, amber/sand accents
@@ -219,7 +217,6 @@ const onshoreColors: ThemeColors = {
     },
 };
 
-
 // ── Shared Tokens (same for both themes) ────────────────────────
 
 export const typography = {
@@ -291,7 +288,6 @@ export const animation = {
     spin: 'animate-spin',
 } as const;
 
-
 // ── Theme Builder ───────────────────────────────────────────────
 
 function buildTheme(colors: ThemeColors, env: Environment): ThemeTokens {
@@ -313,9 +309,10 @@ function buildTheme(colors: ThemeColors, env: Environment): ThemeTokens {
         },
 
         button: {
-            primary: env === 'offshore'
-                ? 'w-full py-3.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-amber-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2'
-                : 'w-full py-3.5 bg-gradient-to-r from-emerald-700 to-emerald-600 hover:from-emerald-600 hover:to-emerald-500 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-emerald-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2',
+            primary:
+                env === 'offshore'
+                    ? 'w-full py-3.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-amber-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2'
+                    : 'w-full py-3.5 bg-gradient-to-r from-emerald-700 to-emerald-600 hover:from-emerald-600 hover:to-emerald-500 rounded-xl text-white text-base font-black transition-all active:scale-[0.98] shadow-lg shadow-emerald-900/30 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2',
             secondary: `py-2 ${colors.bg.inset} backdrop-blur ${colors.border.default} ${radii.card} text-sm font-bold transition-all active:scale-[0.97]`,
             danger: `py-2 bg-red-500/[0.08] backdrop-blur border border-red-500/20 ${radii.card} text-red-400 text-sm font-bold transition-all active:scale-[0.97] hover:bg-red-500/[0.12]`,
             ghost: `px-3 py-1.5 bg-white/5 hover:bg-white/10 ${radii.control} text-sm font-bold transition-all active:scale-95`,
@@ -343,7 +340,6 @@ function buildTheme(colors: ThemeColors, env: Environment): ThemeTokens {
     };
 }
 
-
 // ── Built Themes ────────────────────────────────────────────────
 
 export const offshoreTheme: ThemeTokens = buildTheme(offshoreColors, 'offshore');
@@ -353,7 +349,6 @@ export const onshoreTheme: ThemeTokens = buildTheme(onshoreColors, 'onshore');
 export function getThemeForEnvironment(env: Environment): ThemeTokens {
     return env === 'onshore' ? onshoreTheme : offshoreTheme;
 }
-
 
 // ── Backward-Compatible Exports ─────────────────────────────────
 // These exist so the 56 files that `import { t } from '../theme'`

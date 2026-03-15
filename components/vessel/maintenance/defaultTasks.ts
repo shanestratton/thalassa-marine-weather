@@ -18,7 +18,6 @@ export interface DefaultTaskTemplate {
 }
 
 export const DEFAULT_MAINTENANCE_TASKS: DefaultTaskTemplate[] = [
-
     // ═══════════════════════════════════════════════════════════════
     // GROUP 1: MECHANICAL & ENGINE (The Heart)
     // ═══════════════════════════════════════════════════════════════

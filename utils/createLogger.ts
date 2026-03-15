@@ -15,7 +15,7 @@
 const IS_PROD = typeof import.meta !== 'undefined' && import.meta.env?.PROD;
 
 // No-op for silenced levels in production
-const noop = (..._args: unknown[]) => { };
+const noop = (..._args: unknown[]) => {};
 
 export interface Logger {
     debug: (...args: unknown[]) => void;

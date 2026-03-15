@@ -4,21 +4,12 @@
  * All reads/writes go to local database. Mutations are queued
  * for background sync to Supabase. UI never touches the network.
  */
-import {
-    getAll,
-    getById,
-    query,
-    insertLocal,
-    updateLocal,
-    deleteLocal,
-    generateUUID,
-} from './LocalDatabase';
+import { getAll, getById, query, insertLocal, updateLocal, deleteLocal, generateUUID } from './LocalDatabase';
 import type { InventoryItem, InventoryCategory } from '../../types';
 
 const TABLE = 'inventory_items';
 
 export class LocalInventoryService {
-
     /** Get all inventory items (from local cache) */
     static getItems(): InventoryItem[] {
         return getAll<InventoryItem>(TABLE);
@@ -32,25 +23,29 @@ export class LocalInventoryService {
     /** Search items by name (fuzzy) */
     static search(term: string): InventoryItem[] {
         const lower = term.toLowerCase();
-        return query<InventoryItem>(TABLE, item =>
-            item.item_name.toLowerCase().includes(lower) ||
-            (item.description || '').toLowerCase().includes(lower) ||
-            (item.barcode || '').includes(term)
+        return query<InventoryItem>(
+            TABLE,
+            (item) =>
+                item.item_name.toLowerCase().includes(lower) ||
+                (item.description || '').toLowerCase().includes(lower) ||
+                (item.barcode || '').includes(term),
         );
     }
 
     /** Get items by category */
     static getByCategory(category: InventoryCategory): InventoryItem[] {
-        return query<InventoryItem>(TABLE, item => item.category === category);
+        return query<InventoryItem>(TABLE, (item) => item.category === category);
     }
 
     /** Get items below minimum quantity (alerts) */
     static getLowStock(): InventoryItem[] {
-        return query<InventoryItem>(TABLE, item => item.quantity <= item.min_quantity);
+        return query<InventoryItem>(TABLE, (item) => item.quantity <= item.min_quantity);
     }
 
     /** Create a new inventory item */
-    static async create(item: Omit<InventoryItem, 'id' | 'user_id' | 'created_at' | 'updated_at'>): Promise<InventoryItem> {
+    static async create(
+        item: Omit<InventoryItem, 'id' | 'user_id' | 'created_at' | 'updated_at'>,
+    ): Promise<InventoryItem> {
         const now = new Date().toISOString();
         const record: InventoryItem = {
             ...item,
@@ -106,7 +101,7 @@ export class LocalInventoryService {
 
         return {
             totalItems: items.length,
-            lowStock: items.filter(i => i.quantity <= i.min_quantity).length,
+            lowStock: items.filter((i) => i.quantity <= i.min_quantity).length,
             categories,
         };
     }

@@ -76,7 +76,7 @@ export const MoonVisual = ({ cloudCover, apiPhase, apiIllumination, apiPhaseValu
     };
 
     const safeCloud = cloudCover || 0;
-    const cloudOpacity = Math.min(safeCloud / 100 * 0.85, 0.9);
+    const cloudOpacity = Math.min((safeCloud / 100) * 0.85, 0.9);
 
     return (
         <div className="flex items-center gap-3">
@@ -114,7 +114,13 @@ interface SolarArcProps {
     timeZone?: string;
 }
 
-export const SolarArc = ({ sunrise: rawSunrise, sunset: rawSunset, showTimes = true, size = 'normal', timeZone }: SolarArcProps) => {
+export const SolarArc = ({
+    sunrise: rawSunrise,
+    sunset: rawSunset,
+    showTimes = true,
+    size = 'normal',
+    timeZone,
+}: SolarArcProps) => {
     // Defensive: ensure sunrise/sunset are always HH:MM format
     // WeatherKit may return ISO timestamps if cached data is stale
     const formatTimeStr = (t: string): string => {
@@ -125,7 +131,10 @@ export const SolarArc = ({ sunrise: rawSunrise, sunset: rawSunset, showTimes = t
             const d = new Date(t);
             if (isNaN(d.getTime())) return t;
             return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
-        } catch (e) { log.warn( e); return t; }
+        } catch (e) {
+            log.warn(e);
+            return t;
+        }
     };
 
     const sunrise = formatTimeStr(rawSunrise);
@@ -160,10 +169,10 @@ export const SolarArc = ({ sunrise: rawSunrise, sunset: rawSunset, showTimes = t
                 timeZone,
                 hour: 'numeric',
                 minute: 'numeric',
-                hour12: false
+                hour12: false,
             }).formatToParts(new Date());
-            const h = parseInt(parts.find(p => p.type === 'hour')?.value || '0');
-            const m = parseInt(parts.find(p => p.type === 'minute')?.value || '0');
+            const h = parseInt(parts.find((p) => p.type === 'hour')?.value || '0');
+            const m = parseInt(parts.find((p) => p.type === 'minute')?.value || '0');
             return h * 60 + m;
         } catch (e) {
             const d = new Date();
@@ -182,7 +191,7 @@ export const SolarArc = ({ sunrise: rawSunrise, sunset: rawSunset, showTimes = t
     const isDay = dayStarted && dayEnded;
 
     // Calculate position on arc (0 to 180 degrees)
-    const angle = 180 - (progress * 180);
+    const angle = 180 - progress * 180;
     const rad = (angle * Math.PI) / 180;
 
     // SVG coords
@@ -199,24 +208,40 @@ export const SolarArc = ({ sunrise: rawSunrise, sunset: rawSunset, showTimes = t
             {showTimes && size === 'normal' && (
                 <div className="flex flex-col items-center">
                     <span className="text-sm text-gray-500 uppercase tracking-wider mb-1">Sunrise</span>
-                    <span className="text-sm font-bold text-white flex items-center gap-1"><ArrowUpIcon className="w-3 h-3 text-amber-400" /> {sunrise}</span>
+                    <span className="text-sm font-bold text-white flex items-center gap-1">
+                        <ArrowUpIcon className="w-3 h-3 text-amber-400" /> {sunrise}
+                    </span>
                 </div>
             )}
 
             <div className={`flex-1 relative ${heightClass} flex justify-center items-end pb-1 w-full`}>
                 <svg viewBox="0 0 100 50" className="w-full h-full overflow-visible">
                     {/* Horizon Line */}
-                    <line x1="0" y1="50" x2="100" y2="50" stroke="rgba(255,255,255,0.1)" strokeWidth="1" strokeDasharray="3 3" />
+                    <line
+                        x1="0"
+                        y1="50"
+                        x2="100"
+                        y2="50"
+                        stroke="rgba(255,255,255,0.1)"
+                        strokeWidth="1"
+                        strokeDasharray="3 3"
+                    />
 
                     {/* Arc Path */}
-                    <path d="M 10 50 A 40 40 0 0 1 90 50" fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="2" strokeLinecap="round" />
+                    <path
+                        d="M 10 50 A 40 40 0 0 1 90 50"
+                        fill="none"
+                        stroke="rgba(255,255,255,0.1)"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                    />
 
                     {/* Celestial Body Indicator - Always Render */}
                     <circle
                         cx={x}
                         cy={y}
-                        r={isDay ? "6" : "5"}
-                        fill={isDay ? "#fbbf24" : "#94a3b8"}
+                        r={isDay ? '6' : '5'}
+                        fill={isDay ? '#fbbf24' : '#94a3b8'}
                         stroke="rgba(255,255,255,0.5)"
                         strokeWidth="2"
                         className="transition-all duration-1000"
@@ -227,7 +252,9 @@ export const SolarArc = ({ sunrise: rawSunrise, sunset: rawSunset, showTimes = t
             {showTimes && size === 'normal' && (
                 <div className="flex flex-col items-center">
                     <span className="text-sm text-gray-500 uppercase tracking-wider mb-1">Sunset</span>
-                    <span className="text-sm font-bold text-white flex items-center gap-1">{sunset} <ArrowDownIcon className="w-3 h-3 text-amber-400" /></span>
+                    <span className="text-sm font-bold text-white flex items-center gap-1">
+                        {sunset} <ArrowDownIcon className="w-3 h-3 text-amber-400" />
+                    </span>
                 </div>
             )}
 
@@ -235,11 +262,15 @@ export const SolarArc = ({ sunrise: rawSunrise, sunset: rawSunset, showTimes = t
                 <div className="flex justify-between w-full px-8 -mt-2">
                     <div className="flex flex-col items-start">
                         <span className="text-sm text-gray-500 uppercase tracking-wider mb-1">Sunrise</span>
-                        <span className="text-xl font-bold text-white flex items-center gap-1"><ArrowUpIcon className="w-4 h-4 text-amber-400" /> {sunrise}</span>
+                        <span className="text-xl font-bold text-white flex items-center gap-1">
+                            <ArrowUpIcon className="w-4 h-4 text-amber-400" /> {sunrise}
+                        </span>
                     </div>
                     <div className="flex flex-col items-end">
                         <span className="text-sm text-gray-500 uppercase tracking-wider mb-1">Sunset</span>
-                        <span className="text-xl font-bold text-white flex items-center gap-1">{sunset} <ArrowDownIcon className="w-4 h-4 text-amber-400" /></span>
+                        <span className="text-xl font-bold text-white flex items-center gap-1">
+                            {sunset} <ArrowDownIcon className="w-4 h-4 text-amber-400" />
+                        </span>
                     </div>
                 </div>
             )}

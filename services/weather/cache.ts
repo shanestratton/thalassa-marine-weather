@@ -1,4 +1,3 @@
-
 import { MarineWeatherReport } from '../../types';
 
 const CACHE_KEY_PREFIX = 'marine_weather_cache_v8_';
@@ -19,7 +18,7 @@ export const saveToCache = (locationName: string, data: MarineWeatherReport): vo
         const entry: CacheEntry = {
             timestamp: Date.now(),
             data: data,
-            model: data.modelUsed
+            model: data.modelUsed,
         };
         localStorage.setItem(key, JSON.stringify(entry));
         // Also cache generic "last_report" for potential recovery
@@ -46,10 +45,8 @@ export const getFromCache = (locationName: string): MarineWeatherReport | null =
         const maxAge = isPrecision ? 60 : 30;
 
         if (ageMinutes < maxAge) {
-
             return entry.data;
         } else {
-
             return null;
         }
     } catch (e) {
@@ -103,4 +100,3 @@ export const getFromCacheOffline = (locationName: string): StaleResult | null =>
         return null;
     }
 };
-

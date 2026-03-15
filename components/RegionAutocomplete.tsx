@@ -29,7 +29,7 @@ export const KNOWN_REGIONS = [
     'Otago, NZ',
     'Marlborough, NZ',
     'Nelson, NZ',
-    'Hawke\'s Bay, NZ',
+    "Hawke's Bay, NZ",
     'Taranaki, NZ',
     'Southland, NZ',
 
@@ -211,9 +211,7 @@ export const RegionAutocomplete: React.FC<RegionAutocompleteProps> = ({
             return;
         }
         const lower = query.toLowerCase();
-        const matches = KNOWN_REGIONS.filter(r =>
-            r.toLowerCase().includes(lower)
-        ).slice(0, 8); // Max 8 suggestions
+        const matches = KNOWN_REGIONS.filter((r) => r.toLowerCase().includes(lower)).slice(0, 8); // Max 8 suggestions
         setSuggestions(matches);
     }, []);
 
@@ -239,10 +237,10 @@ export const RegionAutocomplete: React.FC<RegionAutocompleteProps> = ({
 
         if (e.key === 'ArrowDown') {
             e.preventDefault();
-            setHighlightedIndex(prev => Math.min(prev + 1, suggestions.length - 1));
+            setHighlightedIndex((prev) => Math.min(prev + 1, suggestions.length - 1));
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
-            setHighlightedIndex(prev => Math.max(prev - 1, 0));
+            setHighlightedIndex((prev) => Math.max(prev - 1, 0));
         } else if (e.key === 'Enter' && highlightedIndex >= 0) {
             e.preventDefault();
             selectSuggestion(suggestions[highlightedIndex]);
@@ -255,8 +253,10 @@ export const RegionAutocomplete: React.FC<RegionAutocompleteProps> = ({
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
             if (
-                dropdownRef.current && !dropdownRef.current.contains(e.target as Node) &&
-                inputRef.current && !inputRef.current.contains(e.target as Node)
+                dropdownRef.current &&
+                !dropdownRef.current.contains(e.target as Node) &&
+                inputRef.current &&
+                !inputRef.current.contains(e.target as Node)
             ) {
                 setShowDropdown(false);
             }
@@ -273,7 +273,10 @@ export const RegionAutocomplete: React.FC<RegionAutocompleteProps> = ({
                 type="text"
                 value={value}
                 onChange={handleInputChange}
-                onFocus={() => { filterSuggestions(value); setShowDropdown(true); }}
+                onFocus={() => {
+                    filterSuggestions(value);
+                    setShowDropdown(true);
+                }}
                 onKeyDown={handleKeyDown}
                 placeholder={placeholder}
                 className={inputClassName}
@@ -289,10 +292,11 @@ export const RegionAutocomplete: React.FC<RegionAutocompleteProps> = ({
                             key={suggestion}
                             type="button"
                             onClick={() => selectSuggestion(suggestion)}
-                            className={`w-full text-left px-3 py-2.5 text-sm transition-colors ${i === highlightedIndex
+                            className={`w-full text-left px-3 py-2.5 text-sm transition-colors ${
+                                i === highlightedIndex
                                     ? 'bg-purple-600/30 text-white'
                                     : 'text-slate-300 hover:bg-slate-700/50 hover:text-white'
-                                }`}
+                            }`}
                         >
                             {suggestion}
                         </button>

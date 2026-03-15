@@ -54,24 +54,28 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
         let cleanup: (() => void) | undefined;
 
         if (Capacitor.isNativePlatform()) {
-            import('@capacitor/keyboard').then(({ Keyboard }) => {
-                const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
-                    setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
-                    setTimeout(() => {
-                        const focused = document.activeElement as HTMLElement;
-                        if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) {
-                            focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                        }
-                    }, 250);
+            import('@capacitor/keyboard')
+                .then(({ Keyboard }) => {
+                    const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
+                        setKeyboardHeight(info.keyboardHeight > 0 ? info.keyboardHeight : 0);
+                        setTimeout(() => {
+                            const focused = document.activeElement as HTMLElement;
+                            if (focused && (focused.tagName === 'INPUT' || focused.tagName === 'TEXTAREA')) {
+                                focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }
+                        }, 250);
+                    });
+                    const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                        setKeyboardHeight(0);
+                    });
+                    cleanup = () => {
+                        showHandle.then((h) => h.remove());
+                        hideHandle.then((h) => h.remove());
+                    };
+                })
+                .catch(() => {
+                    /* Keyboard plugin not available */
                 });
-                const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
-                    setKeyboardHeight(0);
-                });
-                cleanup = () => {
-                    showHandle.then(h => h.remove());
-                    hideHandle.then(h => h.remove());
-                };
-            }).catch(() => { /* Keyboard plugin not available */ });
         } else {
             const vp = window.visualViewport;
             if (vp) {
@@ -103,7 +107,13 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                         className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
                         aria-label="Close"
                     >
-                        <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <svg
+                            className="w-5 h-5 text-gray-400"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                        >
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
                         </svg>
                     </button>
@@ -113,7 +123,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                     </div>
                     {/* Step dots */}
                     <div className="flex gap-1.5">
-                        {[1, 2, 3].map(s => (
+                        {[1, 2, 3].map((s) => (
                             <div
                                 key={s}
                                 className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${
@@ -126,10 +136,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
             </div>
 
             {/* Body — scrollable with keyboard padding */}
-            <div
-                className="flex-1 overflow-y-auto p-4"
-                style={{ paddingBottom: bottomPad }}
-            >
+            <div className="flex-1 overflow-y-auto p-4" style={{ paddingBottom: bottomPad }}>
                 {/* ── Step 1: Name & Description ── */}
                 {step === 1 && (
                     <div className="space-y-4 fade-slide-down max-w-lg mx-auto">
@@ -141,7 +148,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                 <label className="text-[11px] text-white/30 block mb-1.5 px-1">Icon</label>
                                 <input
                                     value={proposalIcon}
-                                    onChange={e => setProposalIcon(e.target.value)}
+                                    onChange={(e) => setProposalIcon(e.target.value)}
                                     onFocus={scrollInputAboveKeyboard}
                                     placeholder="🏖️"
                                     aria-label="Channel icon"
@@ -153,7 +160,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                 <label className="text-[11px] text-white/30 block mb-1.5 px-1">Channel Name</label>
                                 <input
                                     value={proposalName}
-                                    onChange={e => setProposalName(e.target.value)}
+                                    onChange={(e) => setProposalName(e.target.value)}
                                     onFocus={scrollInputAboveKeyboard}
                                     placeholder="e.g. Cruising Tips"
                                     aria-label="Channel name"
@@ -168,7 +175,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                             <label className="text-[11px] text-white/30 block mb-1.5 px-1">Description</label>
                             <input
                                 value={proposalDesc}
-                                onChange={e => setProposalDesc(e.target.value)}
+                                onChange={(e) => setProposalDesc(e.target.value)}
                                 onFocus={scrollInputAboveKeyboard}
                                 placeholder="Short description (optional)"
                                 aria-label="Channel description"
@@ -208,20 +215,22 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                             <div className="flex gap-2 flex-wrap">
                                 <button
                                     onClick={() => setProposalParentId(null)}
-                                    className={`px-3.5 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${!proposalParentId
-                                        ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
-                                        : 'bg-white/[0.04] border border-white/[0.06] text-white/40'
+                                    className={`px-3.5 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${
+                                        !proposalParentId
+                                            ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
+                                            : 'bg-white/[0.04] border border-white/[0.06] text-white/40'
                                     }`}
                                 >
                                     📌 Top-Level
                                 </button>
-                                {parentOptions.map(p => (
+                                {parentOptions.map((p) => (
                                     <button
                                         key={p.id}
                                         onClick={() => setProposalParentId(p.id)}
-                                        className={`px-3.5 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${proposalParentId === p.id
-                                            ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
-                                            : 'bg-white/[0.04] border border-white/[0.06] text-white/40'
+                                        className={`px-3.5 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${
+                                            proposalParentId === p.id
+                                                ? 'bg-sky-500/20 border border-sky-500/40 text-sky-400'
+                                                : 'bg-white/[0.04] border border-white/[0.06] text-white/40'
                                         }`}
                                     >
                                         {p.icon} {p.name}
@@ -236,18 +245,20 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                             <div className="flex gap-2">
                                 <button
                                     onClick={() => setProposalIsPrivate(false)}
-                                    className={`flex-1 py-3.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[48px] ${!proposalIsPrivate
-                                        ? 'bg-sky-500/20 border-sky-500/40 text-sky-400'
-                                        : 'bg-white/[0.04] border-white/[0.06] text-white/40'
+                                    className={`flex-1 py-3.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[48px] ${
+                                        !proposalIsPrivate
+                                            ? 'bg-sky-500/20 border-sky-500/40 text-sky-400'
+                                            : 'bg-white/[0.04] border-white/[0.06] text-white/40'
                                     }`}
                                 >
                                     🌊 Public
                                 </button>
                                 <button
                                     onClick={() => setProposalIsPrivate(true)}
-                                    className={`flex-1 py-3.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[48px] ${proposalIsPrivate
-                                        ? 'bg-purple-500/20 border-purple-500/40 text-purple-400'
-                                        : 'bg-white/[0.04] border-white/[0.06] text-white/40'
+                                    className={`flex-1 py-3.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[48px] ${
+                                        proposalIsPrivate
+                                            ? 'bg-purple-500/20 border-purple-500/40 text-purple-400'
+                                            : 'bg-white/[0.04] border-white/[0.06] text-white/40'
                                     }`}
                                 >
                                     🔒 Private
@@ -298,17 +309,23 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                 </div>
                             </div>
                             <div className="flex gap-2">
-                                <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${proposalIsPrivate ? 'text-purple-400/70 bg-purple-500/10' : 'text-sky-400/70 bg-sky-500/10'}`}>
+                                <span
+                                    className={`text-[11px] font-bold px-2.5 py-1 rounded-full ${proposalIsPrivate ? 'text-purple-400/70 bg-purple-500/10' : 'text-sky-400/70 bg-sky-500/10'}`}
+                                >
                                     {proposalIsPrivate ? '🔒 Private' : '🌊 Public'}
                                 </span>
                                 <span className="text-[11px] font-bold text-white/30 bg-white/[0.04] px-2.5 py-1 rounded-full">
-                                    {proposalParentId ? `Sub of ${parentOptions.find(p => p.id === proposalParentId)?.name || '?'}` : '📌 Top-Level'}
+                                    {proposalParentId
+                                        ? `Sub of ${parentOptions.find((p) => p.id === proposalParentId)?.name || '?'}`
+                                        : '📌 Top-Level'}
                                 </span>
                             </div>
                         </div>
 
                         <p className="text-[11px] text-white/25 text-center">
-                            {isAdmin ? 'This channel will be created instantly.' : 'Submitted to admins for approval. You\'ll moderate it!'}
+                            {isAdmin
+                                ? 'This channel will be created instantly.'
+                                : "Submitted to admins for approval. You'll moderate it!"}
                         </p>
 
                         {/* Actions */}

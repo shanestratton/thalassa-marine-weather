@@ -79,9 +79,15 @@ export const NmeaGpsIndicator: React.FC = () => {
 
     // Dot color: NMEA = HDOP-based, Bluetooth = always green
     const dotColor = isNmeaSource
-        ? (hdop !== null
-            ? hdop < 1.5 ? 'bg-emerald-400' : hdop < 3 ? 'bg-sky-400' : hdop < 5 ? 'bg-amber-400' : 'bg-red-400'
-            : 'bg-sky-400')
+        ? hdop !== null
+            ? hdop < 1.5
+                ? 'bg-emerald-400'
+                : hdop < 3
+                  ? 'bg-sky-400'
+                  : hdop < 5
+                    ? 'bg-amber-400'
+                    : 'bg-red-400'
+            : 'bg-sky-400'
         : 'bg-emerald-400';
 
     // Badge background: NMEA = blue, Bluetooth = green
@@ -90,16 +96,30 @@ export const NmeaGpsIndicator: React.FC = () => {
 
     return (
         <div className="pointer-events-none">
-            <div className={`flex items-center gap-1 px-2 py-1 rounded-full justify-center ${badgeBg} border shadow-lg`}>
+            <div
+                className={`flex items-center gap-1 px-2 py-1 rounded-full justify-center ${badgeBg} border shadow-lg`}
+            >
                 {/* Pulse ring */}
                 <span className="relative flex h-2 w-2">
-                    <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${pulseColor} opacity-75`} />
+                    <span
+                        className={`animate-ping absolute inline-flex h-full w-full rounded-full ${pulseColor} opacity-75`}
+                    />
                     <span className={`relative inline-flex rounded-full h-2 w-2 ${dotColor}`} />
                 </span>
 
                 {/* Satellite icon */}
-                <svg className="w-3 h-3 text-white/90" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9.348 14.652a3.75 3.75 0 010-5.304m5.304 0a3.75 3.75 0 010 5.304m-7.425 2.121a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.788m13.788 0c3.808 3.808 3.808 9.98 0 13.788" />
+                <svg
+                    className="w-3 h-3 text-white/90"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                >
+                    <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M9.348 14.652a3.75 3.75 0 010-5.304m5.304 0a3.75 3.75 0 010 5.304m-7.425 2.121a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.788m13.788 0c3.808 3.808 3.808 9.98 0 13.788"
+                    />
                 </svg>
 
                 <span className="text-white font-bold text-[11px] tracking-wide leading-none whitespace-nowrap">
@@ -108,16 +128,12 @@ export const NmeaGpsIndicator: React.FC = () => {
 
                 {/* NMEA: show satellite count */}
                 {isNmeaSource && satellites !== null && (
-                    <span className="text-sky-200/70 text-[11px] font-medium leading-none">
-                        {satellites}sat
-                    </span>
+                    <span className="text-sky-200/70 text-[11px] font-medium leading-none">{satellites}sat</span>
                 )}
 
                 {/* Bluetooth GPS: show average accuracy */}
                 {!isNmeaSource && avgAccuracy !== null && (
-                    <span className="text-emerald-200/70 text-[11px] font-medium leading-none">
-                        ±{avgAccuracy}m
-                    </span>
+                    <span className="text-emerald-200/70 text-[11px] font-medium leading-none">±{avgAccuracy}m</span>
                 )}
             </div>
         </div>

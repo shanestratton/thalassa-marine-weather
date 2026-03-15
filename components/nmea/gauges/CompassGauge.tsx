@@ -1,6 +1,6 @@
 /**
  * CompassGauge — 360° compass rose SVG for COG and Heading.
- * 
+ *
  * Features:
  *   - Rotating compass card with N/S/E/W + intercardinals
  *   - Tick marks: fine (5°), medium (10°), bold (30°)
@@ -11,22 +11,32 @@
 import React, { useMemo } from 'react';
 
 interface CompassGaugeProps {
-    value: number | null;         // 0-360 degrees
-    label: string;                // "COG" or "HDG"
-    accentColor?: string;         // CSS color for glow/accent
+    value: number | null; // 0-360 degrees
+    label: string; // "COG" or "HDG"
+    accentColor?: string; // CSS color for glow/accent
     freshness?: 'live' | 'stale' | 'dead';
 }
 
 const CARDINAL: Record<number, string> = {
-    0: 'N', 30: '30', 60: '60', 90: 'E', 120: '120', 150: '150',
-    180: 'S', 210: '210', 240: '240', 270: 'W', 300: '300', 330: '330'
+    0: 'N',
+    30: '30',
+    60: '60',
+    90: 'E',
+    120: '120',
+    150: '150',
+    180: 'S',
+    210: '210',
+    240: '240',
+    270: 'W',
+    300: '300',
+    330: '330',
 };
 
 export const CompassGauge: React.FC<CompassGaugeProps> = ({
     value,
     label,
     accentColor = '#22d3ee',
-    freshness = 'dead'
+    freshness = 'dead',
 }) => {
     const displayValue = value !== null ? Math.round(value) : null;
     const rotation = value !== null ? -value : 0; // Card rotates opposite to heading
@@ -79,8 +89,24 @@ export const CompassGauge: React.FC<CompassGaugeProps> = ({
                     </defs>
 
                     {/* Background ring */}
-                    <circle cx="150" cy="150" r="140" fill="none" stroke="url(#compass-ring)" strokeWidth="1.5" opacity={opacity} />
-                    <circle cx="150" cy="150" r="130" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="0.5" opacity={opacity} />
+                    <circle
+                        cx="150"
+                        cy="150"
+                        r="140"
+                        fill="none"
+                        stroke="url(#compass-ring)"
+                        strokeWidth="1.5"
+                        opacity={opacity}
+                    />
+                    <circle
+                        cx="150"
+                        cy="150"
+                        r="130"
+                        fill="none"
+                        stroke="rgba(255,255,255,0.06)"
+                        strokeWidth="0.5"
+                        opacity={opacity}
+                    />
 
                     {/* Rotating compass card */}
                     <g
@@ -93,19 +119,28 @@ export const CompassGauge: React.FC<CompassGaugeProps> = ({
                             const r1 = type === 'fine' ? 124 : type === 'medium' ? 120 : 115;
                             const r2 = 130;
                             const width = type === 'fine' ? 0.5 : type === 'medium' ? 1 : 1.5;
-                            const color = type === 'cardinal' || type === 'bold'
-                                ? 'rgba(255,255,255,0.7)'
-                                : type === 'medium'
-                                    ? 'rgba(255,255,255,0.3)'
-                                    : 'rgba(255,255,255,0.15)';
+                            const color =
+                                type === 'cardinal' || type === 'bold'
+                                    ? 'rgba(255,255,255,0.7)'
+                                    : type === 'medium'
+                                      ? 'rgba(255,255,255,0.3)'
+                                      : 'rgba(255,255,255,0.15)';
                             const rad = (deg * Math.PI) / 180;
                             const x1 = 150 + r1 * Math.sin(rad);
                             const y1 = 150 - r1 * Math.cos(rad);
                             const x2 = 150 + r2 * Math.sin(rad);
                             const y2 = 150 - r2 * Math.cos(rad);
                             return (
-                                <line key={deg} x1={x1} y1={y1} x2={x2} y2={y2}
-                                    stroke={color} strokeWidth={width} strokeLinecap="round" />
+                                <line
+                                    key={deg}
+                                    x1={x1}
+                                    y1={y1}
+                                    x2={x2}
+                                    y2={y2}
+                                    stroke={color}
+                                    strokeWidth={width}
+                                    strokeLinecap="round"
+                                />
                             );
                         })}
 
@@ -118,11 +153,13 @@ export const CompassGauge: React.FC<CompassGaugeProps> = ({
                             const y = 150 - labelR * Math.cos(rad);
                             const isCardinal = ['N', 'S', 'E', 'W'].includes(text);
                             return (
-                                <text key={deg} x={x} y={y}
-                                    textAnchor="middle" dominantBaseline="central"
-                                    fill={isCardinal
-                                        ? text === 'N' ? '#f87171' : '#e2e8f0'
-                                        : 'rgba(148,163,184,0.6)'}
+                                <text
+                                    key={deg}
+                                    x={x}
+                                    y={y}
+                                    textAnchor="middle"
+                                    dominantBaseline="central"
+                                    fill={isCardinal ? (text === 'N' ? '#f87171' : '#e2e8f0') : 'rgba(148,163,184,0.6)'}
                                     fontSize={isCardinal ? 16 : 11}
                                     fontWeight={isCardinal ? 800 : 500}
                                     fontFamily="system-ui, -apple-system, sans-serif"
@@ -134,20 +171,32 @@ export const CompassGauge: React.FC<CompassGaugeProps> = ({
                         })}
 
                         {/* North arrow marker on the card */}
-                        <polygon
-                            points="150,28 145,40 155,40"
-                            fill="#f87171"
-                            opacity={0.9}
-                        />
+                        <polygon points="150,28 145,40 155,40" fill="#f87171" opacity={0.9} />
                     </g>
 
                     {/* Fixed lubber line (top) — always points "up" */}
-                    <line x1="150" y1="10" x2="150" y2="35" stroke={accentColor} strokeWidth="3" strokeLinecap="round"
-                        filter="url(#compass-glow)" />
+                    <line
+                        x1="150"
+                        y1="10"
+                        x2="150"
+                        y2="35"
+                        stroke={accentColor}
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        filter="url(#compass-glow)"
+                    />
                     <polygon points="150,35 145,45 155,45" fill={accentColor} opacity={0.9} />
 
                     {/* Center dot */}
-                    <circle cx="150" cy="150" r="6" fill="url(#compass-center)" stroke={accentColor} strokeWidth="1.5" opacity={opacity * 0.8} />
+                    <circle
+                        cx="150"
+                        cy="150"
+                        r="6"
+                        fill="url(#compass-center)"
+                        stroke={accentColor}
+                        strokeWidth="1.5"
+                        opacity={opacity * 0.8}
+                    />
                     <circle cx="150" cy="150" r="2" fill={accentColor} opacity={opacity} />
                 </svg>
             </div>

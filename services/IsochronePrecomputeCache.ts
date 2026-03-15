@@ -28,8 +28,10 @@ let _abortGen = 0;
  * Returns the cached result if within 0.01° and fresher than 5 minutes.
  */
 export function getPrecomputedRoute(
-    depLat: number, depLon: number,
-    arrLat: number, arrLon: number,
+    depLat: number,
+    depLon: number,
+    arrLat: number,
+    arrLon: number,
 ): IsochroneResult | null {
     if (!_cache) return null;
     const MAX_AGE_MS = 5 * 60_000; // 5 minutes
@@ -39,8 +41,10 @@ export function getPrecomputedRoute(
     }
     const close = (a: number, b: number) => Math.abs(a - b) < 0.01;
     if (
-        close(_cache.depLat, depLat) && close(_cache.depLon, depLon) &&
-        close(_cache.arrLat, arrLat) && close(_cache.arrLon, arrLon)
+        close(_cache.depLat, depLat) &&
+        close(_cache.depLon, depLon) &&
+        close(_cache.arrLat, arrLat) &&
+        close(_cache.arrLon, arrLon)
     ) {
         const result = _cache.result;
         _cache = null; // consume once
@@ -64,7 +68,9 @@ export async function precomputeIsochrone(
     _cache = null;
 
     try {
-        console.info(`[Precompute] Starting background isochrone: ${dep.lat.toFixed(2)},${dep.lon.toFixed(2)} → ${arr.lat.toFixed(2)},${arr.lon.toFixed(2)}`);
+        console.info(
+            `[Precompute] Starting background isochrone: ${dep.lat.toFixed(2)},${dep.lon.toFixed(2)} → ${arr.lat.toFixed(2)},${arr.lon.toFixed(2)}`,
+        );
 
         // 1. Load wind data
         const { WindStore } = await import('../stores/WindStore');
@@ -106,10 +112,8 @@ export async function precomputeIsochrone(
                     findSeaBuoy(arr.lat, arr.lon, dep.lat, dep.lon),
                 ]);
                 if (gen !== _abortGen) return;
-                if (depBuoy.offsetNM > 0 || depBuoy.alreadyDeep)
-                    depGate = { lat: depBuoy.lat, lon: depBuoy.lon };
-                if (arrBuoy.offsetNM > 0 || arrBuoy.alreadyDeep)
-                    arrGate = { lat: arrBuoy.lat, lon: arrBuoy.lon };
+                if (depBuoy.offsetNM > 0 || depBuoy.alreadyDeep) depGate = { lat: depBuoy.lat, lon: depBuoy.lon };
+                if (arrBuoy.offsetNM > 0 || arrBuoy.alreadyDeep) arrGate = { lat: arrBuoy.lat, lon: arrBuoy.lon };
             } catch {
                 // Keep original gates
             }
@@ -124,7 +128,11 @@ export async function precomputeIsochrone(
         // 4. Run isochrone
         const minDepthM = isShortRoute ? 3.5 : null; // draft+1m for coastal
         const isoResult = await computeIsochrones(
-            depGate, arrGate, departureTime, polar, windField,
+            depGate,
+            arrGate,
+            departureTime,
+            polar,
+            windField,
             minDepthM != null ? { minDepthM } : {},
             bathyGrid,
         );
@@ -140,7 +148,9 @@ export async function precomputeIsochrone(
                 result: isoResult,
                 computedAt: Date.now(),
             };
-            console.info(`[Precompute] ✓ Route cached: ${isoResult.totalDistanceNM} NM, ${isoResult.totalDurationHours}h`);
+            console.info(
+                `[Precompute] ✓ Route cached: ${isoResult.totalDistanceNM} NM, ${isoResult.totalDurationHours}h`,
+            );
         } else {
             console.info('[Precompute] No route found');
         }

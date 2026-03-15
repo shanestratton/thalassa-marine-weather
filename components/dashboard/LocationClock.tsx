@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 
-export const LocationClock = ({ timeZone, utcOffset }: { timeZone: string | undefined, utcOffset?: number }) => {
+export const LocationClock = ({ timeZone, utcOffset }: { timeZone: string | undefined; utcOffset?: number }) => {
     const [now, setNow] = useState(new Date());
 
     useEffect(() => {
         // PERF FIX: Clock only shows hours:minutes — no need to update every second.
         // 60s interval eliminates 59 unnecessary re-renders per minute that were heating the phone.
-        const timer = setInterval(() => { if (!document.hidden) setNow(new Date()); }, 60_000);
+        const timer = setInterval(() => {
+            if (!document.hidden) setNow(new Date());
+        }, 60_000);
         return () => clearInterval(timer);
     }, []);
 
@@ -18,14 +20,26 @@ export const LocationClock = ({ timeZone, utcOffset }: { timeZone: string | unde
     try {
         if (timeZone) {
             tStr = now.toLocaleTimeString('en-US', { timeZone, hour: 'numeric', minute: '2-digit' });
-            dStr = now.toLocaleDateString('en-US', { timeZone, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+            dStr = now.toLocaleDateString('en-US', {
+                timeZone,
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric',
+            });
         } else if (utcOffset !== undefined) {
             // Manual Shift: Time = UTC + Offset. Display as UTC.
             // API returns utcOffset in SECONDS. Convert to MS.
-            const targetTime = new Date(now.getTime() + (utcOffset * 1000));
+            const targetTime = new Date(now.getTime() + utcOffset * 1000);
             // We use 'UTC' as the timezone to display the shifted time "as is"
             tStr = targetTime.toLocaleTimeString('en-US', { timeZone: 'UTC', hour: 'numeric', minute: '2-digit' });
-            dStr = targetTime.toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+            dStr = targetTime.toLocaleDateString('en-US', {
+                timeZone: 'UTC',
+                weekday: 'long',
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric',
+            });
         } else {
             // Fallback to Device Time
             tStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
@@ -42,7 +56,9 @@ export const LocationClock = ({ timeZone, utcOffset }: { timeZone: string | unde
             <span className="whitespace-nowrap">{tStr}</span>
             <span className="opacity-50">•</span>
             <span className="whitespace-nowrap hidden sm:inline">{dStr}</span>
-            <span className="whitespace-nowrap sm:hidden">{now.toLocaleDateString('en-US', { timeZone: timeZone || 'UTC', month: 'short', day: 'numeric' })}</span>
+            <span className="whitespace-nowrap sm:hidden">
+                {now.toLocaleDateString('en-US', { timeZone: timeZone || 'UTC', month: 'short', day: 'numeric' })}
+            </span>
         </span>
     );
 };

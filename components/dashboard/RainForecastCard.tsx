@@ -14,7 +14,7 @@ interface RainForecastCardProps {
 
 /**
  * RainForecastCard — Progressive Disclosure Rain Component
- * 
+ *
  * Compact State: Small card with summary text. "Wakes up" with cyan glow when rain detected.
  * Expanded State: Full modal with Dark Sky-style 60-bar minute-by-minute precipitation chart.
  */
@@ -24,37 +24,38 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
     // 60-second tick — forces re-evaluation of "Rain in X min" countdown
     const [tick, setTick] = useState(0);
     useEffect(() => {
-        const id = setInterval(() => setTick(t => t + 1), 60_000);
+        const id = setInterval(() => setTick((t) => t + 1), 60_000);
         return () => clearInterval(id);
     }, []);
 
     const analysis = useMemo(() => {
-        if (!data || data.length === 0) return {
-            maxIntensity: 0,
-            hasRain: false,
-            headline: 'No Rain Expected',
-            subline: 'Next 60 minutes',
-            isCurrentlyRaining: false,
-            category: { label: 'Clear', badgeClass: '', color: 'rgba(96, 165, 250, 0.5)' },
-            totalPrecip: 0,
-            firstRainIdx: -1,
-            peakIdx: 0,
-        };
+        if (!data || data.length === 0)
+            return {
+                maxIntensity: 0,
+                hasRain: false,
+                headline: 'No Rain Expected',
+                subline: 'Next 60 minutes',
+                isCurrentlyRaining: false,
+                category: { label: 'Clear', badgeClass: '', color: 'rgba(96, 165, 250, 0.5)' },
+                totalPrecip: 0,
+                firstRainIdx: -1,
+                peakIdx: 0,
+            };
 
         const now = Date.now();
 
         // Filter out entries whose time has already elapsed — keeps analysis current
         // between data refreshes
-        const futureData = data.filter(d => new Date(d.time).getTime() > now - 60_000);
+        const futureData = data.filter((d) => new Date(d.time).getTime() > now - 60_000);
         const workingData = futureData.length > 0 ? futureData : data;
 
-        const maxIntensity = Math.max(...workingData.map(d => d.intensity), 0.1);
+        const maxIntensity = Math.max(...workingData.map((d) => d.intensity), 0.1);
 
         // DATA ALWAYS WINS: determine rain from actual minute-by-minute intensities.
         const RAIN_THRESHOLD = 0.1; // mm/hr — ignore trace amounts below this
-        const hasRain = workingData.some(d => d.intensity >= RAIN_THRESHOLD);
-        const firstRainEntry = workingData.find(d => d.intensity >= RAIN_THRESHOLD);
-        const firstRainIdx = workingData.findIndex(d => d.intensity >= RAIN_THRESHOLD);
+        const hasRain = workingData.some((d) => d.intensity >= RAIN_THRESHOLD);
+        const firstRainEntry = workingData.find((d) => d.intensity >= RAIN_THRESHOLD);
+        const firstRainIdx = workingData.findIndex((d) => d.intensity >= RAIN_THRESHOLD);
         const isCurrentlyRaining = (workingData[0]?.intensity ?? 0) >= RAIN_THRESHOLD;
 
         // Compute real minutes-until-rain using actual timestamps
@@ -65,17 +66,17 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
         // Find first dry minute after rain
         const firstDryAfterRain = isCurrentlyRaining
             ? (() => {
-                const dryEntry = workingData.find((d, i) => i > 0 && d.intensity < RAIN_THRESHOLD);
-                if (!dryEntry) return -1;
-                return Math.max(1, Math.round((new Date(dryEntry.time).getTime() - now) / 60_000));
-            })()
+                  const dryEntry = workingData.find((d, i) => i > 0 && d.intensity < RAIN_THRESHOLD);
+                  if (!dryEntry) return -1;
+                  return Math.max(1, Math.round((new Date(dryEntry.time).getTime() - now) / 60_000));
+              })()
             : -1;
 
         // Peak intensity index
-        const peakIdx = workingData.reduce((maxI, d, i) => d.intensity > workingData[maxI].intensity ? i : maxI, 0);
+        const peakIdx = workingData.reduce((maxI, d, i) => (d.intensity > workingData[maxI].intensity ? i : maxI), 0);
 
         // Total precipitation in the hour (mm)
-        const totalPrecip = workingData.reduce((sum, d) => sum + (d.intensity / 60), 0);
+        const totalPrecip = workingData.reduce((sum, d) => sum + d.intensity / 60, 0);
 
         // Headline logic — generate from data, use Apple summary only as flavour text
         let headline = '';
@@ -119,7 +120,9 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
     // Close modal on ESC
     useEffect(() => {
         if (!isModalOpen) return;
-        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setIsModalOpen(false); };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setIsModalOpen(false);
+        };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
     }, [isModalOpen]);
@@ -137,10 +140,11 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
         <>
             <button
                 onClick={openModal}
-                className={`w-full rounded-xl overflow-hidden relative text-left transition-all duration-500 ${className} ${isActive
-                    ? 'bg-sky-900/40 border border-cyan-400/30 shadow-lg shadow-cyan-500/10'
-                    : 'bg-slate-800/40 border border-blue-400/10'
-                    }`}
+                className={`w-full rounded-xl overflow-hidden relative text-left transition-all duration-500 ${className} ${
+                    isActive
+                        ? 'bg-sky-900/40 border border-cyan-400/30 shadow-lg shadow-cyan-500/10'
+                        : 'bg-slate-800/40 border border-blue-400/10'
+                }`}
                 style={{
                     minHeight: '76px',
                 }}
@@ -157,17 +161,32 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                     {/* Header Row */}
                     <div className="flex items-center justify-center">
                         <div className="flex items-center gap-1.5">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" className={isActive ? "text-sky-400" : "text-sky-400/60"}>
-                                <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
-                                    fill="currentColor" fillOpacity={isActive ? "0.5" : "0.3"} stroke="currentColor" strokeWidth="1.5" />
+                            <svg
+                                width="12"
+                                height="12"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                className={isActive ? 'text-sky-400' : 'text-sky-400/60'}
+                            >
+                                <path
+                                    d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
+                                    fill="currentColor"
+                                    fillOpacity={isActive ? '0.5' : '0.3'}
+                                    stroke="currentColor"
+                                    strokeWidth="1.5"
+                                />
                             </svg>
-                            <span className={`text-xs font-bold uppercase tracking-wider ${isActive ? 'text-sky-300' : 'text-ivory'}`}>
+                            <span
+                                className={`text-xs font-bold uppercase tracking-wider ${isActive ? 'text-sky-300' : 'text-ivory'}`}
+                            >
                                 {analysis.headline}
                             </span>
                         </div>
 
                         {isActive && (
-                            <div className={`px-1.5 py-0 rounded-full text-[11px] font-bold uppercase tracking-wide leading-tight ${analysis.category.badgeClass}`}>
+                            <div
+                                className={`px-1.5 py-0 rounded-full text-[11px] font-bold uppercase tracking-wide leading-tight ${analysis.category.badgeClass}`}
+                            >
                                 {analysis.category.label}
                             </div>
                         )}
@@ -177,9 +196,13 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                     {data && data.length > 0 && analysis.hasRain && (
                         <div className="flex items-end gap-[1px] w-full mt-1 h-[22px]">
                             {data.map((point, i) => {
-                                const normalizedHeight = analysis.maxIntensity > 0
-                                    ? Math.max((point.intensity / analysis.maxIntensity) * 100, point.intensity > 0 ? 10 : 0)
-                                    : 0;
+                                const normalizedHeight =
+                                    analysis.maxIntensity > 0
+                                        ? Math.max(
+                                              (point.intensity / analysis.maxIntensity) * 100,
+                                              point.intensity > 0 ? 10 : 0,
+                                          )
+                                        : 0;
                                 const barColor = getBarColor(point.intensity, analysis.maxIntensity, isActive);
 
                                 return (
@@ -202,20 +225,16 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, classN
                     {/* Tap hint */}
                     {data && data.length > 0 && (
                         <div className="flex items-center justify-center mt-0.5">
-                            <span className="text-[11px] font-bold text-white/60 uppercase tracking-widest">Tap for detail</span>
+                            <span className="text-[11px] font-bold text-white/60 uppercase tracking-widest">
+                                Tap for detail
+                            </span>
                         </div>
                     )}
                 </div>
             </button>
 
             {/* Expanded Modal */}
-            {isModalOpen && (
-                <RainModal
-                    data={data}
-                    analysis={analysis}
-                    onClose={() => setIsModalOpen(false)}
-                />
-            )}
+            {isModalOpen && <RainModal data={data} analysis={analysis} onClose={() => setIsModalOpen(false)} />}
         </>
     );
 };
@@ -241,7 +260,9 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
     // Prevent body scroll when modal is open
     useEffect(() => {
         document.body.style.overflow = 'hidden';
-        return () => { document.body.style.overflow = ''; };
+        return () => {
+            document.body.style.overflow = '';
+        };
     }, []);
 
     // Time labels
@@ -254,19 +275,17 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
     ];
 
     return (
-        <div
-            className="fixed inset-0 z-[9999] flex items-center justify-center p-6"
-            onClick={onClose}
-        >
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-6" onClick={onClose}>
             {/* Backdrop */}
             <div className="absolute inset-0 bg-black/80" />
 
             {/* Modal */}
             <div
                 className="relative w-full max-w-md rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200"
-                onClick={e => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
                 style={{
-                    background: 'linear-gradient(180deg, rgba(6, 78, 115, 0.9) 0%, rgba(15, 23, 42, 0.95) 40%, rgba(8, 51, 96, 0.85) 100%)',
+                    background:
+                        'linear-gradient(180deg, rgba(6, 78, 115, 0.9) 0%, rgba(15, 23, 42, 0.95) 40%, rgba(8, 51, 96, 0.85) 100%)',
                     border: '1px solid rgba(34, 211, 238, 0.2)',
                     boxShadow: '0 0 60px -10px rgba(34, 211, 238, 0.15), 0 25px 50px -12px rgba(0,0,0,0.5)',
                 }}
@@ -281,13 +300,29 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                     {!analysis.hasRain ? (
                         /* ☀️ Clear — subtle warm glow */
                         <>
-                            <div className="absolute top-4 right-8 w-16 h-16 rounded-full opacity-[0.06]"
-                                style={{ background: 'radial-gradient(circle, rgba(250,204,21,0.8) 0%, rgba(250,204,21,0) 70%)' }} />
-                            <svg className="absolute top-2 right-6 w-20 h-20 opacity-[0.05] text-yellow-300" viewBox="0 0 100 100">
+                            <div
+                                className="absolute top-4 right-8 w-16 h-16 rounded-full opacity-[0.06]"
+                                style={{
+                                    background:
+                                        'radial-gradient(circle, rgba(250,204,21,0.8) 0%, rgba(250,204,21,0) 70%)',
+                                }}
+                            />
+                            <svg
+                                className="absolute top-2 right-6 w-20 h-20 opacity-[0.05] text-yellow-300"
+                                viewBox="0 0 100 100"
+                            >
                                 <circle cx="50" cy="50" r="18" fill="currentColor" />
-                                {[0, 45, 90, 135, 180, 225, 270, 315].map(angle => (
-                                    <line key={angle} x1="50" y1="50" x2={50 + 30 * Math.cos(angle * Math.PI / 180)} y2={50 + 30 * Math.sin(angle * Math.PI / 180)}
-                                        stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                                {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
+                                    <line
+                                        key={angle}
+                                        x1="50"
+                                        y1="50"
+                                        x2={50 + 30 * Math.cos((angle * Math.PI) / 180)}
+                                        y2={50 + 30 * Math.sin((angle * Math.PI) / 180)}
+                                        stroke="currentColor"
+                                        strokeWidth="3"
+                                        strokeLinecap="round"
+                                    />
                                 ))}
                             </svg>
                         </>
@@ -295,30 +330,61 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                         /* 🌧️ Light rain — static subtle droplets (no infinite animations) */
                         <svg className="absolute inset-0 w-full h-full opacity-[0.06]" viewBox="0 0 200 400">
                             {[
-                                { x: 30, y: 60 }, { x: 70, y: 120 }, { x: 120, y: 40 },
-                                { x: 160, y: 100 }, { x: 50, y: 200 }, { x: 140, y: 180 },
-                                { x: 90, y: 280 }, { x: 170, y: 250 }, { x: 25, y: 320 },
+                                { x: 30, y: 60 },
+                                { x: 70, y: 120 },
+                                { x: 120, y: 40 },
+                                { x: 160, y: 100 },
+                                { x: 50, y: 200 },
+                                { x: 140, y: 180 },
+                                { x: 90, y: 280 },
+                                { x: 170, y: 250 },
+                                { x: 25, y: 320 },
                             ].map((drop, i) => (
-                                <line key={i} x1={drop.x} y1={drop.y} x2={drop.x - 2} y2={drop.y + 14}
-                                    stroke="rgba(56,189,248,1)" strokeWidth="2" strokeLinecap="round" opacity="0.8" />
+                                <line
+                                    key={i}
+                                    x1={drop.x}
+                                    y1={drop.y}
+                                    x2={drop.x - 2}
+                                    y2={drop.y + 14}
+                                    stroke="rgba(56,189,248,1)"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    opacity="0.8"
+                                />
                             ))}
                         </svg>
                     ) : (
                         /* ⛈️ Heavy rain — dense drops + cloud silhouette */
                         <>
-                            <svg className="absolute top-0 left-0 w-full opacity-[0.06]" viewBox="0 0 300 80" preserveAspectRatio="xMidYMin slice">
-                                <path d="M-10 80 Q30 20 80 40 Q120 10 160 35 Q200 5 240 30 Q270 15 310 50 L310 80Z"
-                                    fill="rgba(148,163,184,0.8)" />
-                                <path d="M-10 80 Q40 30 90 50 Q130 20 170 45 Q210 15 250 40 Q280 25 310 55 L310 80Z"
-                                    fill="rgba(100,116,139,0.6)" />
+                            <svg
+                                className="absolute top-0 left-0 w-full opacity-[0.06]"
+                                viewBox="0 0 300 80"
+                                preserveAspectRatio="xMidYMin slice"
+                            >
+                                <path
+                                    d="M-10 80 Q30 20 80 40 Q120 10 160 35 Q200 5 240 30 Q270 15 310 50 L310 80Z"
+                                    fill="rgba(148,163,184,0.8)"
+                                />
+                                <path
+                                    d="M-10 80 Q40 30 90 50 Q130 20 170 45 Q210 15 250 40 Q280 25 310 55 L310 80Z"
+                                    fill="rgba(100,116,139,0.6)"
+                                />
                             </svg>
                             <svg className="absolute inset-0 w-full h-full opacity-[0.08]" viewBox="0 0 200 400">
                                 {Array.from({ length: 18 }, (_, i) => ({
-                                    x: 10 + (i * 11) % 190,
-                                    y: 20 + (i * 37) % 300,
+                                    x: 10 + ((i * 11) % 190),
+                                    y: 20 + ((i * 37) % 300),
                                 })).map((drop, i) => (
-                                    <line key={i} x1={drop.x} y1={drop.y} x2={drop.x - 3} y2={drop.y + 18}
-                                        stroke="rgba(56,189,248,0.9)" strokeWidth="1.5" strokeLinecap="round" />
+                                    <line
+                                        key={i}
+                                        x1={drop.x}
+                                        y1={drop.y}
+                                        x2={drop.x - 3}
+                                        y2={drop.y + 18}
+                                        stroke="rgba(56,189,248,0.9)"
+                                        strokeWidth="1.5"
+                                        strokeLinecap="round"
+                                    />
                                 ))}
                             </svg>
                         </>
@@ -330,8 +396,13 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                     <div className="flex items-center justify-between mb-4">
                         <div className="flex items-center gap-2">
                             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-sky-400">
-                                <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
-                                    fill="currentColor" fillOpacity="0.4" stroke="currentColor" strokeWidth="1.5" />
+                                <path
+                                    d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0L12 2.69z"
+                                    fill="currentColor"
+                                    fillOpacity="0.4"
+                                    stroke="currentColor"
+                                    strokeWidth="1.5"
+                                />
                             </svg>
                             <h3 className="text-sm font-bold text-white uppercase tracking-wider">Rain Forecast</h3>
                         </div>
@@ -375,14 +446,20 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                                     </linearGradient>
                                 </defs>
                                 {/* Droplet icon */}
-                                <path d="M 60 28 l3.5 3.5 a5 5 0 1 1 -7 0 L60 28z"
-                                    fill="rgba(34, 211, 238, 0.7)" stroke="rgba(34, 211, 238, 0.9)" strokeWidth="0.5" />
+                                <path
+                                    d="M 60 28 l3.5 3.5 a5 5 0 1 1 -7 0 L60 28z"
+                                    fill="rgba(34, 211, 238, 0.7)"
+                                    stroke="rgba(34, 211, 238, 0.9)"
+                                    strokeWidth="0.5"
+                                />
                             </svg>
                         </div>
 
                         {/* Intensity label */}
                         <div className="text-center -mt-2">
-                            <div className={`text-[11px] font-bold uppercase tracking-widest mb-0.5 ${analysis.hasRain ? 'text-sky-400' : 'text-sky-400/50'}`}>
+                            <div
+                                className={`text-[11px] font-bold uppercase tracking-widest mb-0.5 ${analysis.hasRain ? 'text-sky-400' : 'text-sky-400/50'}`}
+                            >
                                 {analysis.hasRain ? getIntensityLabel(analysis.maxIntensity) : 'Clear'}
                             </div>
                             <div className="text-2xl font-black text-white tabular-nums">
@@ -394,9 +471,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
 
                     {/* Summary Text */}
                     <div className="text-center mb-4">
-                        <p className="text-sm font-bold text-white uppercase tracking-wide">
-                            {analysis.headline}
-                        </p>
+                        <p className="text-sm font-bold text-white uppercase tracking-wide">{analysis.headline}</p>
                     </div>
 
                     {/* 60-Bar Chart */}
@@ -405,7 +480,10 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                         {analysis.hasRain && (
                             <div
                                 className="absolute -top-4 text-[11px] text-sky-400 font-bold uppercase tracking-wider whitespace-nowrap"
-                                style={{ left: `${(analysis.peakIdx / Math.max(data.length - 1, 1)) * 100}%`, transform: 'translateX(-50%)' }}
+                                style={{
+                                    left: `${(analysis.peakIdx / Math.max(data.length - 1, 1)) * 100}%`,
+                                    transform: 'translateX(-50%)',
+                                }}
                             >
                                 Peak
                             </div>
@@ -413,9 +491,13 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
 
                         <div className="flex items-end gap-[2px] w-full h-[120px]">
                             {data.map((point, i) => {
-                                const normalizedHeight = analysis.maxIntensity > 0
-                                    ? Math.max((point.intensity / analysis.maxIntensity) * 100, point.intensity > 0 ? 8 : 0)
-                                    : 0;
+                                const normalizedHeight =
+                                    analysis.maxIntensity > 0
+                                        ? Math.max(
+                                              (point.intensity / analysis.maxIntensity) * 100,
+                                              point.intensity > 0 ? 8 : 0,
+                                          )
+                                        : 0;
                                 const barColor = getBarColor(point.intensity, analysis.maxIntensity, true);
                                 const isPeak = i === analysis.peakIdx && analysis.hasRain;
 
@@ -427,9 +509,10 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                                                 height: `${normalizedHeight}%`,
                                                 background: barColor,
                                                 minWidth: '2px',
-                                                boxShadow: point.intensity > 0
-                                                    ? `0 0 ${isPeak ? '8' : '3'}px ${barColor}50`
-                                                    : 'none',
+                                                boxShadow:
+                                                    point.intensity > 0
+                                                        ? `0 0 ${isPeak ? '8' : '3'}px ${barColor}50`
+                                                        : 'none',
                                             }}
                                         />
                                     </div>
@@ -440,7 +523,10 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                         {/* Time Axis */}
                         <div className="flex justify-between mt-2 px-0">
                             {timeLabels.map(({ min, label }) => (
-                                <span key={min} className="text-[11px] text-white/60 font-bold uppercase tracking-wider">
+                                <span
+                                    key={min}
+                                    className="text-[11px] text-white/60 font-bold uppercase tracking-wider"
+                                >
                                     {label}
                                 </span>
                             ))}
@@ -452,11 +538,15 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                         <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-white/10">
                             <div className="text-center">
                                 <div className="text-[11px] text-white/60 uppercase tracking-wider mb-0.5">Total</div>
-                                <div className="text-sm font-bold text-white tabular-nums">{Math.round(analysis.totalPrecip)} mm</div>
+                                <div className="text-sm font-bold text-white tabular-nums">
+                                    {Math.round(analysis.totalPrecip)} mm
+                                </div>
                             </div>
                             <div className="text-center">
                                 <div className="text-[11px] text-white/60 uppercase tracking-wider mb-0.5">Peak</div>
-                                <div className="text-sm font-bold text-sky-400 tabular-nums">{Math.round(analysis.maxIntensity)} mm/hr</div>
+                                <div className="text-sm font-bold text-sky-400 tabular-nums">
+                                    {Math.round(analysis.maxIntensity)} mm/hr
+                                </div>
                             </div>
                             <div className="text-center">
                                 <div className="text-[11px] text-white/60 uppercase tracking-wider mb-0.5">Type</div>
@@ -481,21 +571,24 @@ function getIntensityLabel(mmPerHr: number): string {
 }
 
 function getIntensityCategory(mmPerHr: number): { label: string; badgeClass: string; color: string } {
-    if (mmPerHr >= 7.6) return {
-        label: 'Heavy',
-        badgeClass: 'bg-red-500/30 text-red-300 border border-red-400/30',
-        color: 'rgba(239, 68, 68, 0.7)',
-    };
-    if (mmPerHr >= 2.5) return {
-        label: 'Moderate',
-        badgeClass: 'bg-amber-500/25 text-amber-300 border border-amber-400/25',
-        color: 'rgba(245, 158, 11, 0.7)',
-    };
-    if (mmPerHr >= 0.5) return {
-        label: 'Light',
-        badgeClass: 'bg-sky-500/25 text-sky-300 border border-sky-400/25',
-        color: 'rgba(59, 130, 246, 0.7)',
-    };
+    if (mmPerHr >= 7.6)
+        return {
+            label: 'Heavy',
+            badgeClass: 'bg-red-500/30 text-red-300 border border-red-400/30',
+            color: 'rgba(239, 68, 68, 0.7)',
+        };
+    if (mmPerHr >= 2.5)
+        return {
+            label: 'Moderate',
+            badgeClass: 'bg-amber-500/25 text-amber-300 border border-amber-400/25',
+            color: 'rgba(245, 158, 11, 0.7)',
+        };
+    if (mmPerHr >= 0.5)
+        return {
+            label: 'Light',
+            badgeClass: 'bg-sky-500/25 text-sky-300 border border-sky-400/25',
+            color: 'rgba(59, 130, 246, 0.7)',
+        };
     return {
         label: 'Drizzle',
         badgeClass: 'bg-sky-500/20 text-sky-300 border border-sky-400/20',
@@ -510,11 +603,11 @@ function getBarColor(intensity: number, maxIntensity: number, active: boolean): 
 
     if (active) {
         // Active: cyan → blue → indigo spectrum
-        if (ratio > 0.8) return 'rgba(34, 211, 238, 0.95)';   // Cyan — peak
-        if (ratio > 0.6) return 'rgba(56, 189, 248, 0.85)';   // Sky
-        if (ratio > 0.4) return 'rgba(96, 165, 250, 0.80)';   // Blue
-        if (ratio > 0.2) return 'rgba(129, 140, 248, 0.70)';  // Indigo
-        return 'rgba(147, 197, 253, 0.55)';                     // Light blue
+        if (ratio > 0.8) return 'rgba(34, 211, 238, 0.95)'; // Cyan — peak
+        if (ratio > 0.6) return 'rgba(56, 189, 248, 0.85)'; // Sky
+        if (ratio > 0.4) return 'rgba(96, 165, 250, 0.80)'; // Blue
+        if (ratio > 0.2) return 'rgba(129, 140, 248, 0.70)'; // Indigo
+        return 'rgba(147, 197, 253, 0.55)'; // Light blue
     }
 
     // Quiet: muted blues

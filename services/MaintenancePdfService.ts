@@ -26,31 +26,32 @@ function formatCurrency(val: number | null): string {
 
 // ── TEMPLATE A: Engine Room Clipboard ───────────────────────────
 
-function generateChecklistHtml(
-    tasks: MaintenanceTask[],
-    engineHours: number,
-    vesselName: string,
-): string {
+function generateChecklistHtml(tasks: MaintenanceTask[], engineHours: number, vesselName: string): string {
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
 
-    const sorted = sortByUrgency(tasks.map(t => calculateStatus(t, engineHours)));
+    const sorted = sortByUrgency(tasks.map((t) => calculateStatus(t, engineHours)));
 
-    const rows = sorted.map(task => {
-        const dueCol = task.trigger_type === 'engine_hours'
-            ? `${task.next_due_hours?.toLocaleString() ?? '—'} hrs`
-            : task.next_due_date ? formatDate(task.next_due_date) : '—';
+    const rows = sorted
+        .map((task) => {
+            const dueCol =
+                task.trigger_type === 'engine_hours'
+                    ? `${task.next_due_hours?.toLocaleString() ?? '—'} hrs`
+                    : task.next_due_date
+                      ? formatDate(task.next_due_date)
+                      : '—';
 
-        const statusDot = task.status === 'red' ? '🔴' : task.status === 'yellow' ? '🟡' : '🟢';
+            const statusDot = task.status === 'red' ? '🔴' : task.status === 'yellow' ? '🟡' : '🟢';
 
-        return `
+            return `
             <tr>
                 <td style="width:32px;text-align:center;font-size:18px;padding:8px 4px;">☐</td>
                 <td style="padding:8px 6px;font-weight:700;font-size:11px;">${statusDot} ${escapeHtml(task.title)}</td>
                 <td style="padding:8px 6px;text-align:center;font-size:10px;white-space:nowrap;">${dueCol}</td>
                 <td style="padding:8px 6px;font-size:10px;border-bottom:1px solid #ccc;min-width:160px;">&nbsp;</td>
             </tr>`;
-    }).join('\n');
+        })
+        .join('\n');
 
     return `<!DOCTYPE html>
 <html>
@@ -107,15 +108,18 @@ function generateServiceHistoryHtml(
     const now = new Date();
     const dateStr = now.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
 
-    const rows = history.map(h => `
+    const rows = history
+        .map(
+            (h) => `
         <tr>
             <td style="padding:8px 6px;font-size:10px;white-space:nowrap;">${formatDate(h.completed_at)}</td>
             <td style="padding:8px 6px;font-weight:700;font-size:11px;">${escapeHtml(h.taskTitle || 'Unknown Task')}</td>
             <td style="padding:8px 6px;text-align:center;font-size:10px;">${h.engine_hours_at_service?.toLocaleString() ?? '—'}</td>
             <td style="padding:8px 6px;font-size:10px;">${escapeHtml(h.notes || '—')}</td>
             <td style="padding:8px 6px;text-align:right;font-size:10px;">${formatCurrency(h.cost)}</td>
-        </tr>`
-    ).join('\n');
+        </tr>`,
+        )
+        .join('\n');
 
     const totalCost = history.reduce((sum, h) => sum + (h.cost || 0), 0);
 
@@ -157,11 +161,15 @@ function generateServiceHistoryHtml(
         </thead>
         <tbody>
             ${rows}
-            ${totalCost > 0 ? `
+            ${
+                totalCost > 0
+                    ? `
             <tr class="total-row">
                 <td colspan="4" style="padding:8px 6px;text-align:right;font-size:11px;">TOTAL EXPENDITURE</td>
                 <td style="padding:8px 6px;text-align:right;font-size:11px;">${formatCurrency(totalCost)}</td>
-            </tr>` : ''}
+            </tr>`
+                    : ''
+            }
         </tbody>
     </table>
 
@@ -188,7 +196,7 @@ async function generateAndSharePdf(html: string, filename: string): Promise<void
     });
 
     // Render HTML into PDF
-    await new Promise<void>((resolve, reject) => {
+    await new Promise<void>((resolve, _reject) => {
         doc.html(html, {
             callback: () => resolve(),
             x: 0,
@@ -233,10 +241,7 @@ async function generateAndSharePdf(html: string, filename: string): Promise<void
  * Export a blank maintenance checklist PDF (Template A).
  * For printing and taking to the engine room.
  */
-export async function exportChecklist(
-    engineHours: number,
-    vesselName: string,
-): Promise<void> {
+export async function exportChecklist(engineHours: number, vesselName: string): Promise<void> {
     const tasks = await MaintenanceService.getTasks();
     const html = generateChecklistHtml(tasks, engineHours, vesselName);
     const dateSlug = new Date().toISOString().slice(0, 10);
@@ -247,17 +252,15 @@ export async function exportChecklist(
  * Export the formal service history PDF (Template B).
  * A permanent ledger of all completed maintenance work.
  */
-export async function exportServiceHistory(
-    vesselName: string,
-): Promise<void> {
+export async function exportServiceHistory(vesselName: string): Promise<void> {
     // Fetch history + join with task titles
     const [history, tasks] = await Promise.all([
         MaintenanceService.getAllHistory(500),
         MaintenanceService.getAllTasks(),
     ]);
 
-    const taskMap = new Map(tasks.map(t => [t.id, t]));
-    const enriched = history.map(h => ({
+    const taskMap = new Map(tasks.map((t) => [t.id, t]));
+    const enriched = history.map((h) => ({
         ...h,
         taskTitle: taskMap.get(h.task_id)?.title,
         taskCategory: taskMap.get(h.task_id)?.category,

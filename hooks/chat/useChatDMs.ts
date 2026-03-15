@@ -26,13 +26,15 @@ export function useChatDMs(options: UseChatDMsOptions) {
 
     // Ref so the DM subscription callback always has fresh partner data
     const dmPartnerRef = useRef(dmPartner);
-    useEffect(() => { dmPartnerRef.current = dmPartner; }, [dmPartner]);
+    useEffect(() => {
+        dmPartnerRef.current = dmPartner;
+    }, [dmPartner]);
 
     // --- DM Subscription (lives for component lifetime) ---
     const subscribe = useCallback(() => {
         return ChatService.subscribeToDMs((dm) => {
-            setUnreadDMs(prev => prev + 1);
-            setDmThread(prev => {
+            setUnreadDMs((prev) => prev + 1);
+            setDmThread((prev) => {
                 const partner = dmPartnerRef.current;
                 if (partner && dm.sender_id === partner.id) {
                     return [...prev, dm];
@@ -53,21 +55,24 @@ export function useChatDMs(options: UseChatDMsOptions) {
         setLoading(false);
     }, [setView, setNavDirection, setLoading]);
 
-    const openDMThread = useCallback(async (userId: string, name: string) => {
-        setDmPartner({ id: userId, name });
-        setNavDirection('forward');
-        setView('dm_thread');
-        setShowBlockConfirm(false);
-        setLoading(true);
-        const [thread, blocked] = await Promise.all([
-            ChatService.getDMThread(userId),
-            ChatService.isBlocked(userId),
-        ]);
-        setDmThread(thread);
-        setIsUserBlocked(blocked);
-        setLoading(false);
-        setUnreadDMs(prev => Math.max(0, prev - 1));
-    }, [setView, setNavDirection, setLoading]);
+    const openDMThread = useCallback(
+        async (userId: string, name: string) => {
+            setDmPartner({ id: userId, name });
+            setNavDirection('forward');
+            setView('dm_thread');
+            setShowBlockConfirm(false);
+            setLoading(true);
+            const [thread, blocked] = await Promise.all([
+                ChatService.getDMThread(userId),
+                ChatService.isBlocked(userId),
+            ]);
+            setDmThread(thread);
+            setIsUserBlocked(blocked);
+            setLoading(false);
+            setUnreadDMs((prev) => Math.max(0, prev - 1));
+        },
+        [setView, setNavDirection, setLoading],
+    );
 
     const sendDMMessage = useCallback(async () => {
         if (!dmText.trim() || !dmPartner) return;
@@ -83,12 +88,12 @@ export function useChatDMs(options: UseChatDMsOptions) {
             read: true,
             created_at: new Date().toISOString(),
         };
-        setDmThread(prev => [...prev, optimistic]);
+        setDmThread((prev) => [...prev, optimistic]);
         triggerHaptic('light');
 
         const result = await ChatService.sendDM(dmPartner.id, text);
         if (result === 'blocked') {
-            setDmThread(prev => prev.filter(m => m.id !== optimistic.id));
+            setDmThread((prev) => prev.filter((m) => m.id !== optimistic.id));
             setIsUserBlocked(true);
         }
     }, [dmText, dmPartner]);
@@ -117,11 +122,15 @@ export function useChatDMs(options: UseChatDMsOptions) {
     return {
         // State
         dmConversations,
-        dmThread, setDmThread,
-        dmPartner, setDmPartner,
-        dmText, setDmText,
+        dmThread,
+        setDmThread,
+        dmPartner,
+        setDmPartner,
+        dmText,
+        setDmText,
         isUserBlocked,
-        showBlockConfirm, setShowBlockConfirm,
+        showBlockConfirm,
+        setShowBlockConfirm,
         unreadDMs,
 
         // Actions
