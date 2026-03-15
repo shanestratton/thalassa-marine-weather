@@ -11,6 +11,7 @@ import { ShipLogService } from '../services/ShipLogService';
 import { formatTime24Colon, getWatchPeriod, getWatchPeriodName } from '../utils/marineFormatters';
 import { useFocusTrap } from '../hooks/useAccessibility';
 import { LocalMaintenanceService } from '../services/vessel/LocalMaintenanceService';
+import { GpsService } from '../services/GpsService';
 import { toast } from './Toast';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 
@@ -50,6 +51,9 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
     const [isWaypoint, setIsWaypoint] = useState(false);
     const [eventCategory, setEventCategory] = useState<EventCategory>('observation');
     const [saving, setSaving] = useState(false);
+    const [fetchingPos, setFetchingPos] = useState(false);
+    const [listening, setListening] = useState(false);
+    const [polishing, setPolishing] = useState(false);
 
     // Current watch info
     const now = new Date();
@@ -219,6 +223,155 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                             placeholder="e.g., Course change, Crew rotation, Equipment issue"
                             className="w-full px-4 py-3 bg-slate-800 border border-white/10 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 min-h-[80px] resize-none"
                         />
+                    </div>
+
+                    {/* Position | Voice | Polish — 3-column toolbar */}
+                    <div className="flex gap-2">
+                        {/* Position — 2/3 width */}
+                        <button
+                            type="button"
+                            disabled={fetchingPos}
+                            onClick={async () => {
+                                setFetchingPos(true);
+                                try {
+                                    const pos = await GpsService.getCurrentPosition({
+                                        staleLimitMs: 30_000,
+                                        timeoutSec: 10,
+                                    });
+                                    if (!pos) throw new Error('No position');
+                                    const lat = pos.latitude;
+                                    const lon = pos.longitude;
+                                    const latDir = lat >= 0 ? 'N' : 'S';
+                                    const lonDir = lon >= 0 ? 'E' : 'W';
+                                    const coordStr = `${Math.abs(lat).toFixed(4)}°${latDir}, ${Math.abs(lon).toFixed(4)}°${lonDir}`;
+                                    setNotes((prev) =>
+                                        prev ? `${prev}\nPosition: ${coordStr}` : `Position: ${coordStr}`,
+                                    );
+                                    toast.success('Position added');
+                                } catch (e) {
+                                    toast.error('Could not get position');
+                                } finally {
+                                    setFetchingPos(false);
+                                }
+                            }}
+                            className="flex-[2] flex items-center justify-center gap-2 px-3 py-2.5 bg-slate-800 border border-white/10 rounded-lg text-sm font-bold transition-colors hover:bg-slate-700 active:scale-[0.97] disabled:opacity-50"
+                        >
+                            {fetchingPos ? (
+                                <div className="w-4 h-4 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                                <svg
+                                    className="w-4 h-4 text-sky-400"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+                                    />
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                                    />
+                                </svg>
+                            )}
+                            <span className="text-sky-400">Position</span>
+                        </button>
+
+                        {/* Voice — 1/6 width */}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+                                if (!SR) {
+                                    toast.error('Speech recognition not supported');
+                                    return;
+                                }
+                                if (listening) return;
+                                const recognition = new SR();
+                                recognition.lang = 'en-AU';
+                                recognition.interimResults = false;
+                                recognition.maxAlternatives = 1;
+                                recognition.continuous = false;
+                                setListening(true);
+                                recognition.onresult = (event: any) => {
+                                    const transcript = event.results[0][0].transcript;
+                                    setNotes((prev) => (prev ? `${prev} ${transcript}` : transcript));
+                                    toast.success('Voice captured');
+                                };
+                                recognition.onerror = () => {
+                                    toast.error('Voice capture failed');
+                                };
+                                recognition.onend = () => setListening(false);
+                                recognition.start();
+                            }}
+                            className={`flex-1 flex items-center justify-center px-2 py-2.5 border rounded-lg text-sm font-bold transition-colors active:scale-[0.97] ${
+                                listening
+                                    ? 'bg-red-500/20 border-red-500/30 text-red-400 animate-pulse'
+                                    : 'bg-slate-800 border-white/10 text-amber-400 hover:bg-slate-700'
+                            }`}
+                        >
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"
+                                />
+                            </svg>
+                        </button>
+
+                        {/* Polish — 1/6 width */}
+                        <button
+                            type="button"
+                            disabled={polishing || !notes.trim()}
+                            onClick={() => {
+                                if (!notes.trim()) return;
+                                setPolishing(true);
+                                try {
+                                    // Simple client-side polish: capitalise sentences, fix spacing
+                                    let polished = notes.trim();
+                                    // Capitalise first letter of each sentence
+                                    polished = polished.replace(
+                                        /(^|[.!?]\s+)([a-z])/g,
+                                        (_, prefix, letter) => prefix + letter.toUpperCase(),
+                                    );
+                                    // Capitalise first character overall
+                                    polished = polished.charAt(0).toUpperCase() + polished.slice(1);
+                                    // Clean up multiple spaces
+                                    polished = polished.replace(/ {2,}/g, ' ');
+                                    // Ensure ends with full stop
+                                    if (!/[.!?]$/.test(polished)) polished += '.';
+                                    setNotes(polished);
+                                    toast.success('Notes polished');
+                                } finally {
+                                    setPolishing(false);
+                                }
+                            }}
+                            className="flex-1 flex items-center justify-center px-2 py-2.5 bg-slate-800 border border-white/10 rounded-lg text-sm font-bold text-emerald-400 transition-colors hover:bg-slate-700 active:scale-[0.97] disabled:opacity-30"
+                        >
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z"
+                                />
+                            </svg>
+                        </button>
                     </div>
 
                     {/* Buttons */}
