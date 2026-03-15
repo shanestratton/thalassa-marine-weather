@@ -13,6 +13,7 @@ export interface MetricWidget {
     icon: React.ReactNode;
     headingColor: string;
     labelColor: string;
+    dirDeg?: number | null; // Optional direction arrow (degrees)
 }
 
 interface MetricGridPanelProps {
@@ -20,6 +21,20 @@ interface MetricGridPanelProps {
     getValue: (id: string) => string | number;
     getUnit: (id: string) => string;
 }
+
+// Small directional arrow for swell/current cells
+const SmallArrow: React.FC<{ degrees: number; size?: number }> = ({ degrees, size = 12 }) => (
+    <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        className="shrink-0 opacity-70"
+        style={{ transform: `rotate(${degrees}deg)`, transition: 'transform 1s ease' }}
+    >
+        <path d="M12 2L8 14h8L12 2Z" fill="rgba(94,234,212,0.7)" />
+        <path d="M12 22L8 14h8L12 22Z" fill="rgba(148,163,184,0.25)" />
+    </svg>
+);
 
 const MetricCell: React.FC<{ w: MetricWidget; value: string | number; unit: string }> = ({ w, value, unit }) => (
     <div className="flex flex-col items-center justify-center h-full py-2 px-1 gap-1">
@@ -30,6 +45,7 @@ const MetricCell: React.FC<{ w: MetricWidget; value: string | number; unit: stri
             </span>
         </div>
         <div className="flex items-baseline gap-0.5">
+            {w.dirDeg !== undefined && w.dirDeg !== null && <SmallArrow degrees={w.dirDeg} />}
             <span
                 className="text-[26px] font-mono font-medium tracking-tight text-ivory drop-shadow-md"
                 style={{ fontFeatureSettings: '"tnum"' }}

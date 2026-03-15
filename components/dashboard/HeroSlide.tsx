@@ -1316,6 +1316,9 @@ const HeroSlideComponent = ({
                                                         icon: <WaveIcon className="w-3 h-3" />,
                                                         headingColor: 'text-cyan-400',
                                                         labelColor: 'text-cyan-300',
+                                                        dirDeg: cardData.swellDirection
+                                                            ? cardinalToDegrees(cardData.swellDirection)
+                                                            : null,
                                                     },
                                                     {
                                                         id: 'secondarySwellPeriod',
@@ -1323,6 +1326,9 @@ const HeroSlideComponent = ({
                                                         icon: <GaugeIcon className="w-3 h-3" />,
                                                         headingColor: 'text-cyan-400',
                                                         labelColor: 'text-cyan-300',
+                                                        dirDeg: cardData.swellDirection
+                                                            ? cardinalToDegrees(cardData.swellDirection)
+                                                            : null,
                                                     },
                                                 ];
                                                 const INLAND_WIDGETS = [
