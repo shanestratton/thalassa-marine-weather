@@ -13,6 +13,7 @@
 
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { createLogger } from '../utils/createLogger';
+import { captureException } from '../services/sentry';
 
 const log = createLogger('ErrorBoundary');
 import { AlertTriangleIcon } from './Icons';
@@ -125,6 +126,14 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
         // Enhanced error logging for debugging
         log.error(`[ErrorBoundary:${boundaryName}] Caught render error:`, error);
         log.error(`[ErrorBoundary:${boundaryName}] Component stack:`, errorInfo.componentStack);
+
+        // Report to Sentry with boundary context
+        captureException(error, {
+            contexts: {
+                react: { componentStack: errorInfo.componentStack },
+            },
+            tags: { boundary: boundaryName },
+        } as any);
 
         // Call optional error callback
         if (this.props.onError) {
