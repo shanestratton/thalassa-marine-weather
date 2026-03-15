@@ -15,6 +15,11 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		AA000001AAAA000100000001 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001AAAA000100000002 /* SceneDelegate.swift */; };
+		AA000002AAAA000200000001 /* AlarmAudioPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002AAAA000200000002 /* AlarmAudioPlugin.swift */; };
+		AA000003AAAA000300000001 /* AlarmAudioPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000003AAAA000300000002 /* AlarmAudioPlugin.m */; };
+		AA000004AAAA000400000001 /* BackgroundLocationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000004AAAA000400000002 /* BackgroundLocationPlugin.swift */; };
+		AA000005AAAA000500000001 /* BackgroundLocationPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000005AAAA000500000002 /* BackgroundLocationPlugin.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,6 +36,11 @@
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		654E8B1F072CA359E75B78A4 /* Pods-App.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.release.xcconfig"; path = "Target Support Files/Pods-App/Pods-App.release.xcconfig"; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		AA000001AAAA000100000002 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		AA000002AAAA000200000002 /* AlarmAudioPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmAudioPlugin.swift; sourceTree = "<group>"; };
+		AA000003AAAA000300000002 /* AlarmAudioPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AlarmAudioPlugin.m; sourceTree = "<group>"; };
+		AA000004AAAA000400000002 /* BackgroundLocationPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundLocationPlugin.swift; sourceTree = "<group>"; };
+		AA000005AAAA000500000002 /* BackgroundLocationPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BackgroundLocationPlugin.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -69,6 +79,11 @@
 			children = (
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
+				AA000001AAAA000100000002 /* SceneDelegate.swift */,
+				AA000002AAAA000200000002 /* AlarmAudioPlugin.swift */,
+				AA000003AAAA000300000002 /* AlarmAudioPlugin.m */,
+				AA000004AAAA000400000002 /* BackgroundLocationPlugin.swift */,
+				AA000005AAAA000500000002 /* BackgroundLocationPlugin.m */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -232,6 +247,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
+				AA000001AAAA000100000001 /* SceneDelegate.swift in Sources */,
+				AA000002AAAA000200000001 /* AlarmAudioPlugin.swift in Sources */,
+				AA000003AAAA000300000001 /* AlarmAudioPlugin.m in Sources */,
+				AA000004AAAA000400000001 /* BackgroundLocationPlugin.swift in Sources */,
+				AA000005AAAA000500000001 /* BackgroundLocationPlugin.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
