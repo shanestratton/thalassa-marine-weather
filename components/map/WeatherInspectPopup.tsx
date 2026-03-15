@@ -90,7 +90,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, onClose })
             {/* Card */}
             <div
                 style={{
-                    background: 'linear-gradient(135deg, rgba(15,23,42,0.98), rgba(30,41,59,0.96))',
+                    background: 'linear-gradient(135deg, rgb(15,23,42), rgb(20,30,50))',
                     backdropFilter: 'blur(20px) saturate(1.4)',
                     WebkitBackdropFilter: 'blur(20px) saturate(1.4)',
                     border: '1px solid rgba(255,255,255,0.1)',
