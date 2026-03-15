@@ -175,6 +175,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                 [-220, -85],
                 [220, 85],
             ],
+            renderWorldCopies: false,
             projection: 'mercator' as any,
             interactive: true,
             dragPan: true,
