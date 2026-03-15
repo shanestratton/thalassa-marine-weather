@@ -79,7 +79,6 @@ export async function precomputeIsochrone(
         const { DEFAULT_CRUISING_POLAR } = await import('./defaultPolar');
         const { preloadBathymetry } = await import('./BathymetryCache');
         const { computeIsochrones } = await import('./IsochroneRouter');
-        const { findSeaBuoy } = await import('./seaBuoyFinder');
 
         if (gen !== _abortGen) return; // aborted
 
@@ -92,7 +91,7 @@ export async function precomputeIsochrone(
         const windField = createWindFieldFromGrid(windGrid);
         const polar = SmartPolarStore.exportToPolarData() ?? DEFAULT_CRUISING_POLAR;
 
-        // 2. Find sea buoy gates
+        // Use original coordinates directly (sea buoy gate finding removed)
         const R_NM = 3440.065;
         const dLat = ((arr.lat - dep.lat) * Math.PI) / 180;
         const dLon = ((arr.lon - dep.lon) * Math.PI) / 180;
@@ -102,22 +101,8 @@ export async function precomputeIsochrone(
         const straightNM = R_NM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         const isShortRoute = straightNM < 100;
 
-        let depGate = dep;
-        let arrGate = arr;
-
-        if (!isShortRoute) {
-            try {
-                const [depBuoy, arrBuoy] = await Promise.all([
-                    findSeaBuoy(dep.lat, dep.lon, arr.lat, arr.lon),
-                    findSeaBuoy(arr.lat, arr.lon, dep.lat, dep.lon),
-                ]);
-                if (gen !== _abortGen) return;
-                if (depBuoy.offsetNM > 0 || depBuoy.alreadyDeep) depGate = { lat: depBuoy.lat, lon: depBuoy.lon };
-                if (arrBuoy.offsetNM > 0 || arrBuoy.alreadyDeep) arrGate = { lat: arrBuoy.lat, lon: arrBuoy.lon };
-            } catch {
-                // Keep original gates
-            }
-        }
+        const depGate = dep;
+        const arrGate = arr;
 
         if (gen !== _abortGen) return;
 
