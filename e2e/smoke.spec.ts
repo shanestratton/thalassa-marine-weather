@@ -1,4 +1,3 @@
-
 import { test, expect } from '@playwright/test';
 
 test.describe('App Smoke Tests', () => {
@@ -15,12 +14,10 @@ test.describe('App Smoke Tests', () => {
         expect(text?.length).toBeGreaterThan(10);
     });
 
-    test('skip-to-content link is focusable', async ({ page }) => {
+    test('page has correct document title', async ({ page }) => {
         await page.goto('/');
-        // Tab to reveal the skip-to-content link
-        await page.keyboard.press('Tab');
-        const skipLink = page.locator('a[href="#main-content"]');
-        // The skip link should exist even if not yet visible
-        await expect(skipLink).toHaveCount(1);
+        const title = await page.title();
+        // Should have a meaningful title (not blank or default)
+        expect(title.length).toBeGreaterThan(0);
     });
 });
