@@ -163,18 +163,6 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         mapboxgl.accessToken = mapboxToken;
 
-        // ── Dynamic minZoom: prevent seeing duplicate continents ──
-        // Use 256px tile base (safest baseline across all map engines).
-        // Calculate the zoom where one world copy fills the viewport,
-        // plus a +1.0 buffer to aggressively prevent edge-duplication
-        // on 4K/ultrawide monitors.
-        // renderWorldCopies defaults to true (seamless Pacific panning).
-        const calcMinZoom = (width: number) => {
-            const z = Math.log2(width / 256);
-            return z > 0 ? z + 1.0 : 1;
-        };
-        const dynamicMinZoom = embedded ? initialZoom : calcMinZoom(containerRef.current.clientWidth);
-
         const map = new mapboxgl.Map({
             container: containerRef.current,
             style: mapStyle,
@@ -182,7 +170,8 @@ export function useMapInit(opts: UseMapInitOptions) {
             zoom: initialZoom,
             attributionControl: false,
             maxZoom: 18,
-            minZoom: dynamicMinZoom,
+            minZoom: embedded ? initialZoom : 2,
+            renderWorldCopies: false,
             projection: 'mercator' as any,
             interactive: true,
             dragPan: true,
@@ -698,13 +687,9 @@ export function useMapInit(opts: UseMapInitOptions) {
         };
         window.addEventListener('map-recenter', handleRecenter);
 
-        // ResizeObserver — also recalculate dynamic minZoom on resize
+        // ResizeObserver
         const resizeObserver = new ResizeObserver(() => {
             map.resize();
-            if (!embedded && containerRef.current) {
-                const newMinZoom = calcMinZoom(containerRef.current.clientWidth);
-                map.setMinZoom(newMinZoom);
-            }
         });
         resizeObserver.observe(containerRef.current);
 
