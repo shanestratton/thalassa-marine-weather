@@ -6,7 +6,6 @@ import { t } from '../theme';
 import { useDashboardController } from '../hooks/useDashboardController';
 import { ClockIcon } from './Icons';
 import { HeroSection } from './dashboard/Hero';
-import { TideWidget } from './dashboard/TideAndVessel';
 import { CompactHeaderRow } from './dashboard/CompactHeaderRow';
 import { StatusBadges } from './dashboard/StatusBadges';
 import { getMoonPhase } from './dashboard/WeatherHelpers';
@@ -644,7 +643,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
                             {/* FIXED WIDGETS - Slide down when expanded (165 + 70 + 8 = 243) */}
                             <div
-                                className="fixed left-0 right-0 z-[110] px-4 transition-all duration-300 ease-in-out"
+                                className="fixed left-0 right-0 z-[110] px-4 max-w-4xl mx-auto transition-all duration-300 ease-in-out"
                                 style={{
                                     top: 'calc(max(8px, env(safe-area-inset-top)) + 251px)',
                                     opacity: isExpanded ? 1 : 0,
@@ -763,19 +762,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     />
                                 </div>
                             </div>
-
-                            {data.tides && !isLandlocked && data.locationType !== 'offshore' && (
-                                <TideWidget
-                                    tides={data.tides}
-                                    hourlyTides={hourly}
-                                    tideHourly={data.tideHourly}
-                                    units={units}
-                                    timeZone={data.timeZone}
-                                    modelUsed={data.modelUsed}
-                                    guiDetails={data.tideGUIDetails}
-                                    customTime={selectedTime}
-                                />
-                            )}
                         </div>
                     )}
 
