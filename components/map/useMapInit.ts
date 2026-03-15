@@ -163,11 +163,11 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         mapboxgl.accessToken = mapboxToken;
 
-        // ── Pacific Fence: seamless dateline panning without duplicates ──
-        // maxBounds crosses the dateline using longitude > 180.
-        // Southwest = east of Indonesia (100°E), Northeast = mid-Americas (250°E = -110°W).
-        // Tighter 150° span prevents Greenland/Europe from appearing on wide screens.
-        // renderWorldCopies must be true to allow the >180 coordinates to render.
+        // ── Dynamic WorldCopies: one Earth at world view, seamless at nav zoom ──
+        // At low zoom (z<4): renderWorldCopies OFF → single Earth, no duplicates.
+        // At high zoom (z≥4): renderWorldCopies ON → seamless Pacific panning.
+        // The user navigates at z5+ where dateline crossing works. Zooming out
+        // to world view shows one clean Earth.
         const map = new mapboxgl.Map({
             container: containerRef.current,
             style: mapStyle,
@@ -175,12 +175,8 @@ export function useMapInit(opts: UseMapInitOptions) {
             zoom: initialZoom,
             attributionControl: false,
             maxZoom: 18,
-            minZoom: embedded ? initialZoom : 3,
-            renderWorldCopies: true,
-            maxBounds: [
-                [100.0, -80.0],
-                [250.0, 80.0],
-            ],
+            minZoom: embedded ? initialZoom : 2,
+            renderWorldCopies: false,
             projection: 'mercator' as any,
             interactive: true,
             dragPan: true,
@@ -190,6 +186,15 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         map.dragRotate.disable();
         map.touchZoomRotate.disableRotation();
+
+        // Toggle world copies based on zoom level
+        const WORLD_COPY_THRESHOLD = 4;
+        map.on('zoom', () => {
+            const shouldWrap = map.getZoom() >= WORLD_COPY_THRESHOLD;
+            if (map.getRenderWorldCopies() !== shouldWrap) {
+                map.setRenderWorldCopies(shouldWrap);
+            }
+        });
 
         map.on('load', () => {
             const style = map.getStyle();
