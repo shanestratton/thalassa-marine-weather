@@ -52,7 +52,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
     const [mapLoaded, setMapLoaded] = useState(false);
 
     const staticUrl = token
-        ? `https://api.mapbox.com/styles/v1/mapbox/satellite-v9/static/${lon},${lat},${zoom},0/600x400?access_token=${token}&attribution=false&logo=false`
+        ? `https://api.mapbox.com/styles/v1/mapbox/dark-v11/static/${lon},${lat},${zoom},0/600x400?access_token=${token}&attribution=false&logo=false`
         : '';
 
     // Prefetch the static image on mount so the browser cache has it ready
