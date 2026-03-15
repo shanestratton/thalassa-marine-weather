@@ -1,3 +1,6 @@
+// Sentry must be imported FIRST — before any other app code
+import { captureException, addBreadcrumb } from './services/sentry';
+
 import React, { ErrorInfo, ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
@@ -127,7 +130,15 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
         return { hasError: true, error };
     }
 
-    public componentDidCatch(error: Error, _errorInfo: ErrorInfo) {}
+    public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+        // Send to Sentry with component stack context
+        captureException(error, {
+            contexts: {
+                react: { componentStack: errorInfo.componentStack },
+            },
+            tags: { boundary: 'root' },
+        } as any);
+    }
 
     public render() {
         if (this.state.hasError) {

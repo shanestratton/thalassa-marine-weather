@@ -30,6 +30,7 @@ import {
     HISTORY_CACHE_KEY,
 } from './nativeStorage';
 import { getUpdateInterval, alignToNextInterval, AI_UPDATE_INTERVAL } from './WeatherScheduler';
+import { addBreadcrumb, captureException } from './sentry';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -91,11 +92,18 @@ export class WeatherOrchestrator {
 
     async checkCacheVersion(): Promise<void> {
         console.info('[WeatherOrchestrator] Version check starting...');
+        addBreadcrumb({ category: 'weather', message: 'Cache version check', level: 'info' });
         try {
             const ver = await readCacheVersion();
             console.info(`[WeatherOrchestrator] Cached version: ${ver}, expected: ${CACHE_VERSION}`);
             if (ver !== CACHE_VERSION) {
                 console.info('[WeatherOrchestrator] Version mismatch — clearing caches');
+                addBreadcrumb({
+                    category: 'weather',
+                    message: 'Cache version mismatch, clearing caches',
+                    level: 'warning',
+                    data: { cachedVersion: ver, expectedVersion: CACHE_VERSION },
+                });
                 deleteLargeData(DATA_CACHE_KEY);
                 deleteLargeData(HISTORY_CACHE_KEY);
                 deleteLargeData(VOYAGE_CACHE_KEY);
@@ -112,6 +120,7 @@ export class WeatherOrchestrator {
             }
         } catch (e) {
             console.warn('[WeatherOrchestrator] Version check failed:', e);
+            captureException(e, { tags: { operation: 'checkCacheVersion' } } as any);
         } finally {
             this.cb.setVersionChecked(true);
             console.info('[WeatherOrchestrator] Version check complete');
@@ -124,8 +133,14 @@ export class WeatherOrchestrator {
         const syncCached = loadLargeDataSync(DATA_CACHE_KEY) as MarineWeatherReport | null;
         if (syncCached && syncCached.locationName) {
             console.info(`[WeatherOrchestrator] Instant display: ${syncCached.locationName}`);
+            addBreadcrumb({
+                category: 'weather',
+                message: `Instant cache hit: ${syncCached.locationName}`,
+                level: 'info',
+            });
             return syncCached;
         }
+        addBreadcrumb({ category: 'weather', message: 'Instant cache miss', level: 'info' });
         return null;
     }
 
@@ -143,28 +158,60 @@ export class WeatherOrchestrator {
                     keysToDelete.push(key);
                 }
             }
+            if (keysToDelete.length > 0) {
+                addBreadcrumb({
+                    category: 'weather',
+                    message: `Clearing ${keysToDelete.length} legacy localStorage caches`,
+                    level: 'info',
+                });
+            }
             keysToDelete.forEach((key) => localStorage.removeItem(key));
 
             // Load cached weather data
             console.info('[WeatherOrchestrator] Loading cached weather data...');
+            addBreadcrumb({ category: 'weather', message: 'Loading cached weather data', level: 'info' });
             const cached = await loadLargeData(DATA_CACHE_KEY);
             if (cached && cached.locationName) {
                 console.info(
                     `[WeatherOrchestrator] Cache HIT: ${cached.locationName} (generated: ${cached.generatedAt})`,
                 );
+                addBreadcrumb({
+                    category: 'weather',
+                    message: `Cache HIT: ${cached.locationName}`,
+                    level: 'info',
+                    data: { generatedAt: cached.generatedAt },
+                });
                 this.cb.setWeatherData(cached);
                 this.cb.setLoading(false);
                 hasCachedData = true;
             } else {
                 console.info('[WeatherOrchestrator] Cache MISS: no cached weather data');
+                addBreadcrumb({ category: 'weather', message: 'Cache MISS: no weather data', level: 'info' });
             }
 
             // Load history
             const h = await loadLargeData(HISTORY_CACHE_KEY);
-            if (h) this.cb.setHistoryCache(() => h);
-            else this.cb.setHistoryCache(() => ({}));
+            if (h) {
+                this.cb.setHistoryCache(() => h);
+                addBreadcrumb({
+                    category: 'weather',
+                    message: 'History cache loaded',
+                    level: 'info',
+                    data: { count: Object.keys(h).length },
+                });
+            } else {
+                this.cb.setHistoryCache(() => ({}));
+                addBreadcrumb({ category: 'weather', message: 'History cache empty', level: 'info' });
+            }
         } catch (e) {
             console.warn('[WeatherOrchestrator] Cache load failed:', e);
+            addBreadcrumb({
+                category: 'weather',
+                message: 'Cache load failed',
+                level: 'error',
+                data: { error: getErrorMessage(e) },
+            });
+            captureException(e, { tags: { operation: 'loadCacheAndInit' } } as any);
             this.cb.setLoading(false);
         } finally {
             this.triggerInitialFetch(hasCachedData);
@@ -175,12 +222,14 @@ export class WeatherOrchestrator {
         const settings = this.cb.getSettings();
         if (!settings.defaultLocation) {
             console.info('[WeatherOrchestrator] No default location set');
+            addBreadcrumb({ category: 'weather', message: 'No default location set', level: 'info' });
             this.cb.setLoading(false);
             return;
         }
 
         const loc = settings.defaultLocation;
         console.info(`[WeatherOrchestrator] Default location: "${loc}"`);
+        addBreadcrumb({ category: 'weather', message: `Default location: "${loc}"`, level: 'info' });
 
         // Staleness check
         const currentData = this.cb.getWeatherData();
@@ -190,6 +239,12 @@ export class WeatherOrchestrator {
 
         if (hasCachedData && cachedAge < STALE_THRESHOLD_MS) {
             console.info(`[WeatherOrchestrator] Cache fresh (${Math.round(cachedAge / 60000)}m old) — skipping fetch`);
+            addBreadcrumb({
+                category: 'weather',
+                message: 'Cache fresh, skipping fetch',
+                level: 'info',
+                data: { ageMinutes: Math.round(cachedAge / 60000) },
+            });
             this.cb.setLoading(false);
             return;
         }
@@ -198,6 +253,12 @@ export class WeatherOrchestrator {
             console.info(
                 `[WeatherOrchestrator] Cache stale (${Math.round(cachedAge / 60000)}m old) — blur + background refresh`,
             );
+            addBreadcrumb({
+                category: 'weather',
+                message: 'Cache stale, background refresh',
+                level: 'info',
+                data: { ageMinutes: Math.round(cachedAge / 60000) },
+            });
             this.cb.setStaleRefresh(true);
         }
 
@@ -205,9 +266,16 @@ export class WeatherOrchestrator {
         if (loc === 'Current Location') {
             if (!hasCachedData) this.cb.setLoadingMessage('Getting GPS Location...');
             console.info('[WeatherOrchestrator] Requesting GPS position...');
+            addBreadcrumb({ category: 'weather', message: 'Requesting GPS position', level: 'info' });
             GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
                 if (pos) {
                     console.info(`[WeatherOrchestrator] GPS: ${pos.latitude.toFixed(4)}, ${pos.longitude.toFixed(4)}`);
+                    addBreadcrumb({
+                        category: 'weather',
+                        message: 'GPS position received',
+                        level: 'info',
+                        data: { lat: pos.latitude, lon: pos.longitude },
+                    });
                     this.fetchWeather(loc, {
                         force: !hasCachedData,
                         coords: { lat: pos.latitude, lon: pos.longitude },
@@ -216,6 +284,7 @@ export class WeatherOrchestrator {
                     });
                 } else {
                     console.warn('[WeatherOrchestrator] GPS returned null');
+                    addBreadcrumb({ category: 'weather', message: 'GPS returned null', level: 'warning' });
                     if (!hasCachedData) {
                         this.cb.setError('Unable to get GPS location. Please select a location.');
                         this.cb.setLoading(false);
@@ -224,6 +293,11 @@ export class WeatherOrchestrator {
             });
         } else {
             console.info(`[WeatherOrchestrator] Named location: "${loc}" — scheduling fetch`);
+            addBreadcrumb({
+                category: 'weather',
+                message: `Named location: "${loc}" — scheduling fetch`,
+                level: 'info',
+            });
             this.cb.setLoading(false);
             setTimeout(() => {
                 this.fetchWeather(loc, {
@@ -238,6 +312,12 @@ export class WeatherOrchestrator {
     // ── Location Resolution ────────────────────────────────────
 
     async resolveLocation(location: string, coords?: Coords): Promise<ResolvedLocation> {
+        addBreadcrumb({
+            category: 'location',
+            message: `Resolving location: ${location}`,
+            level: 'info',
+            data: { initialCoords: coords },
+        });
         let resolvedLocation = location;
         let resolvedCoords = coords;
         let resolvedTimezone: string | undefined;
@@ -248,11 +328,22 @@ export class WeatherOrchestrator {
                 this.cb.setLoadingMessage('Getting GPS Location...');
                 const pos = await GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 15 });
                 if (pos) {
+                    addBreadcrumb({
+                        category: 'location',
+                        message: 'Resolved "Current Location" via GPS',
+                        level: 'info',
+                        data: { lat: pos.latitude, lon: pos.longitude },
+                    });
                     return {
                         name: location,
                         coords: { lat: pos.latitude, lon: pos.longitude },
                     };
                 }
+                addBreadcrumb({
+                    category: 'location',
+                    message: 'Failed to get GPS for "Current Location"',
+                    level: 'error',
+                });
                 throw new Error('Unable to get GPS location. Please select a location or enable location services.');
             }
 
@@ -264,8 +355,20 @@ export class WeatherOrchestrator {
                         resolvedLocation = parsed.name;
                     }
                     if (parsed.timezone) resolvedTimezone = parsed.timezone;
+                    addBreadcrumb({
+                        category: 'location',
+                        message: `Parsed location name: ${location}`,
+                        level: 'info',
+                        data: { parsedName: parsed.name, lat: parsed.lat, lon: parsed.lon },
+                    });
                 }
-            } catch {
+            } catch (e) {
+                addBreadcrumb({
+                    category: 'location',
+                    message: `Failed to parse location name: ${location}`,
+                    level: 'warning',
+                    data: { error: getErrorMessage(e) },
+                });
                 // Continue — fetchWeatherByStrategy will handle it
             }
         }
@@ -283,14 +386,37 @@ export class WeatherOrchestrator {
                 const name = await reverseGeocode(resolvedCoords.lat, resolvedCoords.lon);
                 if (name) {
                     resolvedLocation = name;
+                    addBreadcrumb({
+                        category: 'location',
+                        message: `Reverse geocoded coords to: ${name}`,
+                        level: 'info',
+                        data: { lat: resolvedCoords.lat, lon: resolvedCoords.lon },
+                    });
                 } else {
                     resolvedLocation = this.formatCoords(resolvedCoords);
+                    addBreadcrumb({
+                        category: 'location',
+                        message: 'Reverse geocode returned no name, formatting coords',
+                        level: 'info',
+                        data: { lat: resolvedCoords.lat, lon: resolvedCoords.lon },
+                    });
                 }
-            } catch {
+            } catch (e) {
                 resolvedLocation = this.formatCoords(resolvedCoords);
+                addBreadcrumb({
+                    category: 'location',
+                    message: 'Reverse geocode failed, formatting coords',
+                    level: 'warning',
+                    data: { lat: resolvedCoords.lat, lon: resolvedCoords.lon, error: getErrorMessage(e) },
+                });
             }
         }
-
+        addBreadcrumb({
+            category: 'location',
+            message: `Location resolved to: ${resolvedLocation}`,
+            level: 'info',
+            data: { finalCoords: resolvedCoords, timezone: resolvedTimezone },
+        });
         return { name: resolvedLocation, coords: resolvedCoords, timezone: resolvedTimezone };
     }
 
@@ -307,18 +433,46 @@ export class WeatherOrchestrator {
 
         if (!location) return;
 
+        addBreadcrumb({
+            category: 'weather',
+            message: `fetchWeather: ${location}`,
+            level: 'info',
+            data: { force, silent, hasCoords: !!coords },
+        });
+
         // Prevent concurrent fetches
-        if (this.cb.getIsFetching() && !force) return;
+        if (this.cb.getIsFetching() && !force) {
+            addBreadcrumb({
+                category: 'weather',
+                message: 'Preventing concurrent fetch',
+                level: 'info',
+                data: { location, force },
+            });
+            return;
+        }
         this.cb.setIsFetching(true);
 
         // Offline check
         if (!navigator.onLine) {
+            addBreadcrumb({ category: 'weather', message: 'Offline mode detected', level: 'warning' });
             const historyCache = this.cb.getHistoryCache();
             const currentData = this.cb.getWeatherData();
             if (historyCache[location]) {
                 this.cb.setWeatherData(historyCache[location]);
+                addBreadcrumb({
+                    category: 'weather',
+                    message: 'Serving from history cache in offline mode',
+                    level: 'info',
+                    data: { location },
+                });
             } else if (!currentData) {
                 this.cb.setError('Offline Mode: No Data');
+                addBreadcrumb({
+                    category: 'weather',
+                    message: 'No data available in offline mode',
+                    level: 'error',
+                    data: { location },
+                });
             }
             this.cb.setLoading(false);
             this.cb.setIsFetching(false);
@@ -334,14 +488,21 @@ export class WeatherOrchestrator {
         if (!currentData && historyCache[location] && !force) {
             this.cb.setWeatherData(historyCache[location]);
             isServingFromCache = true;
+            addBreadcrumb({
+                category: 'weather',
+                message: `Serving from history cache for ${location}`,
+                level: 'info',
+            });
         }
 
         const isBackground = isServingFromCache || !!currentData || silent;
         if (!isBackground) {
             this.cb.setLoading(true);
             this.cb.setLoadingMessage('Fetching Weather Data...');
+            addBreadcrumb({ category: 'weather', message: 'Showing loading overlay', level: 'info' });
         } else {
             this.cb.setBackgroundUpdating(true);
+            addBreadcrumb({ category: 'weather', message: 'Background updating', level: 'info' });
         }
         this.cb.setError(null);
 
@@ -351,28 +512,74 @@ export class WeatherOrchestrator {
             if (coords && location === 'Current Location') {
                 // GPS coords already provided — just need reverse geocode
                 resolved = await this.resolveLocation(location, coords);
+                addBreadcrumb({
+                    category: 'weather',
+                    message: 'Resolved location using provided GPS coords for Current Location',
+                    level: 'info',
+                    data: { location, coords },
+                });
             } else if (coords) {
                 resolved = { name: location, coords };
+                addBreadcrumb({
+                    category: 'weather',
+                    message: 'Resolved location using provided explicit coords',
+                    level: 'info',
+                    data: { location, coords },
+                });
             } else {
                 resolved = await this.resolveLocation(location);
+                addBreadcrumb({
+                    category: 'weather',
+                    message: 'Resolved location from name',
+                    level: 'info',
+                    data: { location },
+                });
             }
 
             if (!resolved.coords) {
+                addBreadcrumb({
+                    category: 'weather',
+                    message: `Missing coordinates for ${resolved.name}`,
+                    level: 'error',
+                });
                 throw new Error(`Cannot fetch weather for ${resolved.name}: Missing Coordinates`);
             }
 
             // Fetch weather via strategy orchestrator
             let currentReport = await this.fetchFromStrategy(resolved.coords.lat, resolved.coords.lon, resolved.name);
+            addBreadcrumb({
+                category: 'weather',
+                message: 'Fetched weather from strategy',
+                level: 'info',
+                data: {
+                    lat: resolved.coords.lat,
+                    lon: resolved.coords.lon,
+                    name: resolved.name,
+                    reportPresent: !!currentReport,
+                },
+            });
 
             // Lock coords if provided explicitly
             if (coords && currentReport) {
                 currentReport = { ...currentReport, coordinates: coords };
+                addBreadcrumb({
+                    category: 'weather',
+                    message: 'Locked report coordinates to explicit input',
+                    level: 'info',
+                    data: { lat: coords.lat, lon: coords.lon },
+                });
             }
 
             if (currentReport) {
                 this.cb.setWeatherData(currentReport);
                 this.cb.setHistoryCache((prev) => ({ ...prev, [location]: currentReport! }));
                 saveLargeDataImmediate(DATA_CACHE_KEY, currentReport);
+                addBreadcrumb({
+                    category: 'weather',
+                    message: 'Weather data updated and cached',
+                    level: 'info',
+                    data: { location: currentReport.locationName, generatedAt: currentReport.generatedAt },
+                });
                 if (!isBackground) this.cb.setLoading(false);
             }
 
@@ -385,15 +592,38 @@ export class WeatherOrchestrator {
             const historyCache2 = this.cb.getHistoryCache();
             if (!navigator.onLine && (currentData2 || historyCache2[location])) {
                 // Offline fallback — OK
+                addBreadcrumb({
+                    category: 'weather',
+                    message: 'Fetch failed, but offline fallback available',
+                    level: 'warning',
+                    data: { error: getErrorMessage(err) },
+                });
             } else {
                 if (!currentData2) this.cb.setError(getErrorMessage(err) || 'Weather Unavailable');
+                addBreadcrumb({
+                    category: 'weather',
+                    message: 'Fetch failed, no fallback',
+                    level: 'error',
+                    data: { error: getErrorMessage(err) },
+                });
             }
             this.cb.setLoading(false);
+
+            // Report fetch failures to Sentry
+            if (err instanceof Error) {
+                captureException(err, { tags: { operation: 'fetchWeather', location } } as any);
+            }
 
             // Reschedule on failure
             const retryTs = Date.now() + 2 * 60 * 1000;
             this.cb.setNextUpdate(retryTs);
             localStorage.setItem('thalassa_next_update', retryTs.toString());
+            addBreadcrumb({
+                category: 'weather',
+                message: `Rescheduling fetch due to error for ${location}`,
+                level: 'info',
+                data: { retryTime: new Date(retryTs).toISOString() },
+            });
         } finally {
             this.cb.setIsFetching(false);
             this.cb.setBackgroundUpdating(false);

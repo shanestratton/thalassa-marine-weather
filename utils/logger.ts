@@ -51,6 +51,22 @@ export function createLogger(module: string): Logger {
             } else {
                 console.error(tag, msg);
             }
+
+            // Pipe to Sentry (lazy import to avoid circular deps at module init)
+            try {
+                import('../services/sentry').then(({ captureException, addBreadcrumb }) => {
+                    addBreadcrumb({
+                        category: module,
+                        message: msg,
+                        level: 'error',
+                    });
+                    if (err instanceof Error) {
+                        captureException(err, { tags: { module } } as any);
+                    }
+                });
+            } catch {
+                // Sentry not available — that's fine
+            }
         },
     };
 }
