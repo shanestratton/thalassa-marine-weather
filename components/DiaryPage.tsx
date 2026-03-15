@@ -273,7 +273,21 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         DiaryService.getEntries(100).then((data) => {
             // Filter out the entry pending soft-delete (undo window still open)
             const pendingId = deletedIdRef.current;
-            setEntries(pendingId ? data.filter((e) => e.id !== pendingId) : data);
+            const fresh = pendingId ? data.filter((e) => e.id !== pendingId) : data;
+
+            // MERGE with existing state instead of replacing.
+            // Any offline-created entries already in React state are preserved
+            // even if getEntries() doesn't return them (e.g. localStorage quota
+            // overflow prevented them from being saved to the pending queue).
+            setEntries((prev) => {
+                const freshIds = new Set(fresh.map((e) => e.id));
+                // Keep entries from prev that are offline-created and NOT in the fresh data
+                const preservedFromPrev = prev.filter((e) => e.id.startsWith('offline-') && !freshIds.has(e.id));
+                // Merge: fresh data + preserved offline entries, sorted by date
+                return [...fresh, ...preservedFromPrev].sort(
+                    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+                );
+            });
         });
     }, []);
 
