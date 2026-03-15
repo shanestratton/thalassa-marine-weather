@@ -1020,60 +1020,49 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     {/* ═══ POSITION | VOICE | POLISH — single row ═══ */}
                     <div className="shrink-0 space-y-2">
                         <div className="flex gap-2">
-                            {/* Position — 2/3 width */}
-                            <div className="flex-[2] bg-gradient-to-r from-sky-500/10 to-sky-500/10 border border-sky-500/15 rounded-xl p-2.5 flex items-center gap-2 min-w-0">
+                            {/* Position — 2/3 width, tappable */}
+                            <button
+                                type="button"
+                                onClick={grabGps}
+                                disabled={gpsLoading}
+                                className="flex-[2] bg-gradient-to-r from-sky-500/10 to-sky-500/10 border border-sky-500/15 rounded-xl p-2.5 flex items-center gap-2 min-w-0 transition-colors hover:bg-sky-500/15 active:scale-[0.98] disabled:opacity-60"
+                            >
                                 <div className="p-1.5 bg-sky-500/15 rounded-lg shrink-0">
-                                    <svg
-                                        className="w-4 h-4 text-sky-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={1.5}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
-                                        />
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
-                                        />
-                                    </svg>
+                                    {gpsLoading ? (
+                                        <div className="w-4 h-4 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                        <svg
+                                            className="w-4 h-4 text-sky-400"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={1.5}
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+                                            />
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                                            />
+                                        </svg>
+                                    )}
                                 </div>
-                                <div className="flex-1 min-w-0">
+                                <div className="flex-1 min-w-0 text-left">
                                     {lat != null && lon != null ? (
                                         <p className="text-xs font-bold text-white font-mono tracking-wide truncate">
                                             {formatCoord(lat, lon)}
                                         </p>
                                     ) : (
-                                        <p className="text-[11px] text-gray-500 italic truncate">
-                                            {gpsLoading ? 'Acquiring…' : 'No position'}
+                                        <p className="text-[11px] text-sky-400 font-bold truncate">
+                                            {gpsLoading ? 'Acquiring…' : 'Add Position'}
                                         </p>
                                     )}
                                 </div>
-                                <button
-                                    onClick={grabGps}
-                                    disabled={gpsLoading}
-                                    className="shrink-0 p-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors disabled:opacity-40"
-                                    title="Refresh GPS"
-                                >
-                                    <svg
-                                        className={`w-3.5 h-3.5 text-sky-400 ${gpsLoading ? 'animate-spin' : ''}`}
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={1.5}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M2.985 19.644l3.181-3.182"
-                                        />
-                                    </svg>
-                                </button>
-                            </div>
+                            </button>
 
                             {/* Voice — 1/6 width */}
                             <button
