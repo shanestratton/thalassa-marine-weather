@@ -32,7 +32,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     savedLocations: [],
     vessel: undefined,
     timeDisplay: 'location',
-    displayMode: 'auto',
+    displayMode: 'dark',
     preferredModel: 'best_match',
     aiPersona: 50, // Default to Pro (Professional/Concise) instead of Salty
     heroWidgets: ['wind', 'wave', 'pressure'],
