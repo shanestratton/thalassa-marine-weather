@@ -13,7 +13,6 @@
  */
 
 import { supabase } from './supabase';
-import { BgGeoManager } from './BgGeoManager';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -607,10 +606,11 @@ class DiaryServiceClass {
 
     async getCurrentLocation(): Promise<{ lat: number; lon: number } | null> {
         try {
-            const pos = BgGeoManager.getLastPosition();
+            // Use GpsService which handles web (navigator.geolocation with permission
+            // prompt) vs native (BgGeoManager/Transistorsoft) automatically
+            const { GpsService } = await import('./GpsService');
+            const pos = await GpsService.getCurrentPosition({ staleLimitMs: 10_000, timeoutSec: 15 });
             if (pos) return { lat: pos.latitude, lon: pos.longitude };
-            const fresh = await BgGeoManager.getFreshPosition(10000, 10);
-            if (fresh) return { lat: fresh.latitude, lon: fresh.longitude };
             return null;
         } catch (e) {
             console.warn('[Diary] GPS location failed:', e);
