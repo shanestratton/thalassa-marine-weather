@@ -91,7 +91,7 @@ export const HeroSection = ({
 
         // ROW 0: TODAY (Live Card) — uses current conditions + today's hourly data
         // Find today's daily forecast to merge high/low/sunrise/sunset
-        let todayForecast: any = null;
+        let todayForecast: ForecastDay | undefined = undefined;
         if (forecasts && forecasts.length > 0) {
             todayForecast = forecasts.find((f, fIdx) => {
                 const fDate = f.isoDate || f.date;
@@ -112,14 +112,15 @@ export const HeroSection = ({
             });
         }
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- merge of WeatherMetrics + ForecastDay with null/undefined mismatch
         const todayMetrics: any = {
             ...(todayForecast || {}), // Daily forecast base (high/low/sunrise/sunset)
             ...current, // Real-time observation data WINS over forecast nulls
             // Explicitly pull daily-only fields from the forecast
             highTemp: todayForecast?.highTemp ?? current.highTemp,
             lowTemp: todayForecast?.lowTemp ?? current.lowTemp,
-            sunrise: todayForecast?.sunrise ?? (current as any).sunrise,
-            sunset: todayForecast?.sunset ?? (current as any).sunset,
+            sunrise: todayForecast?.sunrise ?? (current as WeatherMetrics & { sunrise?: string }).sunrise,
+            sunset: todayForecast?.sunset ?? (current as WeatherMetrics & { sunset?: string }).sunset,
         };
         rows.push({
             data: todayMetrics as WeatherMetrics,
@@ -146,6 +147,7 @@ export const HeroSection = ({
                         });
                     }
 
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- merge of WeatherMetrics + ForecastDay
                     const metrics: any = {
                         ...current,
                         ...f,
