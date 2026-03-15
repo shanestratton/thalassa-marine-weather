@@ -199,10 +199,11 @@ export function useMapInit(opts: UseMapInitOptions) {
             const style = map.getStyle();
             if (style?.layers) {
                 for (const layer of style.layers) {
+                    // minimalLabels: hide country/state/continent labels but KEEP city names
                     if (
                         minimalLabels &&
                         layer.type === 'symbol' &&
-                        layer.id.match(/country-label|state-label|continent-label|place-label|settlement/)
+                        layer.id.match(/country-label|state-label|continent-label/)
                     ) {
                         map.setLayoutProperty(layer.id, 'visibility', 'none');
                     }
