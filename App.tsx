@@ -237,6 +237,21 @@ const App: React.FC = () => {
         return () => document.removeEventListener('touchstart', dismissKeyboard);
     }, []);
 
+    // Compute display mode BEFORE any early returns — needed by useEffect below
+    const isLight = effectiveMode === 'light';
+
+    // Sync display-light class to document root — ensures portaled components
+    // (ModalSheet, toasts, etc.) rendered via createPortal(…, document.body)
+    // inherit the light theme CSS overrides from index.css.
+    useEffect(() => {
+        if (isLight) {
+            document.documentElement.classList.add('display-light');
+        } else {
+            document.documentElement.classList.remove('display-light');
+        }
+        return () => document.documentElement.classList.remove('display-light');
+    }, [isLight]);
+
     // Loading State
     if (settingsLoading) {
         return (
@@ -246,7 +261,6 @@ const App: React.FC = () => {
         );
     }
 
-    const isLight = effectiveMode === 'light';
     const containerClasses =
         effectiveMode === 'night'
             ? 'bg-black text-red-600'
