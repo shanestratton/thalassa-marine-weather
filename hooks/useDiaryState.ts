@@ -7,7 +7,7 @@
  */
 
 import { useReducer } from 'react';
-import { DiaryEntry, DiaryMood } from '../services/DiaryService';
+import { DiaryEntry, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
 
 // ── State Shape ────────────────────────────────────────────────
 
@@ -33,6 +33,7 @@ export interface DiaryState {
     saving: boolean;
     polishing: boolean;
     gpsLoading: boolean;
+    weatherDataObj: DiaryWeatherData | null;
 
     // Timeline selection
     selectMode: boolean;
@@ -75,6 +76,7 @@ const initialState: DiaryState = {
     saving: false,
     polishing: false,
     gpsLoading: false,
+    weatherDataObj: null,
 
     selectMode: false,
     selectedIds: new Set(),
@@ -123,6 +125,7 @@ export type DiaryAction =
     | { type: 'SET_WEATHER_SUMMARY'; summary: string }
     | { type: 'SET_SAVING'; saving: boolean }
     | { type: 'SET_POLISHING'; polishing: boolean }
+    | { type: 'SET_WEATHER_DATA'; data: DiaryWeatherData | null }
 
     // Timeline selection
     | { type: 'ENTER_SELECT_MODE' }
@@ -192,6 +195,7 @@ function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState {
                 lon: null,
                 locationName: '',
                 weatherSummary: action.weatherSummary,
+                weatherDataObj: null,
                 recordingTime: 0,
             };
         case 'OPEN_EDIT':
@@ -239,6 +243,8 @@ function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState {
             return { ...state, saving: action.saving };
         case 'SET_POLISHING':
             return { ...state, polishing: action.polishing };
+        case 'SET_WEATHER_DATA':
+            return { ...state, weatherDataObj: action.data };
 
         // ── Timeline selection ──
         case 'ENTER_SELECT_MODE':

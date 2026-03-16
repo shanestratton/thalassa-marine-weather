@@ -16,6 +16,7 @@ import { WindVelocityLayer } from './map/WindVelocityLayer';
 import { OfflineTileControl } from './map/OfflineTileControl';
 import { useNavMeshOverlay } from '../hooks/useNavMeshOverlay';
 import { GpsService } from '../services/GpsService';
+import { useFollowRouteOverlay } from '../hooks/useFollowRouteOverlay';
 
 interface WeatherMapProps {
     lat?: number;
@@ -152,6 +153,9 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
     // Nav Mesh X-Ray Overlay (developer tool)
     const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
     useNavMeshOverlay(mapInstance, showNavMesh, supabaseUrl);
+
+    // Follow Route Overlay — rendered when user is following a planned route
+    useFollowRouteOverlay(mapInstance);
 
     // Fetch Buoys - Triggered on center change to get local dynamic buoys
     useEffect(() => {

@@ -15,6 +15,7 @@ export interface ChatProfileViewProps {
     profileSaving: boolean;
     profileSaved: boolean;
     vesselPlaceholder: string;
+    isObserver?: boolean;
     fileInputRef: React.RefObject<HTMLInputElement>;
     onSaveProfile: () => void;
     onRemovePhoto: () => void;
@@ -32,6 +33,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
         profileSaving,
         profileSaved,
         vesselPlaceholder,
+        isObserver,
         fileInputRef,
         onSaveProfile,
         onRemovePhoto,
@@ -104,16 +106,17 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
             </div>
 
             {/* Vessel Name */}
-            <div>
+            <div className={isObserver ? 'opacity-40' : ''}>
                 <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-2">
                     ⛵ Vessel Name
                 </label>
                 <input
-                    value={profileVesselName}
+                    value={isObserver ? '' : profileVesselName}
                     onChange={(e) => setProfileVesselName(e.target.value)}
-                    placeholder={vesselPlaceholder || 'Black Pearl'}
-                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/30 transition-colors"
+                    placeholder={isObserver ? 'Observer Mode — No Vessel' : (vesselPlaceholder || 'Black Pearl')}
+                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/30 transition-colors disabled:cursor-not-allowed"
                     maxLength={40}
+                    disabled={isObserver}
                 />
             </div>
 

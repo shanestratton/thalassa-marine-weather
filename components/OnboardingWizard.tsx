@@ -31,11 +31,11 @@ import {
     XIcon,
     AnchorIcon,
 } from './Icons';
-import { reverseGeocode } from '../services/weatherService';
+import { reverseGeocode, parseLocation } from '../services/weatherService';
 import { fetchWeatherByStrategy } from '../services/weather';
 import { WeatherMap } from './WeatherMap';
 import { getSystemUnits } from '../utils';
-import { Geolocation } from '@capacitor/geolocation';
+import { GpsService } from '../services/GpsService';
 import { Capacitor } from '@capacitor/core';
 import { YachtDatabaseSearch } from './settings/YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../data/polarDatabase';
@@ -89,6 +89,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
     const [showMap, setShowMap] = useState(false);
     const [tempLocation, setTempLocation] = useState<{ lat: number; lon: number; name: string } | null>(null);
 
+    // User Name (collected in step 3 alongside home port)
+    const [firstName, setFirstName] = useState('');
+    const [lastName, setLastName] = useState('');
+
     // Core Vessel Data
     const [vesselType, setVesselType] = useState<'sail' | 'power' | 'observer'>('sail');
     const [name, setName] = useState('');
@@ -140,14 +144,31 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
     const handleYachtSelect = (entry: PolarDatabaseEntry) => {
         setSelectedPolar({ data: entry.polar, model: entry.model });
-        if (!name) setName(entry.model);
+        // Don't auto-fill the model name into vessel name — user should name their own boat
+        // if (!name) setName(entry.model);
         if (!length) setLength(String(entry.loa));
         if (!beam) setBeam(String(Math.round(entry.loa * 0.32)));
         if (!draft) setDraft(String(Math.round(entry.loa * 0.16)));
     };
 
     const handleNext = () => {
-        if (step === 2 && !homePort.trim()) return; // Require location
+        if (step === 3 && !homePort.trim()) return; // Require location
+
+        // If leaving step 3 with a manually-typed location (no coords yet), geocode + prefetch
+        if (step === 3 && !prefetchRef.current && homePort.trim()) {
+            // Fire-and-forget: geocode the text, then prefetch weather
+            parseLocation(homePort.trim())
+                .then(({ lat, lon, name }) => {
+                    // Update homePort with the resolved name (e.g. "Newport, QLD, AU")
+                    if (name && name !== homePort.trim()) setHomePort(name);
+                    setTempLocation({ lat, lon, name: name || homePort.trim() });
+                    prefetchWeather(lat, lon, name || homePort.trim());
+                })
+                .catch((e) => {
+                    log.warn('Could not geocode manually entered location:', e);
+                });
+        }
+
         setStep((s) => s + 1);
     };
 
@@ -166,42 +187,46 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
         });
     };
 
+    /** Resolve a lat/lon pair into a name and update homePort state */
+    const resolveAndSetLocation = async (latitude: number, longitude: number) => {
+        setTempLocation({ lat: latitude, lon: longitude, name: 'Current Location' });
+        try {
+            const niceName = await reverseGeocode(latitude, longitude);
+            const finalName =
+                niceName ||
+                `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
+            setHomePort(finalName);
+            setTempLocation({ lat: latitude, lon: longitude, name: finalName });
+            prefetchWeather(latitude, longitude, finalName);
+        } catch (e) {
+            const wpName = `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
+            setHomePort(wpName);
+            setTempLocation({ lat: latitude, lon: longitude, name: wpName });
+            prefetchWeather(latitude, longitude, wpName);
+        }
+    };
+
     const handleLocate = () => {
         setIsLocating(true);
         (async () => {
             try {
-                // Request permission first — triggers the iOS dialog on fresh install
-                const perm = await Geolocation.requestPermissions();
-                if (perm.location === 'denied') {
+                // Use GpsService — same unified GPS service the map page uses.
+                // Handles native (Transistorsoft BgGeo) and web (navigator.geolocation) automatically.
+                const pos = await GpsService.getCurrentPosition({
+                    staleLimitMs: 30_000,
+                    timeoutSec: 10,
+                    enableHighAccuracy: true,
+                });
+                if (!pos) {
                     setIsLocating(false);
-                    toast.error('Location permission denied. Please enable in Settings.');
+                    toast.error('Could not access GPS. Please enter your location manually.');
                     return;
                 }
-
-                const position = await Geolocation.getCurrentPosition({
-                    enableHighAccuracy: true,
-                    timeout: 10000,
-                });
-                const latitude = position.coords.latitude;
-                const longitude = position.coords.longitude;
-                setTempLocation({ lat: latitude, lon: longitude, name: 'Current Location' });
-                try {
-                    const niceName = await reverseGeocode(latitude, longitude);
-                    const finalName =
-                        niceName ||
-                        `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
-                    setHomePort(finalName);
-                    setTempLocation({ lat: latitude, lon: longitude, name: finalName });
-                    // Prefetch weather in background while user continues onboarding
-                    prefetchWeather(latitude, longitude, finalName);
-                } catch (e) {
-                    const wpName = `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
-                    setHomePort(wpName);
-                    prefetchWeather(latitude, longitude, wpName);
-                }
+                await resolveAndSetLocation(pos.latitude, pos.longitude);
                 setIsLocating(false);
             } catch (e) {
                 setIsLocating(false);
+                log.warn('handleLocate error:', e);
                 toast.error('Could not access location. Please enter manually.');
             }
         })();
@@ -388,6 +413,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
         };
 
         const settings: Partial<UserSettings> = {
+            firstName: firstName.trim() || undefined,
+            lastName: lastName.trim() || undefined,
             defaultLocation: homePort,
             vessel: vesselData,
             units: {
@@ -422,6 +449,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
         };
 
         localStorage.setItem('thalassa_v3_onboarded', 'true');
+        localStorage.setItem('thalassa_tutorial_completed', 'true'); // Tips now shown during onboarding
         onComplete(settings);
     };
 
@@ -523,18 +551,130 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                     </div>
                 )}
 
-                {/* STEP 2: HOME PORT */}
+                {/* STEP 2: QUICK TIPS — Matching step 1 premium aesthetic */}
                 {step === 2 && (
+                    <div className="text-center animate-in fade-in slide-in-from-bottom-8 duration-700 relative">
+                        <div className="absolute inset-0 bg-gradient-to-b from-sky-500/20 to-transparent blur-3xl rounded-full pointer-events-none transform -translate-y-10"></div>
+
+                        <h1 className="text-3xl font-black text-white mb-3 tracking-tight drop-shadow-xl relative z-10">
+                            Quick Tips
+                        </h1>
+                        <p className="text-base text-slate-300 mb-8 max-w-sm mx-auto leading-relaxed font-light relative z-10">
+                            A few gestures to get you started
+                        </p>
+
+                        <div className="space-y-3 mb-8 relative z-10">
+                            {/* Tip 1: Swipe Forecast */}
+                            <div className="relative overflow-hidden rounded-2xl bg-white/[0.04] border border-white/[0.08] p-4 backdrop-blur-sm hover:border-white/[0.15] transition-all">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center text-xl shrink-0 shadow-[0_8px_24px_rgba(14,165,233,0.25)] ring-2 ring-white/10">
+                                        👆
+                                    </div>
+                                    <div className="min-w-0 text-left">
+                                        <h4 className="text-sm font-bold text-white tracking-wide">Swipe for Forecast</h4>
+                                        <p className="text-xs text-slate-400 leading-relaxed mt-0.5">
+                                            Swipe left/right on the weather cards to scrub through hours.
+                                            Swipe up/down to change days.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Tip 2: Essential vs Full */}
+                            <div className="relative overflow-hidden rounded-2xl bg-white/[0.04] border border-white/[0.08] p-4 backdrop-blur-sm hover:border-white/[0.15] transition-all">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center text-xl shrink-0 shadow-[0_8px_24px_rgba(14,165,233,0.25)] ring-2 ring-white/10">
+                                        🔄
+                                    </div>
+                                    <div className="min-w-0 text-left">
+                                        <h4 className="text-sm font-bold text-white tracking-wide">Essential &amp; Full Views</h4>
+                                        <p className="text-xs text-slate-400 leading-relaxed mt-0.5">
+                                            Toggle between a quick glance and detailed marine data
+                                            using the chevron button in the header.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Tip 3: Passage Planner */}
+                            <div className="relative overflow-hidden rounded-2xl bg-white/[0.04] border border-white/[0.08] p-4 backdrop-blur-sm hover:border-white/[0.15] transition-all">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center text-xl shrink-0 shadow-[0_8px_24px_rgba(14,165,233,0.25)] ring-2 ring-white/10">
+                                        🗺️
+                                    </div>
+                                    <div className="min-w-0 text-left">
+                                        <h4 className="text-sm font-bold text-white tracking-wide">Passage Planner</h4>
+                                        <p className="text-xs text-slate-400 leading-relaxed mt-0.5">
+                                            Plan routes, check conditions, and export GPX tracks
+                                            from the Ship's Office &gt; Passages tab.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Tip 4: Crew Talk */}
+                            <div className="relative overflow-hidden rounded-2xl bg-white/[0.04] border border-white/[0.08] p-4 backdrop-blur-sm hover:border-white/[0.15] transition-all">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center text-xl shrink-0 shadow-[0_8px_24px_rgba(14,165,233,0.25)] ring-2 ring-white/10">
+                                        💬
+                                    </div>
+                                    <div className="min-w-0 text-left">
+                                        <h4 className="text-sm font-bold text-white tracking-wide">Crew Talk Community</h4>
+                                        <p className="text-xs text-slate-400 leading-relaxed mt-0.5">
+                                            Join channels, share pins and voyage tracks, and connect
+                                            with sailors worldwide via Cloud.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={handleNext}
+                            className="group bg-white text-slate-950 font-bold py-4 px-12 rounded-2xl hover:bg-sky-50 transition-all transform hover:scale-105 hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] flex items-center gap-3 mx-auto relative overflow-hidden"
+                        >
+                            <span className="relative z-10">Next</span>
+                            <ArrowRightIcon className="w-5 h-5 relative z-10 group-hover:translate-x-1 transition-transform" />
+                            <div className="absolute inset-0 bg-gradient-to-r from-sky-100 to-white opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                        </button>
+                    </div>
+                )}
+
+                {/* STEP 3: HOME PORT */}
+                {step === 3 && (
                     <div className="animate-in fade-in slide-in-from-right-8 duration-500">
                         <div className="text-center mb-8">
                             <div className="w-16 h-16 bg-white/5 rounded-full mx-auto mb-4 flex items-center justify-center border border-white/10">
                                 <MapPinIcon className="w-8 h-8 text-sky-400" />
                             </div>
-                            <h2 className="text-2xl font-bold text-white mb-2">Where is your Home Port?</h2>
-                            <p className="text-sm text-gray-400">We'll load forecasts for this location on startup.</p>
+                            <h2 className="text-2xl font-bold text-white mb-2">About You & Home Port</h2>
+                            <p className="text-sm text-gray-400">Tell us your name and where you sail from.</p>
                         </div>
 
                         <div className="space-y-4">
+                            {/* Name fields */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <input
+                                    type="text"
+                                    value={firstName}
+                                    onChange={(e) => setFirstName(e.target.value)}
+                                    placeholder="First Name"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-600"
+                                />
+                                <input
+                                    type="text"
+                                    value={lastName}
+                                    onChange={(e) => setLastName(e.target.value)}
+                                    placeholder="Last Name"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-600"
+                                />
+                            </div>
+
+                            <div className="relative flex items-center gap-4 py-1">
+                                <div className="h-px bg-white/10 flex-1"></div>
+                                <span className="text-[10px] text-gray-600 font-bold uppercase">Home Port</span>
+                                <div className="h-px bg-white/10 flex-1"></div>
+                            </div>
                             <div className="relative">
                                 <input
                                     type="text"
@@ -591,8 +731,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                     </div>
                 )}
 
-                {/* STEP 3: VESSEL TYPE */}
-                {step === 3 && (
+                {/* STEP 4: VESSEL TYPE */}
+                {step === 4 && (
                     <div className="animate-in fade-in slide-in-from-right-8 duration-500">
                         <h2 className="text-2xl font-bold text-white mb-6 text-center">
                             What brings you to the water?
@@ -653,8 +793,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                     </div>
                 )}
 
-                {/* STEP 4: VESSEL DETAILS */}
-                {step === 4 && (
+                {/* STEP 5: VESSEL DETAILS */}
+                {step === 5 && (
                     <div
                         className="animate-in fade-in slide-in-from-right-8 duration-500 max-h-[calc(100dvh-10rem)] overflow-y-auto no-scrollbar"
                         style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined }}
@@ -961,8 +1101,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                     </div>
                 )}
 
-                {/* STEP 5: PREFERENCES */}
-                {step === 5 && (
+                {/* STEP 6: PREFERENCES */}
+                {step === 6 && (
                     <div className="animate-in fade-in slide-in-from-right-8 duration-500">
                         <h2 className="text-2xl font-bold text-white mb-6 text-center">Unit Preferences</h2>
 
@@ -1053,8 +1193,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                     </div>
                 )}
 
-                {/* STEP 6: DISPLAY PREFERENCES */}
-                {step === 6 && (
+                {/* STEP 7: DISPLAY PREFERENCES */}
+                {step === 7 && (
                     <div className="animate-in fade-in slide-in-from-right-8 duration-500">
                         <h2 className="text-2xl font-bold text-white mb-6 text-center">Display Preferences</h2>
 
@@ -1154,7 +1294,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                 {/* Progress Dots */}
                 <div className="flex justify-center gap-2 mt-8">
-                    {[1, 2, 3, 4, 5, 6].map((i) => (
+                    {[1, 2, 3, 4, 5, 6, 7].map((i) => (
                         <div
                             key={i}
                             className={`w-2 h-2 rounded-full transition-all ${step >= i ? 'bg-sky-500 w-4' : 'bg-gray-700'}`}

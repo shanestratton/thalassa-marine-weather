@@ -70,7 +70,8 @@ export function useChatProposals(options: UseChatProposalsOptions) {
             );
             ok = !!ch;
             if (ok) {
-                const updated = await ChatService.getChannels();
+                // Use fresh fetch (bypass cache) to ensure new channel appears immediately
+                const updated = await ChatService.getChannelsFresh();
                 setChannels(updated);
             }
         } else {

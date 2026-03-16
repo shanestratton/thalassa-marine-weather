@@ -5,7 +5,7 @@
  */
 
 import type { jsPDF as JsPDFType } from 'jspdf';
-import { DiaryEntry, MOOD_CONFIG, DiaryMood } from '../services/DiaryService';
+import { DiaryEntry, MOOD_CONFIG, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
 
 const NAVY = [26, 42, 58] as const;
 const GOLD = [201, 162, 39] as const;
@@ -163,6 +163,7 @@ export async function generateDiaryPDF(
         onSuccess?: () => void;
         onError?: (error: string) => void;
     },
+    userName?: string,
 ): Promise<void> {
     try {
         if (entries.length === 0) {
@@ -343,24 +344,29 @@ export async function generateDiaryPDF(
                 pdf.setFillColor(...GOLD);
                 pdf.rect(margin, y, 2, entryHeight, 'F');
 
-                pdf.setTextColor(...DARK_TEXT);
-                pdf.setFontSize(11);
-                pdf.setFont('helvetica', 'bold');
-                const titleText = `${moodCfg.emoji}  ${entry.title || 'Untitled Entry'}`;
-                pdf.text(titleText, margin + 6, y + 7);
-
+                // 1. Time
                 pdf.setTextColor(...GRAY_TEXT);
                 pdf.setFontSize(8);
                 pdf.setFont('helvetica', 'normal');
                 pdf.text(timeStr, pageWidth - margin - 4, y + 7, { align: 'right' });
 
-                // Mood label badge
+                // 2. Heading: {Name}'s Diary: {title}
+                pdf.setTextColor(...DARK_TEXT);
+                pdf.setFontSize(11);
+                pdf.setFont('helvetica', 'bold');
+                const heading = userName
+                    ? `${userName}'s Diary: ${entry.title || 'Untitled Entry'}`
+                    : entry.title || 'Untitled Entry';
+                pdf.text(heading, margin + 6, y + 7);
+
+                // 3. Mood badge
                 pdf.setFontSize(7);
-                pdf.text(`[${moodCfg.label.toUpperCase()}]`, pageWidth - margin - 18, y + 7, { align: 'right' });
+                pdf.setTextColor(...GRAY_TEXT);
+                pdf.text(`${moodCfg.emoji} ${moodCfg.label.toUpperCase()}`, margin + 6, y + 12);
 
-                let entryY = y + 14;
+                let entryY = y + 17;
 
-                // Body text
+                // 4. Body text
                 if (bodyLines.length > 0) {
                     pdf.setTextColor(60, 70, 80);
                     pdf.setFontSize(9);
@@ -376,7 +382,42 @@ export async function generateDiaryPDF(
                     }
                 }
 
-                // Photos
+                // 5. Location + Weather (only if pin dropped)
+                if (entry.location_name || entry.weather_summary || (entry.latitude && entry.longitude)) {
+                    entryY += 2;
+                    pdf.setFontSize(7);
+                    pdf.setTextColor(...GRAY_TEXT);
+                    pdf.setFont('helvetica', 'normal');
+
+                    const metaParts: string[] = [];
+                    if (entry.location_name) {
+                        metaParts.push(`Location: ${entry.location_name}`);
+                    } else if (entry.latitude && entry.longitude) {
+                        metaParts.push(`Position: ${formatCoord(entry.latitude, entry.longitude)}`);
+                    }
+
+                    pdf.text(metaParts.join('     '), margin + 6, entryY);
+                    entryY += 5;
+
+                    // Weather grid from structured data
+                    const wd = entry.weather_data as DiaryWeatherData | null | undefined;
+                    if (wd) {
+                        const weatherParts: string[] = [];
+                        if (wd.description) weatherParts.push(wd.description);
+                        if (wd.airTemp != null) weatherParts.push(`Air: ${wd.airTemp}°C`);
+                        if (wd.seaTemp != null) weatherParts.push(`Sea: ${wd.seaTemp}°C`);
+                        if (wd.windSpeed != null) weatherParts.push(`Wind: ${wd.windSpeed}kts${wd.windDir ? ` ${wd.windDir}` : ''}`);
+                        if (wd.humidity != null) weatherParts.push(`Humidity: ${wd.humidity}%`);
+                        if (wd.rain != null) weatherParts.push(`Rain: ${wd.rain}mm`);
+                        pdf.text(weatherParts.join('  |  '), margin + 6, entryY);
+                        entryY += 5;
+                    } else if (entry.weather_summary) {
+                        pdf.text(`Weather: ${entry.weather_summary}`, margin + 6, entryY);
+                        entryY += 5;
+                    }
+                }
+
+                // 6. Photos (last)
                 if (hasPhotos) {
                     entryY += 2;
                     let photoX = margin + 6;
@@ -398,25 +439,6 @@ export async function generateDiaryPDF(
                         }
                     }
                     entryY += photoSize + 3;
-                }
-
-                // Meta line: location + weather
-                if (entry.location_name || entry.weather_summary || (entry.latitude && entry.longitude)) {
-                    pdf.setFontSize(7);
-                    pdf.setTextColor(...GRAY_TEXT);
-                    pdf.setFont('helvetica', 'normal');
-
-                    const metaParts: string[] = [];
-                    if (entry.location_name) {
-                        metaParts.push(`Location: ${entry.location_name}`);
-                    } else if (entry.latitude && entry.longitude) {
-                        metaParts.push(`Position: ${formatCoord(entry.latitude, entry.longitude)}`);
-                    }
-                    if (entry.weather_summary) {
-                        metaParts.push(`Weather: ${entry.weather_summary}`);
-                    }
-
-                    pdf.text(metaParts.join('     '), margin + 6, entryY + 2);
                 }
 
                 y += entryHeight + 4;

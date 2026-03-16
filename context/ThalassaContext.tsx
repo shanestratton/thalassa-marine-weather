@@ -4,6 +4,7 @@ import { SettingsProvider, useSettings } from './SettingsContext';
 import { UIProvider, useUI } from './UIContext';
 import { WeatherProvider, useWeather } from './WeatherContext';
 import { ThemeProvider } from './ThemeContext';
+import { FollowRouteProvider } from './FollowRouteContext';
 
 // Re-export types for consumers
 export type { UserSettings, MarineWeatherReport, VoyagePlan, DebugInfo } from '../types';
@@ -19,7 +20,9 @@ export const ThalassaProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             <UIProvider>
                 <SettingsProvider>
                     <WeatherProvider>
-                        <ThemeProvider>{children}</ThemeProvider>
+                        <FollowRouteProvider>
+                            <ThemeProvider>{children}</ThemeProvider>
+                        </FollowRouteProvider>
                     </WeatherProvider>
                 </SettingsProvider>
             </UIProvider>

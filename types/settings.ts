@@ -18,6 +18,8 @@ export interface ComfortParams {
 
 export interface UserSettings {
     isPro: boolean;
+    firstName?: string;
+    lastName?: string;
     alwaysOn?: boolean;
     notifications: NotificationPreferences;
     units: UnitPreferences;

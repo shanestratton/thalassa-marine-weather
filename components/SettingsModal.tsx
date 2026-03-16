@@ -308,6 +308,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
     const [authOpen, setAuthOpen] = useState(false);
     const [sgStatus, setSgStatus] = useState<{ status: string; message: string } | null>(null);
     const [showFactoryReset, setShowFactoryReset] = useState(false);
+    const isObserver = settings?.vessel?.type === 'observer';
 
     // Environment theme state
 
@@ -442,7 +443,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                         active={activeTab === 'vessel'}
                         onClick={() => setActiveTab('vessel')}
                         icon={<BoatIcon className="w-5 h-5" />}
-                        label="VESSEL PROFILE"
+                        label={isObserver ? 'VESSEL (OBSERVER)' : 'VESSEL PROFILE'}
                     />
 
                     <NavButton
@@ -487,7 +488,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                         </p>
                     </div>
                     <div className="flex-1 px-4 pb-32 space-y-2">
-                        {MENU_ITEMS.map((item) => (
+                        {MENU_ITEMS.map((item) => {
+                            return (
                             <button
                                 key={item.id}
                                 onClick={() => setActiveTab(item.id)}
@@ -500,11 +502,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <p className="text-white font-bold text-sm tracking-wide">{item.label}</p>
-                                    <p className="text-gray-500 text-xs mt-0.5">{item.description}</p>
+                                    <p className="text-gray-500 text-xs mt-0.5">{item.id === 'vessel' && isObserver ? 'Observer — tap to configure vessel' : item.description}</p>
                                 </div>
                                 <ArrowRightIcon className="w-4 h-4 text-gray-500 group-hover:text-sky-400 group-hover:translate-x-1 transition-all" />
                             </button>
-                        ))}
+                            );
+                        })}
                     </div>
                 </div>
             )}

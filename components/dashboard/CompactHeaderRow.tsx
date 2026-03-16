@@ -5,6 +5,7 @@ const log = createLogger('CompactHeaderRow');
 import { t } from '../../theme';
 import { CheckIcon, AlertTriangleIcon, SunriseIcon, SunsetIcon } from '../Icons';
 import { useUI } from '../../context/UIContext';
+import { isGoldenHour } from '../../utils/goldenHour';
 import type { DashboardMode } from '../../types';
 
 // Critical warnings that CANNOT be dismissed (must match AlertsBanner/WarningDetails)
@@ -85,26 +86,36 @@ export const CompactHeaderRow = ({
                 )}
             </button>
 
-            {/* CELESTIAL CARD - Sunrise, Sunset, Moon */}
+            {/* CELESTIAL CARD - Sunrise, Sunset, Moon, Golden Hour */}
             <div
-                className={`bg-slate-800/60 ${t.border.default} rounded-xl px-3 h-[40px] flex items-center gap-3 flex-shrink-0`}
+                className={`${sunrise && sunset && isGoldenHour(sunrise, sunset) ? 'bg-amber-500/15 border-amber-400/25' : `bg-slate-800/60 ${t.border.default}`} rounded-xl px-3 h-[40px] flex items-center gap-3 flex-shrink-0 transition-colors duration-500`}
                 role="status"
                 aria-label="Celestial data"
             >
-                {/* Sunrise */}
-                {sunrise && (
-                    <div className="flex items-center gap-1.5">
-                        <SunriseIcon className="w-3.5 h-3.5 text-amber-400" />
-                        <span className="text-white font-bold text-sm font-mono tracking-tight">{sunrise}</span>
+                {/* Golden Hour Badge - replaces sunrise/sunset when active */}
+                {sunrise && sunset && isGoldenHour(sunrise, sunset) ? (
+                    <div className="flex items-center gap-1.5 animate-in fade-in duration-500">
+                        <span className="text-sm">📸</span>
+                        <span className="text-xs font-bold text-amber-300 uppercase tracking-wider">Golden Hour</span>
                     </div>
-                )}
+                ) : (
+                    <>
+                        {/* Sunrise */}
+                        {sunrise && (
+                            <div className="flex items-center gap-1.5">
+                                <SunriseIcon className="w-3.5 h-3.5 text-amber-400" />
+                                <span className="text-white font-bold text-sm font-mono tracking-tight">{sunrise}</span>
+                            </div>
+                        )}
 
-                {/* Sunset */}
-                {sunset && (
-                    <div className="flex items-center gap-1.5">
-                        <SunsetIcon className="w-3.5 h-3.5 text-purple-400" />
-                        <span className="text-white font-bold text-sm font-mono tracking-tight">{sunset}</span>
-                    </div>
+                        {/* Sunset */}
+                        {sunset && (
+                            <div className="flex items-center gap-1.5">
+                                <SunsetIcon className="w-3.5 h-3.5 text-purple-400" />
+                                <span className="text-white font-bold text-sm font-mono tracking-tight">{sunset}</span>
+                            </div>
+                        )}
+                    </>
                 )}
 
                 {/* Moon Phase - Just emoji */}

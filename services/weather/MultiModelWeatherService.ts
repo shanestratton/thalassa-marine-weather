@@ -374,7 +374,7 @@ function calculateConsensus(forecasts: ModelForecast[]): WaypointComparison['con
 
     const wSpread = spread(windSpeeds);
     const confidence: 'high' | 'medium' | 'low' =
-        wSpread > 15 || maxDirDiff > 60 ? 'low' : wSpread > 8 || maxDirDiff > 30 ? 'medium' : 'high';
+        wSpread > 20 || maxDirDiff > 90 ? 'low' : wSpread > 12 || maxDirDiff > 45 ? 'medium' : 'high';
 
     return {
         windSpeedMean: Math.round(mean(windSpeeds) * 10) / 10,

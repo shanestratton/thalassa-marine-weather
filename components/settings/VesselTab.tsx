@@ -96,6 +96,7 @@ function MetricInput({
 
 export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const [saved, setSaved] = useState(false);
+    const isObserver = settings.vessel?.type === 'observer';
 
     const updateVessel = (field: string, value: string | number) => {
         let newEstimatedFields = settings.vessel?.estimatedFields;
@@ -148,6 +149,23 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
 
     return (
         <div className="w-full max-w-2xl mx-auto overflow-hidden animate-in fade-in slide-in-from-right-4 duration-300">
+            {/* Observer upgrade banner */}
+            {isObserver && (
+                <div className="mx-4 mb-4 bg-sky-500/[0.06] border border-sky-500/15 rounded-2xl p-4 animate-in fade-in slide-in-from-top-2">
+                    <div className="flex items-start gap-3">
+                        <span className="text-2xl">🔭</span>
+                        <div>
+                            <h4 className="text-sm font-bold text-sky-300 mb-1">Observer Mode Active</h4>
+                            <p className="text-[11px] text-gray-400 leading-relaxed">
+                                You're currently in observer mode — weather only, no vessel features.
+                                Select <strong className="text-white">Sail</strong> or <strong className="text-white">Power</strong> below to unlock
+                                Passage Planning, Polars, and hydrostatics.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <Section title="Vessel Configuration">
                 <Row>
                     <div>
@@ -169,16 +187,17 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </div>
                 </Row>
                 <Row>
-                    <div className="w-full">
+                    <div className={`w-full ${isObserver ? 'opacity-40' : ''}`}>
                         <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">
                             Vessel Name
                         </label>
                         <input
                             type="text"
-                            value={settings.vessel?.name || ''}
+                            value={isObserver ? '' : (settings.vessel?.name || '')}
                             onChange={(e) => updateVessel('name', e.target.value)}
-                            placeholder="e.g. Black Pearl"
-                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-sm font-medium"
+                            placeholder={isObserver ? 'Select Sail or Power first' : 'e.g. Black Pearl'}
+                            disabled={isObserver}
+                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-sm font-medium disabled:cursor-not-allowed"
                         />
                     </div>
                 </Row>

@@ -212,61 +212,78 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setRouteAnalysis(result);
 
         // Build Trip Sandwich GeoJSON (or single-feature for short routes)
+        // First and last legs are marked as dashed (they cross land between port and open water)
         const buildFeatures = (
             passageCoords: number[][],
             shallowFlags?: boolean[],
         ): GeoJSON.Feature<GeoJSON.LineString>[] => {
-            // ── Short route: depth-aware per-segment coloring ──
-            if (isShortRoute && shallowFlags && shallowFlags.length === passageCoords.length) {
-                const features: GeoJSON.Feature<GeoJSON.LineString>[] = [];
-                let segStart = 0;
-                let wasShallow = shallowFlags[0] || false;
+            const features: GeoJSON.Feature<GeoJSON.LineString>[] = [];
 
-                for (let i = 1; i < passageCoords.length; i++) {
-                    const nowShallow = shallowFlags[i] || false;
-                    if (nowShallow !== wasShallow || i === passageCoords.length - 1) {
-                        // Close the current segment
-                        const endIdx = i === passageCoords.length - 1 ? i + 1 : i + 1;
+            // Helper: create a dashed land-leg feature (first or last segment)
+            const makeLandLeg = (coords: number[][]): GeoJSON.Feature<GeoJSON.LineString> => ({
+                type: 'Feature',
+                properties: { safety: 'harbour', dashed: true },
+                geometry: { type: 'LineString', coordinates: coords },
+            });
+
+            // Need at least 3 points to split into first-leg / ocean / last-leg
+            const canSplit = passageCoords.length >= 4;
+
+            if (canSplit) {
+                // First leg: departure → 2nd point (dashed)
+                features.push(makeLandLeg(passageCoords.slice(0, 2)));
+
+                // Ocean middle portion
+                const oceanCoords = passageCoords.slice(1, passageCoords.length - 1);
+                const oceanShallows = shallowFlags?.slice(1, shallowFlags.length - 1);
+
+                // ── Short route: depth-aware per-segment coloring for ocean portion ──
+                if (isShortRoute && oceanShallows && oceanShallows.length === oceanCoords.length) {
+                    let segStart = 0;
+                    let wasShallow = oceanShallows[0] || false;
+
+                    for (let i = 1; i < oceanCoords.length; i++) {
+                        const nowShallow = oceanShallows[i] || false;
+                        if (nowShallow !== wasShallow || i === oceanCoords.length - 1) {
+                            const endIdx = i === oceanCoords.length - 1 ? i + 1 : i + 1;
+                            features.push({
+                                type: 'Feature',
+                                properties: { safety: wasShallow ? 'danger' : 'safe' },
+                                geometry: { type: 'LineString', coordinates: oceanCoords.slice(segStart, endIdx) },
+                            });
+                            segStart = i;
+                            wasShallow = nowShallow;
+                        }
+                    }
+                    if (features.length === 1) {
+                        // Only the first dashed leg was added — add the full ocean as safe
                         features.push({
                             type: 'Feature',
-                            properties: { safety: wasShallow ? 'danger' : 'safe' },
-                            geometry: { type: 'LineString', coordinates: passageCoords.slice(segStart, endIdx) },
+                            properties: { safety: 'safe' },
+                            geometry: { type: 'LineString', coordinates: oceanCoords },
                         });
-                        segStart = i;
-                        wasShallow = nowShallow;
                     }
-                }
-
-                // Ensure at least one feature
-                if (features.length === 0) {
+                } else {
+                    // Single safe feature for the ocean portion
                     features.push({
                         type: 'Feature',
                         properties: { safety: 'safe' },
-                        geometry: { type: 'LineString', coordinates: passageCoords },
+                        geometry: { type: 'LineString', coordinates: oceanCoords },
                     });
                 }
-                return features;
-            }
 
-            // ── Short route without depth data yet: single safe feature ──
-            if (isShortRoute) {
-                return [
-                    {
-                        type: 'Feature',
-                        properties: { safety: 'safe' },
-                        geometry: { type: 'LineString', coordinates: passageCoords },
-                    },
-                ];
-            }
-
-            // ── Long route: single deep-water feature ──
-            return [
-                {
+                // Last leg: 2nd-to-last → arrival (dashed)
+                features.push(makeLandLeg(passageCoords.slice(passageCoords.length - 2)));
+            } else {
+                // Too few points to split — render entire route as safe
+                features.push({
                     type: 'Feature',
                     properties: { safety: 'safe' },
                     geometry: { type: 'LineString', coordinates: passageCoords },
-                },
-            ];
+                });
+            }
+
+            return features;
         };
 
         // Only show great-circle line for short-ish routes where it's likely ocean-only.
