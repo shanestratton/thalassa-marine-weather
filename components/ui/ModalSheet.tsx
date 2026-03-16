@@ -10,7 +10,7 @@
  * it to the top of the screen so fields stay visible above the
  * keyboard. Also scrolls the focused field into view after resize.
  */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Capacitor } from '@capacitor/core';
 
@@ -91,6 +91,58 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
         };
     }, [isOpen]);
 
+    // Escape key to close
+    useEffect(() => {
+        if (!isOpen) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                onClose();
+            }
+        };
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, onClose]);
+
+    // Focus trap: cycle Tab through focusable elements within the modal
+    const handleFocusTrap = useCallback((e: React.KeyboardEvent) => {
+        if (e.key !== 'Tab') return;
+        const panel = panelRef.current;
+        if (!panel) return;
+
+        const focusable = panel.querySelectorAll<HTMLElement>(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusable.length === 0) return;
+
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+
+        if (e.shiftKey) {
+            if (document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+            }
+        } else {
+            if (document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+            }
+        }
+    }, []);
+
+    // Auto-focus first focusable element on open
+    useEffect(() => {
+        if (!isOpen || !panelRef.current) return;
+        // Delay to allow animation to complete
+        const timer = setTimeout(() => {
+            const firstFocusable = panelRef.current?.querySelector<HTMLElement>(
+                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            );
+            firstFocusable?.focus();
+        }, 100);
+        return () => clearTimeout(timer);
+    }, [isOpen]);
+
     if (!isOpen) return null;
 
     const kbOpen = keyboardHeight > 0;
@@ -103,10 +155,19 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
     // so the panel sits above the keyboard. When closed, center it.
     const alignment = kbOpen ? 'items-start pt-12' : alignTop ? 'items-start pt-24' : 'items-center';
 
+    const modalId = title ? `modal-title-${title.replace(/\s+/g, '-').toLowerCase()}` : undefined;
+
     const modal = (
-        <div className={`fixed inset-0 ${zIndex} flex ${alignment} justify-center px-3`} onClick={onClose}>
+        <div
+            className={`fixed inset-0 ${zIndex} flex ${alignment} justify-center px-3`}
+            onClick={onClose}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={modalId}
+            onKeyDown={handleFocusTrap}
+        >
             {/* Backdrop */}
-            <div className="absolute inset-0 bg-black/60" />
+            <div className="absolute inset-0 bg-black/60" aria-hidden="true" />
 
             {/* Content panel — data-modal-sheet prevents global keyboard dismiss on scroll */}
             <div
@@ -134,7 +195,7 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
                 </button>
 
                 {/* Title */}
-                {title && <h3 className="text-lg font-black text-white mb-4">{title}</h3>}
+                {title && <h3 id={modalId} className="text-lg font-black text-white mb-4">{title}</h3>}
 
                 {children}
             </div>

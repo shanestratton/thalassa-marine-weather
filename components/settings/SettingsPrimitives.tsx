@@ -18,30 +18,45 @@ export const Section = React.memo(({ title, children }: { title: string; childre
 ));
 Section.displayName = 'Section';
 
-// ── Row ──────────────────────────────────────────────────────
+// ── Row ──────────────────────────────────────────────────────────
 export const Row = React.memo(
     ({
         children,
         className = '',
         onClick,
+        label,
     }: {
         children: React.ReactNode;
         className?: string;
         onClick?: () => void;
-    }) => (
-        <div
-            className={`p-4 border-b border-white/5 last:border-0 flex items-center justify-between gap-4 ${className} ${onClick ? 'cursor-pointer hover:bg-white/5 transition-colors' : ''}`}
-            onClick={onClick}
-        >
-            {children}
-        </div>
-    ),
+        label?: string;
+    }) => {
+        const baseClass = `p-4 border-b border-white/5 last:border-0 flex items-center justify-between gap-4 ${className}`;
+
+        // When clickable, render as a proper button for keyboard accessibility
+        if (onClick) {
+            return (
+                <button
+                    className={`${baseClass} cursor-pointer hover:bg-white/5 transition-colors w-full text-left`}
+                    onClick={onClick}
+                    aria-label={label}
+                >
+                    {children}
+                </button>
+            );
+        }
+
+        return <div className={baseClass}>{children}</div>;
+    },
 );
 Row.displayName = 'Row';
 
-// ── Toggle ───────────────────────────────────────────────────
-export const Toggle = React.memo(({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) => (
-    <div
+// ── Toggle ───────────────────────────────────────────────────────
+export const Toggle = React.memo(({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) => (
+    <button
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
         className="relative inline-flex items-center cursor-pointer p-2 -mr-2 group"
         onClick={(e) => {
             e.stopPropagation();
@@ -57,7 +72,7 @@ export const Toggle = React.memo(({ checked, onChange }: { checked: boolean; onC
                 className={`absolute top-3 w-4 h-4 bg-white rounded-full shadow-md transition-all duration-300 ${checked ? 'left-6' : 'left-3'}`}
             ></div>
         </div>
-    </div>
+    </button>
 ));
 Toggle.displayName = 'Toggle';
 

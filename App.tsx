@@ -305,6 +305,13 @@ const App: React.FC = () => {
         <div
             className={`relative h-screen supports-[height:100dvh]:h-[100dvh] w-full overflow-hidden font-sans transition-colors duration-500 ${containerClasses} ${isLight ? 'display-light' : ''} flex flex-col`}
         >
+            {/* Skip Navigation — visible only on keyboard focus */}
+            <a
+                href="#main-content"
+                className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[9999] focus:px-4 focus:py-2 focus:bg-sky-600 focus:text-white focus:rounded-lg focus:text-sm focus:font-bold"
+            >
+                Skip to main content
+            </a>
             {/* MODALS & OVERLAYS */}
             <Suspense fallback={null}>
                 {showOnboarding && <OnboardingWizard onComplete={handleOnboardingComplete} />}
@@ -483,6 +490,7 @@ const App: React.FC = () => {
                         }
                     >
                         <main
+                            id="main-content"
                             className={`flex-grow relative flex flex-col ${isLight ? 'bg-slate-200' : 'bg-black'} ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}
                         >
                             <ErrorBoundary boundaryName="MainContent">

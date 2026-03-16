@@ -5,7 +5,7 @@
  * Supports text, number, date, and textarea variants.
  * Auto-scrolls above the iOS keyboard + accessory bar on focus.
  */
-import React from 'react';
+import React, { useId } from 'react';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 
 interface FormFieldProps {
@@ -52,6 +52,11 @@ export const FormField: React.FC<FormFieldProps> = ({
     hint,
     onFocus,
 }) => {
+    const fieldId = useId();
+    const errorId = error ? `${fieldId}-error` : undefined;
+    const hintId = hint && !error ? `${fieldId}-hint` : undefined;
+    const describedBy = [errorId, hintId].filter(Boolean).join(' ') || undefined;
+
     const isDate = type === 'date';
     const isTextarea = type === 'textarea';
     const borderClass = error ? 'border-red-500/40 focus:border-red-500/60' : 'border-white/10 focus:border-sky-500/30';
@@ -68,23 +73,28 @@ export const FormField: React.FC<FormFieldProps> = ({
 
     return (
         <div className={isDate ? 'min-w-0 max-w-full overflow-hidden' : undefined}>
-            <label className="text-label font-bold text-gray-400 uppercase tracking-widest">
+            <label htmlFor={fieldId} className="text-label font-bold text-gray-400 uppercase tracking-widest">
                 {label}
                 {required ? ' *' : ''}
             </label>
             {isTextarea ? (
                 <textarea
+                    id={fieldId}
                     value={value}
                     onChange={(e) => onChange(e.target.value)}
                     placeholder={placeholder}
                     disabled={disabled}
                     autoFocus={autoFocus}
                     rows={rows}
+                    aria-required={required || undefined}
+                    aria-invalid={error ? true : undefined}
+                    aria-describedby={describedBy}
                     onFocus={handleFocus as React.FocusEventHandler<HTMLTextAreaElement>}
                     className={`${inputClass} resize-none`}
                 />
             ) : (
                 <input
+                    id={fieldId}
                     type={type}
                     value={value}
                     onChange={(e) => onChange(e.target.value)}
@@ -93,12 +103,15 @@ export const FormField: React.FC<FormFieldProps> = ({
                     autoFocus={autoFocus}
                     min={min}
                     inputMode={inputMode}
+                    aria-required={required || undefined}
+                    aria-invalid={error ? true : undefined}
+                    aria-describedby={describedBy}
                     onFocus={handleFocus as React.FocusEventHandler<HTMLInputElement>}
                     className={inputClass}
                 />
             )}
-            {error && <p className="text-micro text-red-400 mt-1">{error}</p>}
-            {hint && !error && <p className="text-micro text-gray-500 mt-0.5">{hint}</p>}
+            {error && <p id={errorId} className="text-micro text-red-400 mt-1" role="alert">{error}</p>}
+            {hint && !error && <p id={hintId} className="text-micro text-gray-500 mt-0.5">{hint}</p>}
         </div>
     );
 };
