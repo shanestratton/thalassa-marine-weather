@@ -119,7 +119,7 @@ async function fetchMultiModelWind(
         }
 
         const data = await resp.json();
-        const results: any[] = Array.isArray(data) ? data : [data];
+        const results: Record<string, unknown>[] = Array.isArray(data) ? data : [data];
 
         const pointModels = new Map<number, ModelPoint[]>();
 

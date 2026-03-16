@@ -82,7 +82,7 @@ async function reverseGeocode(lat: number, lon: number): Promise<string> {
         if (data.features && data.features.length > 0) {
             // Prefer most specific: neighborhood > locality > place > region
             const priority = ['neighborhood', 'locality', 'place', 'region'];
-            const sorted = [...data.features].sort((a: any, b: any) => {
+            const sorted = [...data.features].sort((a: { properties?: { time?: string } }, b: { properties?: { time?: string } }) => {
                 const ai = priority.indexOf(a.place_type?.[0]);
                 const bi = priority.indexOf(b.place_type?.[0]);
                 return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);

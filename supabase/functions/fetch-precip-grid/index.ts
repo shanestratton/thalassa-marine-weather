@@ -322,7 +322,7 @@ Deno.serve(async (req: Request) => {
             'X-Model': 'GFS',
             'X-Hours': gfsHours.filter((_, i) => results[i] !== null).join(','),
         });
-    } catch (err: any) {
+    } catch (err: unknown) {
         console.error('[fetch-precip-grid] Error:', err.message, err.stack);
         return corsResponse(JSON.stringify({ error: err.message || String(err), stack: err.stack }), 500, {
             'Content-Type': 'application/json',

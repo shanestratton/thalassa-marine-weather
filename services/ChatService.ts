@@ -660,7 +660,7 @@ class ChatServiceClass {
     async getBlockedUsers(): Promise<string[]> {
         if (!supabase || !this.currentUserId) return [];
         const { data } = await supabase.from(DM_BLOCKS_TABLE).select('blocked_id').eq('blocker_id', this.currentUserId);
-        return (data || []).map((r: any) => r.blocked_id);
+        return (data || []).map((r: Record<string, string>) => r.blocked_id);
     }
 
     subscribeToDMs(onMessage: (dm: DirectMessage) => void): () => void {
@@ -865,7 +865,7 @@ class ChatServiceClass {
     // Logs all admin actions for accountability — catches rogue admins
 
     /** Log an admin action to the audit trail */
-    async logAudit(action: string, targetId: string | null, details?: Record<string, any>): Promise<void> {
+    async logAudit(action: string, targetId: string | null, details?: Record<string, unknown>): Promise<void> {
         if (!supabase || !this.currentUserId) return;
         try {
             await supabase.from('admin_audit_log').insert({
@@ -880,7 +880,7 @@ class ChatServiceClass {
     }
 
     /** Get recent audit log entries (admin-only) */
-    async getAuditLog(limit = 50): Promise<any[]> {
+    async getAuditLog(limit = 50): Promise<Record<string, unknown>[]> {
         if (!supabase || !this.isAdmin()) return [];
         const { data: entries } = await supabase
             .from('admin_audit_log')
@@ -891,17 +891,17 @@ class ChatServiceClass {
         if (!entries || entries.length === 0) return [];
 
         // Enrich with actor names
-        const actorIds = [...new Set(entries.map((e: any) => e.actor_id))];
+        const actorIds = [...new Set(entries.map((e: Record<string, string>) => e.actor_id))];
         const { data: profiles } = await supabase
             .from('chat_profiles')
             .select('user_id, display_name')
             .in('user_id', actorIds);
 
-        const profileMap = new Map((profiles || []).map((p: any) => [p.user_id, p.display_name]));
+        const profileMap = new Map((profiles || []).map((p: Record<string, string>) => [p.user_id, p.display_name]));
 
-        return entries.map((e: any) => ({
+        return entries.map((e: Record<string, unknown>) => ({
             ...e,
-            actor_name: profileMap.get(e.actor_id) || 'Unknown',
+            actor_name: profileMap.get(e.actor_id as string) || 'Unknown',
         }));
     }
 
@@ -1125,18 +1125,18 @@ class ChatServiceClass {
         if (!requests || requests.length === 0) return [];
 
         // Enrich with user display names and channel names
-        const userIds = [...new Set(requests.map((r: any) => r.user_id))];
-        const channelIds = [...new Set(requests.map((r: any) => r.channel_id))];
+        const userIds = [...new Set(requests.map((r: Record<string, string>) => r.user_id))];
+        const channelIds = [...new Set(requests.map((r: Record<string, string>) => r.channel_id))];
 
         const [{ data: profiles }, { data: channels }] = await Promise.all([
             supabase.from('chat_profiles').select('user_id, display_name, avatar_url').in('user_id', userIds),
             supabase.from(CHANNELS_TABLE).select('id, name').in('id', channelIds),
         ]);
 
-        const profileMap = new Map((profiles || []).map((p: any) => [p.user_id, p]));
-        const channelMap = new Map((channels || []).map((c: any) => [c.id, c.name]));
+        const profileMap = new Map((profiles || []).map((p: Record<string, string>) => [p.user_id, p]));
+        const channelMap = new Map((channels || []).map((c: Record<string, string>) => [c.id, c.name]));
 
-        return requests.map((r: any) => ({
+        return requests.map((r: Record<string, string>) => ({
             ...r,
             display_name: profileMap.get(r.user_id)?.display_name || 'Unknown',
             avatar_url: profileMap.get(r.user_id)?.avatar_url || null,

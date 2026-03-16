@@ -211,7 +211,7 @@ class MarketplaceServiceClass {
         if (error || !data) return [];
 
         // Also fetch recently-sold listings (48h) to show SOLD overlay
-        let soldListings: any[] = [];
+        let soldListings: Record<string, unknown>[] = [];
         const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
         let soldQuery = supabase
             .from(LISTINGS_TABLE)
@@ -455,7 +455,7 @@ class MarketplaceServiceClass {
     /**
      * Enrich listing rows with seller profile data (display name, avatar, vessel).
      */
-    private async enrichWithProfiles(rows: any[]): Promise<MarketplaceListing[]> {
+    private async enrichWithProfiles(rows: Record<string, unknown>[]): Promise<MarketplaceListing[]> {
         if (!supabase || rows.length === 0) return [];
 
         const sellerIds = [...new Set(rows.map((r) => r.seller_id).filter(Boolean))];

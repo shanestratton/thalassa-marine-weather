@@ -297,7 +297,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                                 recognition.maxAlternatives = 1;
                                 recognition.continuous = false;
                                 setListening(true);
-                                recognition.onresult = (event: any) => {
+                                recognition.onresult = (event: { results: { length: number; 0: { 0: { transcript: string } } } }) => {
                                     const transcript = event.results[0][0].transcript;
                                     setNotes((prev) => (prev ? `${prev} ${transcript}` : transcript));
                                     toast.success('Voice captured');

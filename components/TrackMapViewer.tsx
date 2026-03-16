@@ -184,7 +184,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                     east: 180,
                 });
 
-                let windData: any[] | null = null;
+                let windData: unknown[] | null = null;
                 const cacheKey = `${SUPABASE_URL}${EDGE_FN_PATH}?track-global`;
 
                 try {

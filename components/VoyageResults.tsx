@@ -827,7 +827,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                         icon={<WaveIcon className="w-5 h-5" />}
                         accent={(() => {
                             const d = (voyagePlan as any).__depthSummary;
-                            return d?.segments?.some((s: any) => s.safety === 'danger' || s.safety === 'land')
+                            return d?.segments?.some((s: { safety: string }) => s.safety === 'danger' || s.safety === 'land')
                                 ? 'red'
                                 : d?.shallowSegments > 0
                                   ? 'amber'
@@ -852,7 +852,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                         icon={<WindIcon className="w-5 h-5" />}
                         accent={(() => {
                             const m = (voyagePlan as any).__multiModelComparison as MultiModelResult;
-                            const confidences = m.waypoints.map((wp: any) => wp.consensus.confidence);
+                            const confidences = m.waypoints.map((wp: { consensus: { confidence: number } }) => wp.consensus.confidence);
                             return confidences.includes('low')
                                 ? 'red'
                                 : confidences.includes('medium')

@@ -120,7 +120,7 @@ export const HeroSection = ({
         }
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- merge of WeatherMetrics + ForecastDay with null/undefined mismatch
-        const todayMetrics: any = {
+        const todayMetrics: Record<string, unknown> = {
             ...(todayForecast || {}), // Daily forecast base (high/low/sunrise/sunset)
             ...current, // Real-time observation data WINS over forecast nulls
             // Explicitly pull daily-only fields from the forecast
@@ -155,7 +155,7 @@ export const HeroSection = ({
                     }
 
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- merge of WeatherMetrics + ForecastDay
-                    const metrics: any = {
+                    const metrics: Record<string, unknown> = {
                         ...current,
                         ...f,
                         condition: f.condition,

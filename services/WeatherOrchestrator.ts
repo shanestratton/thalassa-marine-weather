@@ -655,7 +655,7 @@ export class WeatherOrchestrator {
     private async scheduleNextAndEnrich(
         report: MarineWeatherReport,
         location: string,
-        settings: any,
+        settings: Record<string, unknown>,
         force: boolean,
     ): Promise<void> {
         const locationType = report.locationType || 'coastal';

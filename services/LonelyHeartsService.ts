@@ -560,7 +560,7 @@ class LonelyHeartsServiceClass {
         if (!chatProfiles || chatProfiles.length === 0) return [];
 
         // 2. Fetch crew profiles for these users
-        const userIds = chatProfiles.map((p: any) => p.user_id);
+        const userIds = chatProfiles.map((p: Record<string, string>) => p.user_id);
         let query = supabase.from(CREW_PROFILES_TABLE).select('*').in('user_id', userIds);
 
         if (filters.listing_type) {
@@ -639,7 +639,7 @@ class LonelyHeartsServiceClass {
         }
 
         // Include crew-only profiles (e.g. seed profiles without chat_profiles)
-        const chatUserIds = new Set(chatProfiles.map((p: any) => p.user_id));
+        const chatUserIds = new Set(chatProfiles.map((p: Record<string, string>) => p.user_id));
         let crewOnlyQuery = supabase
             .from(CREW_PROFILES_TABLE)
             .select('*')
@@ -731,7 +731,7 @@ class LonelyHeartsServiceClass {
 
         if (!chatProfiles || chatProfiles.length === 0) return [];
 
-        const userIds = chatProfiles.map((p: any) => p.user_id);
+        const userIds = chatProfiles.map((p: Record<string, string>) => p.user_id);
         const { data: datingProfiles } = await supabase.from(DATING_PROFILES_TABLE).select('*').in('user_id', userIds);
 
         const datingMap = new Map<string, SupabaseRow>();
@@ -865,7 +865,7 @@ class LonelyHeartsServiceClass {
         }
 
         return profiles
-            .map((p: any) => {
+            .map((p: Record<string, unknown>) => {
                 const dp = datingMap.get(p.user_id);
                 const cp = crewMap.get(p.user_id);
                 return {
@@ -923,7 +923,7 @@ class LonelyHeartsServiceClass {
     async getBlockedUserIds(): Promise<string[]> {
         if (!supabase || !this.currentUserId) return [];
         const { data } = await supabase.from(BLOCKS_TABLE).select('blocked_id').eq('blocker_id', this.currentUserId);
-        return data?.map((d: any) => d.blocked_id) || [];
+        return data?.map((d: Record<string, string>) => d.blocked_id) || [];
     }
 
     /** Report a user */

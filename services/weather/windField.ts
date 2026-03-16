@@ -296,7 +296,7 @@ async function _doFetchGlobalOpenMeteo(): Promise<WindGrid | null> {
         }
 
         const BATCH_SIZE = 50;
-        const allResults: any[] = new Array(allPoints.length).fill(null);
+        const allResults: unknown[] = new Array(allPoints.length).fill(null);
 
         const omKey = getOpenMeteoKey();
         if (!omKey) return null;

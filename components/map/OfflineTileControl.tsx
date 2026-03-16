@@ -33,12 +33,12 @@ export const OfflineTileControl: React.FC<OfflineTileControlProps> = ({ map, til
         const savetiles = (L.control as any).savetiles(tileLayer, {
             zoomlevels: [3, 4, 5, 6, 7, 8, 9, 10],
             position: 'topright',
-            confirm(layer: any, successCallback: () => void) {
+            confirm(layer: unknown, successCallback: () => void) {
                 const tileCount = layer._tilesforSave?.length || 0;
                 toast.info(`Downloading ${tileCount} tiles for offline use…`);
                 successCallback();
             },
-            confirmRemoval(_layer: any, successCallback: () => void) {
+            confirmRemoval(_layer: unknown, successCallback: () => void) {
                 successCallback();
                 toast.success('Cached tiles removed');
             },
@@ -53,7 +53,7 @@ export const OfflineTileControl: React.FC<OfflineTileControlProps> = ({ map, til
         let totalTiles = 0;
         let savedTiles = 0;
 
-        tileLayer.on('savestart', (e: any) => {
+        tileLayer.on('savestart', (e: { lengthSaved: number }) => {
             totalTiles = e._tilesforSave?.length || 0;
             savedTiles = 0;
         });

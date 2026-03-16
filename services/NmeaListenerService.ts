@@ -176,7 +176,7 @@ class NmeaListenerServiceClass {
             // Start continuous read loop
             this.tcpReadLoop = true;
             this.runTcpReadLoop();
-        } catch (e: any) {
+        } catch (e: unknown) {
             const msg = e?.message || String(e);
             console.warn('[NmeaListener] TCP connect failed:', msg);
             this.lastError = msg;
@@ -218,7 +218,7 @@ class NmeaListenerServiceClass {
                             }
                         }
                     }
-                } catch (readErr: any) {
+                } catch (readErr: unknown) {
                     // Read timeout is normal (no data available) — just continue
                     if (readErr?.message?.includes?.('timeout') || readErr?.code === 'TIMEOUT') {
                         continue;
