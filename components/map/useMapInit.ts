@@ -372,6 +372,20 @@ export function useMapInit(opts: UseMapInitOptions) {
                     ],
                     'line-width': 1.5,
                 },
+                filter: ['!=', ['get', 'dashed'], true],
+            });
+
+            // Wide invisible hit-area for touch — makes route nudge (long-press drag) easy to trigger
+            map.addLayer({
+                id: 'route-hit-area',
+                type: 'line',
+                source: 'route-line',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    'line-color': 'rgba(0,0,0,0)',
+                    'line-width': 24,
+                    'line-opacity': 0,
+                },
             });
 
             // ── Harbour Seamarks (IALA Navigation Aids) ──
@@ -659,6 +673,15 @@ export function useMapInit(opts: UseMapInitOptions) {
             }, 500);
         };
 
+        // Route nudge fires at 400ms — if it fires, suppress the 500ms pin drop
+        const handleSuppressPinDrop = () => {
+            if (longPressTimer.current) {
+                clearTimeout(longPressTimer.current);
+                longPressTimer.current = null;
+            }
+        };
+        window.addEventListener('thalassa:suppress-pin-drop', handleSuppressPinDrop);
+
         const cancelLongPress = () => {
             if (longPressTimer.current) {
                 clearTimeout(longPressTimer.current);
@@ -719,6 +742,7 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         return () => {
             window.removeEventListener('map-recenter', handleRecenter);
+            window.removeEventListener('thalassa:suppress-pin-drop', handleSuppressPinDrop);
             resizeObserver.disconnect();
             cancelLongPress();
             map.remove();

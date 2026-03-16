@@ -55,19 +55,32 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
             const fileUris: string[] = [];
             if (Capacitor.isNativePlatform()) {
                 const photoUrls = (entry.photos || []).filter(
-                    (p) => p.startsWith('http://') || p.startsWith('https://'),
+                    (p) =>
+                        p.startsWith('http://') ||
+                        p.startsWith('https://') ||
+                        p.startsWith('blob:') ||
+                        p.startsWith('data:'),
                 );
-                // Download each photo to cache and collect file:// URIs
+                // Download/convert each photo to cache and collect file:// URIs
                 await Promise.all(
                     photoUrls.map(async (url, i) => {
                         try {
-                            const resp = await fetch(url);
-                            const blob = await resp.blob();
-                            const reader = new FileReader();
-                            const base64 = await new Promise<string>((resolve) => {
-                                reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
-                                reader.readAsDataURL(blob);
-                            });
+                            let base64: string;
+                            if (url.startsWith('data:')) {
+                                // data: URI — extract the base64 payload directly
+                                base64 = url.split(',')[1] || '';
+                            } else {
+                                // http(s): or blob: — fetch then convert
+                                const resp = await fetch(url);
+                                const blob = await resp.blob();
+                                const reader = new FileReader();
+                                base64 = await new Promise<string>((resolve) => {
+                                    reader.onloadend = () =>
+                                        resolve((reader.result as string).split(',')[1]);
+                                    reader.readAsDataURL(blob);
+                                });
+                            }
+                            if (!base64) return;
                             const ext = url.match(/\.(jpe?g|png|webp|gif)/i)?.[1] || 'jpg';
                             const fileName = `diary_share_${i}.${ext}`;
                             const result = await Filesystem.writeFile({

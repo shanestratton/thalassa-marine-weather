@@ -202,6 +202,7 @@ class ChatServiceClass {
     private initPromise: Promise<void> | null = null;
     private ownerUserId: string | null = null; // Founding admin — immutable
     private cachedDisplayName: string | null = null; // Cached to avoid per-message DB lookup
+    private _authListenerActive = false; // Prevents duplicate auth state listeners
 
     // --- INIT ---
 
@@ -218,7 +219,21 @@ class ChatServiceClass {
             const {
                 data: { user },
             } = await supabase.auth.getUser();
-            if (!user) return;
+            if (!user) {
+                // No user yet — allow retry on next initialize() call
+                this.initPromise = null;
+
+                // Listen for auth changes so we auto-init when user signs in
+                if (!this._authListenerActive) {
+                    this._authListenerActive = true;
+                    supabase.auth.onAuthStateChange((event) => {
+                        if (event === 'SIGNED_IN') {
+                            this.initPromise = null; // Allow fresh init
+                        }
+                    });
+                }
+                return;
+            }
             this.currentUserId = user.id;
             // Detect platform owner
             if (user.email === PLATFORM_OWNER_EMAIL) {
@@ -302,6 +317,21 @@ class ChatServiceClass {
     private _refreshChannelsCache(): void {
         // Fire-and-forget background refresh
         this._fetchAndCacheChannels().catch(() => {});
+    }
+
+    /** Invalidate cached channels — next getChannels() will fetch fresh from Supabase */
+    invalidateChannelCache(): void {
+        try {
+            localStorage.removeItem(CHANNELS_CACHE_KEY);
+        } catch (e) {
+            /* non-critical */
+        }
+    }
+
+    /** Always fetch fresh channels from Supabase (bypasses cache) */
+    async getChannelsFresh(): Promise<ChatChannel[]> {
+        this.invalidateChannelCache();
+        return this._fetchAndCacheChannels();
     }
 
     // --- MESSAGES ---
@@ -1299,6 +1329,7 @@ class ChatServiceClass {
             this.dmSubscription = null;
         }
         this.cachedDisplayName = null;
+        this.initPromise = null; // Allow fresh init on next visit (picks up login state)
     }
 
     /** Clear cached display name — call after profile update */

@@ -1,4 +1,6 @@
 import React from 'react';
+import { useSettings } from '../context/SettingsContext';
+import { convertLength } from '../utils';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('VoyageResults');
@@ -31,6 +33,7 @@ import { EmergencyPlan } from './passage/EmergencyPlan';
 import { AccordionSection } from './passage/AccordionSection';
 import { DepthSummaryCard } from './passage/DepthSummaryCard';
 import { ModelComparisonCard } from './passage/ModelComparisonCard';
+import { CustomsClearanceCard } from './passage/CustomsClearanceCard';
 import type { MultiModelResult } from '../services/weather/MultiModelWeatherService';
 
 // --- MICRO COMPONENTS ---
@@ -146,6 +149,25 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
     const totalChecklistItems = CHECKLIST_DATA.reduce((sum, cat) => sum + cat.items.length, 0);
     const checkedCount = Object.values(checklistState).filter(Boolean).length;
 
+    // Wave height unit preference
+    const { settings } = useSettings();
+    const waveUnit = settings.units?.waveHeight || 'ft';
+    const waveLabel = waveUnit === 'm' ? 'm' : 'ft';
+    // All stored wave heights are in ft — convert at display time
+    const displayWave = (ftVal: number | undefined): string => {
+        if (ftVal === undefined || ftVal === null) return '--';
+        if (waveUnit === 'm') return (ftVal / 3.281).toFixed(1);
+        return String(Math.round(ftVal * 10) / 10);
+    };
+
+    // Detect if distance/duration are still Gemini AI crow-fly estimates
+    // Weather routing & bathymetric routing set values like "123 NM" or "2 days 4h" / "18 hours"
+    // Gemini crow-fly estimates look like "750 NM" with no routing reasoning
+    // The safest heuristic: if routeReasoning contains 'Weather-optimized' or 'Weather-adjusted',
+    // the route has been analyzed by the actual router
+    const isRouteAnalyzed = voyagePlan.routeReasoning?.includes('Weather-') || 
+                            voyagePlan.routeReasoning?.includes('mesh nodes');
+
     return (
         <div className="max-w-7xl mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-700 pb-12 flex-1 flex flex-col gap-3">
             {/* ═══════════════════════════════════════════════════════════════════
@@ -221,8 +243,17 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                             <span className="text-xs font-bold uppercase tracking-widest text-gray-300">Distance</span>
                         </div>
                         <div className="text-right">
-                            <span className="text-lg font-bold text-white">{voyagePlan.distanceApprox}</span>
-                            <span className="text-[11px] text-gray-500 block">Nautical Miles</span>
+                            {isRouteAnalyzed ? (
+                                <>
+                                    <span className="text-lg font-bold text-white">{voyagePlan.distanceApprox}</span>
+                                    <span className="text-[11px] text-gray-500 block">Nautical Miles</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span className="text-lg font-bold text-amber-300/80 animate-pulse">Routing...</span>
+                                    <span className="text-[11px] text-gray-500 block">Awaiting route analysis</span>
+                                </>
+                            )}
                         </div>
                     </div>
 
@@ -235,8 +266,17 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                             <span className="text-xs font-bold uppercase tracking-widest text-gray-300">Duration</span>
                         </div>
                         <div className="text-right">
-                            <span className="text-lg font-bold text-white">{voyagePlan.durationApprox}</span>
-                            <span className="text-[11px] text-gray-500 block">Estimated Time</span>
+                            {isRouteAnalyzed ? (
+                                <>
+                                    <span className="text-lg font-bold text-white">{voyagePlan.durationApprox}</span>
+                                    <span className="text-[11px] text-gray-500 block">Estimated Time</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span className="text-lg font-bold text-amber-300/80 animate-pulse">Routing...</span>
+                                    <span className="text-[11px] text-gray-500 block">Awaiting route analysis</span>
+                                </>
+                            )}
                         </div>
                     </div>
 
@@ -258,7 +298,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 <span className="text-[11px] text-gray-500 ml-0.5">kts</span>
                             </div>
                             <div className="text-[11px] text-sky-300 font-medium border-l border-white/10 pl-3">
-                                {voyagePlan.suitability?.maxWaveEncountered ?? '--'} ft seas
+                                {displayWave(voyagePlan.suitability?.maxWaveEncountered)} {waveLabel} seas
                             </div>
                         </div>
                     </div>
@@ -305,34 +345,6 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                 </div>
             </div>
 
-            {/* ═══ ROUTE STRATEGY — Why this route? ═══ */}
-            {voyagePlan.routeReasoning && (
-                <div className="w-full bg-sky-500/5 border border-sky-500/15 rounded-2xl px-5 py-4">
-                    <div className="flex items-start gap-2.5">
-                        <div className="p-1.5 bg-sky-500/10 rounded-lg mt-0.5 shrink-0">
-                            <svg
-                                className="w-4 h-4 text-sky-400"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={1.5}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M9 6.75V15m6-6v8.25m.503 3.498l4.875-2.437c.381-.19.622-.58.622-1.006V4.82c0-.836-.88-1.38-1.628-1.006l-3.869 1.934c-.317.159-.69.159-1.006 0L9.503 3.252a1.125 1.125 0 00-1.006 0L3.622 5.689C3.24 5.88 3 6.27 3 6.695V19.18c0 .836.88 1.38 1.628 1.006l3.869-1.934c.317-.159.69-.159 1.006 0l4.994 2.497c.317.158.69.158 1.006 0z"
-                                />
-                            </svg>
-                        </div>
-                        <div>
-                            <h4 className="text-[11px] text-sky-400 font-bold uppercase tracking-widest mb-1">
-                                Route Strategy
-                            </h4>
-                            <p className="text-sm text-gray-300 leading-relaxed">{voyagePlan.routeReasoning}</p>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* ═══════════════════════════════════════════════════════════════════
                 COLLAPSIBLE ACCORDIONS — All sections below
@@ -348,24 +360,83 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                     badge={voyagePlan.bestDepartureWindow?.timeRange || 'No Data'}
                 >
                     {voyagePlan.bestDepartureWindow ? (
-                        <div className="flex flex-col md:flex-row gap-6 items-center">
-                            <div className="shrink-0 flex flex-col items-center md:items-start gap-1 min-w-[200px]">
-                                <div className="text-2xl md:text-3xl font-bold text-white tracking-tight text-center md:text-left">
-                                    {voyagePlan.bestDepartureWindow.timeRange}
-                                </div>
-                                {voyagePlan.departureDate && (
-                                    <div className="text-xs text-sky-400/70 font-bold uppercase tracking-wider text-center md:text-left">
-                                        {voyagePlan.departureDate}
+                        (() => {
+                            // Parse the AI's recommended departure datetime
+                            const dw = voyagePlan.bestDepartureWindow;
+                            const isoDate = dw.dateTimeISO;
+                            let dateObj: Date | null = null;
+                            let formattedDate = '';
+                            let relativeDay = '';
+
+                            if (isoDate) {
+                                dateObj = new Date(isoDate);
+                                if (!isNaN(dateObj.getTime())) {
+                                    formattedDate = dateObj.toLocaleDateString('en-GB', {
+                                        weekday: 'short',
+                                        day: 'numeric',
+                                        month: 'short',
+                                        year: 'numeric',
+                                    });
+                                    // Relative context
+                                    const now = new Date();
+                                    const diffDays = Math.round((dateObj.getTime() - now.getTime()) / 86400000);
+                                    if (diffDays === 0) relativeDay = 'Today';
+                                    else if (diffDays === 1) relativeDay = 'Tomorrow';
+                                    else if (diffDays > 1) relativeDay = `In ${diffDays} days`;
+                                    else relativeDay = `${Math.abs(diffDays)} days ago`;
+                                }
+                            }
+                            // Fallback to departureDate if no ISO provided
+                            if (!formattedDate && voyagePlan.departureDate) {
+                                const fallback = new Date(voyagePlan.departureDate);
+                                if (!isNaN(fallback.getTime())) {
+                                    formattedDate = fallback.toLocaleDateString('en-GB', {
+                                        weekday: 'short',
+                                        day: 'numeric',
+                                        month: 'short',
+                                        year: 'numeric',
+                                    });
+                                } else {
+                                    formattedDate = voyagePlan.departureDate;
+                                }
+                            }
+
+                            return (
+                                <div className="flex flex-col md:flex-row gap-5 items-center">
+                                    <div className="shrink-0 flex flex-col items-center md:items-start gap-2 min-w-[220px]">
+                                        {/* Date — large and prominent */}
+                                        {formattedDate && (
+                                            <div className="flex items-baseline gap-2">
+                                                <span className="text-xl md:text-2xl font-bold text-white tracking-tight">
+                                                    {formattedDate}
+                                                </span>
+                                                {relativeDay && (
+                                                    <span className={`text-xs font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border ${
+                                                        relativeDay === 'Today'
+                                                            ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+                                                            : relativeDay === 'Tomorrow'
+                                                              ? 'text-sky-400 bg-sky-500/10 border-sky-500/20'
+                                                              : 'text-amber-400 bg-amber-500/10 border-amber-500/20'
+                                                    }`}>
+                                                        {relativeDay}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
+                                        {/* Time range */}
+                                        <div className="text-lg font-bold text-emerald-400 tracking-tight">
+                                            🕐 {dw.timeRange}
+                                        </div>
                                     </div>
-                                )}
-                            </div>
-                            <div className="h-px w-full md:w-px md:h-16 bg-white/10 shrink-0"></div>
-                            <div className="flex-1">
-                                <p className="text-sm text-gray-300 leading-relaxed font-light text-center md:text-left">
-                                    {voyagePlan.bestDepartureWindow.reasoning}
-                                </p>
-                            </div>
-                        </div>
+                                    <div className="h-px w-full md:w-px md:h-20 bg-white/10 shrink-0"></div>
+                                    <div className="flex-1">
+                                        <p className="text-sm text-gray-300 leading-relaxed font-light text-center md:text-left">
+                                            {dw.reasoning}
+                                        </p>
+                                    </div>
+                                </div>
+                            );
+                        })()
                     ) : (
                         <div className="text-center py-6">
                             <span className="text-xs text-gray-500 font-bold uppercase tracking-widest">
@@ -485,7 +556,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                             </td>
                                             <td className="py-3.5">
                                                 <div className="flex items-center gap-1.5 text-sky-300">
-                                                    <WaveIcon className="w-3.5 h-3.5" /> {wp.waveHeight ?? '--'}ft
+                                                    <WaveIcon className="w-3.5 h-3.5" /> {displayWave(wp.waveHeight)}{waveLabel}
                                                 </div>
                                             </td>
                                             <td className="py-3.5">
@@ -495,7 +566,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                                             HIGH WIND
                                                         </span>
                                                     )}
-                                                    {(wp.waveHeight || 0) > 4 && (
+                                                    {(wp.waveHeight || 0) > (waveUnit === 'm' ? 1.2 : 4) && (
                                                         <span className="text-[11px] font-bold text-sky-400 px-1.5 py-0.5 bg-sky-500/10 rounded w-fit border border-sky-500/20">
                                                             ROUGH SEAS
                                                         </span>
@@ -511,7 +582,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                     <td className="py-3.5 pl-2">
                                         <div className="font-bold text-white">ARRIVAL</div>
                                         <div className="text-[11px] text-gray-500">
-                                            Est. {voyagePlan.durationApprox}
+                                            {isRouteAnalyzed ? `Est. ${voyagePlan.durationApprox}` : 'Duration pending...'}
                                         </div>
                                     </td>
                                     <td className="py-3.5">
@@ -546,9 +617,21 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                     icon={<RouteIcon className="w-5 h-5" />}
                     accent="sky"
                     defaultOpen={false}
-                    badge={`${voyagePlan.waypoints?.length || 0} nodes`}
+                    badge={isRouteAnalyzed ? `${voyagePlan.waypoints?.length || 0} nodes` : 'Computing...'}
                 >
-                    {voyagePlan.waypoints && voyagePlan.waypoints.length > 0 ? (
+                    {!isRouteAnalyzed ? (
+                        <div className="flex flex-col items-center justify-center py-10 opacity-70 border-2 border-dashed border-amber-500/20 rounded-xl bg-amber-500/5">
+                            <div className="animate-pulse flex flex-col items-center gap-3">
+                                <RouteIcon className="w-10 h-10 text-amber-400/60" />
+                                <span className="text-sm font-bold text-amber-300/80 uppercase tracking-widest">
+                                    Computing Route...
+                                </span>
+                                <span className="text-xs text-gray-500 max-w-xs text-center">
+                                    Waypoints will appear once weather routing analysis completes
+                                </span>
+                            </div>
+                        </div>
+                    ) : voyagePlan.waypoints && voyagePlan.waypoints.length > 0 ? (
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                             {voyagePlan.waypoints.map((wp, i) => (
                                 <div
@@ -590,7 +673,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                                 <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
                                                     <WaveIcon className="w-3 h-3 text-sky-400" />
                                                     <span className="text-[11px] text-gray-300 font-medium">
-                                                        {wp.waveHeight}ft
+                                                        {displayWave(wp.waveHeight)}{waveLabel}
                                                     </span>
                                                 </div>
                                             )}
@@ -849,63 +932,13 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                 {voyagePlan.customs?.required && (
                     <AccordionSection
                         title="Customs & Immigration"
-                        subtitle="International Clearance Requirements"
+                        subtitle="Clearance Procedures, Contacts & Required Documents"
                         icon={<FlagIcon className="w-5 h-5" />}
                         accent="indigo"
                         defaultOpen={false}
                         badge={`${voyagePlan.customs.departingCountry || 'Origin'} → ${voyagePlan.customs.destinationCountry || 'Destination'}`}
                     >
-                        <div className="space-y-5">
-                            {/* Departure Section */}
-                            {voyagePlan.customs.departureProcedures && (
-                                <div className="border-b border-sky-500/20 pb-4">
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <div className="p-2 bg-sky-500/20 rounded-full text-sky-300">
-                                            <FlagIcon className="w-4 h-4" />
-                                        </div>
-                                        <h4 className="text-sm font-bold text-sky-200 uppercase tracking-widest">
-                                            Clearance Outbound: {voyagePlan.customs.departingCountry || 'Origin'}
-                                        </h4>
-                                    </div>
-                                    <p className="text-sm text-gray-300 leading-relaxed pl-1">
-                                        {voyagePlan.customs.departureProcedures}
-                                    </p>
-                                </div>
-                            )}
-
-                            <div className="flex flex-col md:flex-row gap-6">
-                                <div className="flex-1">
-                                    <div className="flex items-center gap-3 mb-2">
-                                        <div className="p-2 bg-sky-500/20 rounded-full text-sky-300">
-                                            <FlagIcon className="w-4 h-4" />
-                                        </div>
-                                        <h4 className="text-sm font-bold text-sky-200 uppercase tracking-widest">
-                                            International Arrival:{' '}
-                                            {voyagePlan.customs.destinationCountry || 'Border Crossing'}
-                                        </h4>
-                                    </div>
-                                    <p className="text-sm text-gray-300 leading-relaxed pl-1">
-                                        {voyagePlan.customs.procedures}
-                                    </p>
-                                </div>
-                                {voyagePlan.customs.contactPhone && (
-                                    <div className="flex flex-col justify-center min-w-[200px] border-t md:border-t-0 md:border-l border-sky-500/20 pt-4 md:pt-0 md:pl-6">
-                                        <span className="text-[11px] text-gray-500 uppercase font-bold tracking-widest mb-1">
-                                            Port Authority / Customs
-                                        </span>
-                                        <div className="flex items-center gap-2 text-white font-mono text-lg">
-                                            <PhoneIcon className="w-4 h-4 text-emerald-400" />
-                                            <a
-                                                href={`tel:${voyagePlan.customs.contactPhone}`}
-                                                className="hover:text-emerald-300 transition-colors"
-                                            >
-                                                {voyagePlan.customs.contactPhone}
-                                            </a>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
+                        <CustomsClearanceCard voyagePlan={voyagePlan} />
                     </AccordionSection>
                 )}
 

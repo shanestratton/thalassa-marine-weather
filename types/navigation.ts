@@ -83,6 +83,12 @@ export interface VoyagePlan {
         timeRange: string;
         reasoning: string;
     };
+    safeHarbours?: {
+        name: string;
+        lat: number;
+        lon: number;
+        description: string;
+    }[];
     routeReasoning?: string;
 }
 

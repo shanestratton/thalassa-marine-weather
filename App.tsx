@@ -15,6 +15,7 @@ import { NavButton } from './components/NavButton';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { GpsTrackingIndicator } from './components/GpsTrackingIndicator';
 import { AnchorStatusIndicator } from './components/AnchorStatusIndicator';
+import { FollowRouteBadge } from './components/FollowRouteBadge';
 import { NmeaGpsIndicator } from './components/NmeaGpsIndicator';
 import { NmeaConnectionBadge } from './components/NmeaConnectionBadge';
 import { PushNotificationService } from './services/PushNotificationService';
@@ -454,6 +455,9 @@ const App: React.FC = () => {
                             )}
                     </header>
                 )}
+
+                {/* Follow Route Badge — shows when actively following a planned route */}
+                {currentView !== 'map' && <FollowRouteBadge />}
 
                 {/* MAIN CONTENT AREA */}
                 {currentView !== 'map' ? (

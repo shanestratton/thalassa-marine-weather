@@ -160,12 +160,21 @@ export const ChatPage: React.FC = () => {
     // Mod
     const [isFirstVisit, setIsFirstVisit] = useState(true);
 
-    // Role checks (needed before hook calls that depend on isAdmin)
-    const isMod = ChatService.isMod();
-    const isAdmin = ChatService.isAdmin();
-    const isModerator = ChatService.isModerator();
-    const isMuted = ChatService.isMuted();
-    const mutedUntil = ChatService.getMutedUntil();
+    // Role checks — reactive state that updates after ChatService.initialize()
+    const [isMod, setIsMod] = useState(() => ChatService.isMod());
+    const [isAdmin, setIsAdmin] = useState(() => ChatService.isAdmin());
+    const [isModerator, setIsModerator] = useState(() => ChatService.isModerator());
+    const [isMuted, setIsMuted] = useState(() => ChatService.isMuted());
+    const [mutedUntil, setMutedUntil] = useState(() => ChatService.getMutedUntil());
+
+    /** Re-read roles from ChatService and update state */
+    const refreshRoles = useCallback(() => {
+        setIsMod(ChatService.isMod());
+        setIsAdmin(ChatService.isAdmin());
+        setIsModerator(ChatService.isModerator());
+        setIsMuted(ChatService.isMuted());
+        setMutedUntil(ChatService.getMutedUntil());
+    }, []);
 
     // --- Extracted Hook: Proposals + Private Channels + Report ---
     const proposalHook = useChatProposals({ channels, setChannels, isAdmin });
@@ -353,10 +362,12 @@ export const ChatPage: React.FC = () => {
             // Auth + profile load — sequential, readable
             try {
                 await ChatService.initialize();
+                // Roles are now loaded — refresh reactive state
+                refreshRoles();
                 loadUnreadCount();
 
-                // Refresh channels from network (might have new ones)
-                const fresh = await ChatService.getChannels();
+                // Refresh channels from network (bypass cache — auth may unlock new channels)
+                const fresh = await ChatService.getChannelsFresh();
                 if (fresh.length > 0) setChannels(fresh);
 
                 await loadProfile();
@@ -678,6 +689,7 @@ export const ChatPage: React.FC = () => {
                             profileSaving={profileSaving}
                             profileSaved={profileSaved}
                             vesselPlaceholder={settings.vessel?.name || ''}
+                            isObserver={settings.vessel?.type === 'observer'}
                             fileInputRef={fileInputRef}
                             onSaveProfile={handleSaveProfile}
                             onRemovePhoto={handleRemovePhoto}
@@ -716,7 +728,17 @@ export const ChatPage: React.FC = () => {
 
                     {/* ══════ ADMIN PANEL ══════ */}
                     {view === 'admin_panel' && !loading && (
-                        <AdminPanel isOpen={true} onClose={() => setView('channels')} />
+                        <AdminPanel
+                            isOpen={true}
+                            onClose={() => setView('channels')}
+                            onChannelDeleted={(id) => {
+                                setChannels((prev) => prev.filter((c) => c.id !== id));
+                            }}
+                            onChannelApproved={async () => {
+                                const fresh = await ChatService.getChannelsFresh();
+                                if (fresh.length > 0) setChannels(fresh);
+                            }}
+                        />
                     )}
 
                     {/* ══════ JOIN REQUEST MODAL ══════ */}

@@ -16,7 +16,7 @@ import { HeroWidgets } from './dashboard/HeroWidgets';
 import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
 import { RainForecastCard } from './dashboard/RainForecastCard';
 import { useSettings } from '../context/SettingsContext';
-import { GestureTutorial, useTutorial } from './ui/GestureTutorial';
+
 
 import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
 import { UnitPreferences, SourcedWeatherMetrics } from '../types';
@@ -67,8 +67,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     const isExpanded =
         isInland || isOffshore ? (isOffshore ? true : false) : userSettings.dashboardMode !== 'essential';
 
-    // Onboarding tutorial for first-time users
-    const { showTutorial, dismissTutorial, neverShowAgain } = useTutorial();
+
 
     // Derived UI Props
     const isDetailMode = props.viewMode === 'details';
@@ -797,8 +796,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                 )}
             </div>
 
-            {/* Gesture Tutorial Overlay - First-time users */}
-            {showTutorial && <GestureTutorial onDismiss={dismissTutorial} onNeverShow={neverShowAgain} />}
+
         </DashboardWidgetContext.Provider>
     );
 });

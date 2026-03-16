@@ -16,6 +16,17 @@ import { supabase } from './supabase';
 
 // ── Types ──────────────────────────────────────────────────────
 
+/** Structured weather snapshot captured at a pin-drop location */
+export interface DiaryWeatherData {
+    description?: string;   // e.g. "Partly Cloudy"
+    airTemp?: number;       // °C
+    seaTemp?: number;       // °C
+    windSpeed?: number;     // kts
+    windDir?: string;       // e.g. "NNE"
+    humidity?: number;      // %
+    rain?: number;          // mm
+}
+
 export interface DiaryEntry {
     id: string;
     user_id: string;
@@ -28,6 +39,7 @@ export interface DiaryEntry {
     longitude: number | null;
     location_name: string;
     weather_summary: string;
+    weather_data?: DiaryWeatherData | null; // Structured weather at pin
     voyage_id: string | null;
     tags: string[];
     created_at: string;
@@ -150,6 +162,7 @@ class DiaryServiceClass {
         longitude?: number | null;
         location_name?: string;
         weather_summary?: string;
+        weather_data?: DiaryWeatherData | null;
         voyage_id?: string | null;
         tags?: string[];
     }): Promise<DiaryEntry> {
@@ -166,6 +179,7 @@ class DiaryServiceClass {
             longitude: entry.longitude ?? null,
             location_name: entry.location_name || '',
             weather_summary: entry.weather_summary || '',
+            weather_data: entry.weather_data ?? null,
             voyage_id: entry.voyage_id ?? null,
             tags: entry.tags || [],
             created_at: now,
@@ -174,12 +188,14 @@ class DiaryServiceClass {
             _pendingPhotos: (entry.photos || []).filter((p) => p.startsWith('data:')),
         };
 
-        // Save to pending queue immediately (survives app crash)
-        this._addPending(localEntry);
-
-        // Try to sync immediately — fire and forget, don't block the UI
-        // Always return with _offline: false since the background sync handles persistence
-        this.syncPending();
+        // Save to pending queue immediately (survives app crash).
+        // _addPending is async (converts blob: photos to data URIs) but we
+        // fire-and-forget to avoid blocking the UI — the entry is already
+        // in React state for immediate display.
+        this._addPending(localEntry).then(() => {
+            // Try to sync immediately after pending save completes
+            this.syncPending();
+        });
 
         // Return entry without _offline flag — avoids persistent PENDING badge in UI.
         // The entry is in the pending queue (localStorage) so it won't be lost.
@@ -427,6 +443,7 @@ class DiaryServiceClass {
                             longitude: entry.longitude,
                             location_name: entry.location_name,
                             weather_summary: entry.weather_summary,
+                            weather_data: entry.weather_data ?? null,
                             voyage_id: entry.voyage_id,
                             tags: entry.tags,
                             created_at: entry.created_at,
@@ -531,22 +548,90 @@ class DiaryServiceClass {
 
     private _savePending(entries: DiaryEntry[]): void {
         try {
-            // Strip blob: and data: photo URIs before saving — they'd overflow localStorage.
-            // Photos are kept in _pendingPhotoBlobs (memory) or React state for display.
-            const stripped = entries.map((e) => ({
+            // Strip blob: URLs (can't be serialized) but KEEP data: URIs.
+            // Data URIs are intentionally preserved so photo data survives
+            // iOS WKWebView process termination (share sheet, memory pressure).
+            const cleaned = entries.map((e) => ({
                 ...e,
-                photos: e.photos.filter((p) => !p.startsWith('blob:') && !p.startsWith('data:')),
+                photos: e.photos.filter((p) => !p.startsWith('blob:')),
             }));
-            localStorage.setItem(PENDING_KEY, JSON.stringify(stripped));
+            localStorage.setItem(PENDING_KEY, JSON.stringify(cleaned));
         } catch (e) {
-            console.error('[Diary] Pending write failed — entries may be lost:', e);
+            // If localStorage is full (likely from photo data URIs), try once
+            // more with aggressively stripped photos as a last resort
+            console.error('[Diary] Pending write failed, retrying without photos:', e);
+            try {
+                const minimal = entries.map((en) => ({
+                    ...en,
+                    photos: en.photos.filter((p) => p.startsWith('http://') || p.startsWith('https://')),
+                }));
+                localStorage.setItem(PENDING_KEY, JSON.stringify(minimal));
+            } catch (e2) {
+                console.error('[Diary] Pending write CRITICALLY failed — entries may be lost:', e2);
+            }
         }
     }
 
-    private _addPending(entry: DiaryEntry): void {
+    /**
+     * Add a pending entry, converting blob: photo URLs to compressed data URIs
+     * so they survive localStorage persistence and iOS WKWebView termination.
+     */
+    private async _addPending(entry: DiaryEntry): Promise<void> {
+        // Convert blob: photos to small data URIs before saving
+        const persistedPhotos: string[] = [];
+        for (const photo of entry.photos) {
+            if (photo.startsWith('blob:')) {
+                const blob = this._pendingPhotoBlobs.get(photo);
+                if (blob) {
+                    const dataUri = await this._blobToCompressedDataUri(blob);
+                    if (dataUri) {
+                        persistedPhotos.push(dataUri);
+                        continue;
+                    }
+                }
+                // If blob not in memory cache, skip it (can't persist)
+            } else {
+                persistedPhotos.push(photo);
+            }
+        }
+
+        const persistedEntry = { ...entry, photos: persistedPhotos };
         const pending = this._getPendingEntries();
-        pending.unshift(entry);
+        pending.unshift(persistedEntry);
         this._savePending(pending);
+    }
+
+    /** Compress a blob to a small base64 data URI (600px max) for localStorage persistence */
+    private async _blobToCompressedDataUri(blob: Blob): Promise<string | null> {
+        try {
+            const PERSIST_MAX = 600; // Smaller than normal photos to fit in localStorage
+            return new Promise((resolve) => {
+                const img = new Image();
+                const objectUrl = URL.createObjectURL(blob);
+                img.onload = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    const canvas = document.createElement('canvas');
+                    let { width, height } = img;
+                    if (width > PERSIST_MAX || height > PERSIST_MAX) {
+                        const ratio = Math.min(PERSIST_MAX / width, PERSIST_MAX / height);
+                        width *= ratio;
+                        height *= ratio;
+                    }
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d')!;
+                    ctx.drawImage(img, 0, 0, width, height);
+                    resolve(canvas.toDataURL('image/jpeg', 0.6));
+                };
+                img.onerror = () => {
+                    URL.revokeObjectURL(objectUrl);
+                    resolve(null);
+                };
+                img.src = objectUrl;
+            });
+        } catch {
+            return null;
+        }
     }
 
     private _invalidateCache(): void {

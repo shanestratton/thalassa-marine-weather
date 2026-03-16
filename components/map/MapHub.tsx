@@ -41,6 +41,7 @@ import { useMapInit, useLocationDot, usePickerMode } from './useMapInit';
 import { useWeatherLayers, useEmbeddedRain } from './useWeatherLayers';
 import { usePassagePlanner } from './usePassagePlanner';
 import { useRouteNudge } from './useRouteNudge';
+import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { SynopticScrubber } from './SynopticScrubber';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 import { LayerLegendStrip, LayerFABMenu } from './MapHubOverlays';
@@ -131,6 +132,9 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Passage Planner ──
     const passage = usePassagePlanner(mapRef, mapReady);
+
+    // Follow Route overlay — renders the followed planned route on the map
+    useFollowRouteMapbox(mapRef, mapReady);
 
     // Clear isochrone progress when route completes
     useEffect(() => {

@@ -2,13 +2,14 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('DiaryPage');
-import { DiaryService, DiaryEntry, DiaryMood, MOOD_CONFIG } from '../services/DiaryService';
+import { DiaryService, DiaryEntry, DiaryMood, MOOD_CONFIG, DiaryWeatherData } from '../services/DiaryService';
 import { triggerHaptic } from '../utils/system';
 import { Capacitor } from '@capacitor/core';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { SlideToAction } from './ui/SlideToAction';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { useWeather } from '../context/WeatherContext';
+import { useSettings } from '../context/SettingsContext';
 import { PageHeader } from './ui/PageHeader';
 import { OfflineBadge } from './ui/OfflineBadge';
 import { UndoToast } from './ui/UndoToast';
@@ -210,6 +211,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
     // Weather context
     const { weatherData } = useWeather();
+    const { settings } = useSettings();
 
     const deletedIdRef = useRef<string | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -364,6 +366,21 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         return parts.join(' · ');
     }, [weatherData]);
 
+    /** Build structured weather data object for pin-drop capture */
+    const buildWeatherData = useCallback((): DiaryWeatherData | null => {
+        if (!weatherData?.current) return null;
+        const c = weatherData.current;
+        return {
+            description: c.description || undefined,
+            airTemp: c.airTemperature != null ? Math.round(c.airTemperature * 10) / 10 : undefined,
+            seaTemp: c.waterTemperature != null ? Math.round(c.waterTemperature * 10) / 10 : undefined,
+            windSpeed: c.windSpeed != null ? Math.round(c.windSpeed) : undefined,
+            windDir: c.windDirection || undefined,
+            humidity: c.humidity != null ? Math.round(c.humidity) : undefined,
+            rain: c.precipitation != null ? Math.round(c.precipitation * 10) / 10 : undefined,
+        };
+    }, [weatherData]);
+
     const openCompose = useCallback(async () => {
         setEditingId(null);
         setTitle('');
@@ -375,11 +392,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         setLon(null);
         setLocationName('');
         setWeatherSummary(buildWeatherSnapshot());
+        dispatch({ type: 'SET_WEATHER_DATA', data: buildWeatherData() });
         setRecordingTime(0);
         setShowCompose(true);
         triggerHaptic('light');
         grabGps();
-    }, [grabGps, buildWeatherSnapshot]);
+    }, [grabGps, buildWeatherSnapshot, buildWeatherData, dispatch]);
 
     // ── Edit (existing) ────────────────────────────────────────
 
@@ -585,6 +603,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 longitude: lon,
                 location_name: locationName,
                 weather_summary: weatherSummary,
+                weather_data: state.weatherDataObj,
                 tags: [],
             });
             if (entry) {
@@ -671,7 +690,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                 setExportProgress(null);
                 log.error('Diary PDF export error:', err);
             },
-        });
+        }, settings.firstName || undefined);
     }, []);
 
     const toggleEntrySelection = useCallback(
@@ -827,19 +846,55 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     )}
 
                     <div className="p-5 space-y-4">
-                        {/* Meta row */}
-                        <div className="flex items-center gap-3 text-sm">
-                            <span className="text-lg">{moodCfg.emoji}</span>
-                            <span className={`font-bold ${moodCfg.color}`}>{moodCfg.label}</span>
-                            <span className="text-gray-500">•</span>
-                            <span className="text-gray-400">{formatDate(e.created_at)}</span>
-                            <span className="text-gray-500">•</span>
-                            <span className="text-gray-500 font-mono text-xs">{formatTime(e.created_at)}</span>
+                        {/* 1. Date & Time */}
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                            <span className="font-mono">{formatDate(e.created_at)}</span>
+                            <span>•</span>
+                            <span className="font-mono">{formatTime(e.created_at)}</span>
                         </div>
 
-                        {/* GPS Position */}
+                        {/* 2. Heading — {Name}'s Diary: {title} */}
+                        <h2 className="text-lg font-extrabold text-white leading-tight">
+                            {settings.firstName
+                                ? `${settings.firstName}'s Diary: `
+                                : ''}
+                            {e.title || 'Untitled'}
+                        </h2>
+
+                        {/* 3. Mood badge */}
+                        <div className="flex items-center gap-2">
+                            <span className="text-lg">{moodCfg.emoji}</span>
+                            <span className={`text-sm font-bold uppercase tracking-wider ${moodCfg.color}`}>
+                                {moodCfg.label}
+                            </span>
+                        </div>
+
+                        {/* 4. Body (diary text) */}
+                        {e.body && (
+                            <div className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{e.body}</div>
+                        )}
+
+                        {/* 5. Voice Memo */}
+                        {e.audio_url && <AudioWidget url={e.audio_url} allowTranscribe={true} />}
+
+                        {/* 6. Tags */}
+                        {e.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-2 pt-2">
+                                {e.tags.map((tag) => (
+                                    <span
+                                        key={tag}
+                                        className="text-[11px] font-bold text-sky-400/60 bg-sky-500/10 px-2 py-1 rounded-full uppercase tracking-wider"
+                                    >
+                                        #{tag}
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+
+                        {/* 7. Pin Location + Weather (only if pin dropped) */}
                         {hasCoords && (
-                            <div className="bg-gradient-to-r from-sky-500/10 to-sky-500/10 border border-sky-500/15 rounded-xl p-3">
+                            <div className="bg-gradient-to-br from-sky-500/[0.06] to-emerald-500/[0.04] border border-white/[0.08] rounded-2xl p-4 space-y-3">
+                                {/* Position */}
                                 <div className="flex items-center gap-2.5">
                                     <div className="p-2 bg-sky-500/15 rounded-lg">
                                         <svg
@@ -873,8 +928,62 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                         )}
                                     </div>
                                 </div>
+
+                                {/* Weather Grid (only if weather_data exists) */}
+                                {e.weather_data && (
+                                    <div className="border-t border-white/[0.06] pt-3">
+                                        <p className="text-[11px] font-bold text-emerald-400/60 uppercase tracking-wider mb-2">
+                                            🌤 Weather at Location
+                                        </p>
+                                        {e.weather_data.description && (
+                                            <p className="text-xs text-gray-300 mb-2 italic">{e.weather_data.description}</p>
+                                        )}
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {e.weather_data.airTemp != null && (
+                                                <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
+                                                    <p className="text-[10px] text-gray-500 uppercase tracking-wider">Air</p>
+                                                    <p className="text-sm font-bold text-white">{e.weather_data.airTemp}°C</p>
+                                                </div>
+                                            )}
+                                            {e.weather_data.seaTemp != null && (
+                                                <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
+                                                    <p className="text-[10px] text-gray-500 uppercase tracking-wider">Sea</p>
+                                                    <p className="text-sm font-bold text-sky-300">{e.weather_data.seaTemp}°C</p>
+                                                </div>
+                                            )}
+                                            {e.weather_data.windSpeed != null && (
+                                                <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
+                                                    <p className="text-[10px] text-gray-500 uppercase tracking-wider">Wind</p>
+                                                    <p className="text-sm font-bold text-white">
+                                                        {e.weather_data.windSpeed}kts{e.weather_data.windDir ? ` ${e.weather_data.windDir}` : ''}
+                                                    </p>
+                                                </div>
+                                            )}
+                                            {e.weather_data.humidity != null && (
+                                                <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
+                                                    <p className="text-[10px] text-gray-500 uppercase tracking-wider">Humidity</p>
+                                                    <p className="text-sm font-bold text-white">{e.weather_data.humidity}%</p>
+                                                </div>
+                                            )}
+                                            {e.weather_data.rain != null && (
+                                                <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
+                                                    <p className="text-[10px] text-gray-500 uppercase tracking-wider">Rain</p>
+                                                    <p className="text-sm font-bold text-white">{e.weather_data.rain}mm</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                                {/* Fall back to text summary if no structured data */}
+                                {!e.weather_data && e.weather_summary && (
+                                    <div className="border-t border-white/[0.06] pt-3">
+                                        <p className="text-xs text-gray-500 italic">🌤 {e.weather_summary}</p>
+                                    </div>
+                                )}
                             </div>
                         )}
+
+                        {/* Location name only (no coords) */}
                         {!hasCoords && e.location_name && (
                             <div className="flex items-center gap-2 text-xs text-sky-400/70">
                                 <svg
@@ -899,32 +1008,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                             </div>
                         )}
 
-                        {/* Voice Memo */}
-                        {e.audio_url && <AudioWidget url={e.audio_url} allowTranscribe={true} />}
-
-                        {/* Weather */}
-                        {e.weather_summary && (
+                        {/* Weather summary (no pin, fallback) */}
+                        {!hasCoords && e.weather_summary && (
                             <div className="text-xs text-gray-500 italic bg-white/[0.03] rounded-xl p-3 border border-white/5">
                                 🌤 {e.weather_summary}
-                            </div>
-                        )}
-
-                        {/* Body */}
-                        {e.body && (
-                            <div className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{e.body}</div>
-                        )}
-
-                        {/* Tags */}
-                        {e.tags.length > 0 && (
-                            <div className="flex flex-wrap gap-2 pt-2">
-                                {e.tags.map((tag) => (
-                                    <span
-                                        key={tag}
-                                        className="text-[11px] font-bold text-sky-400/60 bg-sky-500/10 px-2 py-1 rounded-full uppercase tracking-wider"
-                                    >
-                                        #{tag}
-                                    </span>
-                                ))}
                             </div>
                         )}
 

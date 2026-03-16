@@ -43,9 +43,11 @@ export function useRouteNudge(mapRef: MutableRefObject<mapboxgl.Map | null>, map
             longPressTimer = setTimeout(() => {
                 if (!pressLngLat) return;
                 triggerHaptic('heavy');
+                // Suppress the map-level pin drop (it fires at 500ms, we fire at 400ms)
+                window.dispatchEvent(new CustomEvent('thalassa:suppress-pin-drop'));
                 createNudgeMarker(map, pressLngLat.lat, pressLngLat.lng);
                 longPressTimer = null;
-            }, 600);
+            }, 400);
         };
 
         const cancelRoutePress = () => {
@@ -63,9 +65,11 @@ export function useRouteNudge(mapRef: MutableRefObject<mapboxgl.Map | null>, map
             longPressTimer = setTimeout(() => {
                 if (!pressLngLat) return;
                 triggerHaptic('heavy');
+                // Suppress the map-level pin drop
+                window.dispatchEvent(new CustomEvent('thalassa:suppress-pin-drop'));
                 createNudgeMarker(map, pressLngLat.lat, pressLngLat.lng);
                 longPressTimer = null;
-            }, 600);
+            }, 400);
         };
 
         // Create the draggable via-point marker
@@ -179,7 +183,7 @@ export function useRouteNudge(mapRef: MutableRefObject<mapboxgl.Map | null>, map
         };
 
         // Attach listeners to route layers
-        const routeLayers = ['route-line-layer', 'route-glow', 'route-core'];
+        const routeLayers = ['route-hit-area', 'route-line-layer', 'route-glow', 'route-core'];
         for (const layerId of routeLayers) {
             if (map.getLayer(layerId)) {
                 map.on('mousedown', layerId, handleRouteMouseDown);

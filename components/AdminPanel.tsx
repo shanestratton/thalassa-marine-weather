@@ -20,6 +20,8 @@ import { toast } from './Toast';
 interface AdminPanelProps {
     isOpen: boolean;
     onClose: () => void;
+    onChannelDeleted?: (channelId: string) => void;
+    onChannelApproved?: () => void;
 }
 
 type AdminTab = 'users' | 'channels' | 'audit';
@@ -45,7 +47,7 @@ const AUDIT_LABELS: Record<string, { icon: string; label: string; color: string 
 
 // ── Component ──
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
+export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChannelDeleted, onChannelApproved }) => {
     const [tab, setTab] = useState<AdminTab>('users');
 
     // Users tab
@@ -240,8 +242,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
         const ok = await ChatService.approveChannel(id);
         if (ok) {
             setPendingChannels((prev) => prev.filter((c) => c.id !== id));
-            const updated = await ChatService.getChannels();
+            const updated = await ChatService.getChannelsFresh();
             setActiveChannels(updated);
+            onChannelApproved?.();
             toast.success(`${ch?.name || 'Channel'} approved!`);
         } else {
             toast.error('Failed to approve channel');
@@ -281,6 +284,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose }) => {
                 const ok = await ChatService.deleteChannel(id);
                 if (ok) {
                     setActiveChannels((prev) => prev.filter((c) => c.id !== id));
+                    ChatService.invalidateChannelCache();
+                    onChannelDeleted?.(id);
                     toast.success(`${ch?.name} deleted`);
                 } else {
                     toast.error('Failed to delete channel');

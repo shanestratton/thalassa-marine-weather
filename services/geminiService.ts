@@ -342,12 +342,23 @@ DISAMBIGUATION RULES (CRITICAL):
             "contactPhone": "string"
           },
           "bestDepartureWindow": {
-            "dateTimeISO": "string (ISO 8601 datetime within next 10 days, e.g. 2026-02-26T06:00:00Z — THIS IS REQUIRED AND MUST BE A SPECIFIC DATE)",
-            "timeRange": "string (e.g. '06:00 - 10:00 local' — the optimal window on that day)",
-            "reasoning": "string (WHY this specific date/time: reference wind forecast, fronts, tides, swell. Be concrete, e.g. 'SE trade winds ease to 12-15kts after frontal passage on the 26th, with 1.2m SE swell. Ebb tide at 0600 assists departure from the channel.')"
+            "dateTimeISO": "string (CRITICAL: ISO 8601 datetime for the OPTIMAL departure. Analyze weather patterns and pick the BEST day within the next 10 days — this must NOT always be today. If a front is passing, recommend departing AFTER it clears. If conditions worsen mid-week, recommend departing BEFORE. e.g. '2026-03-19T06:00:00Z'. Today is ${today}.)",
+            "timeRange": "string (e.g. '06:00 - 10:00 local' — the optimal time window on that specific day)",
+            "reasoning": "string (WHY this specific date/time: reference wind forecast, fronts, tides, swell. Be concrete, e.g. 'SE trade winds ease to 12-15kts after frontal passage on the 19th, with 1.2m SE swell. Ebb tide at 0600 assists departure from the channel.')"
           },
+          "safeHarbours": [
+            {
+              "name": "string (name of port or marina ALONG THE ROUTE — NOT the origin or destination)",
+              "lat": "number",
+              "lon": "number",
+              "description": "string (why this is a good refuge: shelter, facilities, depth, approach notes)"
+            }
+          ],
           "routeReasoning": "string (Explain WHY this specific route was chosen over alternatives. Consider: prevailing winds, currents, reef/shoal avoidance, shipping lanes, safe harbours en route, and any relevant maritime geography.)"
         }`;
+
+        // NOTE to AI: provide 2-3 safe harbours that are BETWEEN origin and destination, spaced along the route.
+        // These must NOT be the origin or destination port. They are emergency ports of refuge.
 
         const text = await callGeminiProxy({ prompt, responseMimeType: 'application/json' });
 
