@@ -1373,7 +1373,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                                 </h2>
                                                                 {card.is_verified && (
                                                                     <span
-                                                                        className="w-5 h-5 rounded-full bg-sky-500/30 border border-sky-400/40 flex items-center justify-center text-[10px] text-sky-200"
+                                                                        className="w-5 h-5 rounded-full bg-sky-500/30 border border-sky-400/40 flex items-center justify-center text-[11px] text-sky-200"
                                                                         title="Verified"
                                                                     >
                                                                         ✓
@@ -1401,7 +1401,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                                 )}
                                                                 {lastActive && (
                                                                     <span
-                                                                        className={`text-[10px] font-medium ${lastActive.color}`}
+                                                                        className={`text-[11px] font-medium ${lastActive.color}`}
                                                                     >
                                                                         ● {lastActive.text}
                                                                     </span>
@@ -1657,7 +1657,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                         );
                                                     })}
                                                 {currentCardIndex + 4 < listings.length && (
-                                                    <span className="text-[10px] text-white/20 ml-0.5">…</span>
+                                                    <span className="text-[11px] text-white/20 ml-0.5">…</span>
                                                 )}
                                             </div>
                                             <button
@@ -1965,7 +1965,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                     <div className="mt-1.5">
                                                         <div className="flex items-center gap-2 mb-0.5">
                                                             <span
-                                                                className={`text-[10px] font-bold ${compat.color === 'emerald' ? 'text-emerald-300' : compat.color === 'sky' ? 'text-sky-300' : compat.color === 'amber' ? 'text-amber-300' : 'text-white/30'}`}
+                                                                className={`text-[11px] font-bold ${compat.color === 'emerald' ? 'text-emerald-300' : compat.color === 'sky' ? 'text-sky-300' : compat.color === 'amber' ? 'text-amber-300' : 'text-white/30'}`}
                                                             >
                                                                 {compat.score}% · {compat.label}
                                                             </span>
@@ -1984,13 +1984,13 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                         {match.interests.slice(0, 4).map((i) => (
                                                             <span
                                                                 key={i}
-                                                                className="px-2 py-0.5 rounded-full bg-amber-500/10 text-[10px] text-amber-200/60 border border-amber-500/10"
+                                                                className="px-2 py-0.5 rounded-full bg-amber-500/10 text-[11px] text-amber-200/60 border border-amber-500/10"
                                                             >
                                                                 {i}
                                                             </span>
                                                         ))}
                                                         {match.interests.length > 4 && (
-                                                            <span className="px-2 py-0.5 rounded-full bg-white/[0.03] text-[10px] text-white/25">
+                                                            <span className="px-2 py-0.5 rounded-full bg-white/[0.03] text-[11px] text-white/25">
                                                                 +{match.interests.length - 4}
                                                             </span>
                                                         )}
@@ -2004,7 +2004,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                                             {tips.map((tip, i) => (
                                                                 <p
                                                                     key={i}
-                                                                    className="text-[10px] text-violet-300/40 italic"
+                                                                    className="text-[11px] text-violet-300/40 italic"
                                                                 >
                                                                     💡 {tip}
                                                                 </p>
@@ -2112,7 +2112,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                             maxLength={200}
                             className="w-full bg-white/[0.05] border border-white/10 rounded-xl px-4 py-3 text-sm text-white/70 mb-1 outline-none focus:border-violet-400/30 resize-none h-24"
                         />
-                        <p className="text-[10px] text-white/20 text-right mb-4">{superLikeMessage.length}/200</p>
+                        <p className="text-[11px] text-white/20 text-right mb-4">{superLikeMessage.length}/200</p>
                         <div className="flex gap-3">
                             <button
                                 onClick={() => setShowSuperLikeModal(null)}

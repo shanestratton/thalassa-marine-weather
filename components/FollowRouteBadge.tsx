@@ -205,7 +205,7 @@ ${gpxWaypoints.map((wp) => `      <trkpt lat="${wp.lat}" lon="${wp.lon}"><name>$
                             className="flex-1 min-w-0 text-left"
                         >
                             <div className="flex items-center gap-1.5">
-                                <span className={`text-[10px] font-bold uppercase tracking-widest ${routeChanged ? 'text-amber-400' : 'text-sky-400'}`}>
+                                <span className={`text-[11px] font-bold uppercase tracking-widest ${routeChanged ? 'text-amber-400' : 'text-sky-400'}`}>
                                     {routeChanged ? '⚠ Route Updated' : isRefreshing ? '↻ Refreshing...' : '🧭 Following'}
                                 </span>
                             </div>

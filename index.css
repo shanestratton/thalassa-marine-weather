@@ -20,8 +20,8 @@
   /* ── Type Scale Design Tokens ──
      5 semantic sizes used across all vessel components.
      Adjust here to globally change the type scale. */
-  --text-micro: 10px;
-  /* Hints, sub-counts, badges */
+  --text-micro: 11px;
+  /* Hints, sub-counts, badges — 11px is the WCAG-safe floor */
   --text-label: 11px;
   /* Form labels, section headers, metadata */
   --text-body: 14px;

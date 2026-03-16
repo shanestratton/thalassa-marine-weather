@@ -240,7 +240,7 @@ export const LayerFABMenu: React.FC<{
                     />
                 </svg>
                 {activeCount > 0 && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-sky-500 rounded-full flex items-center justify-center text-[9px] font-black text-white shadow-lg shadow-sky-500/50">
+                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-sky-500 rounded-full flex items-center justify-center text-[11px] font-black text-white shadow-lg shadow-sky-500/50">
                         {activeCount}
                     </span>
                 )}
@@ -300,7 +300,7 @@ export const LayerFABMenu: React.FC<{
                                 {isActive && (
                                     <span className="flex items-center gap-1">
                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
-                                        <span className="text-[9px] font-bold text-emerald-400 uppercase tracking-wider">
+                                        <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
                                             Active
                                         </span>
                                     </span>

@@ -363,12 +363,12 @@ const App: React.FC = () => {
                                             Thalassa
                                         </h2>
                                         {settings.isPro && (
-                                            <span className="px-1.5 py-0.5 rounded bg-gradient-to-r from-sky-500 to-blue-600 text-[9px] font-bold text-white uppercase tracking-wider shadow-lg">
+                                            <span className="px-1.5 py-0.5 rounded bg-gradient-to-r from-sky-500 to-blue-600 text-[11px] font-bold text-white uppercase tracking-wider shadow-lg">
                                                 PRO
                                             </span>
                                         )}
                                     </div>
-                                    <p className="text-[10px] text-sky-200 uppercase tracking-widest shadow-black drop-shadow-md">
+                                    <p className="text-[11px] text-sky-200 uppercase tracking-widest shadow-black drop-shadow-md">
                                         Officer on Watch Assistant
                                     </p>
                                 </div>

@@ -456,7 +456,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             maxLength={60}
                         />
                     </div>
-                    <p className="text-[10px] text-white/25 mt-1.5 ml-1">
+                    <p className="text-[11px] text-white/25 mt-1.5 ml-1">
                         Auto-detected from your GPS — edit if needed
                     </p>
                 </div>
@@ -793,7 +793,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             )}
                         </div>
 
-                        <p className="text-[10px] text-white/20 text-center pt-4 mt-4 border-t border-white/[0.04]">
+                        <p className="text-[11px] text-white/20 text-center pt-4 mt-4 border-t border-white/[0.04]">
                             This is how your listing appears to others
                         </p>
                     </div>

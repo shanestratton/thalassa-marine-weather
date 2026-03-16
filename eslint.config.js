@@ -158,7 +158,7 @@ export default tseslint.config(
             ],
 
             // ── Warnings (tech debt markers) ──
-            '@typescript-eslint/no-explicit-any': 'warn',
+            '@typescript-eslint/no-explicit-any': 'error',
             '@typescript-eslint/no-non-null-assertion': 'off',
 
             // ── Relaxed (pragmatic for existing codebase) ──
@@ -167,9 +167,9 @@ export default tseslint.config(
             '@typescript-eslint/no-empty-object-type': 'off',
             '@typescript-eslint/no-require-imports': 'off',
             '@typescript-eslint/no-unused-expressions': 'off',
-            'no-empty': 'off',
+            'no-empty': 'warn',
             'prefer-const': 'warn',
-            'no-fallthrough': 'off',
+            'no-fallthrough': 'warn',
             'no-case-declarations': 'off',
             'no-useless-catch': 'off',
             'no-useless-assignment': 'off',
@@ -178,9 +178,9 @@ export default tseslint.config(
             'no-constant-binary-expression': 'warn',
             '@typescript-eslint/prefer-as-const': 'warn',
 
-            // Exhaustive deps: this codebase uses useRef patterns and stable callbacks
-            // intentionally. The 105 warnings are design choices, not bugs.
-            'react-hooks/exhaustive-deps': 'off',
+            // Exhaustive deps: re-enabled as warn to catch real stale closure bugs.
+            // Intentional suppressions should use // eslint-disable-next-line
+            'react-hooks/exhaustive-deps': 'warn',
         },
     },
 

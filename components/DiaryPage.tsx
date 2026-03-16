@@ -941,19 +941,19 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                         <div className="grid grid-cols-3 gap-2">
                                             {e.weather_data.airTemp != null && (
                                                 <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
-                                                    <p className="text-[10px] text-gray-500 uppercase tracking-wider">Air</p>
+                                                    <p className="text-[11px] text-gray-500 uppercase tracking-wider">Air</p>
                                                     <p className="text-sm font-bold text-white">{e.weather_data.airTemp}°C</p>
                                                 </div>
                                             )}
                                             {e.weather_data.seaTemp != null && (
                                                 <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
-                                                    <p className="text-[10px] text-gray-500 uppercase tracking-wider">Sea</p>
+                                                    <p className="text-[11px] text-gray-500 uppercase tracking-wider">Sea</p>
                                                     <p className="text-sm font-bold text-sky-300">{e.weather_data.seaTemp}°C</p>
                                                 </div>
                                             )}
                                             {e.weather_data.windSpeed != null && (
                                                 <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
-                                                    <p className="text-[10px] text-gray-500 uppercase tracking-wider">Wind</p>
+                                                    <p className="text-[11px] text-gray-500 uppercase tracking-wider">Wind</p>
                                                     <p className="text-sm font-bold text-white">
                                                         {e.weather_data.windSpeed}kts{e.weather_data.windDir ? ` ${e.weather_data.windDir}` : ''}
                                                     </p>
@@ -961,13 +961,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                             )}
                                             {e.weather_data.humidity != null && (
                                                 <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
-                                                    <p className="text-[10px] text-gray-500 uppercase tracking-wider">Humidity</p>
+                                                    <p className="text-[11px] text-gray-500 uppercase tracking-wider">Humidity</p>
                                                     <p className="text-sm font-bold text-white">{e.weather_data.humidity}%</p>
                                                 </div>
                                             )}
                                             {e.weather_data.rain != null && (
                                                 <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
-                                                    <p className="text-[10px] text-gray-500 uppercase tracking-wider">Rain</p>
+                                                    <p className="text-[11px] text-gray-500 uppercase tracking-wider">Rain</p>
                                                     <p className="text-sm font-bold text-white">{e.weather_data.rain}mm</p>
                                                 </div>
                                             )}
@@ -1213,7 +1213,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
                         {/* Polish intensity slider */}
                         <div className="flex items-center gap-2 px-1">
-                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-wider shrink-0 w-10">
+                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider shrink-0 w-10">
                                 Clean
                             </span>
                             <input
@@ -1225,7 +1225,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 onChange={(e) => setPolishIntensity(Number(e.target.value))}
                                 className="flex-1 h-1.5 appearance-none bg-gradient-to-r from-gray-600 via-purple-500 to-amber-500 rounded-full outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:cursor-pointer"
                             />
-                            <span className="text-[9px] font-bold text-amber-400/70 uppercase tracking-wider shrink-0 w-12 text-right">
+                            <span className="text-[11px] font-bold text-amber-400/70 uppercase tracking-wider shrink-0 w-12 text-right">
                                 Literary
                             </span>
                         </div>

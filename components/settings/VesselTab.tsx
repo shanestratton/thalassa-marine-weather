@@ -386,7 +386,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 <div className="flex items-center gap-2 mb-3">
                     <div className="w-1 h-4 rounded-full bg-red-500" />
                     <span className="text-[11px] font-bold text-red-400 uppercase tracking-widest">Comfort Zone</span>
-                    <span className="text-[10px] text-gray-500 ml-auto">Passage Safety Limits</span>
+                    <span className="text-[11px] text-gray-500 ml-auto">Passage Safety Limits</span>
                 </div>
                 <div className="bg-red-500/[0.03] border border-red-500/10 rounded-2xl p-4 space-y-5">
                     <p className="text-[11px] text-gray-400 leading-relaxed">
@@ -425,7 +425,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${(((settings.comfortParams?.maxWindKts ?? 60) - 10) / 50) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxWindKts ?? 60) - 10) / 50) * 100}%)`,
                             }}
                         />
-                        <div className="flex justify-between text-[10px] text-gray-600 mt-1">
+                        <div className="flex justify-between text-[11px] text-gray-600 mt-1">
                             <span>10 kts</span>
                             <span>25</span>
                             <span>40</span>
@@ -464,7 +464,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${(((settings.comfortParams?.maxWaveM ?? 8) - 0.5) / 7.5) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxWaveM ?? 8) - 0.5) / 7.5) * 100}%)`,
                             }}
                         />
-                        <div className="flex justify-between text-[10px] text-gray-600 mt-1">
+                        <div className="flex justify-between text-[11px] text-gray-600 mt-1">
                             <span>0.5 m</span>
                             <span>2.5</span>
                             <span>5.0</span>
@@ -503,7 +503,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${(((settings.comfortParams?.maxGustKts ?? 80) - 15) / 65) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxGustKts ?? 80) - 15) / 65) * 100}%)`,
                             }}
                         />
-                        <div className="flex justify-between text-[10px] text-gray-600 mt-1">
+                        <div className="flex justify-between text-[11px] text-gray-600 mt-1">
                             <span>15 kts</span>
                             <span>35</span>
                             <span>55</span>

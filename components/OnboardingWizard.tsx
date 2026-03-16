@@ -672,7 +672,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                             <div className="relative flex items-center gap-4 py-1">
                                 <div className="h-px bg-white/10 flex-1"></div>
-                                <span className="text-[10px] text-gray-600 font-bold uppercase">Home Port</span>
+                                <span className="text-[11px] text-gray-600 font-bold uppercase">Home Port</span>
                                 <div className="h-px bg-white/10 flex-1"></div>
                             </div>
                             <div className="relative">

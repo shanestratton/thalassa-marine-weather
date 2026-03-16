@@ -397,15 +397,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                     <div className="absolute top-14 left-3 right-3 z-[502] animate-in fade-in slide-in-from-top-2 duration-300">
                         <div className="bg-slate-950 border border-white/[0.12] rounded-2xl px-3 py-2.5 flex items-center justify-between shadow-2xl shadow-black/50">
                             <div className="text-center flex-1">
-                                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Distance</p>
+                                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Distance</p>
                                 <p className="text-base font-black text-white tabular-nums leading-tight">
                                     {passage.routeAnalysis.totalDistance.toFixed(0)}
-                                    <span className="text-[9px] text-gray-500"> NM</span>
+                                    <span className="text-[11px] text-gray-500"> NM</span>
                                 </p>
                             </div>
                             <div className="w-px h-6 bg-white/10" />
                             <div className="text-center flex-1">
-                                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Time</p>
+                                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Time</p>
                                 <p className="text-base font-black text-white tabular-nums leading-tight">
                                     {passage.routeAnalysis.estimatedDuration < 24
                                         ? `${passage.routeAnalysis.estimatedDuration.toFixed(1)}h`
@@ -414,7 +414,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             </div>
                             <div className="w-px h-6 bg-white/10" />
                             <div className="text-center flex-1">
-                                <p className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">ETA</p>
+                                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">ETA</p>
                                 <p className="text-base font-black text-amber-400 tabular-nums leading-tight">
                                     {new Date(
                                         (passage.departureTime
@@ -443,7 +443,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         <p className="text-[11px] font-black text-white uppercase tracking-widest">
                                             Passage Planner
                                         </p>
-                                        <p className="text-[10px] text-gray-400 truncate">
+                                        <p className="text-[11px] text-gray-400 truncate">
                                             {!passage.departure
                                                 ? 'Tap map to set Departure'
                                                 : !passage.arrival
@@ -480,7 +480,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 </button>
                             </div>
                             {passage.departure && (
-                                <div className="mt-1.5 pt-1.5 border-t border-white/5 flex gap-1.5 text-[9px]">
+                                <div className="mt-1.5 pt-1.5 border-t border-white/5 flex gap-1.5 text-[11px]">
                                     <span className="px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/15 rounded text-emerald-400/80 font-bold truncate">
                                         ⬤ {passage.departure.name}
                                     </span>
@@ -496,7 +496,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 <div className="mt-1.5 pt-1.5 border-t border-white/5">
                                     {/* Computing indicator */}
                                     {isoProgress && (
-                                        <div className="flex items-center gap-1.5 mb-1.5 text-[9px] text-amber-400/70">
+                                        <div className="flex items-center gap-1.5 mb-1.5 text-[11px] text-amber-400/70">
                                             <div className="w-2 h-2 border border-amber-400/60 border-t-transparent rounded-full animate-spin" />
                                             {isoProgress.phase === 'loading-wind'
                                                 ? 'Loading wind data…'
@@ -542,7 +542,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     setTimeout(() => setPassageToast(null), 2000);
                                                 }
                                             }}
-                                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-sky-500/15 border border-sky-500/25 text-sky-400 text-[10px] font-black uppercase tracking-wider active:scale-95 transition-transform"
+                                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-sky-500/15 border border-sky-500/25 text-sky-400 text-[11px] font-black uppercase tracking-wider active:scale-95 transition-transform"
                                         >
                                             <svg
                                                 className="w-3 h-3"
@@ -627,7 +627,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     setTimeout(() => setPassageToast(null), 2000);
                                                 }
                                             }}
-                                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/25 text-emerald-400 text-[10px] font-black uppercase tracking-wider active:scale-95 transition-transform"
+                                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/25 text-emerald-400 text-[11px] font-black uppercase tracking-wider active:scale-95 transition-transform"
                                         >
                                             <svg
                                                 className="w-3 h-3"
@@ -647,7 +647,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     </div>
                                     {/* Toast */}
                                     {passageToast && (
-                                        <div className="mt-1.5 text-center text-[9px] font-bold text-emerald-400 animate-in fade-in duration-200">
+                                        <div className="mt-1.5 text-center text-[11px] font-bold text-emerald-400 animate-in fade-in duration-200">
                                             {passageToast}
                                         </div>
                                     )}
@@ -903,7 +903,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             <div className="shrink-0 text-right min-w-[52px]">
                                                 <p className="text-xs font-black text-white leading-tight">{hrLabel}</p>
                                                 <p
-                                                    className={`text-[9px] font-black uppercase tracking-widest leading-tight mt-0.5 ${actualHour === 0 ? 'text-sky-400/70' : 'text-amber-400'}`}
+                                                    className={`text-[11px] font-black uppercase tracking-widest leading-tight mt-0.5 ${actualHour === 0 ? 'text-sky-400/70' : 'text-amber-400'}`}
                                                 >
                                                     {actualHour === 0 ? 'Current' : '⬤ Forecast'}
                                                 </p>
@@ -1110,7 +1110,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             {curLabel === 'Now' ? 'Now' : curLabel}
                                         </p>
                                         <p
-                                            className={`text-[9px] font-black uppercase tracking-widest leading-tight mt-0.5 ${
+                                            className={`text-[11px] font-black uppercase tracking-widest leading-tight mt-0.5 ${
                                                 isForecast ? 'text-amber-400' : 'text-emerald-400/70'
                                             }`}
                                         >

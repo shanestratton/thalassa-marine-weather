@@ -81,7 +81,7 @@ const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
                             d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
                         />
                     </svg>
-                    <span className="text-[10px] font-bold">Delete</span>
+                    <span className="text-[11px] font-bold">Delete</span>
                 </div>
             </div>
 
@@ -116,7 +116,7 @@ const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
                             </div>
                             <div className="flex-1 min-w-0">
                                 <h4 className="text-sm font-black text-white tracking-wide">{entry.text}</h4>
-                                <p className="text-[10px] text-emerald-400/70 font-bold uppercase tracking-widest mt-0.5">
+                                <p className="text-[11px] text-emerald-400/70 font-bold uppercase tracking-widest mt-0.5">
                                     {itemCount ?? 0} item{(itemCount ?? 0) !== 1 ? 's' : ''}
                                 </p>
                             </div>
@@ -737,7 +737,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     </button>
                                 </div>
                                 {headings.length === 0 && formType === 'heading' && (
-                                    <p className="text-[10px] text-amber-400/80 mt-2 text-center">
+                                    <p className="text-[11px] text-amber-400/80 mt-2 text-center">
                                         Add a heading first, then you can add detail items
                                     </p>
                                 )}
@@ -877,15 +877,15 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 />
                             </div>
                             <div className="flex items-center justify-between">
-                                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                                <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
                                     {runCheckedCount}/{runTotal} checked
                                 </span>
                                 <div className="flex items-center gap-3">
                                     {runPassCount > 0 && (
-                                        <span className="text-[10px] text-emerald-400 font-bold">✓ {runPassCount}</span>
+                                        <span className="text-[11px] text-emerald-400 font-bold">✓ {runPassCount}</span>
                                     )}
                                     {runFailCount > 0 && (
-                                        <span className="text-[10px] text-red-400 font-bold">✗ {runFailCount}</span>
+                                        <span className="text-[11px] text-red-400 font-bold">✗ {runFailCount}</span>
                                     )}
                                 </div>
                             </div>
@@ -976,7 +976,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                                     e.stopPropagation();
                                                                     toggleRmFlag(item.entry_id);
                                                                 }}
-                                                                className={`shrink-0 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${
+                                                                className={`shrink-0 px-2 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
                                                                     item.flagged_rm
                                                                         ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
                                                                         : 'bg-white/5 text-gray-500 border border-white/10 hover:text-amber-400'

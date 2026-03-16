@@ -6,27 +6,29 @@ on:
     pull_request:
         branches: [master, main]
 
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
 jobs:
     check:
         runs-on: ubuntu-latest
-        strategy:
-            matrix:
-                node-version: [20]
+        timeout-minutes: 15
 
         steps:
             - uses: actions/checkout@v4
 
-            - name: Setup Node.js ${{ matrix.node-version }}
+            - name: Setup Node.js
               uses: actions/setup-node@v4
               with:
-                  node-version: ${{ matrix.node-version }}
+                  node-version: 20
                   cache: 'npm'
 
             - name: Install dependencies
               run: npm ci --legacy-peer-deps
 
             - name: Lint
-              run: npx eslint . --max-warnings 520
+              run: npx eslint . --max-warnings 200
 
             - name: TypeScript type check
               run: npx tsc --noEmit
@@ -35,7 +37,16 @@ jobs:
               run: npx vitest run --reporter=verbose
 
             - name: Build
-              run: npm run build
+              run: npx vite build
+
+            - name: Bundle size check
+              run: |
+                  BUNDLE_SIZE=$(du -sk dist/ | cut -f1)
+                  echo "::notice::Bundle size: ${BUNDLE_SIZE}KB"
+                  if [ "$BUNDLE_SIZE" -gt 5120 ]; then
+                    echo "::error::Bundle size ${BUNDLE_SIZE}KB exceeds 5MB limit"
+                    exit 1
+                  fi
 
             - name: Install Playwright browsers
               run: npx playwright install chromium --with-deps

@@ -189,12 +189,12 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                                 {moodCfg.label || entry.mood}
                             </span>
                             {entry.audio_url && (
-                                <span className="text-[10px] text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded-full font-bold">
+                                <span className="text-[11px] text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded-full font-bold">
                                     🎙️
                                 </span>
                             )}
                             {entry._offline && (
-                                <span className="text-[10px] text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full font-bold">
+                                <span className="text-[11px] text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full font-bold">
                                     PENDING
                                 </span>
                             )}

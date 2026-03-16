@@ -132,7 +132,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                         d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
                                     />
                                 </svg>
-                                <span className="text-[10px] font-bold uppercase">Delete</span>
+                                <span className="text-[11px] font-bold uppercase">Delete</span>
                             </div>
                         </div>
                     )}
@@ -212,13 +212,13 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                         {listing.boat_details?.price_reduced &&
                                             listing.boat_details?.original_price && (
                                                 <div className="flex items-center gap-1 justify-end mt-0.5">
-                                                    <span className="text-[10px] text-white/40 line-through">
+                                                    <span className="text-[11px] text-white/40 line-through">
                                                         {formatPrice(
                                                             listing.boat_details.original_price,
                                                             listing.currency,
                                                         )}
                                                     </span>
-                                                    <span className="text-[9px] font-bold text-red-400 bg-red-500/15 px-1.5 py-0.5 rounded-full uppercase">
+                                                    <span className="text-[11px] font-bold text-red-400 bg-red-500/15 px-1.5 py-0.5 rounded-full uppercase">
                                                         Reduced
                                                     </span>
                                                 </div>
@@ -243,7 +243,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                                         )}
                                                         {b.year && <span className="text-white/50">{b.year}</span>}
                                                         {b.surveyed && (
-                                                            <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded-full">
+                                                            <span className="text-[11px] font-bold text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded-full">
                                                                 \u2705 Surveyed
                                                             </span>
                                                         )}
@@ -253,59 +253,59 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                                 {/* Spec chips row */}
                                                 <div className="mt-2 flex flex-wrap gap-1.5">
                                                     {b.loa_ft && (
-                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">
+                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[11px] font-medium text-white/70">
                                                             {b.loa_ft}ft
                                                         </span>
                                                     )}
                                                     {b.beam_ft && (
-                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">
+                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[11px] font-medium text-white/70">
                                                             B: {b.beam_ft}ft
                                                         </span>
                                                     )}
                                                     {b.draft_ft && (
-                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">
+                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[11px] font-medium text-white/70">
                                                             D: {b.draft_ft}ft
                                                         </span>
                                                     )}
                                                     {b.hull_material && (
-                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">
+                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[11px] font-medium text-white/70">
                                                             {b.hull_material}
                                                         </span>
                                                     )}
                                                     {b.engine_type && (
-                                                        <span className="px-2 py-0.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-[10px] font-medium text-sky-300/80">
+                                                        <span className="px-2 py-0.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-[11px] font-medium text-sky-300/80">
                                                             {b.engine_type}
                                                         </span>
                                                     )}
                                                     {(b.engine_make || b.engine_hp) && (
-                                                        <span className="px-2 py-0.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-[10px] font-medium text-sky-300/80">
+                                                        <span className="px-2 py-0.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-[11px] font-medium text-sky-300/80">
                                                             {[b.engine_make, b.engine_hp ? `${b.engine_hp}HP` : '']
                                                                 .filter(Boolean)
                                                                 .join(' ')}
                                                         </span>
                                                     )}
                                                     {b.engine_hours != null && (
-                                                        <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[10px] font-medium text-amber-300/80">
+                                                        <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] font-medium text-amber-300/80">
                                                             {b.engine_hours.toLocaleString()}hrs
                                                         </span>
                                                     )}
                                                     {b.fuel_type && (
-                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">
+                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[11px] font-medium text-white/70">
                                                             {b.fuel_type}
                                                         </span>
                                                     )}
                                                     {b.berths && (
-                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">
+                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[11px] font-medium text-white/70">
                                                             {b.berths} berths
                                                         </span>
                                                     )}
                                                     {b.cabins && (
-                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">
+                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[11px] font-medium text-white/70">
                                                             {b.cabins} cabin{b.cabins > 1 ? 's' : ''}
                                                         </span>
                                                     )}
                                                     {b.heads && (
-                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[10px] font-medium text-white/70">
+                                                        <span className="px-2 py-0.5 rounded-lg bg-white/[0.05] border border-white/[0.08] text-[11px] font-medium text-white/70">
                                                             {b.heads} head{b.heads > 1 ? 's' : ''}
                                                         </span>
                                                     )}
@@ -317,7 +317,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                                         {b.features.slice(0, expanded ? undefined : 6).map((f) => (
                                                             <span
                                                                 key={f}
-                                                                className="px-1.5 py-0.5 rounded bg-emerald-500/8 border border-emerald-500/15 text-[9px] font-medium text-emerald-400/70"
+                                                                className="px-1.5 py-0.5 rounded bg-emerald-500/8 border border-emerald-500/15 text-[11px] font-medium text-emerald-400/70"
                                                             >
                                                                 {f}
                                                             </span>
@@ -325,7 +325,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                                         {!expanded && b.features.length > 6 && (
                                                             <button
                                                                 onClick={() => setExpanded(true)}
-                                                                className="text-[9px] text-sky-400 font-medium"
+                                                                className="text-[11px] text-sky-400 font-medium"
                                                             >
                                                                 +{b.features.length - 6} more
                                                             </button>
@@ -371,7 +371,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                 {!isOwn && listing.location_name && onFlagLocation && (
                                     <button
                                         onClick={() => onFlagLocation(listing)}
-                                        className="mt-1.5 text-[10px] text-amber-400/50 hover:text-amber-400 transition-colors flex items-center gap-1"
+                                        className="mt-1.5 text-[11px] text-amber-400/50 hover:text-amber-400 transition-colors flex items-center gap-1"
                                     >
                                         ⚠️ Not the seller's actual location?
                                     </button>
@@ -403,7 +403,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                                     {(listing.seller_name || 'Sailor').split(' ')[0]}
                                                 </span>
                                                 {reputation && reputation.total_ratings > 0 && (
-                                                    <span className="text-[10px] text-amber-400 flex items-center gap-0.5">
+                                                    <span className="text-[11px] text-amber-400 flex items-center gap-0.5">
                                                         ★ {reputation.avg_stars}
                                                         <span className="text-white/40">
                                                             ({reputation.total_ratings})
@@ -543,7 +543,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                     </button>
                                 )}
                                 {!isOwn && hasRated && listing.status === 'sold' && (
-                                    <p className="mt-2 text-[10px] text-emerald-400/60 text-center">
+                                    <p className="mt-2 text-[11px] text-emerald-400/60 text-center">
                                         ✅ You've rated this seller
                                     </p>
                                 )}
@@ -598,7 +598,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                     SOLD
                                 </span>
                                 {listing.sold_at && (
-                                    <span className="text-[10px] text-white/50 mt-1">
+                                    <span className="text-[11px] text-white/50 mt-1">
                                         Auto-removes in{' '}
                                         {Math.max(
                                             0,

@@ -34,7 +34,7 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     <h2 className="text-[11px] font-black text-white uppercase tracking-widest">Passage Plan</h2>
                 </div>
-                <p className="text-[10px] text-gray-500 mt-0.5">
+                <p className="text-[11px] text-gray-500 mt-0.5">
                     {departure?.name || '—'} → {arrival?.name || '—'}
                 </p>
             </div>
@@ -44,16 +44,16 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                 <div className="px-4 py-3 border-b border-white/[0.06]">
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">
+                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
                                 Distance
                             </span>
                             <p className="text-lg font-black text-white tabular-nums">
                                 {routeAnalysis.totalDistance.toFixed(0)}
-                                <span className="text-[10px] text-gray-500 ml-1">NM</span>
+                                <span className="text-[11px] text-gray-500 ml-1">NM</span>
                             </p>
                         </div>
                         <div>
-                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">
+                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
                                 Duration
                             </span>
                             <p className="text-lg font-black text-white tabular-nums">
@@ -63,7 +63,7 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                             </p>
                         </div>
                         <div>
-                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">
+                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
                                 Departure
                             </span>
                             <p className="text-sm font-bold text-sky-400 tabular-nums">
@@ -78,7 +78,7 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                             </p>
                         </div>
                         <div>
-                            <span className="text-[9px] font-bold text-gray-500 uppercase tracking-widest">ETA</span>
+                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">ETA</span>
                             <p className="text-sm font-bold text-amber-400 tabular-nums">
                                 {new Date(
                                     depTime.getTime() + routeAnalysis.estimatedDuration * 3600000,
@@ -101,7 +101,7 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
             {/* Waypoint Table */}
             {turnWaypoints.length > 0 && (
                 <div className="px-4 py-3">
-                    <h3 className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">Waypoints</h3>
+                    <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-widest mb-2">Waypoints</h3>
                     <div className="space-y-1">
                         {turnWaypoints.map((wp, i) => {
                             const etaDate = wp.eta ? new Date(wp.eta) : null;
@@ -120,7 +120,7 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                                 >
                                     {/* Number badge */}
                                     <div
-                                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-black shrink-0 ${
+                                        className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-black shrink-0 ${
                                             isFirst
                                                 ? 'bg-emerald-500/20 text-emerald-400'
                                                 : isLast
@@ -133,8 +133,8 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
 
                                     {/* Details */}
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-[10px] font-bold text-white truncate">{wp.id}</p>
-                                        <p className="text-[9px] text-gray-500 tabular-nums">
+                                        <p className="text-[11px] font-bold text-white truncate">{wp.id}</p>
+                                        <p className="text-[11px] text-gray-500 tabular-nums">
                                             {wp.lat.toFixed(2)}° {wp.lon.toFixed(2)}°
                                             {wp.distanceNM > 0 && (
                                                 <span className="ml-1.5">• {wp.distanceNM.toFixed(0)} NM</span>
@@ -145,12 +145,12 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                                     {/* Bearing + Wind */}
                                     <div className="text-right shrink-0">
                                         {wp.bearing > 0 && (
-                                            <p className="text-[10px] font-bold text-white tabular-nums">
+                                            <p className="text-[11px] font-bold text-white tabular-nums">
                                                 {Math.round(wp.bearing)}°
                                             </p>
                                         )}
                                         {wp.tws > 0 && (
-                                            <p className="text-[9px] text-gray-500 tabular-nums">
+                                            <p className="text-[11px] text-gray-500 tabular-nums">
                                                 {wp.tws.toFixed(0)} kts
                                             </p>
                                         )}
@@ -159,7 +159,7 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                                     {/* ETA */}
                                     <div className="text-right shrink-0 min-w-[40px]">
                                         {etaDate && (
-                                            <p className="text-[10px] font-bold text-sky-400/80 tabular-nums">
+                                            <p className="text-[11px] font-bold text-sky-400/80 tabular-nums">
                                                 {etaDate.toLocaleTimeString('en-AU', {
                                                     hour: '2-digit',
                                                     minute: '2-digit',
