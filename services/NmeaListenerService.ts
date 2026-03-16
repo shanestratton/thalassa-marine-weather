@@ -7,8 +7,10 @@
  * - Native (iOS/Android): Raw TCP via capacitor-tcp-socket (for YDWG-02 etc.)
  * - Web (browser dev):    WebSocket fallback
  */
+import { createLogger } from '../utils/createLogger';
 import type { NmeaSample } from '../types';
 import { Capacitor } from '@capacitor/core';
+const log = createLogger('NMEA');
 
 // ── Configuration ──
 const DEFAULT_HOST = '192.168.1.151';
@@ -171,14 +173,14 @@ class NmeaListenerServiceClass {
             this.reconnectAttempts = 0;
             this.firstAttemptTime = null; // Reset give-up timer on success
             this.setStatus('connected');
-            console.info(`[NmeaListener] TCP connected to ${this.host}:${this.port} (client ${this.tcpClientId})`);
+            log.info(`TCP connected to ${this.host}:${this.port} (client ${this.tcpClientId})`);
 
             // Start continuous read loop
             this.tcpReadLoop = true;
             this.runTcpReadLoop();
         } catch (e: unknown) {
             const msg = (e as Error)?.message || String(e);
-            console.warn('[NmeaListener] TCP connect failed:', msg);
+            log.warn('TCP connect failed:', msg);
             this.lastError = msg;
             this.setStatus('error');
             if (this.enabled) this.scheduleReconnect();
@@ -225,12 +227,12 @@ class NmeaListenerServiceClass {
                         continue;
                     }
                     // Actual error — connection lost
-                    console.warn('[NmeaListener] TCP read error:', readErr);
+                    log.warn('TCP read error:', readErr);
                     break;
                 }
             }
         } catch (importErr) {
-            console.warn('[NmeaListener] TCP plugin import error:', importErr);
+            log.warn('TCP plugin import error:', importErr);
         }
 
         // If we exited the loop and we're still enabled, reconnect
@@ -247,9 +249,9 @@ class NmeaListenerServiceClass {
             try {
                 const { TcpSocket } = await import('capacitor-tcp-socket');
                 await TcpSocket.disconnect({ client: this.tcpClientId });
-                console.info(`[NmeaListener] TCP disconnected (client ${this.tcpClientId})`);
+                log.info(`TCP disconnected (client ${this.tcpClientId})`);
             } catch (e) {
-                console.warn('[NmeaListener] TCP disconnect error:', e);
+                log.warn('TCP disconnect error:', e);
             }
             this.tcpClientId = null;
         }
@@ -292,7 +294,7 @@ class NmeaListenerServiceClass {
                 }
             };
         } catch (e) {
-            console.warn('[NmeaListener]', e);
+            log.warn( e);
             this.setStatus('error');
             if (this.enabled) this.scheduleReconnect();
         }
@@ -307,7 +309,7 @@ class NmeaListenerServiceClass {
 
         // Give up after 5 minutes of continuous failed attempts
         if (this.firstAttemptTime && Date.now() - this.firstAttemptTime > RECONNECT_GIVE_UP_MS) {
-            console.info('[NmeaListener] Giving up after 5 minutes of failed reconnects');
+            log.info('Giving up after 5 minutes of failed reconnects');
             this.stop();
             return;
         }

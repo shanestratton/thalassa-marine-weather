@@ -10,10 +10,12 @@
  * - PMs require mutual channel activity
  */
 
+import { createLogger } from '../utils/createLogger';
 import { supabase } from './supabase';
 import { Preferences } from '@capacitor/preferences';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { moderateMessage } from './ContentModerationService';
+const log = createLogger('Chat');
 
 // --- TABLES ---
 const CHANNELS_TABLE = 'chat_channels';
@@ -288,7 +290,7 @@ class ChatServiceClass {
                 }
             }
         } catch (e) {
-            console.warn('[Chat] corrupt cache — fetch fresh:', e);
+            log.warn('corrupt cache — fetch fresh:', e);
         }
 
         // 2. No cache — fetch from Supabase
@@ -309,7 +311,7 @@ class ChatServiceClass {
         try {
             localStorage.setItem(CHANNELS_CACHE_KEY, JSON.stringify(channels));
         } catch (e) {
-            console.warn('[Chat] Operation failed:', e);
+            log.warn('Operation failed:', e);
         }
         return channels;
     }
@@ -317,7 +319,7 @@ class ChatServiceClass {
     private _refreshChannelsCache(): void {
         // Fire-and-forget background refresh
         this._fetchAndCacheChannels().catch((e) => {
-            console.warn(`[ChatService]`, e);
+            log.warn(``, e);
         });
     }
 
@@ -370,9 +372,9 @@ class ChatServiceClass {
             data: { user },
             error: authError,
         } = await supabase.auth.getUser();
-        if (authError) console.error('[Chat] Auth error in sendMessage:', authError.message);
+        if (authError) log.error('Auth error in sendMessage:', authError.message);
         if (!user) {
-            console.error('[Chat] No authenticated user — message NOT saved:', text.substring(0, 40));
+            log.error('No authenticated user — message NOT saved:', text.substring(0, 40));
             return null;
         }
 
@@ -405,7 +407,7 @@ class ChatServiceClass {
             .single();
 
         if (error) {
-            console.error('[Chat] sendMessage INSERT failed:', error.message, error.details, error.hint);
+            log.error('sendMessage INSERT failed:', error.message, error.details, error.hint);
             await this.queueOffline({
                 type: 'channel',
                 channel_id: channelId,
@@ -420,13 +422,13 @@ class ChatServiceClass {
         // Message is already posted — if flagged, it gets soft-deleted
         const msg = data as ChatMessage;
         moderateMessage(msg.id, text, user.id, channelId).catch((e) => {
-            console.warn(`[ChatService]`, e);
+            log.warn(``, e);
         });
 
         // Fire-and-forget: push notifications for SOS questions
         if (isQuestion && data?.id) {
             this.pushSOSNotification(channelId, user.id, resolvedName, text, data.id).catch((e) => {
-                console.warn(`[ChatService]`, e);
+                log.warn(``, e);
             });
         }
 
@@ -438,7 +440,7 @@ class ChatServiceClass {
         try {
             await supabase.rpc('increment_helpful_count', { msg_id: messageId });
         } catch (e) {
-            console.warn('[Chat] best effort:', e);
+            log.warn('best effort:', e);
         }
     }
 
@@ -564,9 +566,9 @@ class ChatServiceClass {
             data: { user },
             error: authError,
         } = await supabase.auth.getUser();
-        if (authError) console.error('[Chat] Auth error in sendDM:', authError.message);
+        if (authError) log.error('Auth error in sendDM:', authError.message);
         if (!user) {
-            console.error('[Chat] No authenticated user — DM NOT saved');
+            log.error('No authenticated user — DM NOT saved');
             return null;
         }
 
@@ -591,7 +593,7 @@ class ChatServiceClass {
             .single();
 
         if (error) {
-            console.error('[Chat] sendDM INSERT failed:', error.message, error.details, error.hint);
+            log.error('sendDM INSERT failed:', error.message, error.details, error.hint);
             await this.queueOffline({
                 type: 'dm',
                 recipient_id: recipientId,
@@ -604,7 +606,7 @@ class ChatServiceClass {
         // Fire-and-forget Gemini moderation on DMs too
         if (data?.id) {
             moderateMessage(data.id, text, user.id, `dm_${recipientId}`).catch((e) => {
-                console.warn(`[ChatService]`, e);
+                log.warn(``, e);
             });
         }
 
@@ -1288,7 +1290,7 @@ class ChatServiceClass {
             queue.push(msg);
             await Preferences.set({ key: OFFLINE_QUEUE_KEY, value: JSON.stringify(queue) });
         } catch (e) {
-            console.warn('[Chat] best effort:', e);
+            log.warn('best effort:', e);
         }
     }
 
@@ -1311,7 +1313,7 @@ class ChatServiceClass {
                 }
             }
         } catch (e) {
-            console.warn('[Chat] best effort:', e);
+            log.warn('best effort:', e);
         }
     }
 

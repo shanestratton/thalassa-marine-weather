@@ -12,7 +12,9 @@
  * Storage bucket: diary-photos
  */
 
+import { createLogger } from '../utils/createLogger';
 import { supabase } from './supabase';
+const log = createLogger('Diary');
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -299,7 +301,7 @@ class DiaryServiceClass {
 
             return urlData?.publicUrl || null;
         } catch (e) {
-            console.error('[Diary] Photo upload failed:', e);
+            log.error('Photo upload failed:', e);
             return null;
         }
     }
@@ -325,7 +327,7 @@ class DiaryServiceClass {
             const blob = await res.blob();
             return this._uploadBlob(blob);
         } catch (e) {
-            console.error('[Diary] Data URI upload failed:', e);
+            log.error('Data URI upload failed:', e);
             return null;
         }
     }
@@ -348,7 +350,7 @@ class DiaryServiceClass {
 
             return urlData?.publicUrl || null;
         } catch (e) {
-            console.error('[Diary] Blob upload failed:', e);
+            log.error('Blob upload failed:', e);
             return null;
         }
     }
@@ -366,7 +368,7 @@ class DiaryServiceClass {
             const pending = this._getPendingEntries();
             if (pending.length === 0) return;
 
-            console.info(`[Diary] Syncing ${pending.length} pending entries…`);
+            log.info(`Syncing ${pending.length} pending entries…`);
 
             // Try getUser first, fall back to getSession, then try refreshSession
             // (Capacitor can have stale user cache / expired JWT)
@@ -379,19 +381,19 @@ class DiaryServiceClass {
             }
             if (!userId) {
                 // Last resort: force a token refresh — handles expired JWT edge case
-                console.warn('[Diary] Auth stale — attempting token refresh...');
+                log.warn('Auth stale — attempting token refresh...');
                 try {
                     const refreshResp = await supabase.auth.refreshSession();
                     userId = refreshResp.data.session?.user?.id;
                     if (userId) {
-                        console.info('[Diary] Token refresh succeeded — resuming sync');
+                        log.info('Token refresh succeeded — resuming sync');
                     }
                 } catch (refreshErr) {
-                    console.warn('[Diary] Token refresh failed:', refreshErr);
+                    log.warn('Token refresh failed:', refreshErr);
                 }
             }
             if (!userId) {
-                console.warn('[Diary] No authenticated user after all attempts — skipping sync (will retry in 30s)');
+                log.warn('No authenticated user after all attempts — skipping sync (will retry in 30s)');
                 return;
             }
 
@@ -459,7 +461,7 @@ class DiaryServiceClass {
                         // survives the gap between pending removal and server cache refresh
                         this._recentlySynced.push({ entry: data as DiaryEntry, syncedAt: Date.now() });
                         syncedCount++;
-                        console.info(`[Diary] ✅ Synced entry: ${entry.title || entry.id}`);
+                        log.info(`✅ Synced entry: ${entry.title || entry.id}`);
                     } else if (error) {
                         console.error(
                             `[Diary] ❌ Supabase error for "${entry.title}":`,
@@ -469,14 +471,14 @@ class DiaryServiceClass {
                         );
                         // If it's a duplicate (unique constraint), remove from pending — it's already synced
                         if (error.code === '23505') {
-                            console.warn(`[Diary] Duplicate detected — removing from pending queue`);
+                            log.warn(`Duplicate detected — removing from pending queue`);
                             const remaining = this._getPendingEntries().filter((e) => e.id !== entry.id);
                             this._savePending(remaining);
                             syncedCount++;
                         }
                     }
                 } catch (e) {
-                    console.error('[Diary] Sync failed for entry:', entry.id, e);
+                    log.error('Sync failed for entry:', entry.id, e);
                     // Leave in pending queue — will retry next sync
                 }
             }
@@ -487,7 +489,7 @@ class DiaryServiceClass {
                 // the refresh would overwrite the cache with stale data (missing the
                 // just-synced entry). The _recentlySynced buffer + natural 8s polling
                 // in DiaryPage handles this safely.
-                console.info(`[Diary] Sync complete — ${syncedCount} entries synced`);
+                log.info(`Sync complete — ${syncedCount} entries synced`);
             }
         } finally {
             this._syncInProgress = false;
@@ -511,7 +513,7 @@ class DiaryServiceClass {
             return res.ok || res.status === 401 || res.status === 403; // reachable
         } catch (e) {
             // HEAD can fail due to CORS on iOS/Capacitor — be optimistic and try anyway
-            console.warn('[Diary] Connectivity probe failed (proceeding optimistically):', e);
+            log.warn('Connectivity probe failed (proceeding optimistically):', e);
             return true;
         }
     }
@@ -523,7 +525,7 @@ class DiaryServiceClass {
             const raw = localStorage.getItem(CACHE_KEY);
             return raw ? JSON.parse(raw) : [];
         } catch (e) {
-            console.warn('[Diary] Cache read failed:', e);
+            log.warn('Cache read failed:', e);
             return [];
         }
     }
@@ -532,7 +534,7 @@ class DiaryServiceClass {
         try {
             localStorage.setItem(CACHE_KEY, JSON.stringify(entries));
         } catch (e) {
-            console.warn('[Diary] Cache write failed:', e);
+            log.warn('Cache write failed:', e);
         }
     }
 
@@ -541,7 +543,7 @@ class DiaryServiceClass {
             const raw = localStorage.getItem(PENDING_KEY);
             return raw ? JSON.parse(raw) : [];
         } catch (e) {
-            console.warn('[Diary] Pending read failed:', e);
+            log.warn('Pending read failed:', e);
             return [];
         }
     }
@@ -559,7 +561,7 @@ class DiaryServiceClass {
         } catch (e) {
             // If localStorage is full (likely from photo data URIs), try once
             // more with aggressively stripped photos as a last resort
-            console.error('[Diary] Pending write failed, retrying without photos:', e);
+            log.error('Pending write failed, retrying without photos:', e);
             try {
                 const minimal = entries.map((en) => ({
                     ...en,
@@ -567,7 +569,7 @@ class DiaryServiceClass {
                 }));
                 localStorage.setItem(PENDING_KEY, JSON.stringify(minimal));
             } catch (e2) {
-                console.error('[Diary] Pending write CRITICALLY failed — entries may be lost:', e2);
+                log.error('Pending write CRITICALLY failed — entries may be lost:', e2);
             }
         }
     }
@@ -638,7 +640,7 @@ class DiaryServiceClass {
         try {
             localStorage.removeItem(CACHE_KEY);
         } catch (e) {
-            console.warn('[Diary] Cache invalidation failed:', e);
+            log.warn('Cache invalidation failed:', e);
         }
     }
 
@@ -695,7 +697,7 @@ class DiaryServiceClass {
                 this._saveCachedEntries(merged);
             }
         } catch (e) {
-            console.error('[Diary] Server refresh failed:', e);
+            log.error('Server refresh failed:', e);
         }
     }
 
@@ -731,7 +733,7 @@ class DiaryServiceClass {
             const match = url.match(/diary-photos\/(.+)$/);
             return match ? match[1] : null;
         } catch (e) {
-            console.warn('[Diary] Storage path extraction failed:', e);
+            log.warn('Storage path extraction failed:', e);
             return null;
         }
     }
@@ -747,7 +749,7 @@ class DiaryServiceClass {
             if (pos) return { lat: pos.latitude, lon: pos.longitude };
             return null;
         } catch (e) {
-            console.warn('[Diary] GPS location failed:', e);
+            log.warn('GPS location failed:', e);
             return null;
         }
     }
@@ -775,7 +777,7 @@ class DiaryServiceClass {
                 ? parts.join(', ')
                 : data.display_name?.split(',').slice(0, 2).join(',').trim() || null;
         } catch (e) {
-            console.warn('[Diary] Reverse geocode failed:', e);
+            log.warn('Reverse geocode failed:', e);
             return null;
         }
     }
@@ -818,7 +820,7 @@ class DiaryServiceClass {
             const data = await res.json();
             return data?.enhanced || null;
         } catch (e) {
-            console.error('[Diary] Gemini enhance failed:', e);
+            log.error('Gemini enhance failed:', e);
             return null;
         }
     }
@@ -860,7 +862,7 @@ class DiaryServiceClass {
 
             return urlData?.publicUrl || null;
         } catch (e) {
-            console.error('[Diary] Audio blob upload failed:', e);
+            log.error('Audio blob upload failed:', e);
             return null;
         }
     }
@@ -875,7 +877,7 @@ class DiaryServiceClass {
             const blob = await res.blob();
             return this._uploadAudioBlob(blob);
         } catch (e) {
-            console.error('[Diary] Audio data URI upload failed:', e);
+            log.error('Audio data URI upload failed:', e);
             return null;
         }
     }
@@ -919,7 +921,7 @@ class DiaryServiceClass {
             const data = await res.json();
             return data?.transcript || null;
         } catch (e) {
-            console.error('[Diary] Audio transcription failed:', e);
+            log.error('Audio transcription failed:', e);
             return null;
         }
     }

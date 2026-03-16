@@ -104,7 +104,7 @@ class BgGeoManagerClass {
             try {
                 await BackgroundGeolocation.stop();
             } catch (e) {
-                console.warn('[BgGeo] may not be running:', e);
+                log.warn('may not be running:', e);
             }
         }
     }
@@ -117,7 +117,7 @@ class BgGeoManagerClass {
         try {
             await BackgroundGeolocation.stop();
         } catch (e) {
-            console.warn('[BgGeo] ok:', e);
+            log.warn('ok:', e);
         }
     }
 
@@ -165,7 +165,7 @@ class BgGeoManagerClass {
             });
             return this._locationToCache(loc);
         } catch (e) {
-            console.warn('[BgGeo]', e);
+            log.warn( e);
             // If getCurrentPosition fails, return stale cache as last resort
             return this._lastPosition;
         }
@@ -190,7 +190,7 @@ class BgGeoManagerClass {
         try {
             await BackgroundGeolocation.removeGeofence(id);
         } catch (e) {
-            console.warn('[BgGeo] may not exist:', e);
+            log.warn('may not exist:', e);
         }
     }
 
@@ -259,7 +259,7 @@ class BgGeoManagerClass {
                     try {
                         cb(cached);
                     } catch (e) {
-                        console.warn('[BgGeo] listener error:', e);
+                        log.warn('listener error:', e);
                     }
                 });
             },
@@ -276,7 +276,7 @@ class BgGeoManagerClass {
                 try {
                     cb(event);
                 } catch (e) {
-                    console.warn('[BgGeo] listener error:', e);
+                    log.warn('listener error:', e);
                 }
             });
         });
@@ -293,7 +293,7 @@ class BgGeoManagerClass {
                 try {
                     cb(event);
                 } catch (e) {
-                    console.warn('[BgGeo] listener error:', e);
+                    log.warn('listener error:', e);
                 }
             });
         });
@@ -305,7 +305,7 @@ class BgGeoManagerClass {
                 try {
                     cb(event);
                 } catch (e) {
-                    console.warn('[BgGeo] listener error:', e);
+                    log.warn('listener error:', e);
                 }
             });
         });

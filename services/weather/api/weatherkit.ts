@@ -1,6 +1,9 @@
+import { createLogger } from '../utils/createLogger';
 import { CapacitorHttp } from '@capacitor/core';
+import { createLogger } from '../utils/createLogger';
 import { MarineWeatherReport, HourlyForecast, ForecastDay, SourcedWeatherMetrics, MetricSource } from '../../../types';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
+const log = createLogger('WeatherKit');
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -319,7 +322,7 @@ export const fetchWeatherKitFull = async (lat: number, lon: number): Promise<Wea
             });
             if (res.status !== 200) {
                 const errBody = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-                console.error(`[WeatherKit] Edge function HTTP ${res.status}: ${errBody?.substring(0, 300)}`);
+                log.error(`Edge function HTTP ${res.status}: ${errBody?.substring(0, 300)}`);
                 throw new Error(`HTTP ${res.status}: ${errBody?.substring(0, 100)}`);
             }
             json = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
@@ -334,7 +337,7 @@ export const fetchWeatherKitFull = async (lat: number, lon: number): Promise<Wea
             });
             if (!res.ok) {
                 const errText = await res.text().catch(() => '');
-                console.error(`[WeatherKit] Fetch HTTP ${res.status}: ${errText.substring(0, 300)}`);
+                log.error(`Fetch HTTP ${res.status}: ${errText.substring(0, 300)}`);
                 throw new Error(`Fetch HTTP ${res.status}: ${errText.substring(0, 100)}`);
             }
             json = await res.json();
@@ -356,8 +359,8 @@ export const fetchWeatherKitFull = async (lat: number, lon: number): Promise<Wea
         return result;
     } catch (e: unknown) {
         const errMsg = e instanceof Error ? e.message : String(e);
-        console.error('[WeatherKit] ❌ FETCH FAILED:', errMsg);
-        console.error('[WeatherKit] This means ALL atmospheric data will fall back to StormGlass.');
+        log.error('❌ FETCH FAILED:', errMsg);
+        log.error('This means ALL atmospheric data will fall back to StormGlass.');
         return null;
     }
 };
