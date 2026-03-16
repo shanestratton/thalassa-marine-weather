@@ -394,7 +394,9 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
             .then((geojson: Record<string, unknown>) => {
                 setFetchedSeamarks(geojson);
             })
-            .catch(() => {});
+            .catch((e) => {
+                console.warn(`[SpatiotemporalMap]`, e);
+            });
     }, []);
 
     // Merge prop-based seamarks with fetched ones

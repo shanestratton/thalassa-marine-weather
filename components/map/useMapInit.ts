@@ -568,7 +568,9 @@ export function useMapInit(opts: UseMapInitOptions) {
                         });
                     }
                 })
-                .catch(() => {});
+                .catch((e) => {
+                    console.warn(`[useMapInit]`, e);
+                });
 
             // ── Isochrone source ──
             map.addSource('isochrones', {

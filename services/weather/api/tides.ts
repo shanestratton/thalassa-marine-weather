@@ -47,7 +47,9 @@ export const fetchRealTides = async (
             apiCacheSet('tides', lat, lon, result);
             return result;
         }
-    } catch (err) {}
+    } catch (err) {
+        console.warn(`[tides]`, err);
+    }
 
     // FALLBACK: Network Failure / No Data
     // Return empty so transformers.ts correctly classifies as INLAND/OFFSHORE.

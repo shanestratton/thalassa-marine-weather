@@ -346,7 +346,9 @@ class AnchorWatchSyncServiceClass {
                 payload,
             })
             .then((_status: string) => {})
-            .catch((_err: unknown) => {});
+            .catch((_err) => {
+                console.warn(`[AnchorWatchSyncService]`, _err);
+            });
     }
 
     /** Broadcast alarm state change (called by vessel device) */

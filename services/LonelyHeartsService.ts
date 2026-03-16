@@ -866,16 +866,17 @@ class LonelyHeartsServiceClass {
 
         return profiles
             .map((p: Record<string, unknown>) => {
-                const dp = datingMap.get(p.user_id);
-                const cp = crewMap.get(p.user_id);
+                const uid = p.user_id as string;
+                const dp = datingMap.get(uid);
+                const cp = crewMap.get(uid);
                 return {
-                    user_id: p.user_id,
-                    display_name: p.display_name || 'Anonymous Sailor',
+                    user_id: uid,
+                    display_name: (p.display_name as string) || 'Anonymous Sailor',
                     dating_first_name: dp?.first_name || dp?.dating_first_name || null,
                     dating_photos: dp?.photos || dp?.dating_photos || [],
-                    avatar_url: p.avatar_url,
-                    vessel_name: p.vessel_name,
-                    home_port: p.home_port,
+                    avatar_url: p.avatar_url as string | null,
+                    vessel_name: p.vessel_name as string | null,
+                    home_port: p.home_port as string | null,
                     interests: cp?.interests || [],
                     vibe: cp?.vibe || [],
                     languages: cp?.languages || [],
@@ -883,8 +884,8 @@ class LonelyHeartsServiceClass {
                     drinking: cp?.drinking || null,
                     pets: cp?.pets || null,
                     sailing_experience: cp?.sailing_experience || null,
-                    matched_at: matchDates.get(p.user_id) || '',
-                };
+                    matched_at: matchDates.get(uid) || '',
+                } as SailorMatch;
             })
             .sort(
                 (a: SailorMatch, b: SailorMatch) => new Date(b.matched_at).getTime() - new Date(a.matched_at).getTime(),

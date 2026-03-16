@@ -371,7 +371,9 @@ class ShipLogServiceClass {
                     } else {
                     }
                 })
-                .catch((err) => {});
+                .catch((err) => {
+                    console.warn(`[ShipLogService]`, err);
+                });
 
             // Start regular interval
             this.intervalId = setInterval(() => {
@@ -381,7 +383,9 @@ class ShipLogServiceClass {
                         } else {
                         }
                     })
-                    .catch((err) => {});
+                    .catch((err) => {
+                        console.warn(`[ShipLogService]`, err);
+                    });
             }, TRACKING_INTERVAL_MS);
         }, msUntil);
     }
@@ -447,13 +451,17 @@ class ShipLogServiceClass {
         this.quarterTimeoutId = setTimeout(() => {
             this.flushBufferedTrack()
                 .then(() => {})
-                .catch((err) => {});
+                .catch((err) => {
+                    console.warn(`[ShipLogService]`, err);
+                });
 
             // Now setInterval for every subsequent mark
             this.intervalId = setInterval(() => {
                 this.flushBufferedTrack()
                     .then(() => {})
-                    .catch((err) => {});
+                    .catch((err) => {
+                        console.warn(`[ShipLogService]`, err);
+                    });
             }, intervalMs);
         }, msToNext) as unknown as ReturnType<typeof setInterval>;
     }
@@ -511,7 +519,9 @@ class ShipLogServiceClass {
 
         // IMMEDIATE ENTRY: Fire-and-forget — GPS acquisition runs in background
         // so the UI is not blocked by the 3s GPS warm-up loop.
-        this.captureImmediateEntry().catch(() => {});
+        this.captureImmediateEntry().catch((e) => {
+            console.warn(`[ShipLogService]`, e);
+        });
 
         // Reset position-based bearing tracker for new voyage
         this.lastValidPos = null;
@@ -531,7 +541,9 @@ class ShipLogServiceClass {
         this.scheduleClockAlignedInterval(initialInterval, initialZone);
 
         // Kick off async zone refinement in the background — won't block UI
-        this.rescheduleAdaptiveInterval().catch(() => {});
+        this.rescheduleAdaptiveInterval().catch((e) => {
+            console.warn(`[ShipLogService]`, e);
+        });
 
         // --- 60-SECOND ENVIRONMENT POLLING ---
         // Checks water/land status and re-evaluates logging zone every minute.
@@ -604,7 +616,9 @@ class ShipLogServiceClass {
                             this.currentSpeedTier = tier;
                             this.pendingSpeedTier = null;
                             this.speedTierConfirmCount = 0;
-                            this.rescheduleAdaptiveInterval().catch(() => {});
+                            this.rescheduleAdaptiveInterval().catch((e) => {
+                                console.warn(`[ShipLogService]`, e);
+                            });
                         }
                     } else {
                         this.pendingSpeedTier = tier;
@@ -692,7 +706,9 @@ class ShipLogServiceClass {
                     const elapsed = Date.now() - new Date(lastEntry).getTime();
                     const currentInterval = this.trackingState.currentIntervalMs || TRACKING_INTERVAL_MS;
                     if (elapsed >= currentInterval) {
-                        this.flushBufferedTrack().catch(() => {});
+                        this.flushBufferedTrack().catch((e) => {
+                            console.warn(`[ShipLogService]`, e);
+                        });
                     }
                 }
             });
@@ -706,7 +722,9 @@ class ShipLogServiceClass {
                     const elapsed = Date.now() - new Date(lastEntry).getTime();
                     const currentInterval = this.trackingState.currentIntervalMs || TRACKING_INTERVAL_MS;
                     if (elapsed >= currentInterval) {
-                        this.flushBufferedTrack().catch(() => {});
+                        this.flushBufferedTrack().catch((e) => {
+                            console.warn(`[ShipLogService]`, e);
+                        });
                     }
                 }
             }, 60_000);
@@ -1006,7 +1024,9 @@ class ShipLogServiceClass {
 
         // Capture final entry BEFORE cleaning up GPS — ensures end coordinates are captured
         // GPS subscriptions are still alive here so getBestPosition() can use cached fix
-        await this.captureImmediateEntry(previousVoyageId, 'Voyage End').catch((err: unknown) => {});
+        await this.captureImmediateEntry(previousVoyageId, 'Voyage End').catch((err) => {
+            console.warn(`[ShipLogService]`, err);
+        });
 
         // NOW clean up GPS stream subscriptions (after final entry has GPS)
         this.cleanupGpsSubscriptions();
@@ -1707,7 +1727,9 @@ class ShipLogServiceClass {
             }, RAPID_AUTO_DISABLE_MS);
 
             // Capture first entry immediately when entering rapid mode
-            this.captureLogEntry().catch((err) => {});
+            this.captureLogEntry().catch((err) => {
+                console.warn(`[ShipLogService]`, err);
+            });
 
             // Start 5-second interval
             this.intervalId = setInterval(() => {
@@ -1716,7 +1738,9 @@ class ShipLogServiceClass {
                         if (entry) {
                         }
                     })
-                    .catch((err) => {});
+                    .catch((err) => {
+                        console.warn(`[ShipLogService]`, err);
+                    });
             }, RAPID_INTERVAL_MS);
         } else {
             // ADAPTIVE MODE: Restore zone-based intervals

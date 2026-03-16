@@ -629,7 +629,9 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                 next.delete(card.user_id);
                 try {
                     localStorage.setItem('crew_liked_users', JSON.stringify([...next]));
-                } catch {}
+                } catch (e) {
+                    console.warn(`[LonelyHeartsPage]`, e);
+                }
                 return next;
             });
             await LonelyHeartsService.recordLike(card.user_id, false);
@@ -641,7 +643,9 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                 next.add(card.user_id);
                 try {
                     localStorage.setItem('crew_liked_users', JSON.stringify([...next]));
-                } catch {}
+                } catch (e) {
+                    console.warn(`[LonelyHeartsPage]`, e);
+                }
                 return next;
             });
             const result = await LonelyHeartsService.recordLike(card.user_id, true);
@@ -658,7 +662,9 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
             next.add(userId);
             try {
                 localStorage.setItem('crew_messaged_users', JSON.stringify([...next]));
-            } catch {}
+            } catch (e) {
+                console.warn(`[LonelyHeartsPage]`, e);
+            }
             return next;
         });
     }, []);
@@ -695,7 +701,9 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
             next.add(showSuperLikeModal.user_id);
             try {
                 localStorage.setItem('crew_liked_users', JSON.stringify([...next]));
-            } catch {}
+            } catch (e) {
+                console.warn(`[LonelyHeartsPage]`, e);
+            }
             return next;
         });
         setSuperLikeUsed(true);

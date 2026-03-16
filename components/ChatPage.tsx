@@ -18,14 +18,14 @@ import { createLogger } from '../utils/createLogger';
 const log = createLogger('ChatPage');
 import { ChatService, ChatChannel, DEFAULT_CHANNELS } from '../services/ChatService';
 import { reportMessage } from '../services/ContentModerationService';
-const LonelyHeartsPage = React.lazy(() => import('./LonelyHeartsPage').then(m => ({ default: m.LonelyHeartsPage })));
+const LonelyHeartsPage = React.lazy(() => import('./LonelyHeartsPage').then((m) => ({ default: m.LonelyHeartsPage })));
 
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { toast } from './Toast';
 import { useSettings } from '../context/SettingsContext';
 import { moderateMessage } from '../services/ContentModerationService';
-const MarketplacePage = React.lazy(() => import('./MarketplacePage').then(m => ({ default: m.MarketplacePage })));
-const AdminPanel = React.lazy(() => import('./AdminPanel').then(m => ({ default: m.AdminPanel })));
+const MarketplacePage = React.lazy(() => import('./MarketplacePage').then((m) => ({ default: m.MarketplacePage })));
+const AdminPanel = React.lazy(() => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })));
 import { ChannelList } from './chat/ChannelList';
 import { ChatMessageList } from './chat/ChatMessageList';
 import { ChatComposer } from './chat/ChatComposer';

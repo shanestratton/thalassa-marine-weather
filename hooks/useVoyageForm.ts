@@ -172,14 +172,18 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     const { enhanceVoyagePlanWithBathymetry } = await import('../services/bathymetricRouter');
                     enhancedPlan = await enhanceVoyagePlanWithBathymetry(result, vessel);
                     saveVoyagePlan(enhancedPlan);
-                } catch (_) {}
+                } catch (_) {
+                    console.warn(`[useVoyageForm]`, _);
+                }
 
                 // Step 2: Weather routing — corridor optimization (depends on Step 1)
                 try {
                     const { enhanceVoyagePlanWithWeather } = await import('../services/weatherRouter');
                     enhancedPlan = await enhanceVoyagePlanWithWeather(enhancedPlan, vessel, departureDate);
                     saveVoyagePlan(enhancedPlan);
-                } catch (_) {}
+                } catch (_) {
+                    console.warn(`[useVoyageForm]`, _);
+                }
 
                 // Steps 3 & 4 can run in parallel (both read from enhancedPlan, write to separate fields)
                 const step3 = (async () => {
@@ -232,7 +236,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                 })),
                             };
                         }
-                    } catch (_) {}
+                    } catch (_) {
+                        console.warn(`[useVoyageForm]`, _);
+                    }
                 })();
 
                 const step4 = (async () => {
@@ -273,7 +279,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                 (enhancedPlan as any).__multiModelComparison = multiModelResult;
                             }
                         }
-                    } catch (_) {}
+                    } catch (_) {
+                        console.warn(`[useVoyageForm]`, _);
+                    }
                 })();
 
                 // Wait for both parallel steps, then save final enhanced plan

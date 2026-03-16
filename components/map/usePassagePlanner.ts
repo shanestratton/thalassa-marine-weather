@@ -154,7 +154,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         },
                     }),
                 );
-            } catch (_) {}
+            } catch (_) {
+                console.warn(`[usePassagePlanner]`, _);
+            }
             return;
         }
 
@@ -372,7 +374,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             window.dispatchEvent(
                                 new CustomEvent('thalassa:isochrone-complete', { detail: { success: true } }),
                             );
-                        } catch (_) {}
+                        } catch (_) {
+                            console.warn(`[usePassagePlanner]`, _);
+                        }
                         return; // Done — skip fresh computation
                     }
                 } catch {
@@ -393,7 +397,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             },
                         }),
                     );
-                } catch (_) {}
+                } catch (_) {
+                    console.warn(`[usePassagePlanner]`, _);
+                }
 
                 const windState = WindStore.getState();
                 let windGrid = windState.grid;
@@ -511,7 +517,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             },
                         }),
                     );
-                } catch (_) {}
+                } catch (_) {
+                    console.warn(`[usePassagePlanner]`, _);
+                }
                 // Use coarser 0.25° grid (stride=15) for the engine — fine 0.1° traps
                 // wavefronts in reef-enclosed areas like Townsville/GBR.
                 // pushRouteOffshore post-processing still catches land clips via 2NM sampling.
@@ -531,7 +539,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             },
                         }),
                     );
-                } catch (_) {}
+                } catch (_) {
+                    console.warn(`[usePassagePlanner]`, _);
+                }
 
                 // ── Read comfort params from persisted settings ──
                 let comfortParams: ComfortParams | undefined;
@@ -744,7 +754,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                         detail: { phase: 'multi-model' },
                                     }),
                                 );
-                            } catch (_) {}
+                            } catch (_) {
+                                console.warn(`[usePassagePlanner]`, _);
+                            }
 
                             const { fetchModelWindGrid } = await import('../../services/weather/OpenMeteoWindFetcher');
 
@@ -863,7 +875,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         window.dispatchEvent(
                             new CustomEvent('thalassa:isochrone-complete', { detail: { success: true } }),
                         );
-                    } catch (_) {}
+                    } catch (_) {
+                        console.warn(`[usePassagePlanner]`, _);
+                    }
                 } else {
                     // ── Multi-leg split: try routing via an intermediate point ──
                     log.info('[Isochrone BG] Direct route failed — attempting multi-leg split...');
@@ -880,7 +894,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 },
                             }),
                         );
-                    } catch (_) {}
+                    } catch (_) {
+                        console.warn(`[usePassagePlanner]`, _);
+                    }
 
                     // Find intermediate: go well south (or north) of both points for open ocean
                     const southernMost = Math.min(depGate.lat, arrGate.lat);
@@ -959,7 +975,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             window.dispatchEvent(
                                 new CustomEvent('thalassa:isochrone-complete', { detail: { success: true } }),
                             );
-                        } catch (_) {}
+                        } catch (_) {
+                            console.warn(`[usePassagePlanner]`, _);
+                        }
                     } else {
                         log.warn('[Isochrone BG] Multi-leg also failed — clearing route line');
                         const src = map.getSource('route-line') as mapboxgl.GeoJSONSource;
@@ -970,7 +988,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             window.dispatchEvent(
                                 new CustomEvent('thalassa:isochrone-complete', { detail: { success: false } }),
                             );
-                        } catch (_) {}
+                        } catch (_) {
+                            console.warn(`[usePassagePlanner]`, _);
+                        }
                     }
                 }
             } catch (err) {
@@ -979,7 +999,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     window.dispatchEvent(
                         new CustomEvent('thalassa:isochrone-complete', { detail: { success: false } }),
                     );
-                } catch (_) {}
+                } catch (_) {
+                    console.warn(`[usePassagePlanner]`, _);
+                }
             }
         }, 100);
     }, [departure, arrival, speed, departureTime]);

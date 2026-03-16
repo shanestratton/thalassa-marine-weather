@@ -202,7 +202,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                         try {
                             const cache = await caches.open(WIND_CACHE_NAME);
                             await cache.put(cacheKey, new Response(JSON.stringify(windData)));
-                        } catch (_) {}
+                        } catch (_) {
+                            console.warn(`[TrackMapViewer]`, _);
+                        }
                     } else {
                         log.warn(' Wind fetch HTTP', res.status);
                     }
@@ -212,7 +214,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                         const cache = await caches.open(WIND_CACHE_NAME);
                         const cached = await cache.match(cacheKey);
                         if (cached) windData = await cached.json();
-                    } catch (_e) {}
+                    } catch (_e) {
+                        console.warn(`[TrackMapViewer]`, _e);
+                    }
                 }
 
                 if (windData && Array.isArray(windData) && windData.length > 0 && mapInstanceRef.current) {
@@ -245,7 +249,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                 if (velocityLayerRef.current) {
                     try {
                         mapInstanceRef.current.removeLayer(velocityLayerRef.current);
-                    } catch (_) {}
+                    } catch (_) {
+                        console.warn(`[TrackMapViewer]`, _);
+                    }
                     velocityLayerRef.current = null;
                 }
                 mapInstanceRef.current.remove();

@@ -443,7 +443,9 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                     WindStore.setGrid(ww3Grid);
                     return;
                 }
-            } catch (_) {}
+            } catch (_) {
+                console.warn(`[PassageCanvas]`, _);
+            }
 
             try {
                 const windGrid = await fetchGlobalWindField();
@@ -451,7 +453,9 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                     WindStore.setGrid(windGrid);
                     return;
                 }
-            } catch (_) {}
+            } catch (_) {
+                console.warn(`[PassageCanvas]`, _);
+            }
 
             if (!cancelled) WindStore.setLoading(false);
         }

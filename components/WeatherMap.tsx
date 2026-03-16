@@ -271,7 +271,9 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
             try {
                 const so = screen.orientation as ScreenOrientation & { lock?: (orientation: string) => Promise<void> };
                 if (so && typeof so.lock === 'function') {
-                    so.lock('portrait').catch(() => {});
+                    so.lock('portrait').catch((e) => {
+                        console.warn(`[WeatherMap]`, e);
+                    });
                 }
             } catch (e) {
                 /* Ignore */

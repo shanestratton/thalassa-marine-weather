@@ -123,14 +123,16 @@ export async function fetchModelWindGrid(
         }
 
         // Check we got enough data
-        const validCount = allResults.filter((r) => r?.hourly).length;
+        const validCount = allResults.filter((r) => (r as Record<string, unknown>)?.hourly).length;
         if (validCount < allPoints.length * 0.5) {
             console.warn(`[OpenMeteoFetcher] ${model.name}: only ${validCount}/${allPoints.length} points valid`);
             return null;
         }
 
         // Determine actual forecast length from response
-        const firstValid = allResults.find((r) => r?.hourly?.wind_speed_10m);
+        const firstValid = allResults.find((r) => (r as Record<string, unknown>)?.hourly) as
+            | Record<string, Record<string, number[]>>
+            | undefined;
         const totalHours = firstValid?.hourly?.wind_speed_10m?.length ?? forecastHours;
 
         // Convert Open-Meteo JSON → WindGrid (U/V Float32Arrays)
@@ -146,7 +148,7 @@ export async function fetchModelWindGrid(
             for (let r = 0; r < rows; r++) {
                 for (let c = 0; c < cols; c++) {
                     const idx = r * cols + c;
-                    const hourly = allResults[idx]?.hourly;
+                    const hourly = (allResults[idx] as Record<string, Record<string, number[]>> | null)?.hourly;
 
                     const speedKmh = hourly?.wind_speed_10m?.[h] ?? 0;
                     const dirDeg = hourly?.wind_direction_10m?.[h] ?? 0;

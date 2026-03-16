@@ -75,8 +75,7 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                                 const blob = await resp.blob();
                                 const reader = new FileReader();
                                 base64 = await new Promise<string>((resolve) => {
-                                    reader.onloadend = () =>
-                                        resolve((reader.result as string).split(',')[1]);
+                                    reader.onloadend = () => resolve((reader.result as string).split(',')[1]);
                                     reader.readAsDataURL(blob);
                                 });
                             }
@@ -111,7 +110,9 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                 for (const uri of fileUris) {
                     const fileName = uri.split('/').pop();
                     if (fileName) {
-                        Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {});
+                        Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch((e) => {
+                            console.warn(`[SwipeableDiaryCard]`, e);
+                        });
                     }
                 }
             }

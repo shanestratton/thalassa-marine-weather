@@ -316,7 +316,9 @@ class ChatServiceClass {
 
     private _refreshChannelsCache(): void {
         // Fire-and-forget background refresh
-        this._fetchAndCacheChannels().catch(() => {});
+        this._fetchAndCacheChannels().catch((e) => {
+            console.warn(`[ChatService]`, e);
+        });
     }
 
     /** Invalidate cached channels — next getChannels() will fetch fresh from Supabase */
@@ -417,11 +419,15 @@ class ChatServiceClass {
         // Fire-and-forget: async AI moderation check (~1-2s)
         // Message is already posted — if flagged, it gets soft-deleted
         const msg = data as ChatMessage;
-        moderateMessage(msg.id, text, user.id, channelId).catch(() => {});
+        moderateMessage(msg.id, text, user.id, channelId).catch((e) => {
+            console.warn(`[ChatService]`, e);
+        });
 
         // Fire-and-forget: push notifications for SOS questions
         if (isQuestion && data?.id) {
-            this.pushSOSNotification(channelId, user.id, resolvedName, text, data.id).catch(() => {});
+            this.pushSOSNotification(channelId, user.id, resolvedName, text, data.id).catch((e) => {
+                console.warn(`[ChatService]`, e);
+            });
         }
 
         return msg;
@@ -597,7 +603,9 @@ class ChatServiceClass {
 
         // Fire-and-forget Gemini moderation on DMs too
         if (data?.id) {
-            moderateMessage(data.id, text, user.id, `dm_${recipientId}`).catch(() => {});
+            moderateMessage(data.id, text, user.id, `dm_${recipientId}`).catch((e) => {
+                console.warn(`[ChatService]`, e);
+            });
         }
 
         // Fire-and-forget: push notification to DM recipient

@@ -9,7 +9,7 @@
  *   await orchestrator.fetchWeather('Sydney, NSW', { force: true });
  */
 
-import { MarineWeatherReport, VoyagePlan } from '../types';
+import { MarineWeatherReport, VoyagePlan, VesselProfile, UnitPreferences, VesselDimensionUnits } from '../types';
 import { fetchPrecisionWeather, fetchWeatherByStrategy, parseLocation, reverseGeocode } from './weatherService';
 import { fetchWeatherKitRealtime } from './weather/api/weatherkit';
 import { isStormglassKeyPresent } from './weather/keys';
@@ -660,7 +660,12 @@ export class WeatherOrchestrator {
     ): Promise<void> {
         const locationType = report.locationType || 'coastal';
         const isCurrentLoc = this.cb.getLocationMode() === 'gps';
-        const interval = getUpdateInterval(locationType, report, isCurrentLoc, settings.satelliteMode);
+        const interval = getUpdateInterval(
+            locationType,
+            report,
+            isCurrentLoc,
+            settings.satelliteMode as boolean | undefined,
+        );
         const nextTs = alignToNextInterval(interval);
         this.cb.setNextUpdate(nextTs);
         localStorage.setItem('thalassa_next_update', nextTs.toString());
@@ -676,10 +681,10 @@ export class WeatherOrchestrator {
                 const { enrichMarineWeather } = await import('./geminiService');
                 const enriched = await enrichMarineWeather(
                     report,
-                    settings.vessel,
-                    settings.units,
-                    settings.vesselUnits,
-                    settings.aiPersona,
+                    settings.vessel as VesselProfile | undefined,
+                    settings.units as UnitPreferences | undefined,
+                    settings.vesselUnits as VesselDimensionUnits | undefined,
+                    settings.aiPersona as number | undefined,
                 );
                 this.cb.setWeatherData(enriched);
                 this.cb.setHistoryCache((prev) => ({ ...prev, [location]: enriched }));

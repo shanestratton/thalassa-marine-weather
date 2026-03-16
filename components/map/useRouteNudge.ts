@@ -228,7 +228,9 @@ export function useRouteNudge(mapRef: MutableRefObject<mapboxgl.Map | null>, map
             try {
                 map.off('mouseenter', 'route-line-layer', handleRouteEnter);
                 map.off('mouseleave', 'route-line-layer', handleRouteLeave);
-            } catch (_) {}
+            } catch (_) {
+                console.warn(`[useRouteNudge]`, _);
+            }
         };
     }, [mapReady, showPassage]);
 }

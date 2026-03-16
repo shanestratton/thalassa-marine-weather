@@ -126,11 +126,12 @@ async function fetchMultiModelWind(
         for (let pi = 0; pi < points.length; pi++) {
             const point = points[pi];
             const result = results[pi];
-            if (!result?.hourly) continue;
+            if (!(result as Record<string, unknown>)?.hourly) continue;
 
             // Find the hourly index closest to this point's ETA
             const pointEta = new Date(departureTime.getTime() + point.hoursFromDep * 3600000);
-            const timestamps: string[] = result.hourly.time || [];
+            const hourly = (result as Record<string, Record<string, unknown[]>>).hourly;
+            const timestamps: string[] = (hourly.time as string[]) || [];
             let bestIdx = 0;
             let bestDiff = Infinity;
             for (let t = 0; t < timestamps.length; t++) {
@@ -151,15 +152,15 @@ async function fetchMultiModelWind(
                 const gustKey = `wind_gusts_10m_${modelDef.id}`;
 
                 // Also try unprefixed (single-model response)
-                const speedArr = result.hourly[speedKey] || result.hourly.wind_speed_10m;
-                const dirArr = result.hourly[dirKey] || result.hourly.wind_direction_10m;
-                const gustArr = result.hourly[gustKey] || result.hourly.wind_gusts_10m;
+                const speedArr = hourly[speedKey] || hourly.wind_speed_10m;
+                const dirArr = hourly[dirKey] || hourly.wind_direction_10m;
+                const gustArr = hourly[gustKey] || hourly.wind_gusts_10m;
 
                 if (!speedArr) continue;
 
-                const speedKmh = speedArr[bestIdx] ?? 0;
-                const dirDeg = dirArr?.[bestIdx] ?? 0;
-                const gustKmh = gustArr?.[bestIdx] ?? speedKmh * 1.4;
+                const speedKmh = Number(speedArr[bestIdx] ?? 0);
+                const dirDeg = Number(dirArr?.[bestIdx] ?? 0);
+                const gustKmh = Number(gustArr?.[bestIdx] ?? speedKmh * 1.4);
 
                 models.push({
                     model: modelDef.label,
