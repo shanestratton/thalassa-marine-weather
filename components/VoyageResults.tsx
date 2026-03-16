@@ -181,7 +181,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                 <div className="p-6 md:p-8 pb-0 flex items-center gap-4 relative z-10">
                     {/* Origin — Left */}
                     <div className="flex flex-col min-w-0 flex-1">
-                        <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-1">
+                        <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mb-1">
                             Departing
                         </span>
                         <span className="text-xl md:text-3xl font-bold text-white tracking-tight truncate">
@@ -189,7 +189,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 ? voyagePlan.origin.split(',')[0]
                                 : 'Unknown'}
                         </span>
-                        <span className="text-[11px] text-gray-500 font-mono mt-1">
+                        <span className="text-[11px] text-gray-400 font-mono mt-1">
                             {fmtCoord(voyagePlan.originCoordinates?.lat, voyagePlan.originCoordinates?.lon, 2)}
                         </span>
                     </div>
@@ -214,7 +214,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
 
                     {/* Destination — Right */}
                     <div className="flex flex-col text-right items-end min-w-0 flex-1">
-                        <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mb-1">
+                        <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mb-1">
                             Arriving
                         </span>
                         <span className="text-xl md:text-3xl font-bold text-white tracking-tight truncate">
@@ -222,7 +222,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 ? voyagePlan.destination.split(',')[0]
                                 : 'Unknown'}
                         </span>
-                        <span className="text-[11px] text-gray-500 font-mono mt-1">
+                        <span className="text-[11px] text-gray-400 font-mono mt-1">
                             {fmtCoord(
                                 voyagePlan.destinationCoordinates?.lat,
                                 voyagePlan.destinationCoordinates?.lon,
@@ -246,12 +246,12 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                             {isRouteAnalyzed ? (
                                 <>
                                     <span className="text-lg font-bold text-white">{voyagePlan.distanceApprox}</span>
-                                    <span className="text-[11px] text-gray-500 block">Nautical Miles</span>
+                                    <span className="text-[11px] text-gray-400 block">Nautical Miles</span>
                                 </>
                             ) : (
                                 <>
                                     <span className="text-lg font-bold text-amber-300/80 animate-pulse">Routing...</span>
-                                    <span className="text-[11px] text-gray-500 block">Awaiting route analysis</span>
+                                    <span className="text-[11px] text-gray-400 block">Awaiting route analysis</span>
                                 </>
                             )}
                         </div>
@@ -269,12 +269,12 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                             {isRouteAnalyzed ? (
                                 <>
                                     <span className="text-lg font-bold text-white">{voyagePlan.durationApprox}</span>
-                                    <span className="text-[11px] text-gray-500 block">Estimated Time</span>
+                                    <span className="text-[11px] text-gray-400 block">Estimated Time</span>
                                 </>
                             ) : (
                                 <>
                                     <span className="text-lg font-bold text-amber-300/80 animate-pulse">Routing...</span>
-                                    <span className="text-[11px] text-gray-500 block">Awaiting route analysis</span>
+                                    <span className="text-[11px] text-gray-400 block">Awaiting route analysis</span>
                                 </>
                             )}
                         </div>
@@ -295,7 +295,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 <span className="text-lg font-bold text-white">
                                     {voyagePlan.suitability?.maxWindEncountered ?? '--'}
                                 </span>
-                                <span className="text-[11px] text-gray-500 ml-0.5">kts</span>
+                                <span className="text-[11px] text-gray-400 ml-0.5">kts</span>
                             </div>
                             <div className="text-[11px] text-sky-300 font-medium border-l border-white/10 pl-3">
                                 {displayWave(voyagePlan.suitability?.maxWaveEncountered)} {waveLabel} seas
@@ -439,7 +439,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                         })()
                     ) : (
                         <div className="text-center py-6">
-                            <span className="text-xs text-gray-500 font-bold uppercase tracking-widest">
+                            <span className="text-xs text-gray-400 font-bold uppercase tracking-widest">
                                 No Departure Timing Data Available
                             </span>
                         </div>
@@ -458,7 +458,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                     <div className="overflow-x-auto -mx-5 px-5">
                         <table className="w-full text-left border-collapse">
                             <thead>
-                                <tr className="text-[11px] text-gray-500 uppercase tracking-widest border-b border-white/10">
+                                <tr className="text-[11px] text-gray-400 uppercase tracking-widest border-b border-white/10">
                                     <th className="pb-3 pl-2 font-bold">Waypoint / ETA</th>
                                     <th className="pb-3 font-bold">Position</th>
                                     <th className="pb-3 font-bold">Depth</th>
@@ -472,7 +472,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 <tr className="border-b border-white/5 group hover:bg-white/5 transition-colors">
                                     <td className="py-3.5 pl-2">
                                         <div className="font-bold text-white">DEPARTURE</div>
-                                        <div className="text-[11px] text-gray-500">T+00:00</div>
+                                        <div className="text-[11px] text-gray-400">T+00:00</div>
                                     </td>
                                     <td className="py-3.5">
                                         <div className="text-white">
@@ -480,16 +480,16 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                                 ? voyagePlan.origin.split(',')[0]
                                                 : 'Origin'}
                                         </div>
-                                        <div className="text-[11px] text-gray-500 opacity-60">
+                                        <div className="text-[11px] text-gray-400 opacity-60">
                                             {fmtCoord(
                                                 voyagePlan.originCoordinates?.lat,
                                                 voyagePlan.originCoordinates?.lon,
                                             )}
                                         </div>
                                     </td>
-                                    <td className="py-3.5 text-gray-500 italic">--</td>
-                                    <td className="py-3.5 text-gray-500 italic">--</td>
-                                    <td className="py-3.5 text-gray-500 italic">--</td>
+                                    <td className="py-3.5 text-gray-400 italic">--</td>
+                                    <td className="py-3.5 text-gray-400 italic">--</td>
+                                    <td className="py-3.5 text-gray-400 italic">--</td>
                                     <td className="py-3.5 text-gray-400 max-w-[200px] truncate">
                                         Departure: {voyagePlan.departureDate}
                                     </td>
@@ -526,7 +526,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                                 <div className="font-bold text-sky-400">
                                                     WP-{String(i + 1).padStart(2, '0')}
                                                 </div>
-                                                <div className="text-[11px] text-gray-500">{wp.name}</div>
+                                                <div className="text-[11px] text-gray-400">{wp.name}</div>
                                             </td>
                                             <td className="py-3.5">
                                                 {wp.coordinates ? (
@@ -546,7 +546,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                                         ⚓ {wp.depth_m}m
                                                     </div>
                                                 ) : (
-                                                    <span className="text-gray-500 italic">--</span>
+                                                    <span className="text-gray-400 italic">--</span>
                                                 )}
                                             </td>
                                             <td className="py-3.5">
@@ -581,7 +581,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 <tr className="group hover:bg-white/5 transition-colors">
                                     <td className="py-3.5 pl-2">
                                         <div className="font-bold text-white">ARRIVAL</div>
-                                        <div className="text-[11px] text-gray-500">
+                                        <div className="text-[11px] text-gray-400">
                                             {isRouteAnalyzed ? `Est. ${voyagePlan.durationApprox}` : 'Duration pending...'}
                                         </div>
                                     </td>
@@ -591,16 +591,16 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                                 ? voyagePlan.destination.split(',')[0]
                                                 : 'Destination'}
                                         </div>
-                                        <div className="text-[11px] text-gray-500 opacity-60">
+                                        <div className="text-[11px] text-gray-400 opacity-60">
                                             {fmtCoord(
                                                 voyagePlan.destinationCoordinates?.lat,
                                                 voyagePlan.destinationCoordinates?.lon,
                                             )}
                                         </div>
                                     </td>
-                                    <td className="py-3.5 text-gray-500 italic">--</td>
-                                    <td className="py-3.5 text-gray-500 italic">--</td>
-                                    <td className="py-3.5 text-gray-500 italic">--</td>
+                                    <td className="py-3.5 text-gray-400 italic">--</td>
+                                    <td className="py-3.5 text-gray-400 italic">--</td>
+                                    <td className="py-3.5 text-gray-400 italic">--</td>
                                     <td className="py-3.5 text-emerald-400 font-bold text-xs uppercase tracking-wider">
                                         Destination Reach
                                     </td>
@@ -626,7 +626,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 <span className="text-sm font-bold text-amber-300/80 uppercase tracking-widest">
                                     Computing Route...
                                 </span>
-                                <span className="text-xs text-gray-500 max-w-xs text-center">
+                                <span className="text-xs text-gray-400 max-w-xs text-center">
                                     Waypoints will appear once weather routing analysis completes
                                 </span>
                             </div>
@@ -640,7 +640,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                     onClick={() => setIsMapOpen(true)}
                                 >
                                     {/* Node Number Badge */}
-                                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-slate-800 border border-white/10 rounded-full flex items-center justify-center text-[11px] font-mono text-gray-500 shadow-lg group-hover:border-sky-500/50 group-hover:text-sky-400 transition-colors">
+                                    <div className="absolute -top-2 -right-2 w-6 h-6 bg-slate-800 border border-white/10 rounded-full flex items-center justify-center text-[11px] font-mono text-gray-400 shadow-lg group-hover:border-sky-500/50 group-hover:text-sky-400 transition-colors">
                                         {i + 1}
                                     </div>
 
@@ -693,11 +693,11 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                         </div>
                     ) : (
                         <div className="flex flex-col items-center justify-center py-10 opacity-50 border-2 border-dashed border-white/10 rounded-xl bg-white/5">
-                            <RouteIcon className="w-10 h-10 text-gray-500 mb-3" />
+                            <RouteIcon className="w-10 h-10 text-gray-400 mb-3" />
                             <span className="text-sm font-bold text-gray-400 uppercase tracking-widest">
                                 Direct Route
                             </span>
-                            <span className="text-xs text-gray-500 mt-1">No intermediate stops required</span>
+                            <span className="text-xs text-gray-400 mt-1">No intermediate stops required</span>
                         </div>
                     )}
                 </AccordionSection>
@@ -752,7 +752,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                                 ))}
                                             </ul>
                                         ) : (
-                                            <span className="text-xs text-gray-500 italic">
+                                            <span className="text-xs text-gray-400 italic">
                                                 No specific navigational hazards flagged by AI.
                                             </span>
                                         )}
@@ -910,7 +910,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                                 <span className="text-sm text-gray-400 font-bold uppercase tracking-widest">
                                     Sector Clear
                                 </span>
-                                <span className="text-xs text-gray-500 mt-1">No significant hazards identified</span>
+                                <span className="text-xs text-gray-400 mt-1">No significant hazards identified</span>
                             </div>
                         )}
                     </div>

@@ -115,12 +115,12 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
                     <div className="bg-slate-800/50 rounded-lg p-3 text-xs text-slate-400">
                         <div className="grid grid-cols-2 gap-2">
                             <div>
-                                <span className="text-slate-500">Position:</span>
+                                <span className="text-slate-400">Position:</span>
                                 <span className="ml-1 text-white font-mono">{entry.positionFormatted}</span>
                             </div>
                             {entry.speedKts !== undefined && (
                                 <div>
-                                    <span className="text-slate-500">Speed:</span>
+                                    <span className="text-slate-400">Speed:</span>
                                     <span className="ml-1 text-white">{entry.speedKts.toFixed(1)} kts</span>
                                 </div>
                             )}

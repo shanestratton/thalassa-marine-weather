@@ -34,7 +34,7 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                     <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     <h2 className="text-[11px] font-black text-white uppercase tracking-widest">Passage Plan</h2>
                 </div>
-                <p className="text-[11px] text-gray-500 mt-0.5">
+                <p className="text-[11px] text-gray-400 mt-0.5">
                     {departure?.name || '—'} → {arrival?.name || '—'}
                 </p>
             </div>
@@ -44,16 +44,16 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                 <div className="px-4 py-3 border-b border-white/[0.06]">
                     <div className="grid grid-cols-2 gap-3">
                         <div>
-                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
+                            <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
                                 Distance
                             </span>
                             <p className="text-lg font-black text-white tabular-nums">
                                 {routeAnalysis.totalDistance.toFixed(0)}
-                                <span className="text-[11px] text-gray-500 ml-1">NM</span>
+                                <span className="text-[11px] text-gray-400 ml-1">NM</span>
                             </p>
                         </div>
                         <div>
-                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
+                            <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
                                 Duration
                             </span>
                             <p className="text-lg font-black text-white tabular-nums">
@@ -63,12 +63,12 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                             </p>
                         </div>
                         <div>
-                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
+                            <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
                                 Departure
                             </span>
                             <p className="text-sm font-bold text-sky-400 tabular-nums">
                                 {depTime.toLocaleDateString('en-AU', { day: '2-digit', month: 'short' })}
-                                <span className="text-gray-500 ml-1">
+                                <span className="text-gray-400 ml-1">
                                     {depTime.toLocaleTimeString('en-AU', {
                                         hour: '2-digit',
                                         minute: '2-digit',
@@ -78,12 +78,12 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                             </p>
                         </div>
                         <div>
-                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">ETA</span>
+                            <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">ETA</span>
                             <p className="text-sm font-bold text-amber-400 tabular-nums">
                                 {new Date(
                                     depTime.getTime() + routeAnalysis.estimatedDuration * 3600000,
                                 ).toLocaleDateString('en-AU', { day: '2-digit', month: 'short' })}
-                                <span className="text-gray-500 ml-1">
+                                <span className="text-gray-400 ml-1">
                                     {new Date(
                                         depTime.getTime() + routeAnalysis.estimatedDuration * 3600000,
                                     ).toLocaleTimeString('en-AU', {
@@ -134,7 +134,7 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                                     {/* Details */}
                                     <div className="flex-1 min-w-0">
                                         <p className="text-[11px] font-bold text-white truncate">{wp.id}</p>
-                                        <p className="text-[11px] text-gray-500 tabular-nums">
+                                        <p className="text-[11px] text-gray-400 tabular-nums">
                                             {wp.lat.toFixed(2)}° {wp.lon.toFixed(2)}°
                                             {wp.distanceNM > 0 && (
                                                 <span className="ml-1.5">• {wp.distanceNM.toFixed(0)} NM</span>
@@ -150,7 +150,7 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
                                             </p>
                                         )}
                                         {wp.tws > 0 && (
-                                            <p className="text-[11px] text-gray-500 tabular-nums">
+                                            <p className="text-[11px] text-gray-400 tabular-nums">
                                                 {wp.tws.toFixed(0)} kts
                                             </p>
                                         )}
@@ -179,7 +179,7 @@ export const PassageDataPanel: React.FC<PassageDataPanelProps> = ({
             {!routeAnalysis && (
                 <div className="px-4 py-8 text-center">
                     <div className="text-2xl mb-2">🧭</div>
-                    <p className="text-[11px] text-gray-500">Tap the map to set departure and arrival points</p>
+                    <p className="text-[11px] text-gray-400">Tap the map to set departure and arrival points</p>
                 </div>
             )}
         </div>

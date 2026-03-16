@@ -248,7 +248,7 @@ export const DepthGauge: React.FC<DepthGaugeProps> = ({ value, maxDepth = 100, u
                     </span>
                     <span className="text-2xl font-bold text-gray-400">{unit}</span>
                 </div>
-                <span className="text-xs font-bold uppercase tracking-[0.25em] text-gray-500">
+                <span className="text-xs font-bold uppercase tracking-[0.25em] text-gray-400">
                     Depth Below Transducer
                 </span>
                 {isShallow && (

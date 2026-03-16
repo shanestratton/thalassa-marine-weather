@@ -247,7 +247,7 @@ export const SynopticScrubber: React.FC<SynopticScrubberProps> = memo(
                                 ? 'Now'
                                 : `+${(totalFrames > 1 ? (forecastHour / (totalFrames - 1)) * 12 : forecastHour).toFixed(1)}h`}
                         </p>
-                        <p ref={sublabelRef} className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
+                        <p ref={sublabelRef} className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">
                             Forecast
                         </p>
                     </div>

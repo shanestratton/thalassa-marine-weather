@@ -233,7 +233,7 @@ export const BarGauge: React.FC<BarGaugeProps> = ({
                     </span>
                     <span className="text-2xl font-bold text-gray-400">{unit}</span>
                 </div>
-                <span className="text-xs font-bold uppercase tracking-[0.25em] text-gray-500">{label}</span>
+                <span className="text-xs font-bold uppercase tracking-[0.25em] text-gray-400">{label}</span>
             </div>
         </div>
     );

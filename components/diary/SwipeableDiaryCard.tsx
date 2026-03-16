@@ -186,7 +186,7 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                         {/* Mood badge — top of card */}
                         <div className="flex items-center gap-1.5 mb-1.5">
                             <span className="text-micro">{moodCfg.emoji}</span>
-                            <span className="text-micro font-bold text-gray-500 uppercase tracking-widest">
+                            <span className="text-micro font-bold text-gray-400 uppercase tracking-widest">
                                 {moodCfg.label || entry.mood}
                             </span>
                             {entry.audio_url && (
@@ -232,7 +232,7 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                                             {formatCoord(entry.latitude!, entry.longitude!)}
                                         </span>
                                         {entry.location_name && !entry.location_name.includes('°') && (
-                                            <span className="text-gray-500 truncate">— {entry.location_name}</span>
+                                            <span className="text-gray-400 truncate">— {entry.location_name}</span>
                                         )}
                                     </div>
                                 )}

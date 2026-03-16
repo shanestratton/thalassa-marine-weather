@@ -190,7 +190,7 @@ const MetricInput = ({
         <div className="flex-1 min-w-[120px] group">
             <div className="flex justify-between items-center mb-1.5 ml-1">
                 <label
-                    className={`text-[11px] uppercase tracking-wider font-bold block transition-colors ${isEstimated ? 'text-red-400' : 'text-gray-500 group-hover:text-sky-300'}`}
+                    className={`text-[11px] uppercase tracking-wider font-bold block transition-colors ${isEstimated ? 'text-red-400' : 'text-gray-400 group-hover:text-sky-300'}`}
                 >
                     {label}
                 </label>
@@ -502,9 +502,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <p className="text-white font-bold text-sm tracking-wide">{item.label}</p>
-                                    <p className="text-gray-500 text-xs mt-0.5">{item.id === 'vessel' && isObserver ? 'Observer — tap to configure vessel' : item.description}</p>
+                                    <p className="text-gray-400 text-xs mt-0.5">{item.id === 'vessel' && isObserver ? 'Observer — tap to configure vessel' : item.description}</p>
                                 </div>
-                                <ArrowRightIcon className="w-4 h-4 text-gray-500 group-hover:text-sky-400 group-hover:translate-x-1 transition-all" />
+                                <ArrowRightIcon className="w-4 h-4 text-gray-400 group-hover:text-sky-400 group-hover:translate-x-1 transition-all" />
                             </button>
                             );
                         })}
@@ -566,7 +566,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                                         ),
                                                     });
                                                 }}
-                                                className="p-2 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                                                className="p-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
                                             >
                                                 <TrashIcon className="w-5 h-5" />
                                             </button>
@@ -641,7 +641,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                     <Row>
                                         <div className="flex-1">
                                             <label className="text-sm text-white font-medium block">Supabase</label>
-                                            <p className="text-xs text-gray-500">
+                                            <p className="text-xs text-gray-400">
                                                 {isSupabaseConfigured()
                                                     ? 'Backend configured and ready'
                                                     : 'Backend not configured'}
@@ -688,7 +688,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                             <div>
                                                 <p className="text-white font-bold text-sm">Satellite Mode</p>
                                                 <p
-                                                    className={`text-xs mt-0.5 transition-colors ${settings.satelliteMode ? 'text-amber-300/70' : 'text-gray-500'}`}
+                                                    className={`text-xs mt-0.5 transition-colors ${settings.satelliteMode ? 'text-amber-300/70' : 'text-gray-400'}`}
                                                 >
                                                     {settings.satelliteMode
                                                         ? '~200 KB/day • Weather only'
@@ -736,7 +736,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                             </div>
                                             <div>
                                                 <p className="text-white font-bold text-sm">Sync Settings</p>
-                                                <p className="text-xs text-gray-500">
+                                                <p className="text-xs text-gray-400">
                                                     Units, vessel profile, preferences
                                                 </p>
                                             </div>
@@ -753,7 +753,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                             </div>
                                             <div>
                                                 <p className="text-white font-bold text-sm">Sync Voyages</p>
-                                                <p className="text-xs text-gray-500">Track logs, waypoints, GPX data</p>
+                                                <p className="text-xs text-gray-400">Track logs, waypoints, GPX data</p>
                                             </div>
                                         </div>
                                         <Toggle
@@ -768,7 +768,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                             </div>
                                             <div>
                                                 <p className="text-white font-bold text-sm">Community Sharing</p>
-                                                <p className="text-xs text-gray-500">
+                                                <p className="text-xs text-gray-400">
                                                     Share and discover voyage tracks
                                                 </p>
                                             </div>
@@ -861,7 +861,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4">
                                     {/* Speed */}
                                     <div>
-                                        <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">
+                                        <label className="text-xs text-gray-400 uppercase font-bold mb-1 block">
                                             Wind Speed
                                         </label>
                                         <select
@@ -877,7 +877,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                     </div>
                                     {/* Distance */}
                                     <div>
-                                        <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">
+                                        <label className="text-xs text-gray-400 uppercase font-bold mb-1 block">
                                             Distance
                                         </label>
                                         <select
@@ -892,7 +892,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                     </div>
                                     {/* Seas (Wave Height) */}
                                     <div>
-                                        <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">
+                                        <label className="text-xs text-gray-400 uppercase font-bold mb-1 block">
                                             Seas (Wave Height)
                                         </label>
                                         <select
@@ -907,7 +907,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
 
                                     {/* Tides / Length */}
                                     <div>
-                                        <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">
+                                        <label className="text-xs text-gray-400 uppercase font-bold mb-1 block">
                                             Tides / Length
                                         </label>
                                         <select
@@ -930,7 +930,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                     </div>
                                     {/* Temperature */}
                                     <div>
-                                        <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">
+                                        <label className="text-xs text-gray-400 uppercase font-bold mb-1 block">
                                             Temperature
                                         </label>
                                         <select
@@ -944,7 +944,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                     </div>
                                     {/* Visibility */}
                                     <div>
-                                        <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">
+                                        <label className="text-xs text-gray-400 uppercase font-bold mb-1 block">
                                             Visibility
                                         </label>
                                         <select
@@ -959,7 +959,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                     </div>
                                     {/* Volume */}
                                     <div>
-                                        <label className="text-xs text-gray-500 uppercase font-bold mb-1 block">
+                                        <label className="text-xs text-gray-400 uppercase font-bold mb-1 block">
                                             Liquid Volume
                                         </label>
                                         <select
@@ -998,11 +998,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
                                             <p className="text-sm text-white font-bold">
                                                 Terms of Service & Privacy Policy
                                             </p>
-                                            <p className="text-xs text-gray-500 mt-0.5">
+                                            <p className="text-xs text-gray-400 mt-0.5">
                                                 View our terms, conditions, and data practices
                                             </p>
                                         </div>
-                                        <ArrowRightIcon className="w-4 h-4 text-gray-500" />
+                                        <ArrowRightIcon className="w-4 h-4 text-gray-400" />
                                     </button>
                                 </div>
                             </Section>

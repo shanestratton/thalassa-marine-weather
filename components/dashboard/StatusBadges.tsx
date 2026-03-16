@@ -248,18 +248,18 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                 <span className="relative w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_4px_rgba(94,234,212,0.6)]" />
                             </span>
                             {/* Telemetry string */}
-                            <span className="text-[11px] font-mono tracking-wider text-slate-500 uppercase truncate">
+                            <span className="text-[11px] font-mono tracking-wider text-slate-400 uppercase truncate">
                                 <span className="text-emerald-400/70 font-bold mr-1">AI BLEND:</span>
                                 {beaconName && (
                                     <>
                                         <span className="text-slate-400">{shortenSourceName(beaconName)}</span>
-                                        <span className="text-slate-500 mx-0.5">•</span>
+                                        <span className="text-slate-400 mx-0.5">•</span>
                                     </>
                                 )}
                                 {buoyName && (
                                     <>
                                         <span className="text-slate-400">{shortenSourceName(buoyName)}</span>
-                                        <span className="text-slate-500 mx-0.5">•</span>
+                                        <span className="text-slate-400 mx-0.5">•</span>
                                     </>
                                 )}
                                 {activeSources
@@ -270,7 +270,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                         return (
                                             <span key={s.source}>
                                                 <span className="text-slate-400">{cfg.abbr}</span>
-                                                {i < arr.length - 1 && <span className="text-slate-500 mx-0.5">•</span>}
+                                                {i < arr.length - 1 && <span className="text-slate-400 mx-0.5">•</span>}
                                             </span>
                                         );
                                     })}
@@ -395,11 +395,11 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                                         {displayName}
                                                     </span>
                                                     {metricCount > 0 && (
-                                                        <span className="text-slate-500 text-[11px] font-medium ml-1">
+                                                        <span className="text-slate-400 text-[11px] font-medium ml-1">
                                                             {metricCount} metric{metricCount > 1 ? 's' : ''}
                                                         </span>
                                                     )}
-                                                    <span className="text-slate-500 text-sm ml-auto uppercase text-[11px] font-bold tracking-wider">
+                                                    <span className="text-slate-400 text-sm ml-auto uppercase text-[11px] font-bold tracking-wider">
                                                         {cfg.label === displayName ? '' : cfg.label}
                                                     </span>
                                                 </div>
@@ -413,7 +413,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                     {/* Per-Metric Provenance */}
                                     {metricProvenance.length > 0 && (
                                         <div>
-                                            <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-2">
+                                            <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">
                                                 Metric Sources{' '}
                                                 {!isLive && (
                                                     <span className="text-amber-400 normal-case text-[11px]">
@@ -443,7 +443,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                     {/* Conditions at a glance */}
                                     {activeData && (
                                         <div>
-                                            <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-2">
+                                            <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">
                                                 {isLive ? 'Current Conditions' : 'Forecast Conditions'}
                                             </p>
                                             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
@@ -525,7 +525,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
 
                                     {/* API Details */}
                                     <div>
-                                        <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-2">
+                                        <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">
                                             API Details
                                         </p>
                                         <div className="space-y-1.5 text-sm">

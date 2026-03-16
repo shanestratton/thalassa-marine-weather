@@ -282,7 +282,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                     </div>
 
                     {/* ═══ INSTRUMENT GRID ═══ */}
-                    <h3 className="shrink-0 text-label text-gray-500 font-bold uppercase tracking-widest mb-2">
+                    <h3 className="shrink-0 text-label text-gray-400 font-bold uppercase tracking-widest mb-2">
                         Live Instruments
                     </h3>
                     <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-4">
@@ -296,7 +296,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                                 >
                                     <div className="flex items-center gap-2 mb-1">
                                         <span className="text-base">{inst.icon}</span>
-                                        <span className="text-label text-gray-500 font-bold uppercase tracking-widest leading-tight">
+                                        <span className="text-label text-gray-400 font-bold uppercase tracking-widest leading-tight">
                                             {inst.label}
                                         </span>
                                     </div>

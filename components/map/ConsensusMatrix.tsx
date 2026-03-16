@@ -113,7 +113,7 @@ const ConsensusRowView: React.FC<{
                 </div>
 
                 {/* Distance */}
-                <span className="text-[11px] font-bold text-gray-500 tabular-nums">
+                <span className="text-[11px] font-bold text-gray-400 tabular-nums">
                     {row.distanceNM} NM • +{row.hoursFromDep}h
                 </span>
             </div>
@@ -139,7 +139,7 @@ const ConsensusRowView: React.FC<{
                                 className={`tabular-nums ${
                                     m.isOutlier
                                         ? 'text-sm font-black text-white'
-                                        : 'text-[11px] font-bold text-gray-500'
+                                        : 'text-[11px] font-bold text-gray-400'
                                 }`}
                             >
                                 {m.windKts.toFixed(0)}
@@ -154,7 +154,7 @@ const ConsensusRowView: React.FC<{
                     <span className="text-sm font-black text-white tabular-nums">
                         {row.worstCase.windKts.toFixed(0)}
                     </span>
-                    <span className="text-[11px] text-gray-500 ml-0.5">kts</span>
+                    <span className="text-[11px] text-gray-400 ml-0.5">kts</span>
                     <span className="text-[11px] text-gray-600 ml-1.5">G{row.worstCase.gustKts.toFixed(0)}</span>
                 </div>
             </div>
@@ -175,7 +175,7 @@ const ConsensusRowView: React.FC<{
                             style={{ width: `${Math.min(100, (row.spreadKts / 25) * 100)}%` }}
                         />
                     </div>
-                    <span className="text-[11px] font-bold text-gray-500 tabular-nums">
+                    <span className="text-[11px] font-bold text-gray-400 tabular-nums">
                         ±{(row.spreadKts / 2).toFixed(0)} kts
                     </span>
                 </div>
@@ -281,7 +281,7 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
                                     className="w-2 h-2 rounded-full"
                                     style={{ backgroundColor: colorMap[model] || '#888' }}
                                 />
-                                <span className="text-[11px] font-bold text-gray-500">{model}</span>
+                                <span className="text-[11px] font-bold text-gray-400">{model}</span>
                             </div>
                         );
                     })}

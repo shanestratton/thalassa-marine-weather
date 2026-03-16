@@ -60,7 +60,7 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
                         className="w-full bg-slate-800/60 border border-white/5 rounded-lg px-3 py-2 pl-8 text-white text-xs placeholder-slate-500 focus:border-sky-500 focus:outline-none"
                     />
                     <svg
-                        className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2"
+                        className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2"
                         fill="none"
                         viewBox="0 0 24 24"
                         stroke="currentColor"
@@ -103,7 +103,7 @@ export const LogFilterToolbar: React.FC<LogFilterToolbarProps> = ({
             </div>
 
             {/* Results - Very Compact */}
-            <div className="text-[11px] text-slate-500 text-center mt-1.5">
+            <div className="text-[11px] text-slate-400 text-center mt-1.5">
                 {filteredCount}/{totalEntries} entries
             </div>
         </div>
@@ -123,11 +123,11 @@ const FilterPill: React.FC<FilterPillProps> = ({ label, count, active, onClick, 
     const colorClasses = {
         green: active
             ? 'bg-emerald-500/30 border-emerald-500/60 text-emerald-400'
-            : 'bg-slate-800/60 border-white/5 text-slate-500',
+            : 'bg-slate-800/60 border-white/5 text-slate-400',
         purple: active
             ? 'bg-purple-500/30 border-purple-500/60 text-purple-400'
-            : 'bg-slate-800/60 border-white/5 text-slate-500',
-        blue: active ? 'bg-sky-500/30 border-sky-500/60 text-sky-400' : 'bg-slate-800/60 border-white/5 text-slate-500',
+            : 'bg-slate-800/60 border-white/5 text-slate-400',
+        blue: active ? 'bg-sky-500/30 border-sky-500/60 text-sky-400' : 'bg-slate-800/60 border-white/5 text-slate-400',
     };
 
     return (

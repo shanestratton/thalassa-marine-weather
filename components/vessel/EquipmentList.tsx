@@ -102,7 +102,7 @@ const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onTap, onD
                 {/* Category badge — top of card */}
                 <div className="flex items-center gap-1.5 mb-1.5">
                     <span className="text-micro">{CATEGORY_ICONS[item.category] || '📋'}</span>
-                    <span className="text-micro font-bold text-gray-500 uppercase tracking-widest">
+                    <span className="text-micro font-bold text-gray-400 uppercase tracking-widest">
                         {item.category}
                     </span>
                 </div>
@@ -195,7 +195,7 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
                         </button>
                         <div className="flex-1">
                             <h2 className="text-lg font-black text-white">{item.equipment_name}</h2>
-                            <p className="text-label text-gray-500 font-bold uppercase tracking-widest">
+                            <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                                 {CATEGORY_ICONS[item.category]} {item.category}
                             </p>
                         </div>
@@ -206,18 +206,18 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
                 <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
                     {/* Specs card */}
                     <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
-                        <h3 className="text-label text-gray-500 font-bold uppercase tracking-widest mb-4">
+                        <h3 className="text-label text-gray-400 font-bold uppercase tracking-widest mb-4">
                             Specifications
                         </h3>
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <p className="text-label text-gray-500 uppercase tracking-widest font-bold mb-0.5">
+                                <p className="text-label text-gray-400 uppercase tracking-widest font-bold mb-0.5">
                                     Make
                                 </p>
                                 <p className="text-sm font-bold text-white">{item.make || '—'}</p>
                             </div>
                             <div>
-                                <p className="text-label text-gray-500 uppercase tracking-widest font-bold mb-0.5">
+                                <p className="text-label text-gray-400 uppercase tracking-widest font-bold mb-0.5">
                                     Model
                                 </p>
                                 <p className="text-sm font-bold text-white">{item.model || '—'}</p>
@@ -226,7 +226,7 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
 
                         {/* Serial */}
                         <div className="mt-4">
-                            <p className="text-label text-gray-500 uppercase tracking-widest font-bold mb-1">
+                            <p className="text-label text-gray-400 uppercase tracking-widest font-bold mb-1">
                                 Serial Number
                             </p>
                             <div className="flex items-center gap-2">
@@ -259,7 +259,7 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
                         {/* Install date */}
                         {item.installation_date && (
                             <div className="mt-4">
-                                <p className="text-label text-gray-500 uppercase tracking-widest font-bold mb-0.5">
+                                <p className="text-label text-gray-400 uppercase tracking-widest font-bold mb-0.5">
                                     Installed
                                 </p>
                                 <p className="text-sm font-bold text-white">
@@ -279,7 +279,7 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
                                   : 'bg-white/5 border-white/10'
                         }`}
                     >
-                        <h3 className="text-label text-gray-500 font-bold uppercase tracking-widest mb-2">
+                        <h3 className="text-label text-gray-400 font-bold uppercase tracking-widest mb-2">
                             Warranty Status
                         </h3>
                         {warrantyActive === true && (
@@ -299,7 +299,7 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
                             </>
                         )}
                         {warrantyActive === null && (
-                            <p className="text-sm font-bold text-gray-500">No warranty date set</p>
+                            <p className="text-sm font-bold text-gray-400">No warranty date set</p>
                         )}
                     </div>
 
@@ -331,7 +331,7 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
                     {/* Notes */}
                     {item.notes && (
                         <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
-                            <h3 className="text-label text-gray-500 font-bold uppercase tracking-widest mb-2">Notes</h3>
+                            <h3 className="text-label text-gray-400 font-bold uppercase tracking-widest mb-2">Notes</h3>
                             <p className="text-sm text-gray-300 leading-relaxed">{item.notes}</p>
                         </div>
                     )}
@@ -624,7 +624,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
         return (
             <div className="flex-1 min-h-0 flex flex-col gap-2 overflow-y-auto">
                 <div>
-                    <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">
+                    <label className="text-micro text-gray-400 font-bold uppercase tracking-wider block mb-1">
                         Category
                     </label>
                     <div className="grid grid-cols-3 gap-1.5">
@@ -632,7 +632,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             <button
                                 key={cat.id}
                                 onClick={() => setNewCategory(cat.id)}
-                                className={`py-1 rounded-full text-label font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
+                                className={`py-1 rounded-full text-label font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
                             >
                                 {cat.icon} {cat.label}
                             </button>
@@ -810,10 +810,10 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                 <div key={group.category}>
                                     <div className="flex items-center gap-2 mb-2 mt-1">
                                         <span className="text-sm">{catConfig?.icon}</span>
-                                        <span className="text-label font-black text-gray-500 uppercase tracking-widest">
+                                        <span className="text-label font-black text-gray-400 uppercase tracking-widest">
                                             {catConfig?.label}
                                         </span>
-                                        <span className="text-micro text-gray-500 font-bold">
+                                        <span className="text-micro text-gray-400 font-bold">
                                             ({group.items.length})
                                         </span>
                                     </div>
@@ -973,7 +973,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                         </svg>
                                         <div className="flex-1 text-left">
                                             <span className="text-sm font-bold text-white">Copy Serial Number</span>
-                                            <p className="text-label text-slate-500 font-mono mt-0.5">
+                                            <p className="text-label text-slate-400 font-mono mt-0.5">
                                                 {contextItem.serial_number}
                                             </p>
                                         </div>

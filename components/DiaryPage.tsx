@@ -847,7 +847,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
                     <div className="p-5 space-y-4">
                         {/* 1. Date & Time */}
-                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <div className="flex items-center gap-2 text-xs text-gray-400">
                             <span className="font-mono">{formatDate(e.created_at)}</span>
                             <span>•</span>
                             <span className="font-mono">{formatTime(e.created_at)}</span>
@@ -941,19 +941,19 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                         <div className="grid grid-cols-3 gap-2">
                                             {e.weather_data.airTemp != null && (
                                                 <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
-                                                    <p className="text-[11px] text-gray-500 uppercase tracking-wider">Air</p>
+                                                    <p className="text-[11px] text-gray-400 uppercase tracking-wider">Air</p>
                                                     <p className="text-sm font-bold text-white">{e.weather_data.airTemp}°C</p>
                                                 </div>
                                             )}
                                             {e.weather_data.seaTemp != null && (
                                                 <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
-                                                    <p className="text-[11px] text-gray-500 uppercase tracking-wider">Sea</p>
+                                                    <p className="text-[11px] text-gray-400 uppercase tracking-wider">Sea</p>
                                                     <p className="text-sm font-bold text-sky-300">{e.weather_data.seaTemp}°C</p>
                                                 </div>
                                             )}
                                             {e.weather_data.windSpeed != null && (
                                                 <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
-                                                    <p className="text-[11px] text-gray-500 uppercase tracking-wider">Wind</p>
+                                                    <p className="text-[11px] text-gray-400 uppercase tracking-wider">Wind</p>
                                                     <p className="text-sm font-bold text-white">
                                                         {e.weather_data.windSpeed}kts{e.weather_data.windDir ? ` ${e.weather_data.windDir}` : ''}
                                                     </p>
@@ -961,13 +961,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                             )}
                                             {e.weather_data.humidity != null && (
                                                 <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
-                                                    <p className="text-[11px] text-gray-500 uppercase tracking-wider">Humidity</p>
+                                                    <p className="text-[11px] text-gray-400 uppercase tracking-wider">Humidity</p>
                                                     <p className="text-sm font-bold text-white">{e.weather_data.humidity}%</p>
                                                 </div>
                                             )}
                                             {e.weather_data.rain != null && (
                                                 <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
-                                                    <p className="text-[11px] text-gray-500 uppercase tracking-wider">Rain</p>
+                                                    <p className="text-[11px] text-gray-400 uppercase tracking-wider">Rain</p>
                                                     <p className="text-sm font-bold text-white">{e.weather_data.rain}mm</p>
                                                 </div>
                                             )}
@@ -977,7 +977,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                 {/* Fall back to text summary if no structured data */}
                                 {!e.weather_data && e.weather_summary && (
                                     <div className="border-t border-white/[0.06] pt-3">
-                                        <p className="text-xs text-gray-500 italic">🌤 {e.weather_summary}</p>
+                                        <p className="text-xs text-gray-400 italic">🌤 {e.weather_summary}</p>
                                     </div>
                                 )}
                             </div>
@@ -1010,7 +1010,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
                         {/* Weather summary (no pin, fallback) */}
                         {!hasCoords && e.weather_summary && (
-                            <div className="text-xs text-gray-500 italic bg-white/[0.03] rounded-xl p-3 border border-white/5">
+                            <div className="text-xs text-gray-400 italic bg-white/[0.03] rounded-xl p-3 border border-white/5">
                                 🌤 {e.weather_summary}
                             </div>
                         )}
@@ -1213,7 +1213,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
                         {/* Polish intensity slider */}
                         <div className="flex items-center gap-2 px-1">
-                            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider shrink-0 w-10">
+                            <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider shrink-0 w-10">
                                 Clean
                             </span>
                             <input
@@ -1308,7 +1308,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                                     key={`add-${i}`}
                                     onClick={() => fileRef.current?.click()}
                                     disabled={uploading || photos.length >= 6}
-                                    className="aspect-square rounded-xl border-2 border-dashed border-white/10 hover:border-sky-500/30 flex flex-col items-center justify-center gap-0.5 text-gray-500 hover:text-sky-400 transition-colors disabled:opacity-30"
+                                    className="aspect-square rounded-xl border-2 border-dashed border-white/10 hover:border-sky-500/30 flex flex-col items-center justify-center gap-0.5 text-gray-400 hover:text-sky-400 transition-colors disabled:opacity-30"
                                 >
                                     {uploading && i === 0 ? (
                                         <span className="text-xs animate-pulse">📷</span>
@@ -1346,7 +1346,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         <button
                             onClick={handleSave}
                             disabled={saving || (!body.trim() && !title.trim() && !audioUrl)}
-                            className="flex-[2] py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-bold text-sm transition-colors active:scale-[0.98]"
+                            className="flex-[2] py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-400 text-white font-bold text-sm transition-colors active:scale-[0.98]"
                         >
                             {saving ? 'Saving…' : isEditing ? 'Update Entry' : 'Save Entry'}
                         </button>
@@ -1375,7 +1375,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                     onBack={onBack}
                     breadcrumbs={["Ship's Office", 'Diary']}
                     subtitle={
-                        <p className="text-label text-gray-500 font-bold uppercase tracking-widest">
+                        <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             {entries.length} {entries.length === 1 ? 'Entry' : 'Entries'}
                             {selectedIds.size > 0 && (
                                 <span className="text-sky-400 ml-2">✓ {selectedIds.size} selected</span>

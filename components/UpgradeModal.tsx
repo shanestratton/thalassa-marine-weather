@@ -112,7 +112,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                         Start 7-Day Free Trial
                     </button>
 
-                    <button className="w-full mt-3 py-2 text-sm text-gray-500 hover:text-white transition-colors">
+                    <button className="w-full mt-3 py-2 text-sm text-gray-400 hover:text-white transition-colors">
                         Restore Purchases
                     </button>
                 </div>

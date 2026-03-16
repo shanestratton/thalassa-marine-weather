@@ -76,7 +76,7 @@ const PlaceholderScreen: React.FC<{
                 </div>
                 <div>
                     <h1 className="text-2xl font-black text-white tracking-wide">{title}</h1>
-                    <p className="text-xs text-gray-500">{subtitle}</p>
+                    <p className="text-xs text-gray-400">{subtitle}</p>
                 </div>
             </div>
 

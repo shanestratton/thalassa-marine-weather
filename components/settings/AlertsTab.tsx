@@ -43,7 +43,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </div>
                         <div>
                             <p className="text-white font-bold">High Wind</p>
-                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Sustained Forecast</p>
+                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">Sustained Forecast</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -57,7 +57,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 onChange={(e) => updateAlert('wind', 'threshold', Number(e.target.value))}
                                 className="w-12 bg-transparent text-white text-right outline-none font-bold"
                             />
-                            <span className="text-xs text-gray-500">kts</span>
+                            <span className="text-xs text-gray-400">kts</span>
                         </div>
                         <Toggle
                             checked={settings.notifications.wind.enabled}
@@ -74,7 +74,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </div>
                         <div>
                             <p className="text-white font-bold">Gusts</p>
-                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Peak Gust Forecast</p>
+                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">Peak Gust Forecast</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -88,7 +88,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 onChange={(e) => updateAlert('gusts', 'threshold', Number(e.target.value))}
                                 className="w-12 bg-transparent text-white text-right outline-none font-bold"
                             />
-                            <span className="text-xs text-gray-500">kts</span>
+                            <span className="text-xs text-gray-400">kts</span>
                         </div>
                         <Toggle
                             checked={settings.notifications.gusts.enabled}
@@ -105,7 +105,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </div>
                         <div>
                             <p className="text-white font-bold">High Seas</p>
-                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Significant Wave Hgt</p>
+                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">Significant Wave Hgt</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -119,7 +119,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 onChange={(e) => updateAlert('waves', 'threshold', Number(e.target.value))}
                                 className="w-12 bg-transparent text-white text-right outline-none font-bold"
                             />
-                            <span className="text-xs text-gray-500">ft</span>
+                            <span className="text-xs text-gray-400">ft</span>
                         </div>
                         <Toggle
                             checked={settings.notifications.waves.enabled}
@@ -136,7 +136,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </div>
                         <div>
                             <p className="text-white font-bold">Long Period</p>
-                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Swell Interval</p>
+                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">Swell Interval</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -150,7 +150,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 onChange={(e) => updateAlert('swellPeriod', 'threshold', Number(e.target.value))}
                                 className="w-12 bg-transparent text-white text-right outline-none font-bold"
                             />
-                            <span className="text-xs text-gray-500">s</span>
+                            <span className="text-xs text-gray-400">s</span>
                         </div>
                         <Toggle
                             checked={settings.notifications.swellPeriod.enabled}
@@ -167,7 +167,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </div>
                         <div>
                             <p className="text-white font-bold">Low Vis</p>
-                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Fog / Mist</p>
+                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">Fog / Mist</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -175,14 +175,14 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <span className="text-xs text-gray-500 mr-1">&lt;</span>
+                            <span className="text-xs text-gray-400 mr-1">&lt;</span>
                             <input
                                 type="number"
                                 value={settings.notifications.visibility.threshold}
                                 onChange={(e) => updateAlert('visibility', 'threshold', Number(e.target.value))}
                                 className="w-12 bg-transparent text-white text-right outline-none font-bold"
                             />
-                            <span className="text-xs text-gray-500">nm</span>
+                            <span className="text-xs text-gray-400">nm</span>
                         </div>
                         <Toggle
                             checked={settings.notifications.visibility.enabled}
@@ -199,7 +199,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </div>
                         <div>
                             <p className="text-white font-bold">High UV</p>
-                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Sun Intensity</p>
+                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">Sun Intensity</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -213,7 +213,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 onChange={(e) => updateAlert('uv', 'threshold', Number(e.target.value))}
                                 className="w-12 bg-transparent text-white text-right outline-none font-bold"
                             />
-                            <span className="text-xs text-gray-500">idx</span>
+                            <span className="text-xs text-gray-400">idx</span>
                         </div>
                         <Toggle
                             checked={settings.notifications.uv.enabled}
@@ -230,7 +230,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </div>
                         <div>
                             <p className="text-white font-bold">Heat Alert</p>
-                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">High Temp</p>
+                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">High Temp</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -244,7 +244,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 onChange={(e) => updateAlert('tempHigh', 'threshold', Number(e.target.value))}
                                 className="w-12 bg-transparent text-white text-right outline-none font-bold"
                             />
-                            <span className="text-xs text-gray-500">°</span>
+                            <span className="text-xs text-gray-400">°</span>
                         </div>
                         <Toggle
                             checked={settings.notifications.tempHigh.enabled}
@@ -261,7 +261,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </div>
                         <div>
                             <p className="text-white font-bold">Freeze Alert</p>
-                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">Low Temp</p>
+                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">Low Temp</p>
                         </div>
                     </div>
                     <div className="flex items-center gap-4">
@@ -269,14 +269,14 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             className="flex items-center gap-2 bg-black/40 px-3 py-1 rounded-lg border border-white/10"
                             onClick={(e) => e.stopPropagation()}
                         >
-                            <span className="text-xs text-gray-500 mr-1">&lt;</span>
+                            <span className="text-xs text-gray-400 mr-1">&lt;</span>
                             <input
                                 type="number"
                                 value={settings.notifications.tempLow.threshold}
                                 onChange={(e) => updateAlert('tempLow', 'threshold', Number(e.target.value))}
                                 className="w-12 bg-transparent text-white text-right outline-none font-bold"
                             />
-                            <span className="text-xs text-gray-500">°</span>
+                            <span className="text-xs text-gray-400">°</span>
                         </div>
                         <Toggle
                             checked={settings.notifications.tempLow.enabled}
@@ -297,7 +297,7 @@ export const AlertsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </div>
                         <div>
                             <p className="text-white font-bold">Precipitation</p>
-                            <p className="text-[11px] text-gray-500 uppercase tracking-wide">
+                            <p className="text-[11px] text-gray-400 uppercase tracking-wide">
                                 Notify on rain/storm forecast
                             </p>
                         </div>

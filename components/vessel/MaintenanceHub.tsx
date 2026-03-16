@@ -54,7 +54,7 @@ const LIGHT_COLORS: Record<TrafficLight, { dot: string; bg: string; border: stri
         border: 'border-emerald-500/30',
         text: 'text-emerald-400',
     },
-    grey: { dot: 'bg-gray-500', bg: 'bg-gray-500/10', border: 'border-gray-500/20', text: 'text-gray-500' },
+    grey: { dot: 'bg-gray-500', bg: 'bg-gray-500/10', border: 'border-gray-500/20', text: 'text-gray-400' },
 };
 
 // ── SwipeableTaskCard ──────────────────────────────────────────
@@ -119,7 +119,7 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
                 {/* Category badge — top of card */}
                 <div className="flex items-center gap-1.5 mb-1.5">
                     <span className="text-micro">{catConfig?.icon || '📋'}</span>
-                    <span className="text-micro font-bold text-gray-500 uppercase tracking-widest">
+                    <span className="text-micro font-bold text-gray-400 uppercase tracking-widest">
                         {catConfig?.label || task.category}
                     </span>
                 </div>
@@ -161,7 +161,7 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
 
                 {/* Row 3: Last serviced */}
                 {task.last_completed && (
-                    <p className="text-label text-slate-500 mt-1">
+                    <p className="text-label text-slate-400 mt-1">
                         Last serviced: {new Date(task.last_completed).toLocaleDateString()}
                     </p>
                 )}
@@ -701,10 +701,10 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 <div key={group.category}>
                                     <div className="flex items-center gap-2 mb-2 mt-1">
                                         <span className="text-sm">{catConfig?.icon}</span>
-                                        <span className="text-label font-black text-gray-500 uppercase tracking-widest">
+                                        <span className="text-label font-black text-gray-400 uppercase tracking-widest">
                                             {catConfig?.label}
                                         </span>
-                                        <span className="text-micro text-gray-500 font-bold">
+                                        <span className="text-micro text-gray-400 font-bold">
                                             ({group.tasks.length})
                                         </span>
                                     </div>
@@ -875,7 +875,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                         title="Export PDF"
                         maxWidth="max-w-sm"
                     >
-                        <p className="text-xs text-gray-500 mb-5">Choose a report format:</p>
+                        <p className="text-xs text-gray-400 mb-5">Choose a report format:</p>
 
                         {/* Option A: Blank Checklist */}
                         <button
@@ -901,7 +901,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 </div>
                                 <div>
                                     <p className="text-sm font-black text-white">Print Blank Checklist</p>
-                                    <p className="text-label text-gray-500 mt-0.5">
+                                    <p className="text-label text-gray-400 mt-0.5">
                                         Printable clipboard for the engine room
                                     </p>
                                 </div>
@@ -932,7 +932,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                 </div>
                                 <div>
                                     <p className="text-sm font-black text-white">Export Service History</p>
-                                    <p className="text-label text-gray-500 mt-0.5">
+                                    <p className="text-label text-gray-400 mt-0.5">
                                         Formal ledger of all completed work
                                     </p>
                                 </div>

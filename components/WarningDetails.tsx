@@ -127,7 +127,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
                         </div>
                         <p className="text-gray-400 font-medium">No active warnings.</p>
                         {dismissed.size > 0 && (
-                            <p className="text-gray-500 text-sm mt-2">
+                            <p className="text-gray-400 text-sm mt-2">
                                 {dismissed.size} warning{dismissed.size > 1 ? 's' : ''} dismissed this session
                             </p>
                         )}

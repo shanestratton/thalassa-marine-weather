@@ -682,7 +682,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                             <div className="flex items-center justify-between mb-2">
                                 <div className="flex items-center gap-2">
                                     <span className="text-sm font-black text-white font-mono">{timeLabel}</span>
-                                    <span className="text-[11px] text-slate-500">{dateLabel}</span>
+                                    <span className="text-[11px] text-slate-400">{dateLabel}</span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     {elapsedLabel && (
@@ -1001,7 +1001,7 @@ const HUDCell: React.FC<{
         <span className={`text-[11px] font-bold tracking-widest uppercase ${color} opacity-70`}>{label}</span>
         <div className="flex items-baseline gap-0.5">
             <span className="text-xs font-mono font-bold text-white">{value}</span>
-            {unit && <span className="text-[8px] text-slate-500">{unit}</span>}
+            {unit && <span className="text-[8px] text-slate-400">{unit}</span>}
         </div>
     </div>
 );

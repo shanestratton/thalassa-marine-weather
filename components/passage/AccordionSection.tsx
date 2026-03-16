@@ -123,7 +123,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = React.memo(
                     <div className="flex-1 min-w-0">
                         <h3 className="text-sm font-bold text-white uppercase tracking-widest truncate">{title}</h3>
                         {subtitle && (
-                            <p className="text-[11px] text-gray-500 font-medium truncate mt-0.5">{subtitle}</p>
+                            <p className="text-[11px] text-gray-400 font-medium truncate mt-0.5">{subtitle}</p>
                         )}
                     </div>
 

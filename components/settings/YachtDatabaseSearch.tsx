@@ -58,7 +58,7 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ select
                     className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder-gray-500 outline-none focus:border-sky-500 transition-colors"
                 />
                 <svg
-                    className="absolute right-3 top-3.5 w-4 h-4 text-gray-500"
+                    className="absolute right-3 top-3.5 w-4 h-4 text-gray-400"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
@@ -77,7 +77,7 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ select
                 <div className="mt-3 space-y-3 max-h-72 overflow-y-auto custom-scrollbar">
                     {Object.entries(grouped).map(([mfr, entries]) => (
                         <div key={mfr}>
-                            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 px-1">
+                            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 px-1">
                                 {mfr}
                             </p>
                             <div className="space-y-1">
@@ -101,7 +101,7 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ select
                                             </span>
                                             <div>
                                                 <p className="text-sm font-bold">{entry.model}</p>
-                                                <p className="text-[11px] text-gray-500">
+                                                <p className="text-[11px] text-gray-400">
                                                     {entry.loa}ft • {entry.category}
                                                 </p>
                                             </div>
@@ -117,17 +117,17 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ select
                         </div>
                     ))}
                     {results.length === 0 && (
-                        <p className="text-center text-sm text-gray-500 py-4">No boats match "{search}"</p>
+                        <p className="text-center text-sm text-gray-400 py-4">No boats match "{search}"</p>
                     )}
                     {results.length > 5 && (
-                        <p className="text-center text-[11px] text-gray-500 py-1">
+                        <p className="text-center text-[11px] text-gray-400 py-1">
                             Showing 5 of {results.length} results — refine your search
                         </p>
                     )}
                 </div>
             )}
 
-            <p className="text-[11px] text-gray-500 mt-3 text-center">
+            <p className="text-[11px] text-gray-400 mt-3 text-center">
                 {POLAR_DATABASE.length} boats available • Data from ORC/sail designer estimates
             </p>
         </div>

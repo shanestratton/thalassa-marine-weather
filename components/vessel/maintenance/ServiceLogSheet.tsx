@@ -73,7 +73,7 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
             {/* Engine hours snapshot — only for engine-based tasks */}
             {task.trigger_type === 'engine_hours' && (
                 <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-4">
-                    <p className="text-label text-gray-500 font-bold uppercase tracking-widest mb-1">
+                    <p className="text-label text-gray-400 font-bold uppercase tracking-widest mb-1">
                         Engine Hours at Service
                     </p>
                     <p className="text-xl font-black text-white">{engineHours.toLocaleString()} hrs</p>
@@ -82,7 +82,7 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
 
             {/* Notes */}
             <div className="mb-4">
-                <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-1">
+                <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-1">
                     Notes (Optional)
                 </label>
                 <textarea

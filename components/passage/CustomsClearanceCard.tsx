@@ -48,7 +48,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
                         className={`flex-1 py-2.5 px-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
                             activeTab === 'depart'
                                 ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30 shadow-lg shadow-sky-500/10'
-                                : 'text-gray-500 hover:text-gray-300 hover:bg-white/5 border border-transparent'
+                                : 'text-gray-400 hover:text-gray-300 hover:bg-white/5 border border-transparent'
                         }`}
                     >
                         {departData?.flag || '🚢'} Departing {departCountry}
@@ -59,7 +59,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
                     className={`flex-1 py-2.5 px-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
                         activeTab === 'arrive'
                             ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 shadow-lg shadow-emerald-500/10'
-                            : 'text-gray-500 hover:text-gray-300 hover:bg-white/5 border border-transparent'
+                            : 'text-gray-400 hover:text-gray-300 hover:bg-white/5 border border-transparent'
                     }`}
                 >
                     {arriveData?.flag || '🏁'} Arriving {arriveCountry}
@@ -147,7 +147,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
                                             : 'bg-white/5 border border-white/5'
                                     }`}
                                 >
-                                    <span className={`shrink-0 mt-0.5 ${doc.critical ? 'text-amber-400' : 'text-gray-500'}`}>
+                                    <span className={`shrink-0 mt-0.5 ${doc.critical ? 'text-amber-400' : 'text-gray-400'}`}>
                                         {doc.critical ? '⚠️' : '📎'}
                                     </span>
                                     <div className="min-w-0">
@@ -155,7 +155,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
                                             {doc.name}
                                         </span>
                                         {doc.notes && (
-                                            <div className="text-[11px] text-gray-500 mt-0.5">{doc.notes}</div>
+                                            <div className="text-[11px] text-gray-400 mt-0.5">{doc.notes}</div>
                                         )}
                                     </div>
                                 </div>
@@ -199,7 +199,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
                                         )}
                                     </div>
                                     {contact.notes && (
-                                        <div className="text-[11px] text-gray-500 mt-1">{contact.notes}</div>
+                                        <div className="text-[11px] text-gray-400 mt-1">{contact.notes}</div>
                                     )}
                                 </div>
                             ))}

@@ -186,7 +186,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                         <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Polar Diagram</span>
                         {boatModel && <span className="text-base font-black text-white">{boatModel}</span>}
                         {!boatModel && (
-                            <span className="text-xs text-gray-500">
+                            <span className="text-xs text-gray-400">
                                 No yacht selected — choose one in Settings → Vessel Profile
                             </span>
                         )}
@@ -361,7 +361,7 @@ const SmartPolarsCard: React.FC<{
                 <div className="flex items-center gap-2">
                     <div className={`w-1 h-4 rounded-full ${isDisconnected ? 'bg-gray-600' : 'bg-emerald-500'}`} />
                     <span
-                        className={`text-xs font-bold uppercase tracking-widest ${isDisconnected ? 'text-gray-500' : 'text-emerald-400'}`}
+                        className={`text-xs font-bold uppercase tracking-widest ${isDisconnected ? 'text-gray-400' : 'text-emerald-400'}`}
                     >
                         Smart Polars
                     </span>
@@ -399,7 +399,7 @@ const SmartPolarsCard: React.FC<{
                         by recording speed data from your onboard instruments via the{' '}
                         <span className="text-sky-400 font-bold">NMEA 2000 backbone</span>.
                     </p>
-                    <p className="text-xs text-gray-500 mt-1.5">
+                    <p className="text-xs text-gray-400 mt-1.5">
                         {nmeaStatus === 'disconnected' ? (
                             <>
                                 <span className="text-amber-400">⚠️ Not connected</span> —{' '}
@@ -453,15 +453,15 @@ const SmartPolarsCard: React.FC<{
                                 <p className="text-sm font-black text-white">
                                     {smartStats.totalSamples.toLocaleString()}
                                 </p>
-                                <p className="text-[11px] text-gray-500 uppercase tracking-widest">Samples</p>
+                                <p className="text-[11px] text-gray-400 uppercase tracking-widest">Samples</p>
                             </div>
                             <div className="text-center p-2 bg-black/20 rounded-xl">
                                 <p className="text-sm font-black text-white">{smartStats.filledBuckets}</p>
-                                <p className="text-[11px] text-gray-500 uppercase tracking-widest">Buckets</p>
+                                <p className="text-[11px] text-gray-400 uppercase tracking-widest">Buckets</p>
                             </div>
                             <div className="text-center p-2 bg-black/20 rounded-xl">
                                 <p className="text-sm font-black text-white">{fillPercent}%</p>
-                                <p className="text-[11px] text-gray-500 uppercase tracking-widest">Coverage</p>
+                                <p className="text-[11px] text-gray-400 uppercase tracking-widest">Coverage</p>
                             </div>
                         </div>
                     )}
@@ -488,13 +488,13 @@ const SmartPolarsCard: React.FC<{
                     <div className="flex-1 flex bg-black/40 p-0.5 rounded-lg">
                         <button
                             onClick={() => onToggleSource('factory')}
-                            className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${polarSource === 'factory' ? 'bg-sky-600 text-white' : 'text-gray-500'}`}
+                            className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${polarSource === 'factory' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
                         >
                             Factory
                         </button>
                         <button
                             onClick={() => onToggleSource('smart')}
-                            className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${polarSource === 'smart' ? 'bg-emerald-600 text-white' : 'text-gray-500'}`}
+                            className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${polarSource === 'smart' ? 'bg-emerald-600 text-white' : 'text-gray-400'}`}
                         >
                             Smart
                         </button>
@@ -516,7 +516,7 @@ const GateBadge: React.FC<{ label: string; status: 'pass' | 'fail' | 'unavailabl
     const config = {
         pass: { bg: 'bg-emerald-500/20 border-emerald-500/30', text: 'text-emerald-400', dot: 'bg-emerald-400' },
         fail: { bg: 'bg-red-500/20 border-red-500/30', text: 'text-red-400', dot: 'bg-red-400' },
-        unavailable: { bg: 'bg-gray-500/10 border-gray-500/20', text: 'text-gray-500', dot: 'bg-gray-500' },
+        unavailable: { bg: 'bg-gray-500/10 border-gray-500/20', text: 'text-gray-400', dot: 'bg-gray-500' },
     };
     const c = config[status];
     return (
@@ -599,7 +599,7 @@ const ImportTab: React.FC<{
                 />
                 <div className="text-3xl mb-3">{fileName ? '✅' : '📄'}</div>
                 <p className="text-sm font-bold text-white mb-1">{fileName ? fileName : 'Drop polar file here'}</p>
-                <p className="text-[11px] text-gray-500">Supports .pol (Expedition) and .csv (OpenCPN) formats</p>
+                <p className="text-[11px] text-gray-400">Supports .pol (Expedition) and .csv (OpenCPN) formats</p>
             </div>
 
             {error && (
@@ -621,7 +621,7 @@ const ImportTab: React.FC<{
 
             <div className="mt-4 p-3 bg-white/[0.02] rounded-xl">
                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">Expected Format</p>
-                <pre className="text-[11px] text-gray-500 font-mono overflow-x-auto">
+                <pre className="text-[11px] text-gray-400 font-mono overflow-x-auto">
                     {`TWA    6    8    10   12   15   20   25
 45   4.2  5.1  5.8  6.2  6.5  6.4  6.0
 60   4.8  5.7  6.4  6.9  7.2  7.1  6.7
@@ -653,14 +653,14 @@ const ManualTab: React.FC<{
             <div className="flex items-center gap-2 mb-4">
                 <div className="w-1 h-4 rounded-full bg-emerald-500" />
                 <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-widest">Manual Entry</span>
-                <span className="text-[11px] text-gray-500 ml-auto">Boat speed in knots</span>
+                <span className="text-[11px] text-gray-400 ml-auto">Boat speed in knots</span>
             </div>
 
             <div className="overflow-x-auto custom-scrollbar -mx-1 px-1">
                 <table className="w-full border-collapse min-w-[500px]">
                     <thead>
                         <tr>
-                            <th className="text-[11px] font-bold text-gray-500 uppercase tracking-wider p-2 text-left sticky left-0 bg-slate-950 z-10 min-w-[52px]">
+                            <th className="text-[11px] font-bold text-gray-400 uppercase tracking-wider p-2 text-left sticky left-0 bg-slate-950 z-10 min-w-[52px]">
                                 TWA\TWS
                             </th>
                             {polarData.windSpeeds.map((ws) => (
@@ -697,7 +697,7 @@ const ManualTab: React.FC<{
                                                         ? 'bg-red-500/20 border border-red-500/40 text-red-300 focus:border-red-400'
                                                         : val > 0
                                                           ? 'bg-white/5 border border-white/10 text-white focus:border-sky-500 focus:bg-sky-500/5'
-                                                          : 'bg-white/[0.02] border border-white/5 text-gray-500 focus:border-sky-500'
+                                                          : 'bg-white/[0.02] border border-white/5 text-gray-400 focus:border-sky-500'
                                                 }`}
                                             />
                                         </td>

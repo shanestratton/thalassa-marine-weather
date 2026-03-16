@@ -212,7 +212,7 @@ const STATUS_STYLES: Record<RunItemStatus, { bg: string; border: string; icon: s
     unchecked: {
         bg: 'bg-white/[0.03]',
         border: 'border-white/[0.08]',
-        icon: 'text-gray-500',
+        icon: 'text-gray-400',
         text: 'text-white/60',
     },
     pass: {
@@ -510,7 +510,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     onBack={onBack}
                     breadcrumbs={["Ship's Office", 'Checklists']}
                     subtitle={
-                        <p className="text-label text-gray-500 font-bold uppercase tracking-widest">
+                        <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             {headings.length} Section{headings.length !== 1 ? 's' : ''} · {totalDetails} Item
                             {totalDetails !== 1 ? 's' : ''}
                         </p>
@@ -681,7 +681,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                         {/* Type toggle — Heading or Detail */}
                         {!editEntry && (
                             <div className="mb-4">
-                                <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-2">
+                                <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-2">
                                     Type
                                 </label>
                                 <div className="grid grid-cols-2 gap-2">
@@ -690,7 +690,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                         className={`py-3 rounded-xl text-sm font-black uppercase tracking-wider transition-all ${
                                             formType === 'heading'
                                                 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                                : 'bg-white/5 text-gray-500 border border-white/5'
+                                                : 'bg-white/5 text-gray-400 border border-white/5'
                                         }`}
                                     >
                                         <svg
@@ -717,7 +717,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                         className={`py-3 rounded-xl text-sm font-black uppercase tracking-wider transition-all ${
                                             formType === 'detail'
                                                 ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                : 'bg-white/5 text-gray-500 border border-white/5'
+                                                : 'bg-white/5 text-gray-400 border border-white/5'
                                         } disabled:opacity-30 disabled:cursor-not-allowed`}
                                     >
                                         <svg
@@ -747,7 +747,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                         {/* Heading dropdown (for details only) */}
                         {formType === 'detail' && headings.length > 0 && (
                             <div className="mb-3">
-                                <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-1.5">
+                                <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-1.5">
                                     Under Section
                                 </label>
                                 <select
@@ -877,7 +877,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 />
                             </div>
                             <div className="flex items-center justify-between">
-                                <span className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">
+                                <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">
                                     {runCheckedCount}/{runTotal} checked
                                 </span>
                                 <div className="flex items-center gap-3">
@@ -979,7 +979,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                                 className={`shrink-0 px-2 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
                                                                     item.flagged_rm
                                                                         ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                                                                        : 'bg-white/5 text-gray-500 border border-white/10 hover:text-amber-400'
+                                                                        : 'bg-white/5 text-gray-400 border border-white/10 hover:text-amber-400'
                                                                 }`}
                                                             >
                                                                 🔧 R&M

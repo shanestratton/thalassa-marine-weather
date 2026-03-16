@@ -485,8 +485,8 @@ export const TideGraphOriginal = ({
     if (dataPoints.length === 0) {
         return (
             <div className="flex flex-col items-center justify-center h-full opacity-60">
-                <GaugeIcon className="w-8 h-8 text-gray-500 mb-2" />
-                <span className="text-[11px] uppercase font-bold text-gray-500 tracking-widest">
+                <GaugeIcon className="w-8 h-8 text-gray-400 mb-2" />
+                <span className="text-[11px] uppercase font-bold text-gray-400 tracking-widest">
                     Awaiting Telemetry
                 </span>
             </div>
@@ -661,7 +661,7 @@ export const TideGraphOriginal = ({
                                 <span className="text-2xl font-bold text-white tracking-tight">
                                     {nextEvent.labelTime.replace(/ [AP]M/, '')}
                                 </span>
-                                <span className="text-xs text-gray-500 font-bold self-end mb-1">
+                                <span className="text-xs text-gray-400 font-bold self-end mb-1">
                                     {nextEvent.labelTime.includes('PM') ? 'PM' : 'AM'}
                                 </span>
                             </div>
@@ -835,7 +835,7 @@ const VesselWidgetComponent = ({ vessel, vesselStatus }: { vessel: VesselProfile
     if (!vessel || vessel.type === 'observer') {
         return (
             <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-center items-center h-full text-center min-h-[220px]">
-                <SearchIcon className="w-12 h-12 text-gray-500 mb-3" />
+                <SearchIcon className="w-12 h-12 text-gray-400 mb-3" />
                 <h3 className="text-lg font-medium text-white mb-1">Observer Mode</h3>
                 <p className="text-xs text-gray-400 max-w-[200px]">Configure a vessel profile to see hydrostatics.</p>
             </Card>
@@ -866,13 +866,13 @@ const VesselWidgetComponent = ({ vessel, vesselStatus }: { vessel: VesselProfile
                 <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                     <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Hull Speed</span>
                     <span className="text-xl font-mono font-bold text-white">
-                        {hullSpeed?.toFixed(1)} <span className="text-xs text-gray-500">kts</span>
+                        {hullSpeed?.toFixed(1)} <span className="text-xs text-gray-400">kts</span>
                     </span>
                 </div>
                 <div className="bg-white/5 rounded-xl p-3 border border-white/5">
                     <span className="text-[11px] text-gray-400 uppercase font-bold block mb-1">Displacement</span>
                     <span className="text-xl font-mono font-bold text-white">
-                        {(vessel.displacement / 2204.62).toFixed(1)} <span className="text-xs text-gray-500">t</span>
+                        {(vessel.displacement / 2204.62).toFixed(1)} <span className="text-xs text-gray-400">t</span>
                     </span>
                 </div>
                 {vessel.type === 'sail' && (
@@ -1004,7 +1004,7 @@ const VesselStatusWidgetComponent = ({
                                     {current.visibility
                                         ? convertDistance(current.visibility, units.visibility || 'mi')
                                         : '--'}
-                                    <span className="text-xs text-gray-500 ml-1">{units.visibility || 'mi'}</span>
+                                    <span className="text-xs text-gray-400 ml-1">{units.visibility || 'mi'}</span>
                                 </span>
                             </div>
                             <div className="bg-white/5 rounded-xl p-3 border border-white/5 flex flex-col justify-between">
@@ -1013,7 +1013,7 @@ const VesselStatusWidgetComponent = ({
                                 </span>
                                 <span className="text-xl font-mono font-bold text-white">
                                     {current.pressure ? Math.round(current.pressure) : '--'}
-                                    <span className="text-xs text-gray-500 ml-1">hPa</span>
+                                    <span className="text-xs text-gray-400 ml-1">hPa</span>
                                 </span>
                             </div>
                         </div>
@@ -1091,7 +1091,7 @@ const VesselStatusWidgetComponent = ({
                                 Theoretical Hull Speed
                             </span>
                             <span className="text-xl font-mono font-bold text-white">
-                                {hullSpeed?.toFixed(1)} <span className="text-xs text-gray-500">kts</span>
+                                {hullSpeed?.toFixed(1)} <span className="text-xs text-gray-400">kts</span>
                             </span>
                         </div>
                         <div className="bg-white/5 rounded-xl p-3 border border-white/5">
@@ -1100,7 +1100,7 @@ const VesselStatusWidgetComponent = ({
                             </span>
                             <span className="text-xl font-mono font-bold text-white">
                                 {(vessel.displacement / 2204.62).toFixed(1)}{' '}
-                                <span className="text-xs text-gray-500">t</span>
+                                <span className="text-xs text-gray-400">t</span>
                             </span>
                         </div>
                         {vessel.type === 'sail' && (
@@ -1145,7 +1145,7 @@ const VesselStatusWidgetComponent = ({
                 </Card>
             ) : (
                 <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-center items-center h-full text-center min-h-[220px]">
-                    <SearchIcon className="w-12 h-12 text-gray-500 mb-3" />
+                    <SearchIcon className="w-12 h-12 text-gray-400 mb-3" />
                     <h3 className="text-lg font-medium text-white mb-1">Observer Mode</h3>
                     <p className="text-xs text-gray-400 max-w-[200px]">
                         Configure a vessel profile to see hydrostatics.

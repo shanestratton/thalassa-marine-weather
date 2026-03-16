@@ -271,7 +271,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                         {/* Search */}
                         <div className="relative mb-3">
                             <svg
-                                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500"
+                                className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
@@ -371,14 +371,14 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                 {activeTab === 'mine' ? (
                     /* My Tracks tab */
                     myTracksLoading ? (
-                        <div className="flex flex-col items-center justify-center h-48 text-slate-500">
+                        <div className="flex flex-col items-center justify-center h-48 text-slate-400">
                             <div className="w-8 h-8 border-2 border-amber-500/30 border-t-amber-400 rounded-full animate-spin mb-3" />
                             <p className="text-sm">Loading your tracks...</p>
                         </div>
                     ) : myTracks.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-48 text-slate-500">
+                        <div className="flex flex-col items-center justify-center h-48 text-slate-400">
                             <p className="text-sm font-bold text-slate-400 mb-1">No shared tracks</p>
-                            <p className="text-sm text-slate-500">Tracks you share will appear here for management.</p>
+                            <p className="text-sm text-slate-400">Tracks you share will appear here for management.</p>
                         </div>
                     ) : (
                         <div className="space-y-2">
@@ -393,12 +393,12 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                         </div>
                     )
                 ) : loading && tracks.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-48 text-slate-500">
+                    <div className="flex flex-col items-center justify-center h-48 text-slate-400">
                         <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-400 rounded-full animate-spin mb-3" />
                         <p className="text-sm">Loading tracks...</p>
                     </div>
                 ) : error ? (
-                    <div className="flex flex-col items-center justify-center h-48 text-slate-500">
+                    <div className="flex flex-col items-center justify-center h-48 text-slate-400">
                         <p className="text-sm text-red-400 mb-2">{error}</p>
                         <button
                             onClick={() => fetchTracks()}
@@ -408,7 +408,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                         </button>
                     </div>
                 ) : tracks.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-48 text-slate-500">
+                    <div className="flex flex-col items-center justify-center h-48 text-slate-400">
                         <svg
                             className="w-12 h-12 mb-3 text-slate-700"
                             fill="none"
@@ -423,7 +423,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                             />
                         </svg>
                         <p className="text-sm font-bold text-slate-400 mb-1">No tracks found</p>
-                        <p className="text-sm text-slate-500">Be the first to share a track!</p>
+                        <p className="text-sm text-slate-400">Be the first to share a track!</p>
                     </div>
                 ) : (
                     <div className="space-y-2">
@@ -495,7 +495,7 @@ const TrackCard: React.FC<{
             </div>
 
             {/* Stats row */}
-            <div className="flex items-center gap-3 text-sm text-slate-500">
+            <div className="flex items-center gap-3 text-sm text-slate-400">
                 <span className="bg-slate-800/60 px-2 py-0.5 rounded text-slate-400 font-bold">{categoryLabel}</span>
                 {track.region && <span className="truncate">📍 {track.region}</span>}
                 <span>{track.distance_nm.toFixed(1)} NM</span>
@@ -521,7 +521,7 @@ const TrackCard: React.FC<{
 
             {/* Download count */}
             {track.download_count > 0 && (
-                <div className="mt-1.5 text-sm text-slate-500">
+                <div className="mt-1.5 text-sm text-slate-400">
                     ↓ {track.download_count} download{track.download_count !== 1 ? 's' : ''}
                 </div>
             )}
@@ -598,7 +598,7 @@ const MyTrackCard: React.FC<{
             </div>
 
             {/* Stats row */}
-            <div className="flex items-center gap-3 text-sm text-slate-500">
+            <div className="flex items-center gap-3 text-sm text-slate-400">
                 <span className="bg-slate-800/60 px-2 py-0.5 rounded text-slate-400 font-bold">{categoryLabel}</span>
                 {track.region && <span className="truncate">📍 {track.region}</span>}
                 <span>{track.distance_nm.toFixed(1)} NM</span>
@@ -608,7 +608,7 @@ const MyTrackCard: React.FC<{
 
             {/* Download count */}
             {track.download_count > 0 && (
-                <div className="mt-1.5 text-sm text-slate-500">
+                <div className="mt-1.5 text-sm text-slate-400">
                     ↓ {track.download_count} download{track.download_count !== 1 ? 's' : ''}
                 </div>
             )}

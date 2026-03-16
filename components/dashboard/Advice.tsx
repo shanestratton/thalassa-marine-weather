@@ -130,7 +130,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(
                                             ) : (
                                                 <>
                                                     <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full shadow-[0_0_5px_rgba(16,185,129,0.5)]"></span>
-                                                    <span className="text-sm text-gray-500 uppercase tracking-widest">
+                                                    <span className="text-sm text-gray-400 uppercase tracking-widest">
                                                         Bridge Active
                                                     </span>
                                                 </>
@@ -194,7 +194,7 @@ export const AdviceWidget: React.FC<AdviceWidgetProps> = React.memo(
 
                         {/* Updated Container with Scroll */}
                         <div className="flex-1 mt-4 overflow-y-auto custom-scrollbar min-h-[100px]">
-                            <p className="text-sm text-gray-500 uppercase tracking-widest mb-3 font-bold sticky top-0 bg-slate-900 py-1 z-10 opacity-90">
+                            <p className="text-sm text-gray-400 uppercase tracking-widest mb-3 font-bold sticky top-0 bg-slate-900 py-1 z-10 opacity-90">
                                 Recommended Gear
                             </p>
                             <div className="flex flex-wrap gap-2 content-start pb-2">

@@ -402,7 +402,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
 
                         {/* Expand indicator */}
                         <svg
-                            className={`w-4 h-4 text-slate-500 transition-transform duration-150 ${isExpanded ? 'rotate-180' : ''}`}
+                            className={`w-4 h-4 text-slate-400 transition-transform duration-150 ${isExpanded ? 'rotate-180' : ''}`}
                             fill="none"
                             viewBox="0 0 24 24"
                             stroke="currentColor"
@@ -418,7 +418,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                         <div className="px-3 pb-3 pt-1 border-t border-white/5">
                             {/* Position */}
                             <div className="mb-2">
-                                <div className="text-[11px] text-slate-500 uppercase">Position</div>
+                                <div className="text-[11px] text-slate-400 uppercase">Position</div>
                                 <div className="text-emerald-400 font-mono font-bold text-sm">
                                     {entry.positionFormatted}
                                 </div>
@@ -428,7 +428,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                             <div className="grid grid-cols-3 gap-2 mb-2">
                                 {entry.distanceNM != null && (
                                     <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
-                                        <div className="text-[11px] text-slate-500 uppercase">Dist</div>
+                                        <div className="text-[11px] text-slate-400 uppercase">Dist</div>
                                         <div className="text-xs font-bold text-white">
                                             {(entry.distanceNM ?? 0).toFixed(1)} NM
                                         </div>
@@ -436,7 +436,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                                 )}
                                 {entry.speedKts != null && (
                                     <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
-                                        <div className="text-[11px] text-slate-500 uppercase">Speed</div>
+                                        <div className="text-[11px] text-slate-400 uppercase">Speed</div>
                                         <div className="text-xs font-bold text-white">
                                             {(entry.speedKts ?? 0).toFixed(1)} kts
                                         </div>
@@ -444,7 +444,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                                 )}
                                 {entry.courseDeg != null && (
                                     <div className="bg-slate-900/50 rounded-lg p-1.5 text-center">
-                                        <div className="text-[11px] text-slate-500 uppercase">Course</div>
+                                        <div className="text-[11px] text-slate-400 uppercase">Course</div>
                                         <div className="text-xs font-bold text-white">
                                             {formatCourseTrue(entry.courseDeg)}
                                         </div>
@@ -513,7 +513,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
 
                             {/* Watch Period */}
                             {entry.watchPeriod && (
-                                <div className="mt-2 text-[11px] text-slate-500">
+                                <div className="mt-2 text-[11px] text-slate-400">
                                     {getWatchPeriodName(entry.watchPeriod)}
                                 </div>
                             )}

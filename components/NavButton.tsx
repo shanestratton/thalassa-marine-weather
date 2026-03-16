@@ -51,7 +51,7 @@ export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onCli
             )}
         </div>
         <span
-            className={`text-[11px] font-bold uppercase tracking-wider leading-none mt-0.5 ${active ? 'text-sky-400' : 'text-gray-500'}`}
+            className={`text-[11px] font-bold uppercase tracking-wider leading-none mt-0.5 ${active ? 'text-sky-400' : 'text-gray-400'}`}
         >
             {label}
         </span>

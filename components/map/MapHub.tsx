@@ -400,7 +400,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Distance</p>
                                 <p className="text-base font-black text-white tabular-nums leading-tight">
                                     {passage.routeAnalysis.totalDistance.toFixed(0)}
-                                    <span className="text-[11px] text-gray-500"> NM</span>
+                                    <span className="text-[11px] text-gray-400"> NM</span>
                                 </p>
                             </div>
                             <div className="w-px h-6 bg-white/10" />

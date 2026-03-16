@@ -326,7 +326,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     {step === 'input' && (
                         <form onSubmit={handleSendCode} className="w-full space-y-4">
                             <div className="text-left">
-                                <label className="text-sm uppercase font-bold text-gray-500 mb-1.5 ml-1 block">
+                                <label className="text-sm uppercase font-bold text-gray-400 mb-1.5 ml-1 block">
                                     Email Address
                                 </label>
                                 <input
@@ -373,7 +373,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     {step === 'otp' && (
                         <form onSubmit={handleVerifyOtp} className="w-full space-y-4">
                             <div className="text-left">
-                                <label className="text-sm uppercase font-bold text-gray-500 mb-1.5 ml-1 block">
+                                <label className="text-sm uppercase font-bold text-gray-400 mb-1.5 ml-1 block">
                                     8-Digit Code
                                 </label>
                                 <input
@@ -423,7 +423,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                     type="button"
                                     onClick={handleResendCode}
                                     disabled={resendCooldown > 0 || loading}
-                                    className={`transition-colors ${resendCooldown > 0 ? 'text-gray-500' : 'text-sky-400 hover:text-sky-300'}`}
+                                    className={`transition-colors ${resendCooldown > 0 ? 'text-gray-400' : 'text-sky-400 hover:text-sky-300'}`}
                                 >
                                     {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend code'}
                                 </button>
@@ -433,10 +433,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 </div>
 
                 <div className="bg-black/20 p-4 border-t border-white/5 flex items-center justify-center gap-6">
-                    <div className="flex items-center gap-2 text-sm text-gray-500 font-medium">
+                    <div className="flex items-center gap-2 text-sm text-gray-400 font-medium">
                         <DiamondIcon className="w-3 h-3 text-sky-400" /> Pro Sync
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-gray-500 font-medium">
+                    <div className="flex items-center gap-2 text-sm text-gray-400 font-medium">
                         <BoatIcon className="w-3 h-3 text-sky-400" /> Crew Sharing
                     </div>
                 </div>

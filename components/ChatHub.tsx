@@ -138,7 +138,7 @@ export const ChatHub: React.FC = () => {
                             setActiveTab('community');
                         }}
                         className={`relative z-10 flex-1 py-2.5 flex items-center justify-center gap-2 rounded-xl transition-colors duration-200 ${
-                            activeTab === 'community' ? 'text-white' : 'text-gray-500'
+                            activeTab === 'community' ? 'text-white' : 'text-gray-400'
                         }`}
                     >
                         <svg
@@ -164,7 +164,7 @@ export const ChatHub: React.FC = () => {
                             setActiveTab('marketplace');
                         }}
                         className={`relative z-10 flex-1 py-2.5 flex items-center justify-center gap-2 rounded-xl transition-colors duration-200 ${
-                            activeTab === 'marketplace' ? 'text-white' : 'text-gray-500'
+                            activeTab === 'marketplace' ? 'text-white' : 'text-gray-400'
                         }`}
                     >
                         <svg
@@ -205,7 +205,7 @@ export const ChatHub: React.FC = () => {
                             <div className="text-center py-16 px-6">
                                 <div className="p-4 bg-white/[0.04] rounded-2xl inline-block mb-4">
                                     <svg
-                                        className="w-10 h-10 text-gray-500 mx-auto"
+                                        className="w-10 h-10 text-gray-400 mx-auto"
                                         fill="none"
                                         viewBox="0 0 24 24"
                                         stroke="currentColor"
@@ -218,8 +218,8 @@ export const ChatHub: React.FC = () => {
                                         />
                                     </svg>
                                 </div>
-                                <p className="text-gray-500 text-sm font-bold">No active negotiations</p>
-                                <p className="text-gray-500 text-xs mt-1">
+                                <p className="text-gray-400 text-sm font-bold">No active negotiations</p>
+                                <p className="text-gray-400 text-xs mt-1">
                                     Message a seller from the Gear Exchange to start
                                 </p>
                             </div>
@@ -262,7 +262,7 @@ export const ChatHub: React.FC = () => {
                                                     ${convo.listing.price}
                                                 </span>
                                             </div>
-                                            <p className="text-[11px] text-gray-500 truncate">
+                                            <p className="text-[11px] text-gray-400 truncate">
                                                 {convo.otherPartyName}
                                                 {convo.lastMessage ? ` · ${convo.lastMessage}` : ''}
                                             </p>
@@ -271,7 +271,7 @@ export const ChatHub: React.FC = () => {
                                         {/* Time + unread */}
                                         <div className="shrink-0 text-right">
                                             {convo.lastMessageAt && (
-                                                <p className="text-[11px] text-gray-500 font-bold">
+                                                <p className="text-[11px] text-gray-400 font-bold">
                                                     {timeAgo(convo.lastMessageAt)}
                                                 </p>
                                             )}
