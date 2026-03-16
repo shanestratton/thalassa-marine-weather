@@ -84,7 +84,7 @@ const RouteChangePanel: React.FC<{
                     <div className="flex-1 min-w-0">
                         <h4 className="text-xs text-amber-400 font-bold uppercase tracking-widest mb-1">Route Updated</h4>
                         <p className="text-sm text-gray-300 leading-relaxed">{description}</p>
-                        <p className="text-[11px] text-gray-500 mt-1">
+                        <p className="text-[11px] text-gray-400 mt-1">
                             Old route shown in gray. New route in blue. Accept to confirm the new route.
                         </p>
                     </div>

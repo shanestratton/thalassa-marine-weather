@@ -478,7 +478,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                             </button>
                             <button
                                 onClick={() => setShowNavMesh((v) => !v)}
-                                className={`px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${showNavMesh ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                                className={`px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${showNavMesh ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                                 title="Toggle Nav Mesh X-Ray"
                             >
                                 ⊞
@@ -650,10 +650,10 @@ export const WeatherMap: React.FC<WeatherMapProps> = ({
                             <button
                                 onClick={handleConfirm}
                                 disabled={!pendingSelection}
-                                className={`w-full font-bold py-4 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 border transition-all ${pendingSelection ? 'bg-sky-500 hover:bg-sky-400 text-white border-transparent scale-105' : 'bg-slate-800/90 text-gray-500 border-white/10 cursor-not-allowed'}`}
+                                className={`w-full font-bold py-4 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 border transition-all ${pendingSelection ? 'bg-sky-500 hover:bg-sky-400 text-white border-transparent scale-105' : 'bg-slate-800/90 text-gray-400 border-white/10 cursor-not-allowed'}`}
                             >
                                 <MapPinIcon
-                                    className={`w-5 h-5 ${pendingSelection ? 'text-white' : 'text-gray-500'}`}
+                                    className={`w-5 h-5 ${pendingSelection ? 'text-white' : 'text-gray-400'}`}
                                 />
                                 {pendingSelection ? confirmLabel || 'Confirm Location' : 'Tap Map to Select Point'}
                             </button>

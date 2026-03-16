@@ -101,7 +101,7 @@ const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                         <div className="flex-1 min-w-0">
                             <h4 className="text-sm font-bold text-white truncate">{item.item_name}</h4>
                             {item.location_zone && (
-                                <p className="text-label text-gray-500 truncate">
+                                <p className="text-label text-gray-400 truncate">
                                     📍 {item.location_zone}
                                     {item.location_specific ? ` — ${item.location_specific}` : ''}
                                 </p>
@@ -151,24 +151,24 @@ const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                     <div className="px-4 pb-4 pt-1 border-t border-white/5 animate-in fade-in duration-200">
                         <div className="grid grid-cols-2 gap-2 text-label mb-3">
                             <div>
-                                <span className="text-gray-500">Category</span>
+                                <span className="text-gray-400">Category</span>
                                 <p className="text-white font-bold">{item.category}</p>
                             </div>
                             {item.barcode && (
                                 <div>
-                                    <span className="text-gray-500">Barcode</span>
+                                    <span className="text-gray-400">Barcode</span>
                                     <p className="text-white font-mono">{item.barcode}</p>
                                 </div>
                             )}
                             {item.description && (
                                 <div className="col-span-2">
-                                    <span className="text-gray-500">Notes</span>
+                                    <span className="text-gray-400">Notes</span>
                                     <p className="text-gray-300">{item.description}</p>
                                 </div>
                             )}
                             {item.expiry_date && (
                                 <div>
-                                    <span className="text-gray-500">Expiry / Service</span>
+                                    <span className="text-gray-400">Expiry / Service</span>
                                     <p
                                         className={`font-bold ${isExpired ? 'text-red-400' : isExpiringSoon ? 'text-amber-400' : 'text-emerald-400'}`}
                                     >
@@ -440,7 +440,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     onBack={onBack}
                     breadcrumbs={["Ship's Office", 'Inventory']}
                     subtitle={
-                        <p className="text-label text-gray-500 font-bold uppercase tracking-widest">
+                        <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             {stats ? `${stats.totalItems} Items · ${stats.totalQuantity} Units` : 'Loading...'}
                             {stats && stats.lowStock > 0 && (
                                 <span className="text-amber-400"> · {stats.lowStock} Low</span>
@@ -581,10 +581,10 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             <div key={group.category}>
                                 <div className="flex items-center gap-2 mb-2 mt-1">
                                     <span className="text-sm">{CATEGORY_ICONS[group.category]}</span>
-                                    <span className="text-label font-black text-gray-500 uppercase tracking-widest">
+                                    <span className="text-label font-black text-gray-400 uppercase tracking-widest">
                                         {group.category}
                                     </span>
-                                    <span className="text-micro text-gray-500 font-bold">({group.items.length})</span>
+                                    <span className="text-micro text-gray-400 font-bold">({group.items.length})</span>
                                 </div>
                                 <div className="space-y-2">
                                     {group.items.map((item) => (
@@ -646,7 +646,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                         key={cat}
                                         type="button"
                                         onClick={() => setEditCategory(cat)}
-                                        className={`py-1 rounded-lg text-label font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
+                                        className={`py-1 rounded-lg text-label font-bold transition-all text-center ${editCategory === cat ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
                                     >
                                         {CATEGORY_ICONS[cat]} {cat}
                                     </button>
@@ -819,7 +819,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                 >
                                     <span>{CATEGORY_ICONS[cat]}</span>
                                     <span className="flex-1 text-left">{cat}</span>
-                                    <span className="text-xs text-gray-500">{count}</span>
+                                    <span className="text-xs text-gray-400">{count}</span>
                                     {selected && (
                                         <svg
                                             className="w-4 h-4 text-sky-400"

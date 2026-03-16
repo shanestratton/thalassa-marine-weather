@@ -26,7 +26,7 @@ export const PointInput: React.FC<{
     >
         <div className={`w-3 h-3 rounded-full shrink-0 ${color === 'emerald' ? 'bg-emerald-400' : 'bg-red-400'}`} />
         <div className="flex-1 min-w-0">
-            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">{label}</p>
+            <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">{label}</p>
             <p className="text-xs text-white font-bold truncate">{point ? point.name : 'Not set'}</p>
         </div>
         <button
@@ -37,7 +37,7 @@ export const PointInput: React.FC<{
         </button>
         <button
             onClick={onSet}
-            className={`text-[11px] font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg ${isActive ? 'text-amber-400 bg-amber-500/10' : 'text-gray-500 hover:bg-white/5'}`}
+            className={`text-[11px] font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg ${isActive ? 'text-amber-400 bg-amber-500/10' : 'text-gray-400 hover:bg-white/5'}`}
         >
             🗺️ Map
         </button>
@@ -48,7 +48,7 @@ export const PointInput: React.FC<{
 export const ResultCard: React.FC<{ label: string; value: string }> = ({ label, value }) => (
     <div className="p-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] text-center">
         <p className="text-xs font-black text-white truncate">{value}</p>
-        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">{label}</p>
+        <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">{label}</p>
     </div>
 );
 

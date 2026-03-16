@@ -103,11 +103,11 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                     </h4>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <div className="text-[11px] text-gray-500 uppercase tracking-widest mb-1">Distance</div>
+                            <div className="text-[11px] text-gray-400 uppercase tracking-widest mb-1">Distance</div>
                             <div className="text-lg font-bold text-white">{voyagePlan.distanceApprox}</div>
                         </div>
                         <div>
-                            <div className="text-[11px] text-gray-500 uppercase tracking-widest mb-1">Duration</div>
+                            <div className="text-[11px] text-gray-400 uppercase tracking-widest mb-1">Duration</div>
                             <div className="text-lg font-bold text-white">{voyagePlan.durationApprox}</div>
                         </div>
                     </div>
@@ -263,12 +263,12 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                         ) : (
                             <>
                                 <div>
-                                    <div className="text-[11px] text-gray-500 uppercase tracking-widest mb-1">
+                                    <div className="text-[11px] text-gray-400 uppercase tracking-widest mb-1">
                                         {isSail ? 'Motor Reserve (30% buffer)' : 'Required (30% reserve)'}
                                     </div>
                                     <div className="text-xl font-bold text-white">
                                         {fuelWithReserve.toFixed(0)}
-                                        <span className="text-xs font-normal text-gray-500 ml-1">L</span>
+                                        <span className="text-xs font-normal text-gray-400 ml-1">L</span>
                                     </div>
                                 </div>
                                 <div className="text-xs text-gray-400 font-mono">
@@ -277,7 +277,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                                 </div>
                                 {fuelCapacity > 0 && (
                                     <div className="pt-2 border-t border-white/10 flex justify-between text-xs">
-                                        <span className="text-gray-500">Tank</span>
+                                        <span className="text-gray-400">Tank</span>
                                         <span className={`font-mono ${fuelSufficient ? 'text-emerald-400' : 'text-red-400'}`}>
                                             {fuelCapacity}L {fuelSufficient ? '✓' : '✗'}
                                         </span>
@@ -313,12 +313,12 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                     </div>
                     <div className="space-y-3">
                         <div>
-                            <div className="text-[11px] text-gray-500 uppercase tracking-widest mb-1">
+                            <div className="text-[11px] text-gray-400 uppercase tracking-widest mb-1">
                                 Total Required ({provisionDays} days incl. {WATER_EMERGENCY_DAYS}d emergency)
                             </div>
                             <div className="text-xl font-bold text-white">
                                 {waterTotal.toFixed(0)}
-                                <span className="text-xs font-normal text-gray-500 ml-1">L</span>
+                                <span className="text-xs font-normal text-gray-400 ml-1">L</span>
                             </div>
                         </div>
 
@@ -345,7 +345,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                         {waterCapacity > 0 && (
                             <div className="pt-2 border-t border-white/10 space-y-1.5">
                                 <div className="flex justify-between text-xs">
-                                    <span className="text-gray-500">Tank: {waterCapacity}L</span>
+                                    <span className="text-gray-400">Tank: {waterCapacity}L</span>
                                     <span className={`font-mono font-bold ${waterSufficient ? 'text-emerald-400' : 'text-amber-400'}`}>
                                         {Math.round(waterPercent)}% used
                                     </span>
@@ -372,7 +372,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                             </div>
                         )}
 
-                        <div className="text-[11px] text-gray-500 font-mono">
+                        <div className="text-[11px] text-gray-400 font-mono">
                             {effectiveCrewCount} crew × {WATER_TOTAL_L}L/day × {provisionDays} days
                         </div>
                     </div>
@@ -388,15 +388,15 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                         <div className="grid grid-cols-3 gap-2">
                             <div className="text-center bg-white/5 rounded-lg py-2 border border-white/5">
                                 <div className="text-lg font-black text-white">{breakfasts}</div>
-                                <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold">Brekky</div>
+                                <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">Brekky</div>
                             </div>
                             <div className="text-center bg-white/5 rounded-lg py-2 border border-white/5">
                                 <div className="text-lg font-black text-white">{lunches}</div>
-                                <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold">Lunch</div>
+                                <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">Lunch</div>
                             </div>
                             <div className="text-center bg-white/5 rounded-lg py-2 border border-white/5">
                                 <div className="text-lg font-black text-white">{dinners}</div>
-                                <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold">Dinner</div>
+                                <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">Dinner</div>
                             </div>
                         </div>
 
@@ -436,7 +436,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                         <div className="absolute bottom-0 right-0 w-40 h-40 bg-orange-400/5 rounded-full translate-y-12 translate-x-12 blur-3xl" />
                         <h3 className="text-sm font-bold text-amber-300 uppercase tracking-widest mb-4 flex items-center gap-2">
                             🍳 Suggested Meal Plan
-                            <span className="text-[11px] text-gray-500 font-normal normal-case ml-auto">
+                            <span className="text-[11px] text-gray-400 font-normal normal-case ml-auto">
                                 {effectiveCrewCount} crew • {totalDaysCeil} day{totalDaysCeil > 1 ? 's' : ''}
                             </span>
                         </h3>
@@ -455,7 +455,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                         {/* Breakfast */}
                                         <div className="bg-black/20 rounded-lg px-3 py-2 space-y-1">
-                                            <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold">Breakfast</div>
+                                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">Breakfast</div>
                                             <div className="text-xs text-gray-200 flex items-center gap-1.5">
                                                 <span>{bMeals[dayIdx % bMeals.length].emoji}</span>
                                                 {bMeals[dayIdx % bMeals.length].name}
@@ -467,7 +467,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
 
                                         {/* Lunch */}
                                         <div className="bg-black/20 rounded-lg px-3 py-2 space-y-1">
-                                            <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold">Lunch</div>
+                                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">Lunch</div>
                                             <div className="text-xs text-gray-200 flex items-center gap-1.5">
                                                 <span>{lMeals[dayIdx % lMeals.length].emoji}</span>
                                                 {lMeals[dayIdx % lMeals.length].name}
@@ -479,7 +479,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
 
                                         {/* Dinner */}
                                         <div className="bg-black/20 rounded-lg px-3 py-2 space-y-1">
-                                            <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold">Dinner</div>
+                                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">Dinner</div>
                                             <div className="text-xs text-gray-200 flex items-center gap-1.5">
                                                 <span>{dMeals[dayIdx % dMeals.length].emoji}</span>
                                                 {dMeals[dayIdx % dMeals.length].name}
@@ -495,7 +495,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
 
                         {/* Snack suggestions */}
                         <div className="mt-4 pt-4 border-t border-white/10">
-                            <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold mb-2">
+                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-2">
                                 🍫 Snack Ideas (keep accessible in cockpit)
                             </div>
                             <div className="flex flex-wrap gap-1.5">

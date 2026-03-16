@@ -150,7 +150,7 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                                         </div>
                                         <div className="min-w-0">
                                             <h5 className="text-sm font-bold text-white truncate">{harbour.name}</h5>
-                                            <p className="text-[11px] text-gray-500 font-mono">
+                                            <p className="text-[11px] text-gray-400 font-mono">
                                                 {fmtCoord(harbour.lat, harbour.lon, 3)}
                                             </p>
                                         </div>
@@ -263,7 +263,7 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                                         <p className="text-[11px] text-white mb-0.5">
                                             <span className="font-bold">Action:</span> {scenario.action}
                                         </p>
-                                        <p className="text-[11px] text-gray-500">{scenario.recommendation}</p>
+                                        <p className="text-[11px] text-gray-400">{scenario.recommendation}</p>
                                     </div>
                                 </div>
                             </div>

@@ -48,7 +48,7 @@ export const HourlyWidget = ({
                         <ClockIcon className="w-5 h-5 text-sky-400" />
                         Hourly Outlook
                     </h3>
-                    <span className="text-[11px] text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                    <span className="text-[11px] text-gray-400 uppercase tracking-wide flex items-center gap-1">
                         Swipe <ArrowRightIcon className="w-3 h-3 text-gray-400 animate-pulse" />
                     </span>
                 </div>
@@ -88,7 +88,7 @@ export const HourlyWidget = ({
                                         </div>
                                         <div className="flex items-baseline gap-1">
                                             <span className="text-xl font-bold text-sky-100">--</span>
-                                            <span className="text-xs text-gray-500">%</span>
+                                            <span className="text-xs text-gray-400">%</span>
                                         </div>
                                         <div className="h-1 w-full bg-black/20 rounded-full mt-2 overflow-hidden">
                                             <div
@@ -110,9 +110,9 @@ export const HourlyWidget = ({
                                         </div>
                                         <div className="flex items-baseline gap-1">
                                             <span className="text-xl font-bold text-white">--</span>
-                                            <span className="text-xs text-gray-500">hPa</span>
+                                            <span className="text-xs text-gray-400">hPa</span>
                                         </div>
-                                        <div className="text-xs text-gray-500 font-medium mt-1">Steady</div>
+                                        <div className="text-xs text-gray-400 font-medium mt-1">Steady</div>
                                     </div>
                                 );
                             } else {
@@ -126,7 +126,7 @@ export const HourlyWidget = ({
                                             <span className="text-xl font-bold text-white">
                                                 {convertLength(item.waveHeight, units.length)}
                                             </span>
-                                            <span className="text-xs text-gray-500">{units.length}</span>
+                                            <span className="text-xs text-gray-400">{units.length}</span>
                                         </div>
                                         <div className="text-xs text-sky-300 font-medium mt-1">
                                             {item.swellPeriod ? `${item.swellPeriod}s` : 'Choppy'}
@@ -184,7 +184,7 @@ export const HourlyWidget = ({
                                             <span className={`text-xl font-bold ${tideValueClass}`}>
                                                 {tideVal !== null ? tideVal.toFixed(1) : '--'}
                                             </span>
-                                            <span className="text-xs text-gray-500">{units.tideHeight || 'm'}</span>
+                                            <span className="text-xs text-gray-400">{units.tideHeight || 'm'}</span>
                                         </div>
                                         <div className="h-1 w-full bg-black/20 rounded-full mt-2 overflow-hidden">
                                             <div
@@ -253,7 +253,7 @@ export const HourlyWidget = ({
                                             </div>
                                             <div className="flex items-baseline gap-1">
                                                 <span className="text-xl font-bold text-white">{windSpeedDisplay}</span>
-                                                <span className="text-xs text-gray-500">{units.speed}</span>
+                                                <span className="text-xs text-gray-400">{units.speed}</span>
                                             </div>
                                             <div className="text-xs text-amber-400 font-medium mt-1">
                                                 Gusting {gustDisplay}
@@ -278,7 +278,7 @@ export const HourlyWidget = ({
                                                         </span>
                                                     </>
                                                 ) : (
-                                                    <span className="text-xs text-gray-500 italic">None</span>
+                                                    <span className="text-xs text-gray-400 italic">None</span>
                                                 )}
                                             </div>
                                         </div>
@@ -310,7 +310,7 @@ export const DailyWidget = ({
             <h3 className="text-sm font-bold text-sky-300 pl-2 border-b border-white/10 pb-2 flex items-center gap-2 uppercase tracking-widest">
                 <CalendarIcon className="w-5 h-5 text-sky-400" />
                 {forecast.length}-Day Forecast
-                {!isPro && <LockIcon className="w-4 h-4 text-gray-500 ml-auto" />}
+                {!isPro && <LockIcon className="w-4 h-4 text-gray-400 ml-auto" />}
             </h3>
             <div className="space-y-4 relative">
                 {forecast.map((day: ForecastDay, i: number) => {
@@ -361,10 +361,10 @@ export const DailyWidget = ({
                                             <span className="text-white font-medium">
                                                 {convertTemp(day.highTemp, units.temp)}°
                                             </span>
-                                            <span className="text-gray-500">
+                                            <span className="text-gray-400">
                                                 / {convertTemp(day.lowTemp, units.temp)}°
                                             </span>
-                                            <span className="mx-1 text-gray-500">•</span>
+                                            <span className="mx-1 text-gray-400">•</span>
                                             <span className="text-gray-300 capitalize">{day.condition}</span>
                                         </div>
                                     </div>
@@ -393,7 +393,7 @@ export const DailyWidget = ({
                                     </div>
                                     <div className="flex items-baseline gap-1 relative z-10 mb-2">
                                         <span className="text-2xl font-bold text-white">{dayWind}</span>
-                                        <span className="text-xs text-gray-500">{units.speed}</span>
+                                        <span className="text-xs text-gray-400">{units.speed}</span>
                                     </div>
                                     <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden mb-2">
                                         <div
@@ -402,7 +402,7 @@ export const DailyWidget = ({
                                         ></div>
                                     </div>
                                     <div className="pt-2 border-t border-white/10 flex justify-between items-center">
-                                        <span className="text-[11px] text-gray-500 uppercase tracking-wider font-bold">
+                                        <span className="text-[11px] text-gray-400 uppercase tracking-wider font-bold">
                                             Gusts
                                         </span>
                                         <span className="text-xs text-amber-300 font-mono font-bold">{dayGust}</span>
@@ -418,7 +418,7 @@ export const DailyWidget = ({
                                     </div>
                                     <div className="flex items-baseline gap-1 relative z-10 mb-2">
                                         <span className="text-2xl font-bold text-white">{dayWave}</span>
-                                        <span className="text-xs text-gray-500">{units.length}</span>
+                                        <span className="text-xs text-gray-400">{units.length}</span>
                                     </div>
                                     <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden mb-2">
                                         <div
@@ -427,7 +427,7 @@ export const DailyWidget = ({
                                         ></div>
                                     </div>
                                     <div className="pt-2 border-t border-white/10 flex justify-between items-center">
-                                        <span className="text-[11px] text-gray-500 uppercase tracking-wider font-bold">
+                                        <span className="text-[11px] text-gray-400 uppercase tracking-wider font-bold">
                                             Period
                                         </span>
                                         <span className="text-xs text-sky-300 font-mono font-bold">
@@ -464,7 +464,7 @@ export const DailyWidget = ({
                                         </div>
                                         <div className="grid grid-cols-2 gap-2 mt-2">
                                             <div>
-                                                <span className="text-[11px] text-gray-500 block uppercase">
+                                                <span className="text-[11px] text-gray-400 block uppercase">
                                                     Sunrise
                                                 </span>
                                                 <span className="text-sm font-bold text-white">
@@ -472,7 +472,7 @@ export const DailyWidget = ({
                                                 </span>
                                             </div>
                                             <div className="text-right">
-                                                <span className="text-[11px] text-gray-500 block uppercase">
+                                                <span className="text-[11px] text-gray-400 block uppercase">
                                                     Sunset
                                                 </span>
                                                 <span className="text-sm font-bold text-white">

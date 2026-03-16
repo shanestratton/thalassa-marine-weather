@@ -31,7 +31,7 @@ export const VoyageStatsPanel: React.FC<VoyageStatsPanelProps> = ({ entries }) =
 
             {/* Speed Row */}
             <div className="bg-slate-800/50 rounded-lg px-3 py-2">
-                <div className="text-sm text-slate-500 uppercase tracking-wider mb-1">Speed</div>
+                <div className="text-sm text-slate-400 uppercase tracking-wider mb-1">Speed</div>
                 <div className="flex justify-between">
                     <MiniStat label="Max" value={(stats.maxSpeed ?? 0).toFixed(1)} unit="kts" />
                     <MiniStat label="Min" value={(stats.minSpeed ?? 0).toFixed(1)} unit="kts" />
@@ -42,7 +42,7 @@ export const VoyageStatsPanel: React.FC<VoyageStatsPanelProps> = ({ entries }) =
             {/* Weather Row - only show if we have data */}
             {(stats.weather.avgWindSpeed > 0 || stats.weather.avgWaveHeight > 0) && (
                 <div className="bg-slate-800/50 rounded-lg px-3 py-2">
-                    <div className="text-sm text-slate-500 uppercase tracking-wider mb-1">Weather Avg</div>
+                    <div className="text-sm text-slate-400 uppercase tracking-wider mb-1">Weather Avg</div>
                     <div className="flex justify-between">
                         {stats.weather.avgWindSpeed > 0 && (
                             <MiniStat label="Wind" value={(stats.weather.avgWindSpeed ?? 0).toFixed(0)} unit="kts" />
@@ -67,7 +67,7 @@ export const VoyageStatsPanel: React.FC<VoyageStatsPanelProps> = ({ entries }) =
 // Compact stat card for main row
 const CompactStat = ({ label, value, unit }: { label: string; value: string | number; unit?: string }) => (
     <div className={`bg-slate-800/60 ${t.border.subtle} rounded-lg p-2 text-center`}>
-        <div className="text-sm text-slate-500 uppercase tracking-wider">{label}</div>
+        <div className="text-sm text-slate-400 uppercase tracking-wider">{label}</div>
         <div className="text-lg font-bold text-white leading-tight">
             {value}
             {unit && <span className="text-sm ml-0.5 text-slate-400">{unit}</span>}
@@ -78,7 +78,7 @@ const CompactStat = ({ label, value, unit }: { label: string; value: string | nu
 // Mini stat for secondary rows
 const MiniStat = ({ label, value, unit }: { label: string; value: string | number; unit?: string }) => (
     <div className="text-center">
-        <div className="text-sm text-slate-500 uppercase">{label}</div>
+        <div className="text-sm text-slate-400 uppercase">{label}</div>
         <div className="text-sm font-bold text-white">
             {value}
             {unit && <span className="text-sm ml-0.5 text-slate-400">{unit}</span>}

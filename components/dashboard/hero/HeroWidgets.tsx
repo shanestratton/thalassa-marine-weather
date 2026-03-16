@@ -563,7 +563,7 @@ export const renderHeroWidget = (
                         </span>
                         <span className={`${subSize} font-medium text-gray-400 pb-0.5`}>kts</span>
                     </div>
-                    <span className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">GPS</span>
+                    <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">GPS</span>
                 </div>
             );
         }
@@ -618,7 +618,7 @@ export const renderHeroWidget = (
                             <span>{cogCardinal}</span>
                         </div>
                     </div>
-                    <span className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">GPS</span>
+                    <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">GPS</span>
                 </div>
             );
         }

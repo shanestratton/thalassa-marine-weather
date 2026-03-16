@@ -256,7 +256,7 @@ export const TachGauge: React.FC<TachGaugeProps> = ({ value, maxRpm = 4000, redl
                     </span>
                     <span className="text-2xl font-bold text-gray-400">RPM</span>
                 </div>
-                <span className="text-xs font-bold uppercase tracking-[0.25em] text-gray-500">Engine Speed</span>
+                <span className="text-xs font-bold uppercase tracking-[0.25em] text-gray-400">Engine Speed</span>
             </div>
         </div>
     );

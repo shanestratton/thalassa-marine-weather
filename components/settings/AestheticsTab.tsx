@@ -77,7 +77,7 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
         <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
             <Section title="Display Mode">
                 <div className="p-4">
-                    <p className="text-xs text-gray-500 mb-4">
+                    <p className="text-xs text-gray-400 mb-4">
                         Choose how Thalassa looks. Auto switches between light and dark based on sunrise/sunset times.
                     </p>
                     <div className="grid grid-cols-4 gap-2">
@@ -100,7 +100,7 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
                                         {opt.label}
                                     </span>
                                     <span
-                                        className={`text-[11px] leading-tight ${isActive ? 'text-white/70' : 'text-gray-500'}`}
+                                        className={`text-[11px] leading-tight ${isActive ? 'text-white/70' : 'text-gray-400'}`}
                                     >
                                         {opt.desc}
                                     </span>
@@ -115,7 +115,7 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
                 <Row>
                     <div className="flex-1">
                         <label className="text-sm text-white font-medium block">Always On Display</label>
-                        <p className="text-xs text-gray-500">Prevent screen from sleeping</p>
+                        <p className="text-xs text-gray-400">Prevent screen from sleeping</p>
                     </div>
                     <Toggle checked={settings.alwaysOn || false} onChange={(v) => onSave({ alwaysOn: v })} />
                 </Row>
@@ -123,7 +123,7 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
 
             <Section title="Display Orientation">
                 <div className="p-4">
-                    <p className="text-xs text-gray-500 mb-4">
+                    <p className="text-xs text-gray-400 mb-4">
                         Lock your screen orientation. Portrait is recommended for the best experience.
                     </p>
                     <div className="grid grid-cols-3 gap-2">
@@ -146,7 +146,7 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
                                         {opt.label}
                                     </span>
                                     <span
-                                        className={`text-[11px] ${isActive ? 'text-white/70' : opt.recommended ? 'text-emerald-400/70' : 'text-gray-500'}`}
+                                        className={`text-[11px] ${isActive ? 'text-white/70' : opt.recommended ? 'text-emerald-400/70' : 'text-gray-400'}`}
                                     >
                                         {opt.desc}
                                     </span>

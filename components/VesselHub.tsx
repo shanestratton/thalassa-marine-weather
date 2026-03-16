@@ -226,7 +226,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             </svg>
                         </div>
                         <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Log Book</h4>
-                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mt-0.5">
+                        <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">
                             Voyage Entries
                         </p>
                     </button>
@@ -246,7 +246,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             </div>
                         </div>
                         <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Passages</h4>
-                        <p className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${isObserver ? 'text-gray-500' : 'text-emerald-400'}`}>
+                        <p className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${isObserver ? 'text-gray-400' : 'text-emerald-400'}`}>
                             {isObserver ? 'Vessel Required' : 'Route Plan'}
                         </p>
                     </button>
@@ -284,7 +284,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                                     {card.label}
                                 </h4>
                                 <p
-                                    className={`text-[11px] font-bold uppercase tracking-widest mt-1 ${disabled ? 'text-gray-500' : card.accentColor}`}
+                                    className={`text-[11px] font-bold uppercase tracking-widest mt-1 ${disabled ? 'text-gray-400' : card.accentColor}`}
                                 >
                                     {disabled ? 'Vessel Required' : card.sublabel}
                                 </p>
@@ -349,7 +349,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             <div className="mt-6">
                 <div className="flex items-center gap-2 mb-3">
                     <div className="w-1 h-4 rounded-full bg-gray-500" />
-                    <span className="text-[11px] font-black text-gray-500 uppercase tracking-[0.2em]">
+                    <span className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em]">
                         Administration
                     </span>
                 </div>
@@ -377,7 +377,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                         </div>
                         <div className="flex-1">
                             <p className="text-xs font-bold text-white">Account, Subscription & Settings</p>
-                            <p className="text-[11px] text-gray-500">{settings.isPro ? 'Thalassa PRO' : 'Free Plan'}</p>
+                            <p className="text-[11px] text-gray-400">{settings.isPro ? 'Thalassa PRO' : 'Free Plan'}</p>
                         </div>
                         <ChevronRight />
                     </button>
@@ -398,7 +398,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             </div>
                             <div className="flex-1">
                                 <p className="text-xs font-bold text-amber-400">Admin Panel</p>
-                                <p className="text-[11px] text-gray-500">Manage roles, mute & block users</p>
+                                <p className="text-[11px] text-gray-400">Manage roles, mute & block users</p>
                             </div>
                             <ChevronRight />
                         </button>
@@ -455,7 +455,7 @@ const SignalIcon: React.FC = () => (
 );
 
 const ChevronRight: React.FC = () => (
-    <svg className="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
     </svg>
 );

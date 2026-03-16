@@ -135,7 +135,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                     )}
                     <div className="flex-1">
                         <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Passage Planning</h1>
-                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">Route Planning</p>
+                        <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">Route Planning</p>
                     </div>
                 </div>
             </div>
@@ -254,7 +254,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                             <h2 className="text-sm font-bold text-white uppercase tracking-widest">
                                                 Passage Plan
                                             </h2>
-                                            <p className="text-[11px] text-gray-500 font-mono tracking-wide">
+                                            <p className="text-[11px] text-gray-400 font-mono tracking-wide">
                                                 {vessel?.name.toUpperCase() || 'VESSEL'} // {vessel?.length}FT{' '}
                                                 {vessel?.type.toUpperCase()}
                                             </p>
@@ -473,7 +473,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                             type="button"
                                             onClick={() => setVia('')}
                                             aria-label="Clear Via Point"
-                                            className="p-2 text-gray-500 hover:text-white transition-colors hover:bg-white/10 rounded-lg"
+                                            className="p-2 text-gray-400 hover:text-white transition-colors hover:bg-white/10 rounded-lg"
                                         >
                                             <XIcon className="w-4 h-4" />
                                         </button>
@@ -484,7 +484,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                             {/* Date & Time row */}
                             <div className="grid grid-cols-2 gap-2.5">
                                 <div className="relative w-full min-w-0 group">
-                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-focus-within:text-sky-400 transition-colors">
+                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-sky-400 transition-colors">
                                         <CalendarIcon className="w-4 h-4" />
                                     </div>
                                     <input
@@ -502,7 +502,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                     />
                                 </div>
                                 <div className="relative w-full min-w-0 group">
-                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-500 group-focus-within:text-emerald-400 transition-colors">
+                                    <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-emerald-400 transition-colors">
                                         <ClockIcon className="w-4 h-4" />
                                     </div>
                                     <input
@@ -708,11 +708,11 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                             {vessel && (
                                 <div className="flex items-center justify-center gap-2 mb-2 opacity-60">
                                     {vessel.type === 'power' ? (
-                                        <PowerBoatIcon className="w-3.5 h-3.5 text-slate-500" />
+                                        <PowerBoatIcon className="w-3.5 h-3.5 text-slate-400" />
                                     ) : (
-                                        <SailBoatIcon className="w-3.5 h-3.5 text-slate-500" />
+                                        <SailBoatIcon className="w-3.5 h-3.5 text-slate-400" />
                                     )}
-                                    <span className="text-[11px] font-mono text-slate-500 tracking-wide">
+                                    <span className="text-[11px] font-mono text-slate-400 tracking-wide">
                                         Active Vessel: {vessel.name}
                                     </span>
                                 </div>

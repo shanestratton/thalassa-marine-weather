@@ -228,7 +228,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                 </button>
                 <div className="flex-1">
                     <h2 className="text-sm font-black text-white truncate">{listing.seller_name || 'Seller'}</h2>
-                    <p className="text-[11px] text-gray-500 font-bold">Transaction Room</p>
+                    <p className="text-[11px] text-gray-400 font-bold">Transaction Room</p>
                 </div>
                 {/* Escrow status badge */}
                 {escrowState === 'holding' && (
@@ -263,7 +263,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                         <span className="px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-black">
                             ${listing.price}
                         </span>
-                        <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">
+                        <span className="text-[11px] text-gray-400 font-bold uppercase tracking-wider">
                             {listing.condition}
                         </span>
                     </div>
@@ -283,7 +283,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                     </div>
                 ) : messages.length === 0 ? (
                     <div className="text-center py-16">
-                        <p className="text-gray-500 text-xs">Start the negotiation...</p>
+                        <p className="text-gray-400 text-xs">Start the negotiation...</p>
                     </div>
                 ) : (
                     messages.map((msg) => {
@@ -309,7 +309,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                                                     </div>
                                                 ))}
                                             </div>
-                                            <p className="text-[11px] text-gray-500 mt-3">
+                                            <p className="text-[11px] text-gray-400 mt-3">
                                                 Share this PIN with the seller at handoff
                                             </p>
                                         </div>
@@ -330,7 +330,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                                                         ? 'text-emerald-400'
                                                         : msg.escrow_type === 'funds_held'
                                                           ? 'text-amber-400'
-                                                          : 'text-gray-500'
+                                                          : 'text-gray-400'
                                                 }`}
                                             >
                                                 {msg.content}
@@ -352,7 +352,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                                     }`}
                                 >
                                     <p className="text-sm text-white leading-relaxed">{msg.content}</p>
-                                    <p className="text-[11px] text-gray-500 text-right mt-1">
+                                    <p className="text-[11px] text-gray-400 text-right mt-1">
                                         {new Date(msg.created_at).toLocaleTimeString([], {
                                             hour: '2-digit',
                                             minute: '2-digit',

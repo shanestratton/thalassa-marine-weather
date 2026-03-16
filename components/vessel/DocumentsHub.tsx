@@ -67,7 +67,7 @@ const EXPIRY_COLORS: Record<ExpiryStatus, { dot: string; text: string; border: s
     valid: { dot: 'bg-emerald-500', text: 'text-emerald-400', border: 'border-emerald-500/30', label: 'Valid' },
     warning: { dot: 'bg-amber-500', text: 'text-amber-400', border: 'border-amber-500/30', label: 'Expiring Soon' },
     expired: { dot: 'bg-red-500', text: 'text-red-400', border: 'border-red-500/30', label: 'Expired' },
-    none: { dot: 'bg-gray-500', text: 'text-gray-500', border: 'border-gray-500/20', label: 'No Expiry' },
+    none: { dot: 'bg-gray-500', text: 'text-gray-400', border: 'border-gray-500/20', label: 'No Expiry' },
 };
 
 // ── File helpers ───────────────────────────────────────────────
@@ -273,7 +273,7 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
                     {/* Category badge — top of card */}
                     <div className="flex items-center gap-1.5 mb-1.5">
                         <span className="text-micro">{CATEGORY_ICONS[doc.category] || '📋'}</span>
-                        <span className="text-micro font-bold text-gray-500 uppercase tracking-widest">
+                        <span className="text-micro font-bold text-gray-400 uppercase tracking-widest">
                             {doc.category}
                         </span>
                     </div>
@@ -288,7 +288,7 @@ const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
                                 </p>
                                 {doc.expiry_date && (
                                     <span
-                                        className={`px-2 py-0.5 rounded-lg text-label font-bold ${status === 'expired' ? 'bg-red-500/20 text-red-400' : status === 'warning' ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-500'}`}
+                                        className={`px-2 py-0.5 rounded-lg text-label font-bold ${status === 'expired' ? 'bg-red-500/20 text-red-400' : status === 'warning' ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-400'}`}
                                     >
                                         Exp {new Date(doc.expiry_date).toLocaleDateString()}
                                     </span>
@@ -595,7 +595,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     onBack={onBack}
                     breadcrumbs={["Ship's Office", 'Documents']}
                     subtitle={
-                        <p className="text-label text-gray-500 font-bold uppercase tracking-widest">
+                        <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             {documents.length} Documents
                             {selectedIds.size > 0 && (
                                 <span className="text-sky-400 ml-2">✓ {selectedIds.size} selected</span>
@@ -764,7 +764,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                     <span className="text-label font-black text-gray-400 uppercase tracking-widest">
                                         {group.label}
                                     </span>
-                                    <span className="text-label text-gray-500 font-bold">({group.docs.length})</span>
+                                    <span className="text-label text-gray-400 font-bold">({group.docs.length})</span>
                                 </div>
                                 <div className="space-y-2">
                                     {group.docs.map((doc) => (
@@ -823,7 +823,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     >
                         {/* Category — first */}
                         <div className="mb-3">
-                            <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-1.5">
+                            <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-1.5">
                                 Category
                             </label>
                             <div className="grid grid-cols-3 gap-1.5">
@@ -831,7 +831,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                     <button
                                         key={cat.id}
                                         onClick={() => setFormCategory(cat.id)}
-                                        className={`py-1.5 rounded-full text-label font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
+                                        className={`py-1.5 rounded-full text-label font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
                                     >
                                         {cat.icon} {cat.label}
                                     </button>
@@ -868,7 +868,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
 
                         {/* Attach Document */}
                         <div className="mb-3">
-                            <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-1">
+                            <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-1">
                                 Attach Document
                             </label>
                             <input

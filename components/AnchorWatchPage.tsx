@@ -753,7 +753,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                                     className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
                                         rodeType === type
                                             ? 'bg-amber-500/20 border border-amber-500/40 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.1)]'
-                                            : 'bg-slate-800/40 border border-white/[0.06] text-slate-500 hover:text-slate-400'
+                                            : 'bg-slate-800/40 border border-white/[0.06] text-slate-400 hover:text-slate-400'
                                     }`}
                                 >
                                     {type === 'chain' ? '⛓' : type === 'rope' ? '🪢' : '🔗'}
@@ -822,7 +822,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                                     <div className="text-xs text-slate-300 font-bold truncate group-hover:text-white transition-colors">
                                         {wxRecommendation.label} · {wxRecommendation.wind.toFixed(0)}kts
                                     </div>
-                                    <div className="text-[11px] text-slate-500 group-hover:text-slate-400 transition-colors">
+                                    <div className="text-[11px] text-slate-400 group-hover:text-slate-400 transition-colors">
                                         {rodeLength === wxRecommendation.rode
                                             ? `✓ ${wxRecommendation.scope}:1 set`
                                             : `Tap → ${wxRecommendation.rode}m`}
@@ -1064,7 +1064,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
 
                                     {/* How it works */}
                                     <div className="space-y-2">
-                                        <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">
+                                        <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">
                                             How it works
                                         </p>
                                         <div className="space-y-1.5">
@@ -1094,7 +1094,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
 
                                     {/* Code entry */}
                                     <div>
-                                        <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-2">
+                                        <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">
                                             Session Code
                                         </p>
                                         <div className="flex gap-2 items-center">
@@ -1285,7 +1285,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                         <div className="text-center">
                             <div className="w-12 h-12 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
                             <div className="text-slate-400">Waiting for vessel data...</div>
-                            <div className="text-sm text-slate-500 mt-2">Session: {syncState?.sessionCode}</div>
+                            <div className="text-sm text-slate-400 mt-2">Session: {syncState?.sessionCode}</div>
                         </div>
                     )}
                 </div>
@@ -1438,7 +1438,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                 <div className="shrink-0 border-t border-white/[0.06] px-4 py-1.5 bg-slate-900/30">
                     <div className="flex items-center justify-around gap-4">
                         <div className="text-center flex-1">
-                            <div className="text-xs text-slate-500 uppercase tracking-wider">Distance</div>
+                            <div className="text-xs text-slate-400 uppercase tracking-wider">Distance</div>
                             <div
                                 className={`text-xl font-black font-mono ${isHolding ? 'text-emerald-400' : 'text-red-400'}`}
                             >
@@ -1447,7 +1447,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                         </div>
                         <div className="w-px h-8 bg-gradient-to-b from-transparent via-white/10 to-transparent" />
                         <div className="text-center flex-1">
-                            <div className="text-xs text-slate-500 uppercase tracking-wider">Radius</div>
+                            <div className="text-xs text-slate-400 uppercase tracking-wider">Radius</div>
                             <div className="text-xl font-black font-mono text-white">
                                 {snapshot ? formatDistance(snapshot.swingRadius) : `--`}
                             </div>
@@ -1469,7 +1469,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
                             }}
                         />
                     </div>
-                    <div className="flex justify-between text-xs text-slate-500 mt-0.5">
+                    <div className="flex justify-between text-xs text-slate-400 mt-0.5">
                         <span>Anchor</span>
                         <span className="font-bold font-mono">{holdPercent.toFixed(0)}%</span>
                         <span>Alarm</span>

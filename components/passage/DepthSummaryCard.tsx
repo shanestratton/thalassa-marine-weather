@@ -90,13 +90,13 @@ export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vessel
                     <div className="text-lg font-bold text-white">
                         {data.minDepth !== null ? `${Math.abs(data.minDepth)}m` : '--'}
                     </div>
-                    <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold">Min Depth</div>
+                    <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">Min Depth</div>
                 </div>
             </div>
 
             {/* Visual Depth Profile Bar */}
             <div>
-                <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold mb-2">
+                <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-2">
                     Route Depth Profile
                 </div>
                 <div className="flex h-6 rounded-lg overflow-hidden border border-white/10 bg-black/40">
@@ -130,7 +130,7 @@ export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vessel
                         <div key={safety} className="flex items-center gap-1.5">
                             <div className={`w-3 h-3 rounded ${s.bg}`} />
                             <span className={`text-[11px] font-bold ${s.text}`}>{s.label}</span>
-                            <span className="text-[11px] text-gray-500">({count})</span>
+                            <span className="text-[11px] text-gray-400">({count})</span>
                         </div>
                     );
                 })}
@@ -139,7 +139,7 @@ export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vessel
             {/* Depth Stats Grid */}
             <div className="grid grid-cols-3 gap-3">
                 <div className="bg-white/[0.03] rounded-xl px-3 py-2.5 text-center border border-white/[0.06]">
-                    <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold mb-1">Min Depth</div>
+                    <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-1">Min Depth</div>
                     <div
                         className={`text-lg font-bold ${
                             data.minDepth !== null && Math.abs(data.minDepth) < vesselDraft * 2
@@ -151,20 +151,20 @@ export const DepthSummaryCard: React.FC<DepthSummaryCardProps> = ({ data, vessel
                     </div>
                 </div>
                 <div className="bg-white/[0.03] rounded-xl px-3 py-2.5 text-center border border-white/[0.06]">
-                    <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold mb-1">
+                    <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-1">
                         Vessel Draft
                     </div>
                     <div className="text-lg font-bold text-sky-400">{vesselDraft}m</div>
                 </div>
                 <div className="bg-white/[0.03] rounded-xl px-3 py-2.5 text-center border border-white/[0.06]">
-                    <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold mb-1">Clearance</div>
+                    <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-1">Clearance</div>
                     <div
                         className={`text-lg font-bold ${
                             data.minDepth !== null
                                 ? Math.abs(data.minDepth) - vesselDraft < 2
                                     ? 'text-red-400'
                                     : 'text-emerald-400'
-                                : 'text-gray-500'
+                                : 'text-gray-400'
                         }`}
                     >
                         {data.minDepth !== null ? `${(Math.abs(data.minDepth) - vesselDraft).toFixed(1)}m` : '--'}

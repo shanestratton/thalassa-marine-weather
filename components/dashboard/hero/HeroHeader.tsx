@@ -224,7 +224,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                             <div className="flex items-center gap-1 text-sm font-bold text-gray-300 justify-end translate-y-0.5">
                                 <CloudIcon className="w-2.5 h-2.5" />
                                 {Math.round(cardData.cloudCover || 0)}%
-                                <span className="text-sm font-bold uppercase tracking-wider text-slate-500 ml-0.5">
+                                <span className="text-sm font-bold uppercase tracking-wider text-slate-400 ml-0.5">
                                     Clouds
                                 </span>
                             </div>
@@ -238,7 +238,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                                       ? `${precipChance}%`
                                       : cardData.precipValue || '0.0 mm'}
                                 {!cardIsLive && precipChance !== undefined && (
-                                    <span className="text-sm font-bold uppercase tracking-wider text-slate-500 ml-0.5">
+                                    <span className="text-sm font-bold uppercase tracking-wider text-slate-400 ml-0.5">
                                         chance
                                     </span>
                                 )}
@@ -312,28 +312,28 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                         <span className="text-sm font-bold text-white leading-none">
                             {cardData.humidity ? Math.round(cardData.humidity) : '--'}%
                         </span>
-                        <span className="text-sm font-bold text-gray-500 uppercase tracking-wider mt-0.5">Hum</span>
+                        <span className="text-sm font-bold text-gray-400 uppercase tracking-wider mt-0.5">Hum</span>
                     </div>
                     <div className="w-px h-4 bg-white/10 shrink-0" />
                     {/* Visibility (Replaces Rain) */}
                     <div className="flex flex-col items-center flex-1 min-w-[30px]">
                         <EyeIcon className="w-3.5 h-3.5 text-emerald-400 mb-0.5" />
                         <span className="text-sm font-bold text-white leading-none">{cardDisplayValues.vis}</span>
-                        <span className="text-sm font-bold text-gray-500 uppercase tracking-wider mt-0.5">Vis NM</span>
+                        <span className="text-sm font-bold text-gray-400 uppercase tracking-wider mt-0.5">Vis NM</span>
                     </div>
                     <div className="w-px h-4 bg-white/10 shrink-0" />
                     {/* Sunrise */}
                     <div className="flex flex-col items-center flex-1 min-w-[30px]">
                         <SunriseIcon className="w-3.5 h-3.5 text-amber-400 mb-0.5" />
                         <span className="text-sm font-bold text-white leading-none">{cardDisplayValues.sunrise}</span>
-                        <span className="text-sm font-bold text-gray-500 uppercase tracking-wider mt-0.5">Rise</span>
+                        <span className="text-sm font-bold text-gray-400 uppercase tracking-wider mt-0.5">Rise</span>
                     </div>
                     <div className="w-px h-4 bg-white/10 shrink-0" />
                     {/* Sunset */}
                     <div className="flex flex-col items-center flex-1 min-w-[30px]">
                         <SunsetIcon className="w-3.5 h-3.5 text-sky-300 mb-0.5" />
                         <span className="text-sm font-bold text-white leading-none">{cardDisplayValues.sunset}</span>
-                        <span className="text-sm font-bold text-gray-500 uppercase tracking-wider mt-0.5">Set</span>
+                        <span className="text-sm font-bold text-gray-400 uppercase tracking-wider mt-0.5">Set</span>
                     </div>
                     <div className="w-px h-4 bg-white/10 shrink-0" />
                     {/* UV Index */}
@@ -342,7 +342,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                         <span className="text-sm font-bold text-white leading-none">
                             {cardDisplayValues.uv !== '--' ? cardDisplayValues.uv : '0'}
                         </span>
-                        <span className="text-sm font-bold text-gray-500 uppercase tracking-wider mt-0.5">
+                        <span className="text-sm font-bold text-gray-400 uppercase tracking-wider mt-0.5">
                             UV:{cardData.uvIndex}
                         </span>
                     </div>
@@ -355,7 +355,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                                 ? Math.round(parseFloat(cardDisplayValues.pressure.toString())).toString()
                                 : '--'}
                         </span>
-                        <span className="text-sm font-bold text-gray-500 uppercase tracking-wider mt-0.5">PRMSL</span>
+                        <span className="text-sm font-bold text-gray-400 uppercase tracking-wider mt-0.5">PRMSL</span>
                     </div>
                 </div>
             </div>

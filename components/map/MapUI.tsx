@@ -216,7 +216,7 @@ export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint; onCl
                             </div>
                         </div>
                     ) : (
-                        <div className="text-center text-gray-500 text-xs">Details unavailable.</div>
+                        <div className="text-center text-gray-400 text-xs">Details unavailable.</div>
                     )}
                 </div>
             </div>

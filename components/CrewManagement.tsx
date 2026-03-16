@@ -97,7 +97,7 @@ const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mode, onD
                             </p>
                             {isCaptain ? (
                                 <p
-                                    className={`text-[11px] font-bold mt-0.5 ${member.status === 'accepted' ? 'text-emerald-400' : member.status === 'pending' ? 'text-amber-400' : 'text-gray-500'}`}
+                                    className={`text-[11px] font-bold mt-0.5 ${member.status === 'accepted' ? 'text-emerald-400' : member.status === 'pending' ? 'text-amber-400' : 'text-gray-400'}`}
                                 >
                                     {member.status === 'accepted'
                                         ? '✓ Active'
@@ -390,7 +390,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                 {userEmail && (
                     <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 mb-4 flex items-center justify-between">
                         <div>
-                            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
                                 Your Email (share for invites)
                             </p>
                             <p className="text-sm font-bold text-white mt-0.5">{userEmail}</p>
@@ -421,7 +421,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                         {/* ── How It Works — shown at TOP when empty ── */}
                         {isEmpty && (
                             <div className="bg-white/[0.02] border border-white/[0.04] rounded-xl p-4 mb-6">
-                                <h3 className="text-[11px] font-black text-gray-500 uppercase tracking-[0.15em] mb-3">
+                                <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-[0.15em] mb-3">
                                     How Crew Sharing Works
                                 </h3>
                                 <div className="space-y-2.5">
@@ -578,7 +578,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                         {/* ── How It Works — shown at bottom when NOT empty ── */}
                         {!isEmpty && (
                             <div className="bg-white/[0.02] border border-white/[0.04] rounded-xl p-4 mb-6">
-                                <h3 className="text-[11px] font-black text-gray-500 uppercase tracking-[0.15em] mb-3">
+                                <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-[0.15em] mb-3">
                                     How Crew Sharing Works
                                 </h3>
                                 <div className="space-y-2">
@@ -634,7 +634,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                         <>
                             {/* Email input */}
                             <div>
-                                <label className="text-[11px] uppercase font-bold text-gray-500 mb-1.5 ml-1 block tracking-wide">
+                                <label className="text-[11px] uppercase font-bold text-gray-400 mb-1.5 ml-1 block tracking-wide">
                                     Crew Email Address
                                 </label>
                                 <input
@@ -650,7 +650,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
 
                             {/* Register selection */}
                             <div>
-                                <label className="text-[11px] uppercase font-bold text-gray-500 mb-2 ml-1 block tracking-wide">
+                                <label className="text-[11px] uppercase font-bold text-gray-400 mb-2 ml-1 block tracking-wide">
                                     Share These Registers
                                 </label>
                                 <div className="grid grid-cols-2 gap-2">
@@ -735,7 +735,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
             >
                 <div className="p-6 space-y-5">
                     <div>
-                        <label className="text-[11px] uppercase font-bold text-gray-500 mb-2 ml-1 block tracking-wide">
+                        <label className="text-[11px] uppercase font-bold text-gray-400 mb-2 ml-1 block tracking-wide">
                             Shared Registers
                         </label>
                         <div className="grid grid-cols-2 gap-2">

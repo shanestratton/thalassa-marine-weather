@@ -57,7 +57,7 @@ export const NmeaValue: React.FC<NmeaValueProps> = ({
     className = '',
     liveClass = 'text-white',
     staleClass = 'text-yellow-400/50',
-    deadClass = 'text-gray-500',
+    deadClass = 'text-gray-400',
 }) => {
     const freshnessStyles: Record<DataFreshness, string> = {
         live: liveClass,
@@ -215,7 +215,7 @@ export const NmeaStatusDot: React.FC<{ className?: string }> = ({ className = ''
     return (
         <div className={`flex items-center gap-1.5 ${className}`} title={c.label}>
             <div className={`w-2 h-2 rounded-full ${c.color}`} />
-            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">{c.label}</span>
+            <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">{c.label}</span>
         </div>
     );
 };

@@ -40,7 +40,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 <div className="flex flex-col gap-2">
                     {/* Task Type Selector */}
                     <div>
-                        <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">
+                        <label className="text-micro text-gray-400 font-bold uppercase tracking-wider block mb-1">
                             Type
                         </label>
                         <div className="grid grid-cols-2 gap-2">
@@ -52,7 +52,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                                 className={`py-2 rounded-xl text-xs font-black transition-all text-center ${
                                     form.taskType === 'maintenance'
                                         ? 'bg-sky-500/20 text-sky-400 border-2 border-sky-500/40'
-                                        : 'bg-white/5 text-gray-500 border-2 border-white/5'
+                                        : 'bg-white/5 text-gray-400 border-2 border-white/5'
                                 }`}
                             >
                                 🔄 Maintenance
@@ -65,7 +65,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                                 className={`py-2 rounded-xl text-xs font-black transition-all text-center ${
                                     form.taskType === 'repair'
                                         ? 'bg-amber-500/20 text-amber-400 border-2 border-amber-500/40'
-                                        : 'bg-white/5 text-gray-500 border-2 border-white/5'
+                                        : 'bg-white/5 text-gray-400 border-2 border-white/5'
                                 }`}
                             >
                                 🔧 Repair
@@ -76,7 +76,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                     {/* Category chips — only for Maintenance type */}
                     {form.taskType === 'maintenance' && (
                         <div>
-                            <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">
+                            <label className="text-micro text-gray-400 font-bold uppercase tracking-wider block mb-1">
                                 Category
                             </label>
                             <div className="grid grid-cols-3 gap-1.5">
@@ -87,7 +87,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                                         className={`py-1 rounded-full text-label font-bold transition-all text-center ${
                                             form.category === cat.id
                                                 ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                : 'bg-white/5 text-gray-500 border border-white/5'
+                                                : 'bg-white/5 text-gray-400 border border-white/5'
                                         }`}
                                     >
                                         {cat.icon} {cat.label}
@@ -120,7 +120,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                     {/* Trigger type — hidden for Repair */}
                     {form.category !== 'Repair' && (
                         <div>
-                            <label className="text-micro text-gray-500 font-bold uppercase tracking-wider block mb-1">
+                            <label className="text-micro text-gray-400 font-bold uppercase tracking-wider block mb-1">
                                 Schedule
                             </label>
                             <div className="grid grid-cols-3 gap-1.5">
@@ -131,7 +131,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                                         className={`py-1 rounded-full text-label font-bold transition-all text-center ${
                                             form.trigger === t
                                                 ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30'
-                                                : 'bg-white/5 text-gray-500 border border-white/5'
+                                                : 'bg-white/5 text-gray-400 border border-white/5'
                                         }`}
                                     >
                                         {TRIGGER_LABELS[t]}
@@ -216,7 +216,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
             {/* Category */}
             <div className="mb-4">
-                <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-2">
+                <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-2">
                     Category
                 </label>
                 <div className="grid grid-cols-3 gap-2">
@@ -224,7 +224,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                         <button
                             key={cat.id}
                             onClick={() => setCategory(cat.id)}
-                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.category === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
+                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.category === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
                         >
                             {cat.icon} {cat.label}
                         </button>
@@ -234,7 +234,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
 
             {/* Trigger type */}
             <div className="mb-4">
-                <label className="text-label text-gray-500 font-bold uppercase tracking-widest block mb-2">
+                <label className="text-label text-gray-400 font-bold uppercase tracking-widest block mb-2">
                     Trigger Type
                 </label>
                 <div className="grid grid-cols-3 gap-2">
@@ -242,7 +242,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                         <button
                             key={t}
                             onClick={() => setTrigger(t)}
-                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-500 border border-white/5'}`}
+                            className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
                         >
                             {TRIGGER_LABELS[t]}
                         </button>

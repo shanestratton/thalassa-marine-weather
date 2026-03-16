@@ -65,7 +65,7 @@ function MetricInput({
 
     return (
         <div>
-            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-1.5">
+            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
                 {label}
                 {isEstimated && <span className="text-amber-400/70 ml-1 text-[11px]">(est.)</span>}
             </label>
@@ -188,7 +188,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 </Row>
                 <Row>
                     <div className={`w-full ${isObserver ? 'opacity-40' : ''}`}>
-                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">
+                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
                             Vessel Name
                         </label>
                         <input
@@ -203,7 +203,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 </Row>
                 <Row>
                     <div className="w-full">
-                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">
+                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
                             Hull Type
                         </label>
                         <div className="flex bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5">
@@ -221,7 +221,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 </Row>
                 <Row>
                     <div className="w-full">
-                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">
+                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
                             Keel Type
                         </label>
                         <div className="grid grid-cols-3 bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5">
@@ -361,7 +361,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-1.5">
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
                                 Cruising Speed
                             </label>
                             <p className="text-white text-sm font-medium bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">
@@ -369,7 +369,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             </p>
                         </div>
                         <div>
-                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-1.5">
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
                                 Max Wave Height
                             </label>
                             <p className="text-white text-sm font-medium bg-white/5 border border-white/10 rounded-xl px-3 py-2.5">
@@ -377,7 +377,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             </p>
                         </div>
                     </div>
-                    <p className="text-[11px] text-gray-500 mt-3">Auto-calculated from vessel length and hull type</p>
+                    <p className="text-[11px] text-gray-400 mt-3">Auto-calculated from vessel length and hull type</p>
                 </div>
             </div>
 
@@ -386,7 +386,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 <div className="flex items-center gap-2 mb-3">
                     <div className="w-1 h-4 rounded-full bg-red-500" />
                     <span className="text-[11px] font-bold text-red-400 uppercase tracking-widest">Comfort Zone</span>
-                    <span className="text-[11px] text-gray-500 ml-auto">Passage Safety Limits</span>
+                    <span className="text-[11px] text-gray-400 ml-auto">Passage Safety Limits</span>
                 </div>
                 <div className="bg-red-500/[0.03] border border-red-500/10 rounded-2xl p-4 space-y-5">
                     <p className="text-[11px] text-gray-400 leading-relaxed">
@@ -397,11 +397,11 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     {/* Max Wind Speed */}
                     <div>
                         <div className="flex items-center justify-between mb-2">
-                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
                                 Max Wind
                             </label>
                             <span
-                                className={`text-sm font-bold tabular-nums ${(settings.comfortParams?.maxWindKts ?? 60) >= 60 ? 'text-gray-500' : 'text-red-400'}`}
+                                className={`text-sm font-bold tabular-nums ${(settings.comfortParams?.maxWindKts ?? 60) >= 60 ? 'text-gray-400' : 'text-red-400'}`}
                             >
                                 {(settings.comfortParams?.maxWindKts ?? 60) >= 60
                                     ? 'OFF'
@@ -436,11 +436,11 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     {/* Max Wave Height */}
                     <div>
                         <div className="flex items-center justify-between mb-2">
-                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
                                 Max Wave Height
                             </label>
                             <span
-                                className={`text-sm font-bold tabular-nums ${(settings.comfortParams?.maxWaveM ?? 8) >= 8 ? 'text-gray-500' : 'text-red-400'}`}
+                                className={`text-sm font-bold tabular-nums ${(settings.comfortParams?.maxWaveM ?? 8) >= 8 ? 'text-gray-400' : 'text-red-400'}`}
                             >
                                 {(settings.comfortParams?.maxWaveM ?? 8) >= 8
                                     ? 'OFF'
@@ -475,11 +475,11 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     {/* Max Gust */}
                     <div>
                         <div className="flex items-center justify-between mb-2">
-                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest">
                                 Max Gust
                             </label>
                             <span
-                                className={`text-sm font-bold tabular-nums ${(settings.comfortParams?.maxGustKts ?? 80) >= 80 ? 'text-gray-500' : 'text-red-400'}`}
+                                className={`text-sm font-bold tabular-nums ${(settings.comfortParams?.maxGustKts ?? 80) >= 80 ? 'text-gray-400' : 'text-red-400'}`}
                             >
                                 {(settings.comfortParams?.maxGustKts ?? 80) >= 80
                                     ? 'OFF'
@@ -557,7 +557,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         />
                     </div>
                     <div className="mt-4">
-                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-1.5">
+                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
                             Crew Aboard (incl. Captain)
                         </label>
                         <input
@@ -569,7 +569,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             placeholder="2"
                             className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-sky-500"
                         />
-                        <p className="text-[11px] text-gray-500 mt-1">
+                        <p className="text-[11px] text-gray-400 mt-1">
                             Used for provisioning and watch scheduling in passage plans
                         </p>
                     </div>

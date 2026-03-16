@@ -34,7 +34,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
                     <React.Fragment key={i}>
                         {i > 0 && (
                             <svg
-                                className="w-3 h-3 text-gray-500 shrink-0"
+                                className="w-3 h-3 text-gray-400 shrink-0"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
@@ -45,7 +45,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
                         )}
                         <span
                             className={`text-[11px] font-bold uppercase tracking-widest ${
-                                i === breadcrumbs.length - 1 ? 'text-sky-400' : 'text-gray-500'
+                                i === breadcrumbs.length - 1 ? 'text-sky-400' : 'text-gray-400'
                             }`}
                         >
                             {crumb}
@@ -78,7 +78,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
                 <h1 className="text-xl font-extrabold text-white uppercase tracking-wider truncate">{title}</h1>
                 {subtitle &&
                     (typeof subtitle === 'string' ? (
-                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest">{subtitle}</p>
+                        <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">{subtitle}</p>
                     ) : (
                         subtitle
                     ))}

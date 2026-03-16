@@ -683,14 +683,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                     placeholder="e.g. Newport, RI"
                                     className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-12 py-4 text-white focus:border-sky-500 outline-none text-lg font-medium transition-colors"
                                 />
-                                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500">
+                                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">
                                     <SearchIcon className="w-5 h-5" />
                                 </div>
                             </div>
 
                             <div className="relative flex items-center gap-4 py-2">
                                 <div className="h-px bg-white/10 flex-1"></div>
-                                <span className="text-xs text-gray-500 font-bold uppercase">Or</span>
+                                <span className="text-xs text-gray-400 font-bold uppercase">Or</span>
                                 <div className="h-px bg-white/10 flex-1"></div>
                             </div>
 
@@ -724,7 +724,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                         <button
                             onClick={handleNext}
                             disabled={!homePort}
-                            className={`w-full mt-8 font-bold py-4 rounded-xl transition-all ${homePort ? 'bg-sky-500 hover:bg-sky-400 text-white shadow-lg' : 'bg-white/5 text-gray-500 cursor-not-allowed'}`}
+                            className={`w-full mt-8 font-bold py-4 rounded-xl transition-all ${homePort ? 'bg-sky-500 hover:bg-sky-400 text-white shadow-lg' : 'bg-white/5 text-gray-400 cursor-not-allowed'}`}
                         >
                             Next
                         </button>
@@ -801,7 +801,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                     >
                         {vesselType === 'observer' ? (
                             <div className="text-center py-10">
-                                <SearchIcon className="w-16 h-16 text-gray-500 mx-auto mb-4" />
+                                <SearchIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
                                 <h2 className="text-xl font-bold text-white mb-2">Just Watching?</h2>
                                 <p className="text-gray-400 mb-8">
                                     Observers skip vessel setup. We'll optimize the display for general sea state
@@ -834,7 +834,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                                 <div className="space-y-6">
                                     <div>
-                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">
+                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
                                             Vessel Name
                                         </label>
                                         <input
@@ -848,7 +848,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                                     {/* Hull Type */}
                                     <div>
-                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">
+                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
                                             Hull Type
                                         </label>
                                         <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
@@ -856,7 +856,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                                 <button
                                                     key={ht}
                                                     onClick={() => setHullType(ht)}
-                                                    className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${hullType === ht ? 'bg-sky-500 text-white' : 'text-gray-500'}`}
+                                                    className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${hullType === ht ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
                                                 >
                                                     {ht === 'monohull' ? 'Mono' : ht === 'catamaran' ? 'Cat' : 'Tri'}
                                                 </button>
@@ -866,7 +866,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                                     {/* Keel Type */}
                                     <div>
-                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">
+                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
                                             Keel Type
                                         </label>
                                         <div className="grid grid-cols-3 bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
@@ -875,7 +875,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                                     <button
                                                         key={kt}
                                                         onClick={() => setKeelType(kt)}
-                                                        className={`py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${keelType === kt ? 'bg-sky-500 text-white' : 'text-gray-500'}`}
+                                                        className={`py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${keelType === kt ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
                                                     >
                                                         {kt === 'centerboard' ? 'C/Board' : kt}
                                                     </button>
@@ -886,7 +886,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                                     {vesselType === 'sail' && (
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2">
+                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
                                                 Rigging Type
                                             </label>
                                             <select
@@ -928,7 +928,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">
+                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
                                                 Length{' '}
                                                 <button
                                                     onClick={toggleLengthUnit}
@@ -946,7 +946,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                             />
                                         </div>
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">
+                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
                                                 Beam{' '}
                                                 <button
                                                     onClick={toggleBeamUnit}
@@ -967,7 +967,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">
+                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
                                                 Draft{' '}
                                                 <button
                                                     onClick={toggleDraftUnit}
@@ -985,7 +985,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                             />
                                         </div>
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">
+                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
                                                 Displacement{' '}
                                                 <button
                                                     onClick={toggleDispUnit}
@@ -1006,7 +1006,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                                     {/* Air Draft */}
                                     <div>
-                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between">
+                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
                                             Air Draft{' '}
                                             <button
                                                 onClick={toggleAirDraftUnit}
@@ -1022,7 +1022,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                             placeholder="Height above waterline"
                                             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500"
                                         />
-                                        <p className="text-[11px] text-gray-500 mt-1">
+                                        <p className="text-[11px] text-gray-400 mt-1">
                                             Used for bridge clearance on routes
                                         </p>
                                     </div>
@@ -1030,7 +1030,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                     {/* Tankage */}
                                     <div className="grid grid-cols-2 gap-4">
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
+                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
                                                 <span className="flex items-center gap-1">
                                                     <GearIcon className="w-3 h-3 text-amber-400" /> Fuel
                                                 </span>{' '}
@@ -1050,7 +1050,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                             />
                                         </div>
                                         <div>
-                                            <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
+                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
                                                 <span className="flex items-center gap-1">
                                                     <DropletIcon className="w-3 h-3 text-sky-400" /> Water
                                                 </span>{' '}
@@ -1073,7 +1073,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
                                     {/* Crew */}
                                     <div>
-                                        <label className="text-xs font-bold text-gray-500 uppercase tracking-widest block mb-2 flex items-center gap-1">
+                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex items-center gap-1">
                                             <AnchorIcon className="w-3 h-3 text-sky-400" /> Crew Aboard (incl. Captain)
                                         </label>
                                         <input
@@ -1085,7 +1085,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                             placeholder="2"
                                             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono"
                                         />
-                                        <p className="text-[11px] text-gray-500 mt-1">
+                                        <p className="text-[11px] text-gray-400 mt-1">
                                             Used for provisioning and watch schedules
                                         </p>
                                     </div>
@@ -1114,7 +1114,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                         <button
                                             key={u}
                                             onClick={() => setPrefSpeed(u as SpeedUnit)}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefSpeed === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefSpeed === u ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
                                         >
                                             {u}
                                         </button>
@@ -1130,7 +1130,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                         <button
                                             key={u}
                                             onClick={() => setPrefWaveHeight(u as LengthUnit)}
-                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefWaveHeight === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}
+                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefWaveHeight === u ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
                                         >
                                             {u}
                                         </button>
@@ -1146,7 +1146,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                         <button
                                             key={u}
                                             onClick={() => setPrefLength(u as LengthUnit)}
-                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefLength === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}
+                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefLength === u ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
                                         >
                                             {u}
                                         </button>
@@ -1161,7 +1161,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                         <button
                                             key={u}
                                             onClick={() => setPrefTemp(u as TempUnit)}
-                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefTemp === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}
+                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefTemp === u ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
                                         >
                                             {u}
                                         </button>
@@ -1175,7 +1175,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                         <button
                                             key={u}
                                             onClick={() => setPrefDist(u as DistanceUnit)}
-                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefDist === u ? 'bg-sky-500 text-white' : 'text-gray-500'}`}
+                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefDist === u ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
                                         >
                                             {u}
                                         </button>
@@ -1271,7 +1271,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                                             ? 'text-white/70'
                                                             : opt.recommended
                                                               ? 'text-emerald-400/70'
-                                                              : 'text-gray-500'
+                                                              : 'text-gray-400'
                                                     }`}
                                                 >
                                                     {opt.desc}
