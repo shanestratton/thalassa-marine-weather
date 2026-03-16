@@ -1293,7 +1293,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
                         >
                             {photos.map((url, i) => (
                                 <div key={i} className="relative aspect-square rounded-xl overflow-hidden group">
-                                    <img src={url} alt="" className="w-full h-full object-cover" />
+                                    <img src={url} loading="lazy" alt="" className="w-full h-full object-cover" />
                                     <button
                                         onClick={() => removePhoto(i)}
                                         className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center text-white text-[11px] opacity-0 group-hover:opacity-100 transition-opacity"

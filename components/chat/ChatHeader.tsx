@@ -111,7 +111,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                     className="relative w-10 h-10 rounded-xl overflow-hidden border border-white/[0.12] hover:border-white/[0.18] bg-white/[0.08] hover:bg-white/[0.12] transition-all active:scale-95"
                                 >
                                     {myAvatarUrl ? (
-                                        <img src={myAvatarUrl} alt="" className="w-full h-full object-cover" />
+                                        <img src={myAvatarUrl} loading="lazy" alt="" className="w-full h-full object-cover" />
                                     ) : (
                                         <div className="w-full h-full bg-white/[0.04] flex items-center justify-center">
                                             <span className="text-xl">⚓</span>
