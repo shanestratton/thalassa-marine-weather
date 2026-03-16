@@ -1,3 +1,4 @@
+import { createLogger } from '../utils/createLogger';
 import {
     MarineWeatherReport,
     VoyagePlan,
@@ -8,8 +9,10 @@ import {
     UnitPreferences,
     VesselDimensionUnits,
 } from '../types';
+import { createLogger } from '../utils/createLogger';
 import { convertLength, convertSpeed } from '../utils';
 import { fetchStormGlassWeather } from './weather/api/stormglass';
+const log = createLogger('Gemini');
 
 // ── Supabase Edge Proxy ──────────────────────────────────────
 // All Gemini calls go through the proxy-gemini edge function.

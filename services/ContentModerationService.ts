@@ -10,7 +10,9 @@
  * If flagged, the message is soft-deleted within ~1-2 seconds.
  */
 
+import { createLogger } from '../utils/createLogger';
 import { supabase } from './supabase';
+const log = createLogger('Moderation');
 
 // --- CONFIG ---
 const MESSAGES_TABLE = 'chat_messages';

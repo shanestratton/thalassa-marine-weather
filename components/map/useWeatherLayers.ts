@@ -390,7 +390,7 @@ export function useWeatherLayers(
                 .then(() => {
                     const { grid: currentGrid } = WindStore.getState();
                     if (!currentGrid) {
-                        console.warn('[WindScrubber] activate() resolved but no grid in store');
+                        log.warn('activate() resolved but no grid in store');
                         return;
                     }
                     windGridRef.current = currentGrid;
@@ -403,7 +403,7 @@ export function useWeatherLayers(
                     );
                 })
                 .catch((err) => {
-                    console.warn('[WindScrubber] activate() failed:', err);
+                    log.warn('activate() failed:', err);
                 });
         }, 1200);
         return () => clearTimeout(windTimer);

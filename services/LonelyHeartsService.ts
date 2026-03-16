@@ -9,7 +9,9 @@
  * Uses existing DM infrastructure for matched conversations.
  */
 
+import { createLogger } from '../utils/createLogger';
 import { supabase } from './supabase';
+const log = createLogger('CrewFinder');
 
 // --- TABLES ---
 const CREW_PROFILES_TABLE = 'sailor_crew_profiles';
@@ -310,11 +312,11 @@ class LonelyHeartsServiceClass {
             } = await supabase.auth.getUser();
             if (user?.id) {
                 this.currentUserId = user.id;
-                console.info('[CrewFinder] Auth via getUser:', user.id.slice(0, 8));
+                log.info('Auth via getUser:', user.id.slice(0, 8));
                 return;
             }
         } catch (e) {
-            console.warn('[CrewFinder] getUser failed, trying getSession:', e);
+            log.warn('getUser failed, trying getSession:', e);
         }
         // Fallback: getSession uses locally cached token
         try {
@@ -322,9 +324,9 @@ class LonelyHeartsServiceClass {
                 data: { session },
             } = await supabase.auth.getSession();
             this.currentUserId = session?.user?.id || null;
-            console.info('[CrewFinder] Auth via getSession:', this.currentUserId?.slice(0, 8) || 'null');
+            log.info('Auth via getSession:', this.currentUserId?.slice(0, 8) || 'null');
         } catch (e) {
-            console.warn('[CrewFinder] getSession failed:', e);
+            log.warn('getSession failed:', e);
             this.currentUserId = null;
         }
     }

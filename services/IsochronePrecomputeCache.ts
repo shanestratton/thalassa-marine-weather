@@ -8,7 +8,9 @@
  * Module-level singleton — survives React component mount/unmount cycles.
  */
 
+import { createLogger } from '../utils/createLogger';
 import type { IsochroneResult } from './IsochroneRouter';
+const log = createLogger('IsoCache');
 
 interface PrecomputedRoute {
     depLat: number;

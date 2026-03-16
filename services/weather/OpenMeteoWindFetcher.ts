@@ -9,10 +9,12 @@
  * and the IsochroneRouter (which needs a full WindGrid/WindField for wavefront expansion).
  */
 
+import { createLogger } from '../utils/createLogger';
 import { getOpenMeteoKey } from './keys';
 import type { WindGrid } from './windField';
 import type { ModelSource } from './WindFieldAdapter';
 import { AVAILABLE_MODELS, type WeatherModelId, recommendModels } from './MultiModelWeatherService';
+const log = createLogger('OMWind');
 
 const FORECAST_HOURS = 168; // 7 days for passage planning
 const BATCH_SIZE = 50; // Open-Meteo max per request
@@ -31,13 +33,13 @@ export async function fetchModelWindGrid(
 ): Promise<WindGrid | null> {
     const omKey = getOpenMeteoKey();
     if (!omKey) {
-        console.warn('[OpenMeteoFetcher] No API key available');
+        log.warn('No API key available');
         return null;
     }
 
     const model = AVAILABLE_MODELS.find((m) => m.id === modelId);
     if (!model) {
-        console.warn(`[OpenMeteoFetcher] Unknown model: ${modelId}`);
+        log.warn(`Unknown model: ${modelId}`);
         return null;
     }
 
@@ -109,7 +111,7 @@ export async function fetchModelWindGrid(
 
                     const resp = await fetch(url, { signal: AbortSignal.timeout(20_000) });
                     if (!resp.ok) {
-                        console.warn(`[OpenMeteoFetcher] ${model.name} batch ${start}-${end} failed: ${resp.status}`);
+                        log.warn(`${model.name} batch ${start}-${end} failed: ${resp.status}`);
                         return;
                     }
 
@@ -125,7 +127,7 @@ export async function fetchModelWindGrid(
         // Check we got enough data
         const validCount = allResults.filter((r) => (r as Record<string, unknown>)?.hourly).length;
         if (validCount < allPoints.length * 0.5) {
-            console.warn(`[OpenMeteoFetcher] ${model.name}: only ${validCount}/${allPoints.length} points valid`);
+            log.warn(`${model.name}: only ${validCount}/${allPoints.length} points valid`);
             return null;
         }
 
@@ -174,7 +176,7 @@ export async function fetchModelWindGrid(
         }
 
         const dt = Math.round(performance.now() - t0);
-        console.info(`[OpenMeteoFetcher] ✓ ${model.name}: ${rows}×${cols}×${totalHours}h grid in ${dt}ms`);
+        log.info(`✓ ${model.name}: ${rows}×${cols}×${totalHours}h grid in ${dt}ms`);
 
         return {
             u: uGrids,
@@ -191,7 +193,7 @@ export async function fetchModelWindGrid(
             totalHours,
         };
     } catch (err) {
-        console.warn(`[OpenMeteoFetcher] ${model.name} failed:`, err);
+        log.warn(`${model.name} failed:`, err);
         return null;
     }
 }
@@ -212,7 +214,7 @@ export async function fetchMultiModelWindGrids(
     const midLon = (bounds.west + bounds.east) / 2;
     const models = modelIds ?? recommendModels(midLat, midLon);
 
-    console.info(`[OpenMeteoFetcher] Fetching multi-model grids: ${models.join(', ')}`);
+    log.info(`Fetching multi-model grids: ${models.join(', ')}`);
 
     const results = await Promise.all(
         models.map(async (modelId): Promise<ModelSource | null> => {

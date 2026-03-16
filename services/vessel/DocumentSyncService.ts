@@ -16,10 +16,12 @@
  *   file selected → data URI (local) → upload to Storage → public URL → update record
  */
 
+import { createLogger } from '../utils/createLogger';
 import { supabase } from '../supabase';
 import { LocalDocumentService } from './LocalDocumentService';
 import { bulkUpsert } from './LocalDatabase';
 import type { ShipDocument } from '../../types';
+const log = createLogger('DocSync');
 
 // ── Constants ──────────────────────────────────────────────────
 
@@ -52,7 +54,7 @@ class DocumentSyncServiceClass {
         // Auto-sync when connectivity resumes
         if (typeof window !== 'undefined') {
             window.addEventListener('online', () => {
-                console.info('[DocSync] Online — triggering sync');
+                log.info('Online — triggering sync');
                 this.syncAll();
             });
             // Attempt sync on init
@@ -130,7 +132,7 @@ class DocumentSyncServiceClass {
             });
 
             if (error) {
-                console.error('[DocSync] Storage upload failed:', error.message);
+                log.error('Storage upload failed:', error.message);
                 return null;
             }
 
@@ -141,7 +143,7 @@ class DocumentSyncServiceClass {
                 .createSignedUrl(storagePath, 365 * 24 * 60 * 60); // 1 year in seconds
 
             if (signError || !signedData?.signedUrl) {
-                console.error('[DocSync] Signed URL creation failed:', signError?.message);
+                log.error('Signed URL creation failed:', signError?.message);
                 // Upload succeeded but can't get URL — still mark as uploaded
                 // Return a reconstructable path so we can re-sign later
                 return `supabase-storage://${STORAGE_BUCKET}/${storagePath}`;
@@ -149,7 +151,7 @@ class DocumentSyncServiceClass {
 
             return signedData.signedUrl;
         } catch (e) {
-            console.error('[DocSync] File upload error:', e);
+            log.error('File upload error:', e);
             return null;
         }
     }
@@ -215,7 +217,7 @@ class DocumentSyncServiceClass {
             );
 
             if (error) {
-                console.error('[DocSync] DB upsert failed:', error.message);
+                log.error('DB upsert failed:', error.message);
                 this._setStatus(doc.id, 'error', error.message);
                 return false;
             }
@@ -223,7 +225,7 @@ class DocumentSyncServiceClass {
             this._setStatus(doc.id, 'synced');
             return true;
         } catch (e) {
-            console.error('[DocSync] Sync failed for doc:', doc.id, e);
+            log.error('Sync failed for doc:', doc.id, e);
             this._setStatus(doc.id, 'error', String(e));
             return false;
         }
@@ -258,9 +260,9 @@ class DocumentSyncServiceClass {
             // Also sync deletions — check cloud for docs not present locally
             await this._syncDeletions();
 
-            console.info(`[DocSync] Sync complete: ${synced} synced, ${failed} failed`);
+            log.info(`Sync complete: ${synced} synced, ${failed} failed`);
         } catch (e) {
-            console.error('[DocSync] Sync error:', e);
+            log.error('Sync error:', e);
         } finally {
             this._syncInProgress = false;
         }
@@ -299,7 +301,7 @@ class DocumentSyncServiceClass {
             }
             this._saveStatus();
         } catch (e) {
-            console.error('[DocSync] Deletion sync error:', e);
+            log.error('Deletion sync error:', e);
         }
     }
 
@@ -347,10 +349,10 @@ class DocumentSyncServiceClass {
                 await bulkUpsert(TABLE.replace('ship_', ''), toUpsert);
             }
 
-            console.info(`[DocSync] Pulled ${restored} documents from cloud`);
+            log.info(`Pulled ${restored} documents from cloud`);
             return restored;
         } catch (e) {
-            console.error('[DocSync] Pull error:', e);
+            log.error('Pull error:', e);
             return 0;
         }
     }

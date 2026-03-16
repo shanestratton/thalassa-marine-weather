@@ -25,10 +25,12 @@
  *   - IsochroneResult: optimal route, ETA, isochrone wavefronts for viz
  */
 
+import { createLogger } from '../utils/createLogger';
 import type { PolarData } from '../types';
 import { GebcoDepthService } from './GebcoDepthService';
 import { type BathymetryGrid, isLand, getDepthFromCache } from './BathymetryCache';
 import type { ComfortParams } from '../types/settings';
+const log = createLogger('IsoRoute');
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -356,7 +358,7 @@ export async function computeIsochrones(
 
         // ── Wall-clock timeout check ──
         if (performance.now() - wallClockStart > WALL_CLOCK_TIMEOUT_MS) {
-            console.warn(`[Isochrone] Wall-clock timeout at step ${step} (${timeHours}h)`);
+            log.warn(`Wall-clock timeout at step ${step} (${timeHours}h)`);
             break;
         }
 
@@ -537,7 +539,7 @@ export async function computeIsochrones(
                     });
                     if (endpointValid.length === 0) endpointValid = candidates;
                 } catch (_depthErr) {
-                    console.warn(`[Isochrone] Step ${step}: depth check failed, skipping land avoidance`);
+                    log.warn(`Step ${step}: depth check failed, skipping land avoidance`);
                 }
             }
         }
@@ -675,11 +677,11 @@ export async function computeIsochrones(
     }
 
     const elapsed = Math.round(performance.now() - wallClockStart);
-    console.info(`[Isochrone] Completed in ${elapsed}ms, ${isochrones.length} steps`);
+    log.info(`Completed in ${elapsed}ms, ${isochrones.length} steps`);
 
     // No route found
     if (!arrivalNode) {
-        console.warn('[Isochrone] No route found within max hours');
+        log.warn('No route found within max hours');
         return null;
     }
 

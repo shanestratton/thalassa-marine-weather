@@ -9,6 +9,7 @@
  *   await orchestrator.fetchWeather('Sydney, NSW', { force: true });
  */
 
+import { createLogger } from '../utils/createLogger';
 import { MarineWeatherReport, VoyagePlan, VesselProfile, UnitPreferences, VesselDimensionUnits } from '../types';
 import { fetchPrecisionWeather, fetchWeatherByStrategy, parseLocation, reverseGeocode } from './weatherService';
 import { fetchWeatherKitRealtime } from './weather/api/weatherkit';
@@ -31,6 +32,7 @@ import {
 } from './nativeStorage';
 import { getUpdateInterval, alignToNextInterval, AI_UPDATE_INTERVAL } from './WeatherScheduler';
 import { addBreadcrumb, captureException } from './sentry';
+const log = createLogger('WxOrch');
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -91,13 +93,13 @@ export class WeatherOrchestrator {
     // ── Cache Version Check ────────────────────────────────────
 
     async checkCacheVersion(): Promise<void> {
-        console.info('[WeatherOrchestrator] Version check starting...');
+        log.info('Version check starting...');
         addBreadcrumb({ category: 'weather', message: 'Cache version check', level: 'info' });
         try {
             const ver = await readCacheVersion();
-            console.info(`[WeatherOrchestrator] Cached version: ${ver}, expected: ${CACHE_VERSION}`);
+            log.info(`Cached version: ${ver}, expected: ${CACHE_VERSION}`);
             if (ver !== CACHE_VERSION) {
-                console.info('[WeatherOrchestrator] Version mismatch — clearing caches');
+                log.info('Version mismatch — clearing caches');
                 addBreadcrumb({
                     category: 'weather',
                     message: 'Cache version mismatch, clearing caches',
@@ -119,11 +121,11 @@ export class WeatherOrchestrator {
                 }
             }
         } catch (e) {
-            console.warn('[WeatherOrchestrator] Version check failed:', e);
+            log.warn('Version check failed:', e);
             captureException(e, { tags: { operation: 'checkCacheVersion' } } as any);
         } finally {
             this.cb.setVersionChecked(true);
-            console.info('[WeatherOrchestrator] Version check complete');
+            log.info('Version check complete');
         }
     }
 
@@ -132,7 +134,7 @@ export class WeatherOrchestrator {
     loadInstantCache(): MarineWeatherReport | null {
         const syncCached = loadLargeDataSync(DATA_CACHE_KEY) as MarineWeatherReport | null;
         if (syncCached && syncCached.locationName) {
-            console.info(`[WeatherOrchestrator] Instant display: ${syncCached.locationName}`);
+            log.info(`Instant display: ${syncCached.locationName}`);
             addBreadcrumb({
                 category: 'weather',
                 message: `Instant cache hit: ${syncCached.locationName}`,
@@ -168,7 +170,7 @@ export class WeatherOrchestrator {
             keysToDelete.forEach((key) => localStorage.removeItem(key));
 
             // Load cached weather data
-            console.info('[WeatherOrchestrator] Loading cached weather data...');
+            log.info('Loading cached weather data...');
             addBreadcrumb({ category: 'weather', message: 'Loading cached weather data', level: 'info' });
             const cached = await loadLargeData(DATA_CACHE_KEY);
             if (cached && cached.locationName) {
@@ -185,7 +187,7 @@ export class WeatherOrchestrator {
                 this.cb.setLoading(false);
                 hasCachedData = true;
             } else {
-                console.info('[WeatherOrchestrator] Cache MISS: no cached weather data');
+                log.info('Cache MISS: no cached weather data');
                 addBreadcrumb({ category: 'weather', message: 'Cache MISS: no weather data', level: 'info' });
             }
 
@@ -204,7 +206,7 @@ export class WeatherOrchestrator {
                 addBreadcrumb({ category: 'weather', message: 'History cache empty', level: 'info' });
             }
         } catch (e) {
-            console.warn('[WeatherOrchestrator] Cache load failed:', e);
+            log.warn('Cache load failed:', e);
             addBreadcrumb({
                 category: 'weather',
                 message: 'Cache load failed',
@@ -221,14 +223,14 @@ export class WeatherOrchestrator {
     private triggerInitialFetch(hasCachedData: boolean): void {
         const settings = this.cb.getSettings();
         if (!settings.defaultLocation) {
-            console.info('[WeatherOrchestrator] No default location set');
+            log.info('No default location set');
             addBreadcrumb({ category: 'weather', message: 'No default location set', level: 'info' });
             this.cb.setLoading(false);
             return;
         }
 
         const loc = settings.defaultLocation;
-        console.info(`[WeatherOrchestrator] Default location: "${loc}"`);
+        log.info(`Default location: "${loc}"`);
         addBreadcrumb({ category: 'weather', message: `Default location: "${loc}"`, level: 'info' });
 
         // Staleness check
@@ -238,7 +240,7 @@ export class WeatherOrchestrator {
             : Infinity;
 
         if (hasCachedData && cachedAge < STALE_THRESHOLD_MS) {
-            console.info(`[WeatherOrchestrator] Cache fresh (${Math.round(cachedAge / 60000)}m old) — skipping fetch`);
+            log.info(`Cache fresh (${Math.round(cachedAge / 60000)}m old) — skipping fetch`);
             addBreadcrumb({
                 category: 'weather',
                 message: 'Cache fresh, skipping fetch',
@@ -265,11 +267,11 @@ export class WeatherOrchestrator {
         // Handle GPS-based "Current Location"
         if (loc === 'Current Location') {
             if (!hasCachedData) this.cb.setLoadingMessage('Getting GPS Location...');
-            console.info('[WeatherOrchestrator] Requesting GPS position...');
+            log.info('Requesting GPS position...');
             addBreadcrumb({ category: 'weather', message: 'Requesting GPS position', level: 'info' });
             GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
                 if (pos) {
-                    console.info(`[WeatherOrchestrator] GPS: ${pos.latitude.toFixed(4)}, ${pos.longitude.toFixed(4)}`);
+                    log.info(`GPS: ${pos.latitude.toFixed(4)}, ${pos.longitude.toFixed(4)}`);
                     addBreadcrumb({
                         category: 'weather',
                         message: 'GPS position received',
@@ -283,7 +285,7 @@ export class WeatherOrchestrator {
                         silent: hasCachedData,
                     });
                 } else {
-                    console.warn('[WeatherOrchestrator] GPS returned null');
+                    log.warn('GPS returned null');
                     addBreadcrumb({ category: 'weather', message: 'GPS returned null', level: 'warning' });
                     if (!hasCachedData) {
                         this.cb.setError('Unable to get GPS location. Please select a location.');
@@ -292,7 +294,7 @@ export class WeatherOrchestrator {
                 }
             });
         } else {
-            console.info(`[WeatherOrchestrator] Named location: "${loc}" — scheduling fetch`);
+            log.info(`Named location: "${loc}" — scheduling fetch`);
             addBreadcrumb({
                 category: 'weather',
                 message: `Named location: "${loc}" — scheduling fetch`,
@@ -690,7 +692,7 @@ export class WeatherOrchestrator {
                 this.cb.setHistoryCache((prev) => ({ ...prev, [location]: enriched }));
                 saveLargeDataImmediate(DATA_CACHE_KEY, enriched);
             } catch (e) {
-                console.warn('[WeatherOrchestrator] AI enrichment non-critical:', e);
+                log.warn('AI enrichment non-critical:', e);
             }
         } else {
             // Carry forward existing advice
@@ -789,7 +791,7 @@ export class WeatherOrchestrator {
             patched.sources = sources;
             this.cb.setWeatherData({ ...current, current: patched });
         } catch (e) {
-            console.warn('[WeatherOrchestrator] Live metrics patch failed:', e);
+            log.warn('Live metrics patch failed:', e);
         }
     }
 

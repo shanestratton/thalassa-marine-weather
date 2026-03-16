@@ -273,7 +273,7 @@ class AnchorWatchServiceClass {
             try {
                 await KeepAwake.keepAwake();
             } catch (e) {
-                console.warn('[AnchorWatch] Web fallback:', e);
+                log.warn('Web fallback:', e);
             }
 
             // Start GPS monitoring + geofence
@@ -316,7 +316,7 @@ class AnchorWatchServiceClass {
         try {
             await KeepAwake.keepAwake();
         } catch (e) {
-            console.warn('[AnchorWatch] Web fallback:', e);
+            log.warn('Web fallback:', e);
         }
 
         await BgGeoManager.ensureReady();
@@ -350,7 +350,7 @@ class AnchorWatchServiceClass {
         try {
             await KeepAwake.allowSleep();
         } catch (e) {
-            console.warn('[AnchorWatch] Web fallback:', e);
+            log.warn('Web fallback:', e);
         }
 
         this.state = 'idle';
@@ -406,7 +406,7 @@ class AnchorWatchServiceClass {
                 timestamp: pos.timestamp,
             };
         } catch (e) {
-            console.warn('[AnchorWatch]', e);
+            log.warn( e);
             return null;
         }
     }
@@ -455,7 +455,7 @@ class AnchorWatchServiceClass {
             try {
                 await KeepAwake.keepAwake();
             } catch (e) {
-                console.warn('[AnchorWatch] Web fallback:', e);
+                log.warn('Web fallback:', e);
             }
             await BgGeoManager.ensureReady();
             await this.startGpsMonitoring();
@@ -463,7 +463,7 @@ class AnchorWatchServiceClass {
             this.notify();
             return true;
         } catch (e) {
-            console.warn('[AnchorWatch]', e);
+            log.warn( e);
             /* Corrupted persisted data — clear and start fresh */
             this.clearPersistedWatchState();
             return false;
@@ -485,7 +485,7 @@ class AnchorWatchServiceClass {
             };
             localStorage.setItem(ANCHOR_WATCH_KEY, JSON.stringify(data));
         } catch (e) {
-            console.warn('[AnchorWatch]', e);
+            log.warn( e);
             // Non-critical
         }
     }
@@ -495,7 +495,7 @@ class AnchorWatchServiceClass {
         try {
             localStorage.removeItem(ANCHOR_WATCH_KEY);
         } catch (e) {
-            console.warn('[AnchorWatch]', e);
+            log.warn( e);
             // Non-critical
         }
     }
@@ -593,7 +593,7 @@ class AnchorWatchServiceClass {
             try {
                 unsub();
             } catch (e) {
-                console.warn('[AnchorWatch] already cleaned:', e);
+                log.warn('already cleaned:', e);
             }
         });
         this.bgUnsubscribers = [];
@@ -711,7 +711,7 @@ class AnchorWatchServiceClass {
             setTimeout(() => Haptics.impact({ style: ImpactStyle.Heavy }), 200);
             setTimeout(() => Haptics.impact({ style: ImpactStyle.Heavy }), 400);
         } catch (e) {
-            console.warn('[AnchorWatch] No haptics on web:', e);
+            log.warn('No haptics on web:', e);
         }
 
         // Start repeating alarm

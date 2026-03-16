@@ -77,7 +77,7 @@ export async function preloadBathymetry(
         });
 
         if (!resp.ok) {
-            console.warn(`[BathyCache] Edge function returned ${resp.status}`);
+            log.warn(`Edge function returned ${resp.status}`);
             return null;
         }
 
@@ -86,7 +86,7 @@ export async function preloadBathymetry(
         // The edge function returns: { grid: { table: { columnNames, rows } }, elapsed_ms }
         const table = data?.grid?.table;
         if (!table?.rows?.length) {
-            console.warn('[BathyCache] Empty response from edge function');
+            log.warn('Empty response from edge function');
             return null;
         }
 
@@ -97,7 +97,7 @@ export async function preloadBathymetry(
         const zIdx = colNames.indexOf('altitude');
 
         if (latIdx < 0 || lonIdx < 0 || zIdx < 0) {
-            console.warn('[BathyCache] Missing columns:', colNames);
+            log.warn('Missing columns:', colNames);
             return null;
         }
 
@@ -115,7 +115,7 @@ export async function preloadBathymetry(
         const sortedLons = [...lons].sort((a, b) => a - b);
 
         if (sortedLats.length < 2 || sortedLons.length < 2) {
-            console.warn('[BathyCache] Insufficient grid dimensions');
+            log.warn('Insufficient grid dimensions');
             return null;
         }
 
@@ -157,11 +157,11 @@ export async function preloadBathymetry(
         };
 
         const dt = Math.round(performance.now() - t0);
-        console.info(`[BathyCache] ✓ Loaded ${gridRows}×${gridCols} grid (${rows.length} points) in ${dt}ms`);
+        log.info(`✓ Loaded ${gridRows}×${gridCols} grid (${rows.length} points) in ${dt}ms`);
 
         return grid;
     } catch (err) {
-        console.warn('[BathyCache] Failed to preload:', err);
+        log.warn('Failed to preload:', err);
         return null;
     }
 }
