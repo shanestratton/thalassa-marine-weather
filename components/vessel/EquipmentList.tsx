@@ -161,7 +161,9 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
             .then(() => {
                 triggerHaptic('light');
             })
-            .catch(() => {});
+            .catch((e) => {
+                console.warn(`[EquipmentList]`, e);
+            });
     };
 
     const openManual = () => {
@@ -523,7 +525,9 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             .then(() => {
                 triggerHaptic('light');
             })
-            .catch(() => {});
+            .catch((e) => {
+                console.warn(`[EquipmentList]`, e);
+            });
     };
 
     const handleSaveEdit = useCallback(async () => {

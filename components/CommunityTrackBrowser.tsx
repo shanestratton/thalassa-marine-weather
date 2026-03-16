@@ -97,7 +97,9 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
         if (isOpen) {
             TrackSharingService.getDistinctRegions()
                 .then(setAvailableRegions)
-                .catch(() => {});
+                .catch((e) => {
+                    console.warn(`[CommunityTrackBrowser]`, e);
+                });
         }
     }, [isOpen]);
 

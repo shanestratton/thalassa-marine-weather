@@ -280,7 +280,9 @@ export function useLogPageState() {
             if (newestTimestamp > 0 && now - newestTimestamp > ARCHIVE_AGE_MS) {
                 ShipLogService.archiveVoyage(v.voyageId)
                     .then(() => loadData())
-                    .catch(() => {});
+                    .catch((e) => {
+                        console.warn(`[useLogPageState]`, e);
+                    });
             }
         }
     }, [state.loading, state.entries.length]);
@@ -292,7 +294,9 @@ export function useLogPageState() {
                 setArchivedVoyages(groupEntriesByVoyage(archived));
                 setCareerEntries(career);
             })
-            .catch(() => {});
+            .catch((e) => {
+                console.warn(`[useLogPageState]`, e);
+            });
     }, []);
 
     useEffect(() => {
@@ -303,7 +307,9 @@ export function useLogPageState() {
             if (mounted) dispatch({ type: 'DONE_LOADING' });
         }, 5000);
         // Pre-warm GPS plugin on mount — saves 1-2s when user taps Start
-        BgGeoManager.ensureReady().catch(() => {});
+        BgGeoManager.ensureReady().catch((e) => {
+            console.warn(`[useLogPageState]`, e);
+        });
         (async () => {
             try {
                 await ShipLogService.initialize();

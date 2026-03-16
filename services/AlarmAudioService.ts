@@ -40,7 +40,9 @@ class AlarmAudioServiceClass {
                 await AlarmAudioPlugin.startAlarm();
                 this.isPlaying = true;
                 return;
-            } catch (err) {}
+            } catch (err) {
+                console.warn(`[AlarmAudioService]`, err);
+            }
         }
 
         // Web fallback
@@ -110,7 +112,9 @@ class AlarmAudioServiceClass {
 
             playTone();
             this.webAlarmInterval = setInterval(playTone, 1500);
-        } catch (e) {}
+        } catch (e) {
+            console.warn(`[AlarmAudioService]`, e);
+        }
     }
 
     private stopWebAlarm(): void {

@@ -479,7 +479,9 @@ export function useWeatherLayers(
                 const fcId = `rainbow-fc-${visibleForecastIdxRef.current}`;
                 try {
                     if (m.getLayer(fcId)) m.setPaintProperty(fcId, 'raster-opacity', 0);
-                } catch (_) {}
+                } catch (_) {
+                    console.warn(`[useWeatherLayers]`, _);
+                }
                 visibleForecastIdxRef.current = null;
             }
 
@@ -488,7 +490,9 @@ export function useWeatherLayers(
                 const prevId = `radar-${prevRdIdx}`;
                 try {
                     if (m.getLayer(prevId)) m.setPaintProperty(prevId, 'raster-opacity', 0);
-                } catch (_) {}
+                } catch (_) {
+                    console.warn(`[useWeatherLayers]`, _);
+                }
             }
 
             // Show current radar layer
@@ -496,7 +500,9 @@ export function useWeatherLayers(
                 const layerId = `radar-${rdIdx}`;
                 try {
                     if (m.getLayer(layerId)) m.setPaintProperty(layerId, 'raster-opacity', 0.75);
-                } catch (_) {}
+                } catch (_) {
+                    console.warn(`[useWeatherLayers]`, _);
+                }
                 visibleRadarIdxRef.current = rdIdx;
             }
         } else if (frame.type === 'forecast' && frame.forecastTileUrl) {
@@ -510,7 +516,9 @@ export function useWeatherLayers(
                 const rdId = `radar-${visibleRadarIdxRef.current}`;
                 try {
                     if (m.getLayer(rdId)) m.setPaintProperty(rdId, 'raster-opacity', 0);
-                } catch (_) {}
+                } catch (_) {
+                    console.warn(`[useWeatherLayers]`, _);
+                }
                 visibleRadarIdxRef.current = null;
             }
 
@@ -519,7 +527,9 @@ export function useWeatherLayers(
                 const prevId = `rainbow-fc-${prevFcIdx}`;
                 try {
                     if (m.getLayer(prevId)) m.setPaintProperty(prevId, 'raster-opacity', 0);
-                } catch (_) {}
+                } catch (_) {
+                    console.warn(`[useWeatherLayers]`, _);
+                }
             }
 
             // Show current forecast layer
@@ -527,7 +537,9 @@ export function useWeatherLayers(
                 const layerId = `rainbow-fc-${fcIdx}`;
                 try {
                     if (m.getLayer(layerId)) m.setPaintProperty(layerId, 'raster-opacity', 0.75);
-                } catch (_) {}
+                } catch (_) {
+                    console.warn(`[useWeatherLayers]`, _);
+                }
                 visibleForecastIdxRef.current = fcIdx;
             }
         }
@@ -546,7 +558,9 @@ export function useWeatherLayers(
                     try {
                         if (map.getLayer(id)) map.removeLayer(id);
                         if (map.getSource(id)) map.removeSource(id);
-                    } catch (_) {}
+                    } catch (_) {
+                        console.warn(`[useWeatherLayers]`, _);
+                    }
                 });
             }
             unifiedFramesRef.current = [];
@@ -560,7 +574,9 @@ export function useWeatherLayers(
             windMarkersRef.current = [];
             try {
                 if (map.getLayer('wind-particles')) map.removeLayer('wind-particles');
-            } catch (_) {}
+            } catch (_) {
+                console.warn(`[useWeatherLayers]`, _);
+            }
             windEngineRef.current = null;
             WindDataController.deactivate(map);
         }
@@ -1027,13 +1043,19 @@ export function useWeatherLayers(
                             const id = `${prefix}${i}`;
                             try {
                                 if (m?.getLayer(id)) m.removeLayer(id);
-                            } catch (_) {}
+                            } catch (_) {
+                                console.warn(`[useWeatherLayers]`, _);
+                            }
                             try {
                                 if (m?.getSource(id)) m.removeSource(id);
-                            } catch (_) {}
+                            } catch (_) {
+                                console.warn(`[useWeatherLayers]`, _);
+                            }
                         });
                     }
-                } catch (_) {}
+                } catch (_) {
+                    console.warn(`[useWeatherLayers]`, _);
+                }
 
                 unifiedFramesRef.current = [];
                 setRainFrameCount(0);
@@ -1049,19 +1071,27 @@ export function useWeatherLayers(
             if (!activeLayers.has(tl)) {
                 try {
                     if (map.getLayer(tileId)) map.removeLayer(tileId);
-                } catch (_) {}
+                } catch (_) {
+                    console.warn(`[useWeatherLayers]`, _);
+                }
                 try {
                     if (map.getSource(tileId)) map.removeSource(tileId);
-                } catch (_) {}
+                } catch (_) {
+                    console.warn(`[useWeatherLayers]`, _);
+                }
             }
         }
         // Also clean up legacy single 'weather-tiles' source/layer
         try {
             if (map.getLayer('weather-tiles')) map.removeLayer('weather-tiles');
-        } catch (_) {}
+        } catch (_) {
+            console.warn(`[useWeatherLayers]`, _);
+        }
         try {
             if (map.getSource('weather-tiles')) map.removeSource('weather-tiles');
-        } catch (_) {}
+        } catch (_) {
+            console.warn(`[useWeatherLayers]`, _);
+        }
 
         // Add tile layers that ARE active
         for (const tl of TILE_LAYERS) {
@@ -1090,7 +1120,9 @@ export function useWeatherLayers(
                     },
                     map.getLayer('route-line-layer') ? 'route-line-layer' : undefined,
                 );
-            } catch (_) {}
+            } catch (_) {
+                console.warn(`[useWeatherLayers]`, _);
+            }
         }
 
         // ── Glass Pane: promote nav layers above any newly-added weather layers ──
@@ -1212,15 +1244,23 @@ export function useEmbeddedRain(
                     try {
                         const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
                         const data = await res.json();
-                        const past = (data?.radar?.past ?? []).map((f: { path: string; time: number }) => ({ path: f.path, time: f.time }));
-                        const forecast = (data?.radar?.nowcast ?? []).map((f: { path: string; time: number }) => ({ path: f.path, time: f.time }));
+                        const past = (data?.radar?.past ?? []).map((f: { path: string; time: number }) => ({
+                            path: f.path,
+                            time: f.time,
+                        }));
+                        const forecast = (data?.radar?.nowcast ?? []).map((f: { path: string; time: number }) => ({
+                            path: f.path,
+                            time: f.time,
+                        }));
                         const allFrames = [...past, ...forecast];
                         embeddedRainFrames.current = allFrames;
                         setEmbRainCount(allFrames.length);
                         const nowIdx = Math.max(0, past.length - 1);
                         embRainNowIdx.current = nowIdx;
                         setEmbRainIdx(nowIdx);
-                    } catch (err) {}
+                    } catch (err) {
+                        console.warn(`[useWeatherLayers]`, err);
+                    }
                 })();
             },
             embedded ? 1200 : 800,
@@ -1231,7 +1271,9 @@ export function useEmbeddedRain(
                 const mx = mapRef.current;
                 if (mx?.getLayer('embedded-rain')) mx.removeLayer('embedded-rain');
                 if (mx?.getSource('embedded-rain')) mx.removeSource('embedded-rain');
-            } catch (_) {}
+            } catch (_) {
+                console.warn(`[useWeatherLayers]`, _);
+            }
         };
     }, [enabled, mapReady]);
 

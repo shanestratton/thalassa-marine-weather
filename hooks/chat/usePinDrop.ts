@@ -47,7 +47,9 @@ export function usePinDrop(options: UsePinDropOptions) {
 
         PinService.getMyPins(15)
             .then((pins) => setSavedPins(pins))
-            .catch(() => {});
+            .catch((e) => {
+                console.warn(`[usePinDrop]`, e);
+            });
 
         try {
             const pos = BgGeoManager.getLastPosition();
@@ -98,7 +100,9 @@ export function usePinDrop(options: UsePinDropOptions) {
             latitude: pinLat,
             longitude: pinLng,
             caption: pinCaption.trim() || 'Dropped a pin',
-        }).catch(() => {});
+        }).catch((e) => {
+            console.warn(`[usePinDrop]`, e);
+        });
 
         setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     }, [activeChannel, pinLat, pinLng, pinCaption, setMessages, setMessageText, messageEndRef]);
@@ -147,7 +151,9 @@ export function usePinDrop(options: UsePinDropOptions) {
             latitude: pinLat,
             longitude: pinLng,
             caption: pinCaption.trim() || 'Point of interest',
-        }).catch(() => {});
+        }).catch((e) => {
+            console.warn(`[usePinDrop]`, e);
+        });
 
         setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 50);
     }, [activeChannel, pinLat, pinLng, pinCaption, setMessages, setMessageText, messageEndRef]);
