@@ -9,6 +9,16 @@
   <meta name="viewport"
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#0f172a" />
+  <!-- Content Security Policy — restrict external sources -->
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self';
+      script-src 'self' 'unsafe-inline' 'unsafe-eval' https://esm.sh;
+      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+      font-src 'self' https://fonts.gstatic.com;
+      img-src 'self' data: blob: https: http:;
+      connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.open-meteo.com https://customer-api.open-meteo.com https://geocoding-api.open-meteo.com https://api.stormglass.io https://api.mapbox.com https://tiles.openseamap.org https://nominatim.openstreetmap.org https://generativelanguage.googleapis.com https://weatherkit.apple.com https://*.tile.openstreetmap.org https://fonts.googleapis.com https://fonts.gstatic.com https://cdn-icons-png.flaticon.com;
+      media-src 'self' blob: data:;
+      worker-src 'self' blob:;" />
   <link rel="manifest" href="/manifest.json" />
   <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/567/567055.png">
 

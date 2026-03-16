@@ -617,7 +617,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                         </div>
                                     ) : url ? (
                                         <>
-                                            <img src={url} alt="" className="w-full h-full object-cover" />
+                                            <img src={url} loading="lazy" alt="" className="w-full h-full object-cover" />
                                             <button
                                                 onClick={() => onPhotoRemove(idx)}
                                                 className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/70 text-red-400 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity"
@@ -671,7 +671,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                         <div className="text-center mb-6">
                             <div className="w-28 h-28 mx-auto rounded-2xl overflow-hidden border-3 border-white/[0.08] shadow-2xl mb-4">
                                 {editPhotos[0] ? (
-                                    <img src={editPhotos[0]} alt="" className="w-full h-full object-cover" />
+                                    <img src={editPhotos[0]} loading="lazy" alt="" className="w-full h-full object-cover" />
                                 ) : (
                                     <div className="w-full h-full bg-gradient-to-br from-emerald-500/15 to-sky-500/15 flex items-center justify-center">
                                         <span className="text-3xl">

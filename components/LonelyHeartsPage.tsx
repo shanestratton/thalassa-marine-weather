@@ -1697,7 +1697,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                         <div className="text-center mb-6">
                             <div className="w-28 h-28 mx-auto rounded-2xl overflow-hidden border-3 border-white/[0.08] shadow-2xl mb-4">
                                 {selectedCard.avatar_url ? (
-                                    <img src={selectedCard.avatar_url} alt="" className="w-full h-full object-cover" />
+                                    <img src={selectedCard.avatar_url} loading="lazy" alt="" className="w-full h-full object-cover" />
                                 ) : (
                                     <div className="w-full h-full bg-gradient-to-br from-emerald-500/15 to-sky-500/15 flex items-center justify-center">
                                         <span className="text-3xl">

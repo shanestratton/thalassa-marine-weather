@@ -248,7 +248,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                 {/* Thumbnail */}
                 <div className="w-16 h-16 rounded-xl bg-white/[0.06] shrink-0 overflow-hidden">
                     {listing.images?.[0] ? (
-                        <img src={listing.images[0]} alt="" className="w-full h-full object-cover" />
+                        <img src={listing.images[0]} loading="lazy" alt="" className="w-full h-full object-cover" />
                     ) : (
                         <div className="w-full h-full flex items-center justify-center text-3xl">
                             {CATEGORY_ICONS[listing.category] || '📦'}

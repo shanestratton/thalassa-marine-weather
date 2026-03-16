@@ -46,6 +46,7 @@ const {
     mockRequestJoinChannel,
     mockToastSuccess,
     mockToastError,
+    mockGetChannelsFresh,
 } = vi.hoisted(() => ({
     mockInitialize: vi.fn().mockResolvedValue(undefined),
     mockGetChannels: vi.fn().mockResolvedValue([]),
@@ -78,6 +79,7 @@ const {
     mockProposeChannel: vi.fn().mockResolvedValue(true),
     mockIsChannelMember: vi.fn().mockResolvedValue(false),
     mockRequestJoinChannel: vi.fn().mockResolvedValue(true),
+    mockGetChannelsFresh: vi.fn().mockResolvedValue([]),
     mockToastSuccess: vi.fn(),
     mockToastError: vi.fn(),
 }));
@@ -108,6 +110,7 @@ vi.mock('../../services/ChatService', () => ({
         proposeChannel: mockProposeChannel,
         isChannelMember: mockIsChannelMember,
         requestJoinChannel: mockRequestJoinChannel,
+        getChannelsFresh: mockGetChannelsFresh,
     },
     DEFAULT_CHANNELS: [],
 }));

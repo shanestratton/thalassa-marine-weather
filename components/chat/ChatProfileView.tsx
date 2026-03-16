@@ -46,7 +46,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
             <div className="flex flex-col items-center gap-3">
                 <div className="w-24 h-24 rounded-2xl overflow-hidden border-2 border-purple-400/20 shadow-lg shadow-purple-500/10">
                     {myAvatarUrl ? (
-                        <img src={myAvatarUrl} alt="" className="w-full h-full object-cover" />
+                        <img src={myAvatarUrl} loading="lazy" alt="" className="w-full h-full object-cover" />
                     ) : (
                         <div className="w-full h-full bg-gradient-to-br from-purple-500/10 to-sky-500/10 flex items-center justify-center">
                             <span className="text-4xl opacity-40">🧑‍✈️</span>
