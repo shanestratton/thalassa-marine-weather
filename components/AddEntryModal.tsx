@@ -149,7 +149,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                             <span>{getWatchPeriodName(currentWatch)}</span>
                         </div>
                     </div>
-                    <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors p-1">
+                    <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors p-1" aria-label="Close">
                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path
                                 strokeLinecap="round"
