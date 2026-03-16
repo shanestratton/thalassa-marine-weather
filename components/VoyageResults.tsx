@@ -207,7 +207,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = ({
                             </div>
                             <div className="h-px flex-1 bg-gradient-to-r from-sky-500/60 via-sky-500/40 to-transparent" />
                         </div>
-                        <span className="text-[10px] text-sky-400/70 font-bold uppercase tracking-[0.15em] mt-0.5">
+                        <span className="text-[11px] text-sky-400/70 font-bold uppercase tracking-[0.15em] mt-0.5">
                             {voyagePlan.departureDate}
                         </span>
                     </div>

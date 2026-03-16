@@ -100,7 +100,7 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
                                         {opt.label}
                                     </span>
                                     <span
-                                        className={`text-[10px] leading-tight ${isActive ? 'text-white/70' : 'text-gray-500'}`}
+                                        className={`text-[11px] leading-tight ${isActive ? 'text-white/70' : 'text-gray-500'}`}
                                     >
                                         {opt.desc}
                                     </span>

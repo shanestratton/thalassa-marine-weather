@@ -633,7 +633,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                         <h2 className="text-sm font-bold text-white uppercase tracking-widest drop-shadow-lg">
                             Voyage Track
                         </h2>
-                        <div className="text-[10px] text-white/60 flex gap-3 mt-0.5 font-medium">
+                        <div className="text-[11px] text-white/60 flex gap-3 mt-0.5 font-medium">
                             <span>{totalDistance} NM</span>
                             <span>{sortedEntries.length} pts</span>
                             <span>{waypointCount} wpts</span>
@@ -817,7 +817,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                             {/* Notes */}
                             {currentEntry.notes && (
                                 <div className="mt-1.5 pt-1.5 border-t border-white/5">
-                                    <p className="text-[10px] text-slate-400 leading-relaxed truncate">
+                                    <p className="text-[11px] text-slate-400 leading-relaxed truncate">
                                         📝 {currentEntry.notes}
                                     </p>
                                 </div>
@@ -837,7 +837,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                                             <span className="text-xs font-black text-amber-300 uppercase tracking-wider">
                                                 {activeWaypoint.name}
                                             </span>
-                                            <span className="text-[10px] text-amber-400/60 font-mono">
+                                            <span className="text-[11px] text-amber-400/60 font-mono">
                                                 {activeWaypoint.timestamp}
                                             </span>
                                         </div>
@@ -855,22 +855,22 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                                         {/* Stat pills */}
                                         <div className="flex flex-wrap gap-1.5 mt-1.5">
                                             {activeWaypoint.speedKts != null && activeWaypoint.speedKts > 0 && (
-                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-[10px] font-bold text-amber-200">
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-[11px] font-bold text-amber-200">
                                                     ⛵ {activeWaypoint.speedKts.toFixed(1)} kts
                                                 </span>
                                             )}
                                             {activeWaypoint.courseDeg != null && (
-                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-[10px] font-bold text-amber-200">
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-[11px] font-bold text-amber-200">
                                                     🧭 {activeWaypoint.courseDeg}°
                                                 </span>
                                             )}
                                             {activeWaypoint.distanceNM != null && activeWaypoint.distanceNM > 0 && (
-                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-[10px] font-bold text-amber-200">
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-[11px] font-bold text-amber-200">
                                                     📟 {activeWaypoint.distanceNM.toFixed(1)} NM
                                                 </span>
                                             )}
                                             {activeWaypoint.windSpeed != null && activeWaypoint.windSpeed > 0 && (
-                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/20 text-[10px] font-bold text-sky-200">
+                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/20 text-[11px] font-bold text-sky-200">
                                                     🌬️ {activeWaypoint.windSpeed} kts {activeWaypoint.windDir || ''}
                                                 </span>
                                             )}
@@ -910,22 +910,22 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
                 <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[1000] flex gap-3 bg-black/60 rounded-lg px-3 py-1.5">
                     <div className="flex items-center gap-1">
                         <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
-                        <span className="text-[9px] text-slate-400">Start</span>
+                        <span className="text-[11px] text-slate-400">Start</span>
                     </div>
                     <div className="flex items-center gap-1">
                         <div className="w-2 h-2 rounded-full bg-red-500"></div>
-                        <span className="text-[9px] text-slate-400">End</span>
+                        <span className="text-[11px] text-slate-400">End</span>
                     </div>
                     <div className="flex items-center gap-1">
                         <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-                        <span className="text-[9px] text-slate-400">Wpt</span>
+                        <span className="text-[11px] text-slate-400">Wpt</span>
                     </div>
                     <div className="flex items-center gap-1">
                         <div
                             className="w-2 h-2 rounded-full"
                             style={{ background: '#00f0ff', boxShadow: '0 0 4px rgba(0,240,255,0.5)' }}
                         ></div>
-                        <span className="text-[9px] text-slate-400">Vessel</span>
+                        <span className="text-[11px] text-slate-400">Vessel</span>
                     </div>
                 </div>
             </div>
@@ -992,7 +992,7 @@ const HUDCell: React.FC<{
     color?: string;
 }> = ({ label, value, unit, color = 'text-white' }) => (
     <div className="flex flex-col items-center">
-        <span className={`text-[9px] font-bold tracking-widest uppercase ${color} opacity-70`}>{label}</span>
+        <span className={`text-[11px] font-bold tracking-widest uppercase ${color} opacity-70`}>{label}</span>
         <div className="flex items-baseline gap-0.5">
             <span className="text-xs font-mono font-bold text-white">{value}</span>
             {unit && <span className="text-[8px] text-slate-500">{unit}</span>}

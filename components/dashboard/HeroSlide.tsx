@@ -719,8 +719,8 @@ const HeroSlideComponent = ({
                         </div>
                         {goldenNow && (
                             <div className="flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-400/15 w-fit">
-                                <span className="text-[10px]">📸</span>
-                                <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider">
+                                <span className="text-[11px]">📸</span>
+                                <span className="text-[11px] font-bold text-amber-300 uppercase tracking-wider">
                                     Golden Hour
                                 </span>
                             </div>

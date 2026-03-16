@@ -263,7 +263,7 @@ export const NmeaGaugeOverlay: React.FC<NmeaGaugeOverlayProps> = ({ metricId, me
                                   : 'bg-red-400'
                         }`}
                     />
-                    <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-500">
+                    <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-gray-500">
                         {metric.freshness === 'live'
                             ? 'Live Data'
                             : metric.freshness === 'stale'

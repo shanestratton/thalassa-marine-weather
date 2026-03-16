@@ -6,14 +6,14 @@
  *   Zone 2: Ship's Office Grid (8 cards in 4x2) — compact design
  *   Zone 3: App Administration (account, dark mode, terms)
  */
-import React, { useState, useEffect } from 'react';
+import React, { Suspense, useState, useEffect } from 'react';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { ChatService } from '../services/ChatService';
 import { useSettings } from '../context/SettingsContext';
 import { triggerHaptic } from '../utils/system';
 import { supabase } from '../services/supabase';
 import { getPendingInviteCount } from '../services/CrewService';
-import { AdminPanel } from './AdminPanel';
+const AdminPanel = React.lazy(() => import('./AdminPanel').then(m => ({ default: m.AdminPanel })));
 
 interface VesselHubProps {
     onNavigate: (page: string) => void;
@@ -196,7 +196,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                         </div>
                         <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Anchor Watch</h4>
                         <p
-                            className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 ${anchorAccent.color} truncate`}
+                            className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${anchorAccent.color} truncate`}
                         >
                             {anchorSublabel}
                         </p>
@@ -226,7 +226,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             </svg>
                         </div>
                         <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Log Book</h4>
-                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-widest mt-0.5">
+                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-widest mt-0.5">
                             Voyage Entries
                         </p>
                     </button>
@@ -246,7 +246,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             </div>
                         </div>
                         <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Passages</h4>
-                        <p className={`text-[10px] font-bold uppercase tracking-widest mt-0.5 ${isObserver ? 'text-gray-500' : 'text-emerald-400'}`}>
+                        <p className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${isObserver ? 'text-gray-500' : 'text-emerald-400'}`}>
                             {isObserver ? 'Vessel Required' : 'Route Plan'}
                         </p>
                     </button>
@@ -302,7 +302,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                     <div className="w-1 h-4 rounded-full bg-violet-500" />
                     <span className="text-[11px] font-black text-violet-400 uppercase tracking-[0.2em]">Crew</span>
                     {pendingCrewInvites > 0 && (
-                        <span className="px-1.5 py-0.5 bg-amber-500/30 text-amber-300 text-[10px] font-bold rounded-full animate-pulse">
+                        <span className="px-1.5 py-0.5 bg-amber-500/30 text-amber-300 text-[11px] font-bold rounded-full animate-pulse">
                             {pendingCrewInvites} invite{pendingCrewInvites !== 1 ? 's' : ''}
                         </span>
                     )}

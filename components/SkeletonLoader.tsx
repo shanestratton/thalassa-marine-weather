@@ -12,7 +12,7 @@ export const SkeletonDashboard = () => {
                 <span className="text-xs font-bold text-sky-300 uppercase tracking-[0.2em] animate-pulse">
                     Loading Marine Data...
                 </span>
-                <span className="text-[10px] text-white/30 mt-1">Weather · Tides · Sea State</span>
+                <span className="text-[11px] text-white/30 mt-1">Weather · Tides · Sea State</span>
             </div>
 
             {/* Hero Section Skeleton */}

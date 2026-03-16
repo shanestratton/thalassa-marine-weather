@@ -125,7 +125,7 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                         </h3>
                         <p className="text-xs text-slate-400 font-medium mt-0.5">Pre-planned safety options for this passage</p>
                     </div>
-                    <div className="text-[10px] font-mono text-red-400 bg-red-500/10 px-2.5 py-1 rounded border border-red-500/20 uppercase tracking-widest font-bold">
+                    <div className="text-[11px] font-mono text-red-400 bg-red-500/10 px-2.5 py-1 rounded border border-red-500/20 uppercase tracking-widest font-bold">
                         Safety Critical
                     </div>
                 </div>
@@ -145,12 +145,12 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                                     className="bg-emerald-500/5 border border-emerald-500/15 rounded-xl p-4 hover:bg-emerald-500/10 transition-colors"
                                 >
                                     <div className="flex items-start gap-2 mb-2">
-                                        <div className="w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-[10px] font-black text-emerald-400 shrink-0 mt-0.5">
+                                        <div className="w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-[11px] font-black text-emerald-400 shrink-0 mt-0.5">
                                             {idx + 1}
                                         </div>
                                         <div className="min-w-0">
                                             <h5 className="text-sm font-bold text-white truncate">{harbour.name}</h5>
-                                            <p className="text-[10px] text-gray-500 font-mono">
+                                            <p className="text-[11px] text-gray-500 font-mono">
                                                 {fmtCoord(harbour.lat, harbour.lon, 3)}
                                             </p>
                                         </div>
@@ -187,7 +187,7 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                         {/* Departure region */}
                         {departCountry && (
                             <div>
-                                <div className="text-[10px] text-sky-400 font-bold uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                                <div className="text-[11px] text-sky-400 font-bold uppercase tracking-widest mb-2 flex items-center gap-1.5">
                                     <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
                                     {departCountry} {sameCountry ? '' : '(Departure)'}
                                 </div>
@@ -202,7 +202,7 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                         {/* Arrival region (if different country) */}
                         {arriveCountry && !sameCountry && (
                             <div className="pt-2">
-                                <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                                <div className="text-[11px] text-emerald-400 font-bold uppercase tracking-widest mb-2 flex items-center gap-1.5">
                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                                     {arriveCountry} (Arrival)
                                 </div>

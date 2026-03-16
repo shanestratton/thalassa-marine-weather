@@ -393,7 +393,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
 
                             {/* Time label */}
                             <div className="shrink-0 min-w-[36px] text-right">
-                                <span className="text-[9px] text-white/40 font-mono font-semibold tabular-nums">
+                                <span className="text-[11px] text-white/40 font-mono font-semibold tabular-nums">
                                     {timeLabel}
                                 </span>
                             </div>
@@ -418,7 +418,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                     )}
                     {timeLabel && !isLive && radarFrames[activeFrame]?.type !== 'forecast' && (
                         <div className="px-1.5 py-0.5 rounded-md bg-black/40 backdrop-blur-sm border border-white/[0.06]">
-                            <span className="text-[9px] text-white/50 font-mono font-semibold tabular-nums">
+                            <span className="text-[11px] text-white/50 font-mono font-semibold tabular-nums">
                                 {timeLabel}
                             </span>
                         </div>
@@ -438,7 +438,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                                 </svg>
                             </div>
                         )}
-                        <span className="text-[9px] text-white/70 font-semibold leading-none tracking-wide">
+                        <span className="text-[11px] text-white/70 font-semibold leading-none tracking-wide">
                             {windLabel} {displaySpeed}
                             <span className="text-white/35 ml-0.5">{speedUnit}</span>
                         </span>
@@ -448,7 +448,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                 {/* Layer 8: Condition — top-right */}
                 {condition && (
                     <div className="absolute top-2.5 right-2.5 px-2 py-1 rounded-lg bg-black/50 backdrop-blur-sm border border-white/[0.06]">
-                        <span className="text-[9px] text-white/50 font-medium tracking-wide">{condition}</span>
+                        <span className="text-[11px] text-white/50 font-medium tracking-wide">{condition}</span>
                     </div>
                 )}
             </div>

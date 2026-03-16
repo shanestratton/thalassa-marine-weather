@@ -74,7 +74,7 @@ const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mode, onD
                             d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
                         />
                     </svg>
-                    <span className="text-[10px] font-bold">{deleteLabel}</span>
+                    <span className="text-[11px] font-bold">{deleteLabel}</span>
                 </div>
             </div>
 
@@ -142,7 +142,7 @@ const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mode, onD
                 </div>
 
                 {/* Swipe hint — subtle */}
-                <p className="text-[9px] text-gray-600 mt-2 text-right">← swipe to {deleteLabel.toLowerCase()}</p>
+                <p className="text-[11px] text-gray-600 mt-2 text-right">← swipe to {deleteLabel.toLowerCase()}</p>
             </div>
         </div>
     );
@@ -390,7 +390,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                 {userEmail && (
                     <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 mb-4 flex items-center justify-between">
                         <div>
-                            <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                            <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">
                                 Your Email (share for invites)
                             </p>
                             <p className="text-sm font-bold text-white mt-0.5">{userEmail}</p>
@@ -455,7 +455,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                                     <span className="text-[11px] font-black text-amber-400 uppercase tracking-[0.2em]">
                                         Pending Invites
                                     </span>
-                                    <span className="ml-auto px-2 py-0.5 bg-amber-500/20 text-amber-400 text-[10px] font-bold rounded-full">
+                                    <span className="ml-auto px-2 py-0.5 bg-amber-500/20 text-amber-400 text-[11px] font-bold rounded-full">
                                         {pendingInvites.length}
                                     </span>
                                 </div>
@@ -539,7 +539,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
                                     My Crew
                                 </span>
                                 {visibleCrew.length > 0 && (
-                                    <span className="ml-auto px-2 py-0.5 bg-sky-500/20 text-sky-400 text-[10px] font-bold rounded-full">
+                                    <span className="ml-auto px-2 py-0.5 bg-sky-500/20 text-sky-400 text-[11px] font-bold rounded-full">
                                         {visibleCrew.length}
                                     </span>
                                 )}

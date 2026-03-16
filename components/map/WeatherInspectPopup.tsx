@@ -48,7 +48,7 @@ const Metric: React.FC<{
     <div className="flex items-center gap-2.5 py-1.5">
         <span className="text-base shrink-0 w-5 text-center">{icon}</span>
         <div className="flex-1 min-w-0">
-            <p className="text-[10px] text-white/50 font-bold uppercase tracking-wider leading-none">{label}</p>
+            <p className="text-[11px] text-white/50 font-bold uppercase tracking-wider leading-none">{label}</p>
             {loading ? (
                 <Shimmer />
             ) : (
@@ -121,7 +121,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, onClose })
 
                 {/* Coordinate header */}
                 <div className="flex items-center gap-1.5 mb-2 pr-6">
-                    <span className="text-[10px] text-sky-400/70 font-mono font-bold">
+                    <span className="text-[11px] text-sky-400/70 font-mono font-bold">
                         {data
                             ? `${Math.abs(data.lat).toFixed(2)}°${data.lat >= 0 ? 'N' : 'S'} ${Math.abs(data.lon).toFixed(2)}°${data.lon >= 0 ? 'E' : 'W'}`
                             : '…'}

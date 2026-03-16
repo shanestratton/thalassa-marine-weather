@@ -149,7 +149,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                     <div className="text-[11px] text-gray-400 mt-0.5">{style.desc}</div>
                 </div>
                 <div className="text-right shrink-0">
-                    <div className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Ensemble</div>
+                    <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold">Ensemble</div>
                     <div className="text-xs text-white font-bold">{data.models.length} models</div>
                 </div>
             </div>
@@ -161,8 +161,8 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                     return (
                         <div key={m.id} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg ${pal.bg} border border-white/5`}>
                             <div className={`w-2 h-2 rounded-full ${pal.text.replace('text-', 'bg-')}`} />
-                            <span className={`text-[10px] font-bold ${pal.text}`}>{m.name}</span>
-                            <span className="text-[9px] text-gray-500">{m.resolution}</span>
+                            <span className={`text-[11px] font-bold ${pal.text}`}>{m.name}</span>
+                            <span className="text-[11px] text-gray-500">{m.resolution}</span>
                         </div>
                     );
                 })}
@@ -205,13 +205,13 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                                 <div className="text-sm font-bold text-white">
                                     {wpData.name || `Waypoint ${activeWp + 1}`}
                                 </div>
-                                <div className="text-[10px] text-gray-500 font-mono">
+                                <div className="text-[11px] text-gray-500 font-mono">
                                     {wpData.lat.toFixed(3)}°, {wpData.lon.toFixed(3)}°
                                 </div>
                             </div>
                         </div>
                         <div className="text-right">
-                            <div className={`text-[10px] font-black uppercase tracking-widest ${wpStyle.text}`}>
+                            <div className={`text-[11px] font-black uppercase tracking-widest ${wpStyle.text}`}>
                                 {wpConf}
                             </div>
                         </div>
@@ -220,33 +220,33 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                     {/* Consensus summary bar */}
                     <div className="px-4 py-3 grid grid-cols-4 gap-2 border-b border-white/[0.06] bg-white/[0.02]">
                         <div className="text-center">
-                            <div className="text-[9px] text-gray-500 uppercase tracking-widest font-bold mb-0.5">Wind</div>
+                            <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold mb-0.5">Wind</div>
                             <div className="text-sm font-bold text-white">{wpData.consensus.windSpeedMean}kt</div>
-                            <div className={`text-[9px] font-mono ${wpData.consensus.windSpeedSpread > 12 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            <div className={`text-[11px] font-mono ${wpData.consensus.windSpeedSpread > 12 ? 'text-amber-400' : 'text-emerald-400'}`}>
                                 ±{wpData.consensus.windSpeedSpread}kt
                             </div>
                         </div>
                         <div className="text-center">
-                            <div className="text-[9px] text-gray-500 uppercase tracking-widest font-bold mb-0.5">Dir</div>
+                            <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold mb-0.5">Dir</div>
                             <div className="text-sm font-bold text-white flex items-center justify-center gap-1">
                                 <DirArrow deg={wpData.consensus.windDirectionMean} />
                                 {wpData.consensus.windDirectionMean}°
                             </div>
-                            <div className={`text-[9px] font-mono ${wpData.consensus.windDirectionSpread > 45 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            <div className={`text-[11px] font-mono ${wpData.consensus.windDirectionSpread > 45 ? 'text-amber-400' : 'text-emerald-400'}`}>
                                 ±{wpData.consensus.windDirectionSpread}°
                             </div>
                         </div>
                         <div className="text-center">
-                            <div className="text-[9px] text-gray-500 uppercase tracking-widest font-bold mb-0.5">Waves</div>
+                            <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold mb-0.5">Waves</div>
                             <div className="text-sm font-bold text-white">{wpData.consensus.waveHeightMean}m</div>
-                            <div className={`text-[9px] font-mono ${wpData.consensus.waveHeightSpread > 1 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            <div className={`text-[11px] font-mono ${wpData.consensus.waveHeightSpread > 1 ? 'text-amber-400' : 'text-emerald-400'}`}>
                                 ±{wpData.consensus.waveHeightSpread}m
                             </div>
                         </div>
                         <div className="text-center">
-                            <div className="text-[9px] text-gray-500 uppercase tracking-widest font-bold mb-0.5">Pres</div>
+                            <div className="text-[11px] text-gray-500 uppercase tracking-widest font-bold mb-0.5">Pres</div>
                             <div className="text-sm font-bold text-white">{wpData.consensus.pressureMean}</div>
-                            <div className="text-[9px] font-mono text-gray-500">hPa</div>
+                            <div className="text-[11px] font-mono text-gray-500">hPa</div>
                         </div>
                     </div>
 
@@ -332,7 +332,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                     </div>
 
                     {/* Time axis label */}
-                    <div className="px-4 py-2 flex justify-between text-[9px] text-gray-600 font-mono border-t border-white/[0.04]">
+                    <div className="px-4 py-2 flex justify-between text-[11px] text-gray-600 font-mono border-t border-white/[0.04]">
                         <span>Now</span>
                         <span>+{Math.round(data.forecastHours / 2)}h</span>
                         <span>+{data.forecastHours}h</span>
@@ -342,7 +342,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
 
             {/* ── Legend: Heat Scale ── */}
             <div className="flex items-center gap-1 px-1">
-                <span className="text-[9px] text-gray-600 mr-1">Wind:</span>
+                <span className="text-[11px] text-gray-600 mr-1">Wind:</span>
                 {[
                     { label: '<5', cls: 'bg-sky-900/60' },
                     { label: '10', cls: 'bg-sky-700/60' },
@@ -357,11 +357,11 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                         <span className="text-[7px] text-gray-600 font-mono">{s.label}</span>
                     </div>
                 ))}
-                <span className="text-[9px] text-gray-600 ml-1">kt</span>
+                <span className="text-[11px] text-gray-600 ml-1">kt</span>
             </div>
 
             {/* Query metadata */}
-            <div className="text-[9px] text-gray-600 text-right font-mono">
+            <div className="text-[11px] text-gray-600 text-right font-mono">
                 {data.models.length} models queried in {data.elapsed_ms}ms •{' '}
                 {new Date(data.queryTime).toLocaleTimeString()}
             </div>

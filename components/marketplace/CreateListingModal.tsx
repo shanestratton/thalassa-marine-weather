@@ -595,7 +595,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                                 <button
                                                     key={f}
                                                     onClick={() => setBoatFuel(f)}
-                                                    className={`px-2 py-1 rounded-lg border text-[10px] font-medium transition-all ${
+                                                    className={`px-2 py-1 rounded-lg border text-[11px] font-medium transition-all ${
                                                         boatFuel === f
                                                             ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-300'
                                                             : 'bg-white/[0.04] border-white/10 text-white/50'
@@ -691,7 +691,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                                         selected ? prev.filter((f) => f !== feat) : [...prev, feat],
                                                     )
                                                 }
-                                                className={`px-2 py-1 rounded-lg border text-[10px] font-medium transition-all ${
+                                                className={`px-2 py-1 rounded-lg border text-[11px] font-medium transition-all ${
                                                     selected
                                                         ? 'bg-sky-500/15 border-sky-500/30 text-sky-300'
                                                         : 'bg-white/[0.03] border-white/[0.06] text-white/40'
