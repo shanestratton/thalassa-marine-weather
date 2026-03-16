@@ -236,8 +236,8 @@ export const ChatPage: React.FC = () => {
             return;
         }
 
-        let kbShowHandle: any;
-        let kbHideHandle: any;
+        let kbShowHandle: { remove: () => void } | undefined;
+        let kbHideHandle: { remove: () => void } | undefined;
         let usingNativePlugin = false;
 
         // Try Capacitor Keyboard plugin first (accurate on native iOS)
@@ -271,8 +271,8 @@ export const ChatPage: React.FC = () => {
 
         return () => {
             if (usingNativePlugin) {
-                kbShowHandle?.then?.((h: any) => h.remove());
-                kbHideHandle?.then?.((h: any) => h.remove());
+                kbShowHandle?.then?.((h: { remove: () => void }) => h.remove());
+                kbHideHandle?.then?.((h: { remove: () => void }) => h.remove());
                 // Also handle if they resolved synchronously
                 if (kbShowHandle?.remove) kbShowHandle.remove();
                 if (kbHideHandle?.remove) kbHideHandle.remove();

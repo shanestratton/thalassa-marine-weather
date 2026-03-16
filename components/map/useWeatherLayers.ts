@@ -199,7 +199,7 @@ export function useWeatherLayers(
     }, []);
 
     // Pre-compute isobar frames
-    const precomputeFrames = useCallback((grid: any) => {
+    const precomputeFrames = useCallback((grid: Record<string, unknown>) => {
         const total = grid.totalHours;
         setTotalFrames(total);
         setFramesReady(0);
@@ -1212,8 +1212,8 @@ export function useEmbeddedRain(
                     try {
                         const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
                         const data = await res.json();
-                        const past = (data?.radar?.past ?? []).map((f: any) => ({ path: f.path, time: f.time }));
-                        const forecast = (data?.radar?.nowcast ?? []).map((f: any) => ({ path: f.path, time: f.time }));
+                        const past = (data?.radar?.past ?? []).map((f: { path: string; time: number }) => ({ path: f.path, time: f.time }));
+                        const forecast = (data?.radar?.nowcast ?? []).map((f: { path: string; time: number }) => ({ path: f.path, time: f.time }));
                         const allFrames = [...past, ...forecast];
                         embeddedRainFrames.current = allFrames;
                         setEmbRainCount(allFrames.length);

@@ -927,7 +927,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
     private _renderLogCount = 0;
 
-    render(gl: WebGLRenderingContext, matrixOrOptions: any): void {
+    render(gl: WebGLRenderingContext, matrixOrOptions: unknown): void {
         // PERF: Throttle to ~15fps — skip frames closer than 66ms apart.
         // Wind particles don't need 60fps; this cuts GPU load by ~75%.
         const now = performance.now();

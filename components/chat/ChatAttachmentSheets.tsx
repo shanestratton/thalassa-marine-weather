@@ -262,7 +262,7 @@ export interface TrackPickerSheetProps {
     }[];
     trackLoadingVoyages: boolean;
     trackSharing: boolean;
-    onSendTrack: (v: any) => void;
+    onSendTrack: (v: Record<string, unknown>) => void;
     onClose: () => void;
 }
 

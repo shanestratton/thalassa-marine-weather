@@ -152,7 +152,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 const depTime = new Date(departureTime).getTime();
 
                 // Create log entries for each waypoint
-                const entries: Partial<ShipLogEntry>[] = waypoints.map((wp: any, idx: number) => ({
+                const entries: Partial<ShipLogEntry>[] = waypoints.map((wp: Record<string, unknown>, idx: number) => ({
                     voyageId,
                     timestamp: wp.eta || new Date(depTime + wp.timeHours * 3600_000).toISOString(),
                     latitude: wp.lat,

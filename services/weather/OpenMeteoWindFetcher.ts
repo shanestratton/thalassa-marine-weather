@@ -82,7 +82,7 @@ export async function fetchModelWindGrid(
     );
 
     // Batch requests
-    const allResults: any[] = new Array(allPoints.length).fill(null);
+    const allResults: unknown[] = new Array(allPoints.length).fill(null);
     const batches: { start: number; end: number }[] = [];
     for (let i = 0; i < allPoints.length; i += BATCH_SIZE) {
         batches.push({ start: i, end: Math.min(i + BATCH_SIZE, allPoints.length) });

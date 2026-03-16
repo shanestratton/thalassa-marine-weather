@@ -48,7 +48,7 @@ const DndSortableGrid: React.FC<DndSortableGridProps> = ({ items, onReorder, chi
         useSensor(TouchSensor, { activationConstraint: { delay: 100, tolerance: 5 } }),
     );
 
-    const handleDragEnd = (event: any) => {
+    const handleDragEnd = (event: { active: { id: string }; over: { id: string } | null }) => {
         const { active, over } = event;
         if (active && over && active.id !== over.id) {
             const oldIndex = items.indexOf(active.id);

@@ -32,11 +32,47 @@ const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY as string;
 const WIND_CACHE_NAME = 'thalassa-wind-cache';
 const EDGE_FN_PATH = '/functions/v1/fetch-wind-velocity';
 
+/** GRIB2 record: one U- or V-component of wind data */
+interface GribHeader {
+    nx: number;
+    ny: number;
+    dx: number;
+    dy: number;
+    lo1: number;
+    lo2?: number;
+    la1: number;
+    la2?: number;
+    parameterCategory?: number;
+    parameterNumber?: number;
+    parameterNumberName?: string;
+    refTime?: string;
+}
+
+interface GribRecord {
+    header: GribHeader;
+    data: number[];
+}
+
+/** WindGrid from WindStore — multi-hour wind field */
+interface WindGrid {
+    u: Float32Array[];
+    v: Float32Array[];
+    width: number;
+    height: number;
+    lats: number[];
+    lons: number[];
+    north: number;
+    south: number;
+    east: number;
+    west: number;
+    totalHours: number;
+}
+
 interface MapboxVelocityOverlayProps {
     mapboxMap: mapboxgl.Map | null;
     visible: boolean;
     windHour?: number;
-    windGrid?: any; // WindGrid from WindStore
+    windGrid?: WindGrid;
     hideBadge?: boolean;
 }
 
@@ -52,8 +88,9 @@ const WIND_COLORS = [
 
 // ── Helper: Create velocity layer ─────────────────────────────
 
-function createVelocityLayer(data: any[]): L.Layer {
-    return (L as any).velocityLayer({
+function createVelocityLayer(data: GribRecord[]): L.Layer {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (L as unknown as Record<string, (...args: unknown[]) => L.Layer>).velocityLayer({
         displayValues: false, // No mouse readout (overlay has pointer-events: none)
         data,
         maxVelocity: 40,
@@ -90,12 +127,12 @@ function ktsToColor(kts: number): [number, number, number] {
     return [178, 64, 76];
 }
 
-function injectHeatMap(map: mapboxgl.Map, windData: any[]): void {
+function injectHeatMap(map: mapboxgl.Map, windData: GribRecord[]): void {
     const uRecord = windData.find(
-        (d: any) => d.header?.parameterNumberName?.includes('U-component') || d.header?.parameterNumber === 2,
+        (d: GribRecord) => d.header?.parameterNumberName?.includes('U-component') || d.header?.parameterNumber === 2,
     );
     const vRecord = windData.find(
-        (d: any) => d.header?.parameterNumberName?.includes('V-component') || d.header?.parameterNumber === 3,
+        (d: GribRecord) => d.header?.parameterNumberName?.includes('V-component') || d.header?.parameterNumber === 3,
     );
     if (!uRecord || !vRecord) {
         return;
@@ -327,7 +364,7 @@ function formatRelativeTime(isoString: string): string {
 // ── Helper: Fetch with Cache API offline fallback ─────────────
 
 interface WindFetchResult {
-    data: any[];
+    data: GribRecord[];
     source: 'live' | 'cached' | 'static';
 }
 
@@ -413,7 +450,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     const syncRef = useRef<(() => void) | null>(null);
     const moveRef = useRef<(() => void) | null>(null);
     const resizeRef = useRef<(() => void) | null>(null);
-    const [windData, setWindData] = useState<any[] | null>(null);
+    const [windData, setWindData] = useState<GribRecord[] | null>(null);
     const [dataInfo, setDataInfo] = useState<{ refTime: string | null; source: 'live' | 'cached' | 'static' | null }>({
         refTime: null,
         source: null,

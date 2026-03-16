@@ -218,7 +218,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         departure: passage.departure,
         arrival: passage.arrival,
         setMapReady,
-        setActiveLayer: (layer: any) => weather.setActiveLayer(layer),
+        setActiveLayer: (layer: string) => weather.setActiveLayer(layer),
         setDeparture: passage.setDeparture,
         setArrival: passage.setArrival,
         setSettingPoint: passage.setSettingPoint,
@@ -586,7 +586,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     const firstWP = hasIsoWPs ? turnWPs[0] : null;
                                                     const lastWP = hasIsoWPs ? turnWPs[turnWPs.length - 1] : null;
 
-                                                    const plan: any = {
+                                                    const plan: Record<string, unknown> = {
                                                         origin:
                                                             dep.name || `${dep.lat.toFixed(2)}, ${dep.lon.toFixed(2)}`,
                                                         destination:
@@ -599,7 +599,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                             : { lat: arr.lat, lon: arr.lon },
                                                         waypoints:
                                                             hasIsoWPs && turnWPs.length > 2
-                                                                ? turnWPs.slice(1, -1).map((wp: any) => ({
+                                                                ? turnWPs.slice(1, -1).map((wp: { lat: number; lon: number; name?: string }) => ({
                                                                       name: wp.id,
                                                                       coordinates: { lat: wp.lat, lon: wp.lon },
                                                                       windSpeed: wp.tws,

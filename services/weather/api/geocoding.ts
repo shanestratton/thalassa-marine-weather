@@ -44,7 +44,7 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
                 // Mapbox returns features ordered by relevance, but we want the most granular match
                 const preferredTypes = ['neighborhood', 'locality', 'district', 'place'];
                 const place =
-                    data.features.sort((a: any, b: any) => {
+                    data.features.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
                         const ai = preferredTypes.indexOf(a.place_type?.[0]);
                         const bi = preferredTypes.indexOf(b.place_type?.[0]);
                         return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);

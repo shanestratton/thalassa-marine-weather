@@ -34,7 +34,7 @@ interface UseMapInitOptions {
     departure: { lat: number; lon: number; name: string } | null;
     arrival: { lat: number; lon: number; name: string } | null;
     setMapReady: (ready: boolean) => void;
-    setActiveLayer: (layer: any) => void;
+    setActiveLayer: (layer: string) => void;
     setDeparture: (v: { lat: number; lon: number; name: string } | null) => void;
     setArrival: (v: { lat: number; lon: number; name: string } | null) => void;
     setSettingPoint: (v: 'departure' | 'arrival' | null) => void;
@@ -504,7 +504,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             const markersUrl = `${seamarkBaseUrl}/storage/v1/object/public/regions/australia_se_qld/nav_markers.geojson`;
             fetch(markersUrl)
                 .then((r) => r.json())
-                .then((geojson: any) => {
+                .then((geojson: Record<string, unknown>) => {
                     if (!map.getSource('nav-markers')) {
                         map.addSource('nav-markers', { type: 'geojson', data: geojson });
 

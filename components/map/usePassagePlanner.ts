@@ -641,7 +641,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
                             // Time labels at key intervals (12h, 24h, 48h, etc.)
                             const timeLabels = geoData.wavefronts.features
-                                .filter((f: any) => {
+                                .filter((f: Record<string, unknown>) => {
                                     const h = f.properties?.timeHours;
                                     return (
                                         h === 12 ||
@@ -653,7 +653,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                         h === 168
                                     );
                                 })
-                                .map((f: any) => {
+                                .map((f: Record<string, unknown>) => {
                                     // Place label at the midpoint of each wavefront ring
                                     const coords = f.geometry.coordinates;
                                     const midIdx = Math.floor(coords.length / 2);

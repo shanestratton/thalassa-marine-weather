@@ -17,7 +17,7 @@ if (Capacitor.isNativePlatform()) {
 // Suppress Recharts "width(-1) and height(-1)" warnings — a known cosmetic issue
 // that fires during the brief window between chart mount and layout stabilization.
 const _origWarn = console.warn;
-console.warn = (...args: any[]) => {
+console.warn = (...args: unknown[]) => {
     if (
         typeof args[0] === 'string' &&
         args[0].includes('The width(') &&
@@ -31,7 +31,7 @@ console.warn = (...args: any[]) => {
 // Diagnostic: intercept console.error to expose Error objects that serialize as {}
 // This helps identify the source of "[error] - {}" messages in Capacitor logs
 const _origError = console.error;
-console.error = (...args: any[]) => {
+console.error = (...args: unknown[]) => {
     const enrichedArgs = args.map((arg) => {
         if (arg instanceof Error) {
             return `[Error: ${arg.message}] ${arg.stack || ''}`;

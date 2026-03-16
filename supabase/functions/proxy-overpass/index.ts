@@ -153,8 +153,8 @@ out body;
 
         // Convert Overpass JSON → GeoJSON FeatureCollection with IALA classification
         const features = elements
-            .filter((el: any) => el.type === 'node' && el.lat !== undefined && el.lon !== undefined)
-            .map((el: any) => ({
+            .filter((el: { type: string; lat?: number; lon?: number }) => el.type === 'node' && el.lat !== undefined && el.lon !== undefined)
+            .map((el: { lat?: number; lon?: number; tags?: Record<string, string> }) => ({
                 type: 'Feature',
                 geometry: {
                     type: 'Point',

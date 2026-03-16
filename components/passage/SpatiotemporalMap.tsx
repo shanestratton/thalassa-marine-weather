@@ -391,7 +391,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
         const url = `${baseUrl}/storage/v1/object/public/regions/australia_se_qld/nav_markers.geojson`;
         fetch(url)
             .then((r) => r.json())
-            .then((geojson: any) => {
+            .then((geojson: Record<string, unknown>) => {
                 setFetchedSeamarks(geojson);
             })
             .catch(() => {});
