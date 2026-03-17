@@ -23,6 +23,7 @@ import {
 import { BgGeoManager } from '../../services/BgGeoManager';
 import { Capacitor } from '@capacitor/core';
 import { haversineNm, getConditionColor, MAX_PHOTOS } from './helpers';
+import { sanitizeText, validateListingTitle, validatePrice, validateDescription } from '../../utils/inputValidation';
 
 interface CreateListingModalProps {
     isOpen: boolean;
@@ -255,13 +256,22 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     };
 
     const handleSubmit = async () => {
-        if (!title.trim()) {
-            setError('Title is required');
+        const titleCheck = validateListingTitle(title);
+        if (!titleCheck.valid) {
+            setError(titleCheck.error!);
             return;
         }
-        if (!price || parseFloat(price) <= 0) {
-            setError('Valid price is required');
+        const priceCheck = validatePrice(price);
+        if (!priceCheck.valid) {
+            setError(priceCheck.error!);
             return;
+        }
+        if (description) {
+            const descCheck = validateDescription(description);
+            if (!descCheck.valid) {
+                setError(descCheck.error!);
+                return;
+            }
         }
         if (!category) {
             setError('Select a category');
@@ -276,8 +286,8 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
         setError(null);
 
         const input: CreateListingInput = {
-            title: title.trim(),
-            description: description.trim() || undefined,
+            title: sanitizeText(title),
+            description: sanitizeText(description) || undefined,
             price: parseFloat(price),
             currency,
             category,
