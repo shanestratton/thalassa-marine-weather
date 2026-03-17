@@ -12,7 +12,7 @@ vi.stubGlobal('localStorage', {
     removeItem: (key: string) => { delete store[key]; },
 });
 
-// Mock Capacitor as web platform (no native UDP)
+// Mock Capacitor as web platform (no native TCP)
 vi.mock('@capacitor/core', () => ({
     Capacitor: { isNativePlatform: () => false },
 }));
