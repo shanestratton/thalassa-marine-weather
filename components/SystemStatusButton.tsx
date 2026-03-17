@@ -117,7 +117,12 @@ const SystemStatusModal: React.FC<{
                         className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
                     >
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M6 18L18 6M6 6l12 12"
+                            />
                         </svg>
                     </button>
                 </div>
@@ -127,7 +132,13 @@ const SystemStatusModal: React.FC<{
                     {/* ── GPS Tracking (Passage) ── */}
                     <SystemRow
                         icon={
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
                                 <circle cx="12" cy="12" r="3" />
                                 <path strokeLinecap="round" d="M12 2v4m0 12v4m10-10h-4M6 12H2" />
                             </svg>
@@ -167,18 +178,24 @@ const SystemStatusModal: React.FC<{
                                 : 'bg-slate-600'
                         }
                         pulse={state.anchorWatch.active && state.anchorWatch.state !== 'holding'}
-                        action={
-                            state.anchorWatch.active
-                                ? { label: 'View', onClick: onNavigateAnchor }
-                                : undefined
-                        }
+                        action={state.anchorWatch.active ? { label: 'View', onClick: onNavigateAnchor } : undefined}
                     />
 
                     {/* ── NMEA Connection ── */}
                     <SystemRow
                         icon={
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0" />
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0"
+                                />
                             </svg>
                         }
                         label="NMEA Backbone"
@@ -190,8 +207,18 @@ const SystemStatusModal: React.FC<{
                     {/* ── External GPS ── */}
                     <SystemRow
                         icon={
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M9.348 14.652a3.75 3.75 0 010-5.304m5.304 0a3.75 3.75 0 010 5.304m-7.425 2.121a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.788m13.788 0c3.808 3.808 3.808 9.98 0 13.788" />
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M9.348 14.652a3.75 3.75 0 010-5.304m5.304 0a3.75 3.75 0 010 5.304m-7.425 2.121a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546M5.106 18.894c-3.808-3.808-3.808-9.98 0-13.788m13.788 0c3.808 3.808 3.808 9.98 0 13.788"
+                                />
                             </svg>
                         }
                         label="External GPS"
@@ -216,8 +243,18 @@ const SystemStatusModal: React.FC<{
                     {/* ── Follow Route (Passage Planning) ── */}
                     <SystemRow
                         icon={
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75V15m0 0l3-3m-3 3l-3-3m12-1.5V15m0 0l3-3m-3 3l-3-3" />
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M9 6.75V15m0 0l3-3m-3 3l-3-3m12-1.5V15m0 0l3-3m-3 3l-3-3"
+                                />
                             </svg>
                         }
                         label="Following Route"
@@ -263,17 +300,13 @@ const SystemRow: React.FC<{
 }> = ({ icon, label, active, detail, dotColor, pulse, action }) => (
     <div
         className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
-            active
-                ? 'bg-white/[0.04] border-white/10'
-                : 'bg-white/[0.01] border-white/[0.04] opacity-50'
+            active ? 'bg-white/[0.04] border-white/10' : 'bg-white/[0.01] border-white/[0.04] opacity-50'
         }`}
     >
         {/* Status dot */}
         <div className="relative shrink-0">
             <span className={`block w-2.5 h-2.5 rounded-full ${dotColor} transition-colors`} />
-            {pulse && (
-                <span className={`absolute inset-0 rounded-full ${dotColor} animate-ping opacity-50`} />
-            )}
+            {pulse && <span className={`absolute inset-0 rounded-full ${dotColor} animate-ping opacity-50`} />}
         </div>
 
         {/* Icon */}
@@ -284,7 +317,9 @@ const SystemRow: React.FC<{
             <p className={`text-xs font-bold uppercase tracking-widest ${active ? 'text-white' : 'text-slate-500'}`}>
                 {label}
             </p>
-            <p className={`text-[11px] leading-relaxed mt-0.5 truncate ${active ? 'text-slate-400' : 'text-slate-600'}`}>
+            <p
+                className={`text-[11px] leading-relaxed mt-0.5 truncate ${active ? 'text-slate-400' : 'text-slate-600'}`}
+            >
                 {detail}
             </p>
         </div>
@@ -414,10 +449,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
                 gpsStatus: ShipLogService.getGpsStatus(),
             },
             anchorWatch: {
-                active:
-                    !!anchorSnapshot &&
-                    anchorSnapshot.state !== 'idle' &&
-                    currentView !== 'compass',
+                active: !!anchorSnapshot && anchorSnapshot.state !== 'idle' && currentView !== 'compass',
                 state: anchorSnapshot
                     ? anchorSnapshot.state === 'alarm' || !!anchorSnapshot.alarmTriggeredAt
                         ? 'alarm'

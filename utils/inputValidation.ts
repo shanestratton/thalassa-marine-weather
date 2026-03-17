@@ -1,6 +1,6 @@
 /**
  * Input Validation — Centralized validation for all user-facing forms.
- * 
+ *
  * Used by onboarding, vessel details, crew finder, marketplace, and diary forms
  * to prevent XSS, injection, and invalid data reaching the backend.
  */

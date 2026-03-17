@@ -13,7 +13,6 @@ import { VoyagePlan } from '../../types';
 import { PhoneIcon, RadioTowerIcon, AlertTriangleIcon, ShareIcon, MapPinIcon } from '../Icons';
 import { findCountryData, difficultyStyle } from '../../data/customsDb';
 
-
 /* ═══════════════════════════════════════════════════════════════
    COMPONENT
    ═══════════════════════════════════════════════════════════════ */
@@ -34,9 +33,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
 
     // Which clearance data to show
     const activeData = activeTab === 'depart' ? departData : arriveData;
-    const activeCountryName = activeTab === 'depart'
-        ? (departCountry || 'Departure')
-        : (arriveCountry || 'Arrival');
+    const activeCountryName = activeTab === 'depart' ? departCountry || 'Departure' : arriveCountry || 'Arrival';
 
     return (
         <div className="space-y-4">
@@ -69,10 +66,14 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
             {activeData ? (
                 <div className="animate-in fade-in duration-200 space-y-4">
                     {/* ── Difficulty Badge ── */}
-                    <div className={`flex items-center justify-between px-4 py-2.5 rounded-xl border ${difficultyStyle[activeData.difficulty].bg} ${difficultyStyle[activeData.difficulty].border}`}>
+                    <div
+                        className={`flex items-center justify-between px-4 py-2.5 rounded-xl border ${difficultyStyle[activeData.difficulty].bg} ${difficultyStyle[activeData.difficulty].border}`}
+                    >
                         <div className="flex items-center gap-2">
                             <span className="text-lg">{activeData.flag}</span>
-                            <span className={`text-xs font-black uppercase tracking-widest ${difficultyStyle[activeData.difficulty].text}`}>
+                            <span
+                                className={`text-xs font-black uppercase tracking-widest ${difficultyStyle[activeData.difficulty].text}`}
+                            >
                                 {difficultyStyle[activeData.difficulty].label}
                             </span>
                         </div>
@@ -87,14 +88,16 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
                             📋 {activeTab === 'depart' ? 'Departure' : 'Arrival'} Clearance Steps
                         </h4>
                         <div className="space-y-2">
-                            {(activeTab === 'depart' ? activeData.departureProcedure : activeData.arrivalProcedure).map((step, i) => (
-                                <div key={i} className="flex items-start gap-3 group">
-                                    <span className="w-5 h-5 rounded-full bg-sky-500/20 border border-sky-500/30 flex items-center justify-center text-[11px] font-black text-sky-400 shrink-0 mt-0.5 group-hover:bg-sky-500/30 transition-colors">
-                                        {i + 1}
-                                    </span>
-                                    <p className="text-xs text-gray-300 leading-relaxed">{step}</p>
-                                </div>
-                            ))}
+                            {(activeTab === 'depart' ? activeData.departureProcedure : activeData.arrivalProcedure).map(
+                                (step, i) => (
+                                    <div key={i} className="flex items-start gap-3 group">
+                                        <span className="w-5 h-5 rounded-full bg-sky-500/20 border border-sky-500/30 flex items-center justify-center text-[11px] font-black text-sky-400 shrink-0 mt-0.5 group-hover:bg-sky-500/30 transition-colors">
+                                            {i + 1}
+                                        </span>
+                                        <p className="text-xs text-gray-300 leading-relaxed">{step}</p>
+                                    </div>
+                                ),
+                            )}
                         </div>
                     </div>
 
@@ -104,7 +107,9 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
                             <h4 className="text-xs font-bold text-red-400 uppercase tracking-widest mb-2 flex items-center gap-2">
                                 ⚠️ Yacht Export Required
                             </h4>
-                            <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-line">{activeData.yachtExport}</p>
+                            <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-line">
+                                {activeData.yachtExport}
+                            </p>
                             {activeData.guideUrl && (
                                 <a
                                     href={activeData.guideUrl}
@@ -147,7 +152,9 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
                                             : 'bg-white/5 border border-white/5'
                                     }`}
                                 >
-                                    <span className={`shrink-0 mt-0.5 ${doc.critical ? 'text-amber-400' : 'text-gray-400'}`}>
+                                    <span
+                                        className={`shrink-0 mt-0.5 ${doc.critical ? 'text-amber-400' : 'text-gray-400'}`}
+                                    >
                                         {doc.critical ? '⚠️' : '📎'}
                                     </span>
                                     <div className="min-w-0">
@@ -174,13 +181,19 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
                                     <div className="text-xs font-bold text-white mb-1.5">{contact.name}</div>
                                     <div className="flex flex-wrap gap-x-4 gap-y-1.5">
                                         {contact.phone && (
-                                            <a href={`tel:${contact.phone}`} className="flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 transition-colors">
+                                            <a
+                                                href={`tel:${contact.phone}`}
+                                                className="flex items-center gap-1.5 text-[11px] text-emerald-400 hover:text-emerald-300 transition-colors"
+                                            >
                                                 <PhoneIcon className="w-3 h-3 shrink-0" />
                                                 <span className="font-mono">{contact.phone}</span>
                                             </a>
                                         )}
                                         {contact.email && (
-                                            <a href={`mailto:${contact.email}`} className="flex items-center gap-1.5 text-[11px] text-sky-400 hover:text-sky-300 transition-colors">
+                                            <a
+                                                href={`mailto:${contact.email}`}
+                                                className="flex items-center gap-1.5 text-[11px] text-sky-400 hover:text-sky-300 transition-colors"
+                                            >
                                                 <span className="shrink-0">✉️</span>
                                                 <span className="font-mono">{contact.email}</span>
                                             </a>
@@ -192,7 +205,12 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
                                             </div>
                                         )}
                                         {contact.website && (
-                                            <a href={contact.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-white transition-colors">
+                                            <a
+                                                href={contact.website}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-white transition-colors"
+                                            >
                                                 <ShareIcon className="w-3 h-3 shrink-0" />
                                                 <span className="truncate max-w-[180px]">Website</span>
                                             </a>
@@ -231,7 +249,9 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
                             </h4>
                             <div className="space-y-1.5">
                                 {activeData.importantNotes.map((note, i) => (
-                                    <p key={i} className="text-xs text-gray-300 leading-relaxed">{note}</p>
+                                    <p key={i} className="text-xs text-gray-300 leading-relaxed">
+                                        {note}
+                                    </p>
                                 ))}
                             </div>
                         </div>
@@ -239,7 +259,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
 
                     {/* ── Gemini AI Additional Context ── */}
                     {((activeTab === 'depart' && customs?.departureProcedures) ||
-                      (activeTab === 'arrive' && customs?.procedures)) && (
+                        (activeTab === 'arrive' && customs?.procedures)) && (
                         <div className="bg-indigo-500/5 border border-indigo-500/15 rounded-xl p-4">
                             <h4 className="text-xs font-bold text-indigo-300 uppercase tracking-widest mb-2 flex items-center gap-2">
                                 🤖 AI Route-Specific Notes
@@ -259,9 +279,9 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
                             <div>
                                 <h5 className="text-xs font-bold text-amber-300 mb-1">Limited Data Available</h5>
                                 <p className="text-xs text-gray-400 leading-relaxed">
-                                    We don't have detailed clearance procedures for {activeCountryName} in our database yet.
-                                    Below is the AI-generated information from your passage plan. Always verify with the
-                                    relevant authorities before departure.
+                                    We don't have detailed clearance procedures for {activeCountryName} in our database
+                                    yet. Below is the AI-generated information from your passage plan. Always verify
+                                    with the relevant authorities before departure.
                                 </p>
                             </div>
                         </div>
@@ -289,7 +309,10 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
                         <div className="bg-white/5 border border-white/[0.06] rounded-xl px-4 py-3">
                             <div className="flex items-center gap-2 text-emerald-400">
                                 <PhoneIcon className="w-3.5 h-3.5" />
-                                <a href={`tel:${customs.contactPhone}`} className="text-sm font-mono hover:text-emerald-300 transition-colors">
+                                <a
+                                    href={`tel:${customs.contactPhone}`}
+                                    className="text-sm font-mono hover:text-emerald-300 transition-colors"
+                                >
                                     {customs.contactPhone}
                                 </a>
                             </div>

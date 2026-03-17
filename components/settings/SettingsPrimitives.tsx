@@ -52,28 +52,30 @@ export const Row = React.memo(
 Row.displayName = 'Row';
 
 // ── Toggle ───────────────────────────────────────────────────────
-export const Toggle = React.memo(({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) => (
-    <button
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        className="relative inline-flex items-center cursor-pointer p-2 -mr-2 group"
-        onClick={(e) => {
-            e.stopPropagation();
-            onChange(!checked);
-        }}
-    >
-        <div
-            className={`w-11 h-6 rounded-full transition-all duration-300 ${
-                checked ? 'bg-gradient-to-r from-sky-500 to-sky-600 shadow-lg shadow-sky-500/30' : 'bg-slate-700'
-            }`}
+export const Toggle = React.memo(
+    ({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) => (
+        <button
+            role="switch"
+            aria-checked={checked}
+            aria-label={label}
+            className="relative inline-flex items-center cursor-pointer p-2 -mr-2 group"
+            onClick={(e) => {
+                e.stopPropagation();
+                onChange(!checked);
+            }}
         >
             <div
-                className={`absolute top-3 w-4 h-4 bg-white rounded-full shadow-md transition-all duration-300 ${checked ? 'left-6' : 'left-3'}`}
-            ></div>
-        </div>
-    </button>
-));
+                className={`w-11 h-6 rounded-full transition-all duration-300 ${
+                    checked ? 'bg-gradient-to-r from-sky-500 to-sky-600 shadow-lg shadow-sky-500/30' : 'bg-slate-700'
+                }`}
+            >
+                <div
+                    className={`absolute top-3 w-4 h-4 bg-white rounded-full shadow-md transition-all duration-300 ${checked ? 'left-6' : 'left-3'}`}
+                ></div>
+            </div>
+        </button>
+    ),
+);
 Toggle.displayName = 'Toggle';
 
 // ── Common props passed to every settings tab ────────────────

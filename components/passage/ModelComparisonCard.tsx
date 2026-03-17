@@ -7,7 +7,11 @@
  */
 
 import React, { useMemo, useState } from 'react';
-import type { MultiModelResult, WaypointComparison, ModelForecastPoint } from '../../services/weather/MultiModelWeatherService';
+import type {
+    MultiModelResult,
+    WaypointComparison,
+    ModelForecastPoint,
+} from '../../services/weather/MultiModelWeatherService';
 
 interface ModelComparisonCardProps {
     data: MultiModelResult;
@@ -15,11 +19,11 @@ interface ModelComparisonCardProps {
 
 /* ── Model brand colours ────────────────────────────────────── */
 const MODEL_PALETTE: Record<string, { bg: string; text: string; glow: string; bar: string }> = {
-    GFS:        { bg: 'bg-sky-500/15',     text: 'text-sky-400',     glow: 'shadow-sky-500/20',     bar: '#38bdf8'    },
-    'ECMWF IFS':{ bg: 'bg-emerald-500/15', text: 'text-emerald-400', glow: 'shadow-emerald-500/20', bar: '#34d399'    },
-    ICON:       { bg: 'bg-amber-500/15',   text: 'text-amber-400',   glow: 'shadow-amber-500/20',   bar: '#fbbf24'    },
-    'ACCESS-G': { bg: 'bg-purple-500/15',  text: 'text-purple-400',  glow: 'shadow-purple-500/20',  bar: '#a78bfa'    },
-    GEM:        { bg: 'bg-cyan-500/15',    text: 'text-cyan-400',    glow: 'shadow-cyan-500/20',    bar: '#22d3ee'    },
+    GFS: { bg: 'bg-sky-500/15', text: 'text-sky-400', glow: 'shadow-sky-500/20', bar: '#38bdf8' },
+    'ECMWF IFS': { bg: 'bg-emerald-500/15', text: 'text-emerald-400', glow: 'shadow-emerald-500/20', bar: '#34d399' },
+    ICON: { bg: 'bg-amber-500/15', text: 'text-amber-400', glow: 'shadow-amber-500/20', bar: '#fbbf24' },
+    'ACCESS-G': { bg: 'bg-purple-500/15', text: 'text-purple-400', glow: 'shadow-purple-500/20', bar: '#a78bfa' },
+    GEM: { bg: 'bg-cyan-500/15', text: 'text-cyan-400', glow: 'shadow-cyan-500/20', bar: '#22d3ee' },
 };
 const DEFAULT_PAL = { bg: 'bg-gray-500/15', text: 'text-gray-400', glow: 'shadow-gray-500/20', bar: '#9ca3af' };
 
@@ -31,14 +35,35 @@ const getConfidence = (windSpread: number, dirSpread: number): 'high' | 'medium'
 };
 
 const CONFIDENCE_STYLES = {
-    high:   { bg: 'from-emerald-500/10 to-emerald-600/5', border: 'border-emerald-500/30', text: 'text-emerald-400', icon: '🟢', label: 'HIGH CONFIDENCE', desc: 'Models agree — forecast is reliable' },
-    medium: { bg: 'from-amber-500/10 to-amber-600/5',     border: 'border-amber-500/30',   text: 'text-amber-400',   icon: '🟡', label: 'MODERATE',         desc: 'Some disagreement — monitor updates' },
-    low:    { bg: 'from-red-500/10 to-red-600/5',         border: 'border-red-500/30',     text: 'text-red-400',     icon: '🔴', label: 'LOW CONFIDENCE',  desc: 'Models diverge — exercise caution' },
+    high: {
+        bg: 'from-emerald-500/10 to-emerald-600/5',
+        border: 'border-emerald-500/30',
+        text: 'text-emerald-400',
+        icon: '🟢',
+        label: 'HIGH CONFIDENCE',
+        desc: 'Models agree — forecast is reliable',
+    },
+    medium: {
+        bg: 'from-amber-500/10 to-amber-600/5',
+        border: 'border-amber-500/30',
+        text: 'text-amber-400',
+        icon: '🟡',
+        label: 'MODERATE',
+        desc: 'Some disagreement — monitor updates',
+    },
+    low: {
+        bg: 'from-red-500/10 to-red-600/5',
+        border: 'border-red-500/30',
+        text: 'text-red-400',
+        icon: '🔴',
+        label: 'LOW CONFIDENCE',
+        desc: 'Models diverge — exercise caution',
+    },
 };
 
 /* ── Wind speed → heat colour ─────────────────────────────── */
 const windHeatColor = (kts: number): string => {
-    if (kts < 5)  return 'bg-sky-900/40';
+    if (kts < 5) return 'bg-sky-900/40';
     if (kts < 10) return 'bg-sky-700/50';
     if (kts < 15) return 'bg-sky-500/50';
     if (kts < 20) return 'bg-emerald-500/40';
@@ -77,15 +102,25 @@ const Sparkline: React.FC<{
     const sampled = samplePoints(points, 20);
     if (sampled.length < 2) return null;
 
-    const path = sampled.map((pt, i) => {
-        const x = (i / (sampled.length - 1)) * width;
-        const y = height - (pt[metric] / (maxVal || 1)) * (height - 4);
-        return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(' ');
+    const path = sampled
+        .map((pt, i) => {
+            const x = (i / (sampled.length - 1)) * width;
+            const y = height - (pt[metric] / (maxVal || 1)) * (height - 4);
+            return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .join(' ');
 
     return (
         <svg width={width} height={height} className="shrink-0" viewBox={`0 0 ${width} ${height}`}>
-            <path d={path} stroke={color} strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" opacity="0.8" />
+            <path
+                d={path}
+                stroke={color}
+                strokeWidth="1.5"
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity="0.8"
+            />
         </svg>
     );
 };
@@ -124,25 +159,41 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
     // Global max values for sparkline scaling
     const globalMaxWind = useMemo(() => {
         let max = 25;
-        data.waypoints.forEach(wp => wp.forecasts.forEach(f => f.points.forEach(p => { if (p.windSpeed > max) max = p.windSpeed; })));
+        data.waypoints.forEach((wp) =>
+            wp.forecasts.forEach((f) =>
+                f.points.forEach((p) => {
+                    if (p.windSpeed > max) max = p.windSpeed;
+                }),
+            ),
+        );
         return max * 1.1;
     }, [data]);
 
     const globalMaxWave = useMemo(() => {
         let max = 2;
-        data.waypoints.forEach(wp => wp.forecasts.forEach(f => f.points.forEach(p => { if (p.waveHeight > max) max = p.waveHeight; })));
+        data.waypoints.forEach((wp) =>
+            wp.forecasts.forEach((f) =>
+                f.points.forEach((p) => {
+                    if (p.waveHeight > max) max = p.waveHeight;
+                }),
+            ),
+        );
         return max * 1.1;
     }, [data]);
 
     const style = CONFIDENCE_STYLES[overallConfidence];
     const wpData = data.waypoints[activeWp];
-    const wpConf = wpData ? getConfidence(wpData.consensus.windSpeedSpread, wpData.consensus.windDirectionSpread) : 'low';
+    const wpConf = wpData
+        ? getConfidence(wpData.consensus.windSpeedSpread, wpData.consensus.windDirectionSpread)
+        : 'low';
     const wpStyle = CONFIDENCE_STYLES[wpConf];
 
     return (
         <div className="space-y-4">
             {/* ── Overall Confidence Banner ── */}
-            <div className={`bg-gradient-to-r ${style.bg} ${style.border} border rounded-xl px-4 py-3 flex items-center gap-3`}>
+            <div
+                className={`bg-gradient-to-r ${style.bg} ${style.border} border rounded-xl px-4 py-3 flex items-center gap-3`}
+            >
                 <span className="text-xl">{style.icon}</span>
                 <div className="flex-1 min-w-0">
                     <div className={`text-xs font-black uppercase tracking-widest ${style.text}`}>{style.label}</div>
@@ -159,7 +210,10 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                 {data.models.map((m) => {
                     const pal = MODEL_PALETTE[m.name] || DEFAULT_PAL;
                     return (
-                        <div key={m.id} className={`flex items-center gap-1.5 px-2 py-1 rounded-lg ${pal.bg} border border-white/5`}>
+                        <div
+                            key={m.id}
+                            className={`flex items-center gap-1.5 px-2 py-1 rounded-lg ${pal.bg} border border-white/5`}
+                        >
                             <div className={`w-2 h-2 rounded-full ${pal.text.replace('text-', 'bg-')}`} />
                             <span className={`text-[11px] font-bold ${pal.text}`}>{m.name}</span>
                             <span className="text-[11px] text-gray-400">{m.resolution}</span>
@@ -185,7 +239,9 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                                 }`}
                             >
                                 <div className="flex items-center gap-1.5">
-                                    <div className={`w-1.5 h-1.5 rounded-full ${CONFIDENCE_STYLES[wConf].text.replace('text-', 'bg-')}`} />
+                                    <div
+                                        className={`w-1.5 h-1.5 rounded-full ${CONFIDENCE_STYLES[wConf].text.replace('text-', 'bg-')}`}
+                                    />
                                     {wp.name || `WP-${idx + 1}`}
                                 </div>
                             </button>
@@ -198,7 +254,9 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
             {wpData && (
                 <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl overflow-hidden animate-in fade-in duration-200">
                     {/* Waypoint header */}
-                    <div className={`px-4 py-3 flex items-center justify-between border-b border-white/[0.06] bg-gradient-to-r ${wpStyle.bg}`}>
+                    <div
+                        className={`px-4 py-3 flex items-center justify-between border-b border-white/[0.06] bg-gradient-to-r ${wpStyle.bg}`}
+                    >
                         <div className="flex items-center gap-2.5">
                             <span className="text-sm">{wpStyle.icon}</span>
                             <div>
@@ -220,31 +278,45 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                     {/* Consensus summary bar */}
                     <div className="px-4 py-3 grid grid-cols-4 gap-2 border-b border-white/[0.06] bg-white/[0.02]">
                         <div className="text-center">
-                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-0.5">Wind</div>
+                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-0.5">
+                                Wind
+                            </div>
                             <div className="text-sm font-bold text-white">{wpData.consensus.windSpeedMean}kt</div>
-                            <div className={`text-[11px] font-mono ${wpData.consensus.windSpeedSpread > 12 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            <div
+                                className={`text-[11px] font-mono ${wpData.consensus.windSpeedSpread > 12 ? 'text-amber-400' : 'text-emerald-400'}`}
+                            >
                                 ±{wpData.consensus.windSpeedSpread}kt
                             </div>
                         </div>
                         <div className="text-center">
-                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-0.5">Dir</div>
+                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-0.5">
+                                Dir
+                            </div>
                             <div className="text-sm font-bold text-white flex items-center justify-center gap-1">
                                 <DirArrow deg={wpData.consensus.windDirectionMean} />
                                 {wpData.consensus.windDirectionMean}°
                             </div>
-                            <div className={`text-[11px] font-mono ${wpData.consensus.windDirectionSpread > 45 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            <div
+                                className={`text-[11px] font-mono ${wpData.consensus.windDirectionSpread > 45 ? 'text-amber-400' : 'text-emerald-400'}`}
+                            >
                                 ±{wpData.consensus.windDirectionSpread}°
                             </div>
                         </div>
                         <div className="text-center">
-                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-0.5">Waves</div>
+                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-0.5">
+                                Waves
+                            </div>
                             <div className="text-sm font-bold text-white">{wpData.consensus.waveHeightMean}m</div>
-                            <div className={`text-[11px] font-mono ${wpData.consensus.waveHeightSpread > 1 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                            <div
+                                className={`text-[11px] font-mono ${wpData.consensus.waveHeightSpread > 1 ? 'text-amber-400' : 'text-emerald-400'}`}
+                            >
                                 ±{wpData.consensus.waveHeightSpread}m
                             </div>
                         </div>
                         <div className="text-center">
-                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-0.5">Pres</div>
+                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-0.5">
+                                Pres
+                            </div>
                             <div className="text-sm font-bold text-white">{wpData.consensus.pressureMean}</div>
                             <div className="text-[11px] font-mono text-gray-400">hPa</div>
                         </div>
@@ -268,7 +340,9 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                                     <div className="flex items-center gap-3 mb-2">
                                         {/* Model name */}
                                         <div className="flex items-center gap-1.5 min-w-[80px]">
-                                            <div className={`w-2.5 h-2.5 rounded-full ${pal.text.replace('text-', 'bg-')} shadow-lg ${pal.glow}`} />
+                                            <div
+                                                className={`w-2.5 h-2.5 rounded-full ${pal.text.replace('text-', 'bg-')} shadow-lg ${pal.glow}`}
+                                            />
                                             <span className={`text-[11px] font-black ${pal.text}`}>{f.model.name}</span>
                                         </div>
 
@@ -319,11 +393,22 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                                     <div className="flex items-center gap-3 mt-1.5 ml-[80px]">
                                         <div className="flex items-center gap-1">
                                             <span className="text-[8px] text-gray-600 uppercase">Wind</span>
-                                            <Sparkline points={f.points} color={pal.bar} metric="windSpeed" maxVal={globalMaxWind} />
+                                            <Sparkline
+                                                points={f.points}
+                                                color={pal.bar}
+                                                metric="windSpeed"
+                                                maxVal={globalMaxWind}
+                                            />
                                         </div>
                                         <div className="flex items-center gap-1">
                                             <span className="text-[8px] text-gray-600 uppercase">Wave</span>
-                                            <Sparkline points={f.points} color={pal.bar} metric="waveHeight" maxVal={globalMaxWave} height={20} />
+                                            <Sparkline
+                                                points={f.points}
+                                                color={pal.bar}
+                                                metric="waveHeight"
+                                                maxVal={globalMaxWave}
+                                                height={20}
+                                            />
                                         </div>
                                     </div>
                                 </div>

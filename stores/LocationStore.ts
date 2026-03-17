@@ -42,7 +42,7 @@ let state: LocationState = { ...DEFAULT_STATE };
 const listeners = new Set<Listener>();
 
 function notify() {
-    listeners.forEach(fn => fn(state));
+    listeners.forEach((fn) => fn(state));
 }
 
 export const LocationStore = {
@@ -148,7 +148,7 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
     try {
         const res = await fetch(
             `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=10`,
-            { headers: { 'Accept-Language': 'en' } }
+            { headers: { 'Accept-Language': 'en' } },
         );
         if (!res.ok) return null;
         const data = await res.json();
@@ -164,7 +164,7 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
 
         return parts.length > 0 ? parts.join(', ') : null;
     } catch (e) {
-            console.warn('[LocationStore]', e);
+        console.warn('[LocationStore]', e);
         return null;
     }
 }

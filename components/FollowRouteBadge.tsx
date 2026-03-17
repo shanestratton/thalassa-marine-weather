@@ -30,7 +30,13 @@ const StopFollowingDialog: React.FC<{
             <div className="p-6 text-center">
                 {/* Icon */}
                 <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4">
-                    <svg className="w-8 h-8 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <svg
+                        className="w-8 h-8 text-red-400"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={1.5}
+                    >
                         <path strokeLinecap="round" strokeLinejoin="round" d="M5.636 5.636a9 9 0 1012.728 0M12 3v9" />
                     </svg>
                 </div>
@@ -77,12 +83,24 @@ const RouteChangePanel: React.FC<{
             <div className="p-4">
                 <div className="flex items-start gap-3">
                     <div className="p-1.5 bg-amber-500/10 rounded-lg mt-0.5 shrink-0">
-                        <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                        <svg
+                            className="w-4 h-4 text-amber-400"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"
+                            />
                         </svg>
                     </div>
                     <div className="flex-1 min-w-0">
-                        <h4 className="text-xs text-amber-400 font-bold uppercase tracking-widest mb-1">Route Updated</h4>
+                        <h4 className="text-xs text-amber-400 font-bold uppercase tracking-widest mb-1">
+                            Route Updated
+                        </h4>
                         <p className="text-sm text-gray-300 leading-relaxed">{description}</p>
                         <p className="text-[11px] text-gray-400 mt-1">
                             Old route shown in gray. New route in blue. Accept to confirm the new route.
@@ -205,8 +223,14 @@ ${gpxWaypoints.map((wp) => `      <trkpt lat="${wp.lat}" lon="${wp.lon}"><name>$
                             className="flex-1 min-w-0 text-left"
                         >
                             <div className="flex items-center gap-1.5">
-                                <span className={`text-[11px] font-bold uppercase tracking-widest ${routeChanged ? 'text-amber-400' : 'text-sky-400'}`}>
-                                    {routeChanged ? '⚠ Route Updated' : isRefreshing ? '↻ Refreshing...' : '🧭 Following'}
+                                <span
+                                    className={`text-[11px] font-bold uppercase tracking-widest ${routeChanged ? 'text-amber-400' : 'text-sky-400'}`}
+                                >
+                                    {routeChanged
+                                        ? '⚠ Route Updated'
+                                        : isRefreshing
+                                          ? '↻ Refreshing...'
+                                          : '🧭 Following'}
                                 </span>
                             </div>
                             <div className="text-xs text-white/80 font-medium truncate mt-0.5">
@@ -242,7 +266,13 @@ ${gpxWaypoints.map((wp) => `      <trkpt lat="${wp.lat}" lon="${wp.lon}"><name>$
                             className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-all active:scale-[0.95] shrink-0"
                             title="Stop following route"
                         >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
+                            >
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>

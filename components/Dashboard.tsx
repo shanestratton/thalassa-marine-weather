@@ -17,7 +17,6 @@ import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
 import { RainForecastCard } from './dashboard/RainForecastCard';
 import { useSettings } from '../context/SettingsContext';
 
-
 import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
 import { UnitPreferences, SourcedWeatherMetrics } from '../types';
 import { fetchMinutelyRainWithSummary, MinutelyRain } from '../services/weather/api/weatherkit';
@@ -66,8 +65,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     const isOffshore = data?.locationType === 'offshore';
     const isExpanded =
         isInland || isOffshore ? (isOffshore ? true : false) : userSettings.dashboardMode !== 'essential';
-
-
 
     // Derived UI Props
     const isDetailMode = props.viewMode === 'details';
@@ -795,8 +792,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     </div>
                 )}
             </div>
-
-
         </DashboardWidgetContext.Provider>
     );
 });

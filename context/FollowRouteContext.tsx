@@ -147,7 +147,9 @@ function saveToStorage(state: FollowRouteState) {
     try {
         const { isRefreshing, ...persist } = state;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(persist));
-    } catch { /* quota */ }
+    } catch {
+        /* quota */
+    }
 }
 
 function loadFromStorage(): FollowRouteState | null {
@@ -158,12 +160,16 @@ function loadFromStorage(): FollowRouteState | null {
         if (parsed.isFollowing && parsed.voyagePlan) {
             return { ...parsed, isRefreshing: false };
         }
-    } catch { /* corrupted */ }
+    } catch {
+        /* corrupted */
+    }
     return null;
 }
 
 function clearStorage() {
-    try { localStorage.removeItem(STORAGE_KEY); } catch {}
+    try {
+        localStorage.removeItem(STORAGE_KEY);
+    } catch {}
 }
 
 // ── Context ────────────────────────────────────────────────────
@@ -231,11 +237,7 @@ export const FollowRouteProvider: React.FC<{ children: React.ReactNode }> = ({ c
                 const { enhanceVoyagePlanWithWeather } = await import('../services/weatherRouter');
                 const vessel = JSON.parse(localStorage.getItem('thalassa_settings') || '{}')?.vessel;
                 if (vessel) {
-                    updatedPlan = await enhanceVoyagePlanWithWeather(
-                        updatedPlan,
-                        vessel,
-                        updatedPlan.departureDate,
-                    );
+                    updatedPlan = await enhanceVoyagePlanWithWeather(updatedPlan, vessel, updatedPlan.departureDate);
                 }
             } catch (e) {
                 log.warn('Weather re-routing failed:', e);

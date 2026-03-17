@@ -28,18 +28,8 @@ interface RetryOptions {
  * }, { maxRetries: 3 });
  * ```
  */
-export async function fetchWithRetry(
-    url: string | URL,
-    init?: RequestInit,
-    options?: RetryOptions,
-): Promise<Response> {
-    const {
-        maxRetries = 3,
-        baseDelayMs = 1000,
-        maxDelayMs = 10_000,
-        signal,
-        onRetry,
-    } = options ?? {};
+export async function fetchWithRetry(url: string | URL, init?: RequestInit, options?: RetryOptions): Promise<Response> {
+    const { maxRetries = 3, baseDelayMs = 1000, maxDelayMs = 10_000, signal, onRetry } = options ?? {};
 
     let lastError: Error | undefined;
 
@@ -79,11 +69,7 @@ export async function fetchWithRetry(
 /**
  * Convenience wrapper that also parses JSON response.
  */
-export async function fetchJsonWithRetry<T>(
-    url: string | URL,
-    init?: RequestInit,
-    options?: RetryOptions,
-): Promise<T> {
+export async function fetchJsonWithRetry<T>(url: string | URL, init?: RequestInit, options?: RetryOptions): Promise<T> {
     const response = await fetchWithRetry(url, init, options);
     if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);

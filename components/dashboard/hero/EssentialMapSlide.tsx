@@ -83,10 +83,16 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
 
                 const nowSec = Date.now() / 1000;
                 const maxAge = 3 * 60 * 60;
-                const allPast = (data?.radar?.past ?? []).map((f: { path: string; time: number }) => ({ path: f.path, time: f.time }));
+                const allPast = (data?.radar?.past ?? []).map((f: { path: string; time: number }) => ({
+                    path: f.path,
+                    time: f.time,
+                }));
                 const fresh = allPast.filter((f: { time: number }) => nowSec - f.time < maxAge);
                 const past = fresh.length > 0 ? fresh : allPast;
-                const nowcast = (data?.radar?.nowcast ?? []).map((f: { path: string; time: number }) => ({ path: f.path, time: f.time }));
+                const nowcast = (data?.radar?.nowcast ?? []).map((f: { path: string; time: number }) => ({
+                    path: f.path,
+                    time: f.time,
+                }));
 
                 const all: EssentialFrame[] = [
                     ...past.map((f: { path: string; time: number }) => ({ ...f, type: 'radar' as const })),

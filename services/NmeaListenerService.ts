@@ -294,7 +294,7 @@ class NmeaListenerServiceClass {
                 }
             };
         } catch (e) {
-            log.warn( e);
+            log.warn(e);
             this.setStatus('error');
             if (this.enabled) this.scheduleReconnect();
         }

@@ -149,7 +149,11 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                             <span>{getWatchPeriodName(currentWatch)}</span>
                         </div>
                     </div>
-                    <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors p-1" aria-label="Close">
+                    <button
+                        onClick={onClose}
+                        className="text-slate-400 hover:text-white transition-colors p-1"
+                        aria-label="Close"
+                    >
                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path
                                 strokeLinecap="round"
@@ -297,7 +301,9 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                                 recognition.maxAlternatives = 1;
                                 recognition.continuous = false;
                                 setListening(true);
-                                recognition.onresult = (event: { results: { length: number; 0: { 0: { transcript: string } } } }) => {
+                                recognition.onresult = (event: {
+                                    results: { length: number; 0: { 0: { transcript: string } } };
+                                }) => {
                                     const transcript = event.results[0][0].transcript;
                                     setNotes((prev) => (prev ? `${prev} ${transcript}` : transcript));
                                     toast.success('Voice captured');

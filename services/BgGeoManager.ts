@@ -165,7 +165,7 @@ class BgGeoManagerClass {
             });
             return this._locationToCache(loc);
         } catch (e) {
-            log.warn( e);
+            log.warn(e);
             // If getCurrentPosition fails, return stale cache as last resort
             return this._lastPosition;
         }

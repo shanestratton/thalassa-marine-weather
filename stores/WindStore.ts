@@ -53,7 +53,7 @@ let state: WindState = { ...DEFAULT_STATE };
 const listeners = new Set<WindListener>();
 
 function notify() {
-    listeners.forEach(fn => fn(state));
+    listeners.forEach((fn) => fn(state));
 }
 
 export const WindStore = {
@@ -68,7 +68,15 @@ export const WindStore = {
 
     /** Toggle between global streaming and local GRIB mode */
     toggleMode() {
-        state = { ...state, isGlobalMode: !state.isGlobalMode, grid: null, loading: false, error: null, hour: 0, totalHours: 0 };
+        state = {
+            ...state,
+            isGlobalMode: !state.isGlobalMode,
+            grid: null,
+            loading: false,
+            error: null,
+            hour: 0,
+            totalHours: 0,
+        };
         notify();
     },
 

@@ -19,9 +19,19 @@ interface EmergencyContact {
 
 const EMERGENCY_CONTACTS_DB: Record<string, EmergencyContact[]> = {
     Australia: [
-        { service: 'Australian Maritime Safety Authority (AMSA)', frequency: '156.8 MHz (VHF-16)', phone: '1800 641 792', region: 'Australia' },
+        {
+            service: 'Australian Maritime Safety Authority (AMSA)',
+            frequency: '156.8 MHz (VHF-16)',
+            phone: '1800 641 792',
+            region: 'Australia',
+        },
         { service: 'Marine Rescue NSW', frequency: '156.8 MHz (VHF-16)', phone: '1800 622 468', region: 'NSW' },
-        { service: 'Volunteer Marine Rescue QLD', frequency: '156.8 MHz (VHF-16)', phone: '07 3635 3600', region: 'QLD' },
+        {
+            service: 'Volunteer Marine Rescue QLD',
+            frequency: '156.8 MHz (VHF-16)',
+            phone: '07 3635 3600',
+            region: 'QLD',
+        },
         { service: 'Water Police', frequency: '156.8 MHz (VHF-16)', phone: '000', region: 'Australia' },
     ],
     'New Zealand': [
@@ -37,20 +47,31 @@ const EMERGENCY_CONTACTS_DB: Record<string, EmergencyContact[]> = {
         { service: 'HM Coastguard', frequency: '156.8 MHz (VHF-16)', phone: '999 / 112', region: 'UK' },
         { service: 'RNLI Lifeboat', frequency: '156.8 MHz (VHF-16)', phone: '999', region: 'UK' },
     ],
-    France: [
-        { service: 'CROSS (Centre Régional)', frequency: '156.8 MHz (VHF-16)', phone: '196', region: 'France' },
-    ],
+    France: [{ service: 'CROSS (Centre Régional)', frequency: '156.8 MHz (VHF-16)', phone: '196', region: 'France' }],
     Indonesia: [
-        { service: 'BASARNAS (Search & Rescue)', frequency: '156.8 MHz (VHF-16)', phone: '+62 21 348 32908', region: 'Indonesia' },
+        {
+            service: 'BASARNAS (Search & Rescue)',
+            frequency: '156.8 MHz (VHF-16)',
+            phone: '+62 21 348 32908',
+            region: 'Indonesia',
+        },
     ],
     'Papua New Guinea': [
-        { service: 'National Maritime Safety Authority', frequency: '156.8 MHz (VHF-16)', phone: '+675 320 0211', region: 'PNG' },
+        {
+            service: 'National Maritime Safety Authority',
+            frequency: '156.8 MHz (VHF-16)',
+            phone: '+675 320 0211',
+            region: 'PNG',
+        },
     ],
-    Fiji: [
-        { service: 'Fiji Navy MRCC', frequency: '156.8 MHz (VHF-16)', phone: '+679 331 5470', region: 'Fiji' },
-    ],
+    Fiji: [{ service: 'Fiji Navy MRCC', frequency: '156.8 MHz (VHF-16)', phone: '+679 331 5470', region: 'Fiji' }],
     default: [
-        { service: 'International Maritime Distress', frequency: '156.8 MHz (VHF-16)', phone: 'VHF Ch 16', region: 'International' },
+        {
+            service: 'International Maritime Distress',
+            frequency: '156.8 MHz (VHF-16)',
+            phone: 'VHF Ch 16',
+            region: 'International',
+        },
         { service: 'Inmarsat Maritime', frequency: '1544 MHz', phone: 'Fleet 77', region: 'Global' },
     ],
 };
@@ -60,8 +81,8 @@ function getContactsForCountry(country: string | undefined): EmergencyContact[] 
     // Try exact match first
     if (EMERGENCY_CONTACTS_DB[country]) return EMERGENCY_CONTACTS_DB[country];
     // Try partial match
-    const key = Object.keys(EMERGENCY_CONTACTS_DB).find(k =>
-        country.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(country.toLowerCase())
+    const key = Object.keys(EMERGENCY_CONTACTS_DB).find(
+        (k) => country.toLowerCase().includes(k.toLowerCase()) || k.toLowerCase().includes(country.toLowerCase()),
     );
     return key ? EMERGENCY_CONTACTS_DB[key] : EMERGENCY_CONTACTS_DB.default;
 }
@@ -105,14 +126,15 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
     const arriveContacts = getContactsForCountry(arriveCountry);
 
     // Deduplicate if same country on both ends
-    const sameCountry = departCountry && arriveCountry &&
-        departCountry.toLowerCase() === arriveCountry.toLowerCase();
+    const sameCountry = departCountry && arriveCountry && departCountry.toLowerCase() === arriveCountry.toLowerCase();
 
     // Safe harbours from Gemini
     const safeHarbours = voyagePlan.safeHarbours || [];
 
     return (
-        <div className={`w-full bg-slate-900 ${t.border.default} rounded-2xl p-5 md:p-6 shadow-xl relative overflow-hidden`}>
+        <div
+            className={`w-full bg-slate-900 ${t.border.default} rounded-2xl p-5 md:p-6 shadow-xl relative overflow-hidden`}
+        >
             <div className="absolute top-0 left-0 w-96 h-96 bg-red-500/5 rounded-full blur-3xl -translate-y-1/2 -translate-x-1/2 pointer-events-none" />
 
             <div className="relative z-10">
@@ -123,7 +145,9 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                             <AlertTriangleIcon className="w-5 h-5 text-red-400" />
                             Emergency & Contingency
                         </h3>
-                        <p className="text-xs text-slate-400 font-medium mt-0.5">Pre-planned safety options for this passage</p>
+                        <p className="text-xs text-slate-400 font-medium mt-0.5">
+                            Pre-planned safety options for this passage
+                        </p>
                     </div>
                     <div className="text-[11px] font-mono text-red-400 bg-red-500/10 px-2.5 py-1 rounded border border-red-500/20 uppercase tracking-widest font-bold">
                         Safety Critical
@@ -166,9 +190,10 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                                 <div>
                                     <h5 className="text-xs font-bold text-amber-300 mb-1">Plan Your Port of Refuge</h5>
                                     <p className="text-xs text-gray-400 leading-relaxed">
-                                        Before departure, identify at least one safe harbour along your route where you can divert
-                                        if conditions deteriorate. Check your charts for sheltered anchorages, marinas with fuel and
-                                        medical facilities, and harbours with all-tide access.
+                                        Before departure, identify at least one safe harbour along your route where you
+                                        can divert if conditions deteriorate. Check your charts for sheltered
+                                        anchorages, marinas with fuel and medical facilities, and harbours with all-tide
+                                        access.
                                     </p>
                                 </div>
                             </div>
@@ -232,14 +257,34 @@ export const EmergencyPlan: React.FC<EmergencyPlanProps> = ({ voyagePlan, vessel
                         MAYDAY Protocol (VHF Ch 16)
                     </h5>
                     <div className="text-xs text-gray-300 space-y-0.5 font-mono leading-relaxed">
-                        <div><span className="text-red-400 font-bold">1.</span> MAYDAY MAYDAY MAYDAY</div>
-                        <div><span className="text-red-400 font-bold">2.</span> This is <span className="text-white">[VESSEL NAME]</span> × 3</div>
-                        <div><span className="text-red-400 font-bold">3.</span> MMSI: <span className="text-white">[your MMSI]</span></div>
-                        <div><span className="text-red-400 font-bold">4.</span> Position: <span className="text-white">[LAT / LON]</span></div>
-                        <div><span className="text-red-400 font-bold">5.</span> Nature of distress</div>
-                        <div><span className="text-red-400 font-bold">6.</span> Assistance required</div>
-                        <div><span className="text-red-400 font-bold">7.</span> Souls on board: <span className="text-white font-bold">{crewCount}</span></div>
-                        <div><span className="text-red-400 font-bold">8.</span> OVER</div>
+                        <div>
+                            <span className="text-red-400 font-bold">1.</span> MAYDAY MAYDAY MAYDAY
+                        </div>
+                        <div>
+                            <span className="text-red-400 font-bold">2.</span> This is{' '}
+                            <span className="text-white">[VESSEL NAME]</span> × 3
+                        </div>
+                        <div>
+                            <span className="text-red-400 font-bold">3.</span> MMSI:{' '}
+                            <span className="text-white">[your MMSI]</span>
+                        </div>
+                        <div>
+                            <span className="text-red-400 font-bold">4.</span> Position:{' '}
+                            <span className="text-white">[LAT / LON]</span>
+                        </div>
+                        <div>
+                            <span className="text-red-400 font-bold">5.</span> Nature of distress
+                        </div>
+                        <div>
+                            <span className="text-red-400 font-bold">6.</span> Assistance required
+                        </div>
+                        <div>
+                            <span className="text-red-400 font-bold">7.</span> Souls on board:{' '}
+                            <span className="text-white font-bold">{crewCount}</span>
+                        </div>
+                        <div>
+                            <span className="text-red-400 font-bold">8.</span> OVER
+                        </div>
                     </div>
                 </div>
 

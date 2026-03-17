@@ -11,9 +11,9 @@ import type { PolarData } from './navigation';
  *  The isochrone router treats zones exceeding these as obstacles.
  *  Undefined fields = no limit (disabled). */
 export interface ComfortParams {
-    maxWindKts?: number;      // Max sustained wind (default: off)
-    maxWaveM?: number;        // Max significant wave height (default: off)
-    maxGustKts?: number;      // Max gust (default: off)
+    maxWindKts?: number; // Max sustained wind (default: off)
+    maxWaveM?: number; // Max significant wave height (default: off)
+    maxGustKts?: number; // Max gust (default: off)
 }
 
 export interface UserSettings {

@@ -11,10 +11,7 @@ import { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { useFollowRoute } from '../context/FollowRouteContext';
 
-export const useFollowRouteOverlay = (
-    mapInstance: React.MutableRefObject<L.Map | null>,
-    enabled: boolean = true,
-) => {
+export const useFollowRouteOverlay = (mapInstance: React.MutableRefObject<L.Map | null>, enabled: boolean = true) => {
     const { isFollowing, routeCoords, previousRouteCoords, voyagePlan } = useFollowRoute();
     const activeLineRef = useRef<L.Polyline | null>(null);
     const previousLineRef = useRef<L.Polyline | null>(null);
@@ -48,7 +45,7 @@ export const useFollowRouteOverlay = (
             previousLineRef.current = L.polyline(
                 previousRouteCoords.map((c) => [c.lat, c.lon] as L.LatLngExpression),
                 {
-                    color: '#94a3b8',       // slate-400
+                    color: '#94a3b8', // slate-400
                     weight: 3,
                     opacity: 0.5,
                     dashArray: '8, 8',
@@ -62,7 +59,7 @@ export const useFollowRouteOverlay = (
         activeLineRef.current = L.polyline(
             routeCoords.map((c) => [c.lat, c.lon] as L.LatLngExpression),
             {
-                color: '#38bdf8',           // sky-400
+                color: '#38bdf8', // sky-400
                 weight: 3.5,
                 opacity: 0.85,
                 dashArray: '10, 6',

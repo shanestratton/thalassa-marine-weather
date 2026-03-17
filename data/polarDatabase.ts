@@ -10,9 +10,9 @@
 import type { PolarData } from '../types';
 
 export interface PolarDatabaseEntry {
-    model: string;           // e.g. "Beneteau Oceanis 38.1"
-    manufacturer: string;    // e.g. "Beneteau"
-    loa: number;             // Length overall (ft)
+    model: string; // e.g. "Beneteau Oceanis 38.1"
+    manufacturer: string; // e.g. "Beneteau"
+    loa: number; // Length overall (ft)
     category: 'cruiser' | 'racer-cruiser' | 'racer' | 'multihull';
     polar: PolarData;
 }
@@ -40,7 +40,7 @@ function generatePolar(loa: number, category: 'cruiser' | 'racer-cruiser' | 'rac
     const base = Math.sqrt(loa) * 0.78 * mult;
 
     // Speed coefficients per [windSpeedIdx] — how much of hull speed is achieved
-    const windCoeffs = [0.55, 0.66, 0.75, 0.81, 0.86, 0.85, 0.80];
+    const windCoeffs = [0.55, 0.66, 0.75, 0.81, 0.86, 0.85, 0.8];
     // Heavy air penalty is stronger for smaller boats
     const heavyPenalty = Math.max(0.85, Math.min(1.0, loa / 50));
 
@@ -48,23 +48,26 @@ function generatePolar(loa: number, category: 'cruiser' | 'racer-cruiser' | 'rac
     const angleCoeffs = [0.78, 0.88, 0.97, 0.94, 0.83, 0.72];
 
     // Multihulls are much faster reaching, less efficient downwind
-    const multiAngleAdj = category === 'multihull'
-        ? [0.82, 0.92, 1.05, 1.02, 0.88, 0.75]
-        : angleCoeffs;
+    const multiAngleAdj = category === 'multihull' ? [0.82, 0.92, 1.05, 1.02, 0.88, 0.75] : angleCoeffs;
 
-    const matrix = multiAngleAdj.map(angleMult =>
+    const matrix = multiAngleAdj.map((angleMult) =>
         windCoeffs.map((windMult, wi) => {
             const heavyAdj = wi >= 5 ? heavyPenalty : wi >= 6 ? heavyPenalty * 0.95 : 1.0;
             const raw = base * windMult * angleMult * heavyAdj;
             return Math.round(raw * 10) / 10;
-        })
+        }),
     );
 
     return p(matrix);
 }
 
 /** Shorthand entry builder */
-function e(model: string, manufacturer: string, loa: number, category: 'cruiser' | 'racer-cruiser' | 'racer' | 'multihull'): PolarDatabaseEntry {
+function e(
+    model: string,
+    manufacturer: string,
+    loa: number,
+    category: 'cruiser' | 'racer-cruiser' | 'racer' | 'multihull',
+): PolarDatabaseEntry {
     return { model, manufacturer, loa, category, polar: generatePolar(loa, category) };
 }
 
@@ -538,8 +541,7 @@ const SORTED_DATABASE = [...POLAR_DATABASE].sort((a, b) => {
 export function searchPolarDatabase(query: string): PolarDatabaseEntry[] {
     const q = query.toLowerCase().trim();
     if (!q) return SORTED_DATABASE;
-    return SORTED_DATABASE.filter(entry =>
-        entry.model.toLowerCase().includes(q) ||
-        entry.manufacturer.toLowerCase().includes(q)
+    return SORTED_DATABASE.filter(
+        (entry) => entry.model.toLowerCase().includes(q) || entry.manufacturer.toLowerCase().includes(q),
     );
 }
