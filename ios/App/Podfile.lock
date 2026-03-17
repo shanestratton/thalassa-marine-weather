@@ -32,9 +32,13 @@ PODS:
   - CapacitorTcpSocket (7.1.0):
     - Capacitor
     - SwiftSocket
+  - CocoaAsyncSocket (7.6.5)
   - CocoaLumberjack (3.7.4):
     - CocoaLumberjack/Core (= 3.7.4)
   - CocoaLumberjack/Core (3.7.4)
+  - FrontallCapacitorUdp (0.3.4):
+    - Capacitor
+    - CocoaAsyncSocket
   - GoogleDataTransport (10.1.0):
     - nanopb (~> 3.30910.0)
     - PromisesObjC (~> 2.4)
@@ -108,11 +112,13 @@ DEPENDENCIES:
   - "CapacitorShare (from `../../node_modules/@capacitor/share`)"
   - "CapacitorStatusBar (from `../../node_modules/@capacitor/status-bar`)"
   - CapacitorTcpSocket (from `../../node_modules/capacitor-tcp-socket`)
+  - "FrontallCapacitorUdp (from `../../node_modules/@frontall/capacitor-udp`)"
   - "TransistorsoftCapacitorBackgroundFetch (from `../../node_modules/@transistorsoft/capacitor-background-fetch`)"
   - "TransistorsoftCapacitorBackgroundGeolocation (from `../../node_modules/@transistorsoft/capacitor-background-geolocation`)"
 
 SPEC REPOS:
   trunk:
+    - CocoaAsyncSocket
     - CocoaLumberjack
     - GoogleDataTransport
     - GoogleMLKit
@@ -161,6 +167,8 @@ EXTERNAL SOURCES:
     :path: "../../node_modules/@capacitor/status-bar"
   CapacitorTcpSocket:
     :path: "../../node_modules/capacitor-tcp-socket"
+  FrontallCapacitorUdp:
+    :path: "../../node_modules/@frontall/capacitor-udp"
   TransistorsoftCapacitorBackgroundFetch:
     :path: "../../node_modules/@transistorsoft/capacitor-background-fetch"
   TransistorsoftCapacitorBackgroundGeolocation:
@@ -182,7 +190,9 @@ SPEC CHECKSUMS:
   CapacitorShare: 0c58305114538568059bfc07111f22dcb9cb2a82
   CapacitorStatusBar: 32206abd53b14f339763da26f71286deaa891e16
   CapacitorTcpSocket: b1bd03b64009cb2c6221cd660ea080f2f835e220
+  CocoaAsyncSocket: 065fd1e645c7abab64f7a6a2007a48038fdc6a99
   CocoaLumberjack: 543c79c114dadc3b1aba95641d8738b06b05b646
+  FrontallCapacitorUdp: 898ef3f80b41872f450aea91d55c1cefa6c418be
   GoogleDataTransport: aae35b7ea0c09004c3797d53c8c41f66f219d6a7
   GoogleMLKit: ddd51d7dff36ff28defa69afedd9cdce684fd857
   GoogleToolboxForMac: d1a2cbf009c453f4d6ded37c105e2f67a32206d8
@@ -201,6 +211,6 @@ SPEC CHECKSUMS:
   TransistorsoftCapacitorBackgroundGeolocation: bb25918e2b847d71edabdd62d84b771b05d0878f
   TSBackgroundFetch: 0afbeaae4e1132866e1d4b6e55265af26b5958ae
 
-PODFILE CHECKSUM: 1b483b4b409d19f911e7b0bd7c0bf8ae39b888bd
+PODFILE CHECKSUM: 36efdba09a74b2c1c250fe84b4ecb823fd6b22bc
 
 COCOAPODS: 1.16.2
