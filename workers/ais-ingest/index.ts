@@ -18,7 +18,7 @@ import { VesselDB } from './db.js';
 // ── Config ──
 const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
 const API_KEY = process.env.AISSTREAM_KEY;
-const BOUNDING_BOXES = JSON.parse(process.env.BOUNDING_BOXES || '[[[-26.5,152.5],[-27.8,153.8]]]');
+const BOUNDING_BOXES = JSON.parse(process.env.BOUNDING_BOXES || '[[[-90,-180],[90,180]]]');
 
 // Reconnect backoff
 const BACKOFF_BASE_MS = 2000;
