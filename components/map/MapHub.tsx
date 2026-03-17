@@ -42,6 +42,7 @@ import { useWeatherLayers, useEmbeddedRain } from './useWeatherLayers';
 import { usePassagePlanner } from './usePassagePlanner';
 import { useRouteNudge } from './useRouteNudge';
 import { useAisLayer } from './useAisLayer';
+import { useAisStreamLayer } from './useAisStreamLayer';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { SynopticScrubber } from './SynopticScrubber';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
@@ -325,6 +326,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── AIS Vessel Target Layer ──
     useAisLayer(mapRef, mapReady, aisVisible);
+    useAisStreamLayer(mapReady ? mapRef.current : null, aisVisible);
 
     // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
     useEffect(() => {
