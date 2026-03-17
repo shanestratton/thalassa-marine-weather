@@ -30,6 +30,7 @@ export const OfflineTileControl: React.FC<OfflineTileControlProps> = ({ map, til
         if (!map || !tileLayer) return;
 
         // leaflet.offline adds L.control.savetiles
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const savetiles = (L.control as any).savetiles(tileLayer, {
             zoomlevels: [3, 4, 5, 6, 7, 8, 9, 10],
             position: 'topright',

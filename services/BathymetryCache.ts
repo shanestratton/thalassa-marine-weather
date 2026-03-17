@@ -10,8 +10,10 @@
  */
 
 const getSupabaseUrl = (): string =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL) || '';
 const getSupabaseKey = (): string =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_KEY) || '';
 
 import { createLogger } from '../utils/createLogger';

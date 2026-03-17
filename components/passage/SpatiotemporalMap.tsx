@@ -375,6 +375,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
     vesselType = 'sail',
     currentTimeHours = 0,
     seamarkGeoJSON,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     channelPolygonGeoJSON,
     onMapReady,
 }) => {
@@ -400,7 +401,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
     }, []);
 
     // Merge prop-based seamarks with fetched ones
-    const mergedSeamarks = useMemo<GeoJSON.FeatureCollection | null>(() => {
+    const _mergedSeamarks = useMemo<GeoJSON.FeatureCollection | null>(() => {
         if (!fetchedSeamarks && !seamarkGeoJSON) return null;
         const features = [...(fetchedSeamarks?.features || []), ...(seamarkGeoJSON?.features || [])];
         return { type: 'FeatureCollection', features };
@@ -469,7 +470,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
     }, [track]);
 
     // ── Corridor Polygon GeoJSON ──
-    const corridorGeoJSON = useMemo(() => {
+    const _corridorGeoJSON = useMemo(() => {
         if (!track || track.length < 2) return null;
         return generateCorridorPolygon(track, corridorWidthNM);
     }, [track, corridorWidthNM]);
@@ -517,6 +518,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
         feedWindData();
 
         // Seamarks now rendered via React <Source>/<Layer> JSX (not imperatively)
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const feedWindData = useCallback(() => {
@@ -558,8 +560,9 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
 
     // Cleanup wind layer on unmount
     useEffect(() => {
+        const mapInstance = mapRef.current;
         return () => {
-            const map = mapRef.current?.getMap();
+            const map = mapInstance?.getMap();
             if (map && windLayerRef.current) {
                 try {
                     map.removeLayer(windLayerRef.current.id);

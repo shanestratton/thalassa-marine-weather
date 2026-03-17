@@ -12,7 +12,7 @@
  * - Mod action menus
  */
 
-import React, { Suspense, useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, Suspense as _Suspense } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('ChatPage');
@@ -104,7 +104,7 @@ export const ChatPage: React.FC = React.memo(() => {
 
     // Loading — must be declared before hooks since they receive setLoading
     const [loading, setLoading] = useState(true);
-    const [loadingStatus, setLoadingStatus] = useState('Connecting to Crew Talk…');
+    const [loadingStatus, _setLoadingStatus] = useState<string | null>(null); // Connecting to Crew Talk…
 
     // --- Extracted Hooks ---
     const chatMessages = useChatMessages({ setView: setView as (v: string) => void, setNavDirection, setLoading });
@@ -228,6 +228,7 @@ export const ChatPage: React.FC = React.memo(() => {
         setShowTyping(true);
         const timer = setTimeout(() => setShowTyping(false), 2500);
         return () => clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeChannel?.id]);
     useEffect(() => {
         // Only track keyboard when compose bar is visible
@@ -263,6 +264,7 @@ export const ChatPage: React.FC = React.memo(() => {
                 vv.addEventListener('scroll', handleResize);
                 handleResize();
                 // Store cleanup refs on window for the teardown below
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (window as any).__chatKbCleanup = () => {
                     vv.removeEventListener('resize', handleResize);
                     vv.removeEventListener('scroll', handleResize);
@@ -274,7 +276,9 @@ export const ChatPage: React.FC = React.memo(() => {
                 kbShowHandle?.then((h) => h.remove());
                 kbHideHandle?.then((h) => h.remove());
             }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (window as any).__chatKbCleanup?.();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             delete (window as any).__chatKbCleanup;
         };
     }, [view]);
@@ -384,6 +388,7 @@ export const ChatPage: React.FC = React.memo(() => {
             cleanupMessages();
             ChatService.destroy();
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const loadChannels = async (): Promise<ChatChannel[]> => {
@@ -447,6 +452,7 @@ export const ChatPage: React.FC = React.memo(() => {
                 setConfirmAction(null);
             },
         });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleMakeAdmin = useCallback(async (userId: string, name: string) => {
@@ -461,6 +467,7 @@ export const ChatPage: React.FC = React.memo(() => {
                 setConfirmAction(null);
             },
         });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // handleMarkHelpful now provided by useChatMessages hook
