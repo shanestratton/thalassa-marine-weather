@@ -2095,3 +2095,13 @@ body,
 .weather-inspect-popup .mapboxgl-popup-tip {
   display: none !important;
 }
+
+/* Hide scrollbar on VesselHub (keeps scroll functionality) */
+.vessel-hub-no-scrollbar {
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* IE/Edge */
+  -webkit-overflow-scrolling: touch;
+}
+.vessel-hub-no-scrollbar::-webkit-scrollbar {
+  display: none;                  /* Chrome/Safari */
+}
