@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('OnboardingWizard');
+import { sanitizeText } from '../utils/inputValidation';
 import { toast } from './Toast';
 import {
     UserSettings,
@@ -393,7 +394,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
 
         const vesselData: VesselProfile = {
             name:
-                (finalVesselType === 'observer' ? 'Observer' : name) ||
+                (finalVesselType === 'observer' ? 'Observer' : sanitizeText(name)) ||
                 (finalVesselType === 'sail' ? 'S/Y Ocean' : 'M/Y Ocean'),
             type: finalVesselType,
             riggingType: finalVesselType === 'sail' ? riggingType : undefined,
@@ -413,8 +414,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
         };
 
         const settings: Partial<UserSettings> = {
-            firstName: firstName.trim() || undefined,
-            lastName: lastName.trim() || undefined,
+            firstName: sanitizeText(firstName) || undefined,
+            lastName: sanitizeText(lastName) || undefined,
             defaultLocation: homePort,
             vessel: vesselData,
             units: {
