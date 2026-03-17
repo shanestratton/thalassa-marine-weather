@@ -13,11 +13,7 @@ import { ProcessOverlay } from './components/ProcessOverlay';
 import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { GpsTrackingIndicator } from './components/GpsTrackingIndicator';
-import { AnchorStatusIndicator } from './components/AnchorStatusIndicator';
-import { FollowRouteBadge } from './components/FollowRouteBadge';
-import { NmeaGpsIndicator } from './components/NmeaGpsIndicator';
-import { NmeaConnectionBadge } from './components/NmeaConnectionBadge';
+import { SystemStatusButton } from './components/SystemStatusButton';
 import { PushNotificationService } from './services/PushNotificationService';
 import { ToastPortal, toast } from './components/Toast';
 import { PageTransition } from './components/ui/PageTransition';
@@ -381,21 +377,12 @@ const App: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Badge cluster — right-aligned, 2 rows */}
+                            {/* System status ℹ button — replaces all individual badges */}
                             <div className="flex flex-col items-end gap-1 pointer-events-auto">
-                                {/* Row 1: Logbook + Anchor */}
-                                <div className="flex items-center gap-1.5">
-                                    <GpsTrackingIndicator />
-                                    <AnchorStatusIndicator
-                                        currentView={currentView}
-                                        onNavigate={() => setPage('compass')}
-                                    />
-                                </div>
-                                {/* Row 2: EXT GPS + NMEA connection under anchor */}
-                                <div className="flex items-center gap-1">
-                                    <NmeaConnectionBadge />
-                                    <NmeaGpsIndicator />
-                                </div>
+                                <SystemStatusButton
+                                    currentView={currentView}
+                                    onNavigateAnchor={() => setPage('compass')}
+                                />
                             </div>
                         </div>
 
@@ -463,8 +450,7 @@ const App: React.FC = () => {
                     </header>
                 )}
 
-                {/* Follow Route Badge — shows when actively following a planned route */}
-                {currentView !== 'map' && <FollowRouteBadge />}
+                {/* System status now handled by SystemStatusButton in header */}
 
                 {/* MAIN CONTENT AREA */}
                 {currentView !== 'map' ? (
