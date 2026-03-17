@@ -191,9 +191,12 @@ export const LayerFABMenu: React.FC<{
     location: { lat: number; lon: number };
     initialZoom: number;
     center?: { lat: number; lon: number };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mapRef: React.MutableRefObject<any>;
     toggleLayer: (layer: WeatherLayer) => void;
     setShowLayerMenu: (v: boolean) => void;
+    aisVisible?: boolean;
+    onToggleAis?: () => void;
 }> = ({
     activeLayers,
     showLayerMenu,
@@ -204,6 +207,8 @@ export const LayerFABMenu: React.FC<{
     mapRef,
     toggleLayer,
     setShowLayerMenu,
+    aisVisible = false,
+    onToggleAis,
 }) => {
     const activeCount = activeLayers.size;
     const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -308,6 +313,31 @@ export const LayerFABMenu: React.FC<{
                             </button>
                         );
                     })}
+
+                    {/* ── AIS Vessel Targets toggle ── */}
+                    {onToggleAis && (
+                        <>
+                            <div className="h-px bg-white/[0.06] mx-3" />
+                            <button
+                                onClick={() => {
+                                    onToggleAis();
+                                    triggerHaptic('light');
+                                }}
+                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${aisVisible ? 'bg-sky-500/20 text-sky-400 border-l-2 border-sky-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                            >
+                                <span className="text-xl">⛴️</span>
+                                <span className="text-sm font-bold flex-1">AIS Vessels</span>
+                                {aisVisible && (
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
+                                        <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+                                            Active
+                                        </span>
+                                    </span>
+                                )}
+                            </button>
+                        </>
+                    )}
                 </div>
             )}
         </div>

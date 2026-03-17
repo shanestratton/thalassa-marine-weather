@@ -642,6 +642,81 @@ export function useMapInit(opts: UseMapInitOptions) {
                 paint: { 'line-color': '#8b5cf6', 'line-width': 2, 'line-dasharray': [4, 4], 'line-opacity': 0.5 },
             });
 
+            // ── AIS Vessel Targets ──
+            map.addSource('ais-targets', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] },
+            });
+
+            // Glow effect behind vessel dots
+            map.addLayer({
+                id: 'ais-targets-glow',
+                type: 'circle',
+                source: 'ais-targets',
+                paint: {
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 6, 10, 12, 14, 18],
+                    'circle-blur': 0.8,
+                    'circle-opacity': 0.5,
+                    'circle-color': ['get', 'statusColor'],
+                },
+            });
+
+            // Vessel dot — colour-coded by navigational status
+            map.addLayer({
+                id: 'ais-targets-circle',
+                type: 'circle',
+                source: 'ais-targets',
+                paint: {
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 3, 10, 6, 14, 10],
+                    'circle-color': ['get', 'statusColor'],
+                    'circle-stroke-width': 1.5,
+                    'circle-stroke-color': 'rgba(0,0,0,0.6)',
+                    'circle-opacity': 0.95,
+                },
+            });
+
+            // Heading arrow — shows vessel direction
+            // Uses a triangle symbol rotated to match COG
+            map.addLayer({
+                id: 'ais-targets-heading',
+                type: 'symbol',
+                source: 'ais-targets',
+                minzoom: 9,
+                layout: {
+                    'icon-image': 'triangle-11',
+                    'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.6, 14, 1.2],
+                    'icon-rotate': ['get', 'cog'],
+                    'icon-rotation-alignment': 'map',
+                    'icon-allow-overlap': true,
+                    'icon-offset': [0, -12],
+                },
+                paint: {
+                    'icon-color': ['get', 'statusColor'],
+                    'icon-opacity': 0.85,
+                },
+            });
+
+            // Vessel name labels — visible at higher zoom
+            map.addLayer({
+                id: 'ais-targets-label',
+                type: 'symbol',
+                source: 'ais-targets',
+                minzoom: 10,
+                layout: {
+                    'text-field': ['get', 'name'],
+                    'text-size': ['interpolate', ['linear'], ['zoom'], 10, 9, 14, 12],
+                    'text-offset': [0, 1.4],
+                    'text-anchor': 'top',
+                    'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+                    'text-allow-overlap': false,
+                },
+                paint: {
+                    'text-color': '#e2e8f0',
+                    'text-halo-color': 'rgba(0, 0, 0, 0.85)',
+                    'text-halo-width': 1.5,
+                },
+            });
+
             // ── Coastline overlays (brighter for visibility under weather layers) ──
             map.addLayer({
                 id: 'coastline-stroke',

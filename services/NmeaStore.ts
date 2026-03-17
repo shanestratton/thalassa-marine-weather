@@ -12,6 +12,8 @@
 import type { NmeaSample } from '../types';
 import { NmeaListenerService, type NmeaConnectionStatus } from './NmeaListenerService';
 import { NmeaGpsProvider } from './NmeaGpsProvider';
+import { AisStore } from './AisStore';
+import { AisHubService } from './AisHubService';
 
 // ── Freshness tiers ──
 export type DataFreshness = 'live' | 'stale' | 'dead';
@@ -85,6 +87,12 @@ class NmeaStoreClass {
 
         // Start GPS provider so it can bridge NMEA GPS to other services
         NmeaGpsProvider.start();
+
+        // Start AIS vessel tracking store
+        AisStore.start();
+
+        // Initialize AISHub uplink (loads saved config, opens UDP if previously enabled)
+        AisHubService.init();
     }
 
     /** Stop the store */
@@ -106,6 +114,8 @@ class NmeaStoreClass {
             this.watchdogTimer = null;
         }
         NmeaGpsProvider.stop();
+        AisStore.stop();
+        AisHubService.destroy();
     }
 
     /** Get current snapshot */
