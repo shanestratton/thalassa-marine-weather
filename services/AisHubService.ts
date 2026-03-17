@@ -1,17 +1,16 @@
 /**
- * AisHubService — Forwards raw AIS NMEA sentences to AISHub via TCP.
+ * AisHubService — Forwards raw AIS NMEA sentences to AISHub via UDP.
  *
  * Makes Thalassa a contributing mobile AIS station.
  * Opt-in via checkbox on the NMEA page.
  *
- * Uses the same capacitor-tcp-socket already installed for NMEA listening —
- * no additional dependencies required.
+ * Uses @frontall/capacitor-udp for native UDP datagrams.
+ * Install: npm install @frontall/capacitor-udp --legacy-peer-deps && npx cap sync
  *
  * Features:
- *   - TCP connection to AISHub endpoint (native) or log-only (web)
+ *   - UDP datagram forwarding (native) or log-only (web)
  *   - 3-second deduplication window (same sentence on channels A+B)
  *   - Rate limiting: max 100 sentences/second
- *   - Auto-reconnect with backoff on connection drop
  *   - Statistics: sentence count, bytes sent, last forwarded time
  */
 import { Capacitor } from '@capacitor/core';
@@ -24,8 +23,6 @@ const DEDUP_WINDOW_MS = 3000;
 const MAX_SENTENCES_PER_SECOND = 100;
 const RATE_WINDOW_MS = 1000;
 const DEDUP_CLEANUP_INTERVAL_MS = 10_000;
-const RECONNECT_BASE_MS = 5000;
-const RECONNECT_MAX_MS = 60_000;
 
 // ── localStorage keys ──
 const KEY_ENABLED = 'aishub_enabled';
@@ -36,7 +33,7 @@ export interface AisHubStats {
     sentenceCount: number;
     bytesSent: number;
     lastForwardedAt: number;
-    isActive: boolean; // Currently sending (enabled + connected)
+    isActive: boolean; // Currently sending (enabled + socket open)
     networkOk: boolean;
 }
 
@@ -46,10 +43,9 @@ class AisHubServiceClass {
     private enabled = false;
     private ip = '';
     private port = 0;
-    private tcpClientId: number | null = null;
-    private connecting = false;
-    private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    private reconnectAttempts = 0;
+    private socketId: number | null = null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    private udpPlugin: any = null;
 
     // ── Deduplication ──
     private recentSentences = new Map<string, number>(); // sentence → timestamp
@@ -58,10 +54,6 @@ class AisHubServiceClass {
     // ── Rate limiting ──
     private rateCounter = 0;
     private rateWindowStart = 0;
-
-    // ── Outbound buffer (queue sentences while connecting) ──
-    private outboundQueue: string[] = [];
-    private readonly MAX_QUEUE = 50;
 
     // ── Stats ──
     private stats: AisHubStats = {
@@ -83,7 +75,7 @@ class AisHubServiceClass {
         this.port = parseInt(localStorage.getItem(KEY_PORT) || '0', 10);
 
         if (this.enabled && this.ip && this.port > 0) {
-            this.openConnection();
+            this.openSocket();
         }
     }
 
@@ -93,9 +85,9 @@ class AisHubServiceClass {
         localStorage.setItem(KEY_ENABLED, String(enabled));
 
         if (enabled && this.ip && this.port > 0) {
-            this.openConnection();
+            this.openSocket();
         } else {
-            this.closeConnection();
+            this.closeSocket();
         }
 
         this.updateActiveState();
@@ -111,8 +103,8 @@ class AisHubServiceClass {
 
         // Reconnect if enabled
         if (this.enabled && ip && port > 0) {
-            this.closeConnection();
-            this.openConnection();
+            this.closeSocket();
+            this.openSocket();
         }
     }
 
@@ -156,79 +148,68 @@ class AisHubServiceClass {
         this.rateCounter++;
 
         // ── Send ──
-        this.sendLine(sentence);
+        this.sendDatagram(sentence);
     }
 
     /** Clean up on app shutdown */
     destroy(): void {
-        this.closeConnection();
+        this.closeSocket();
         this.listeners.clear();
     }
 
     // ── Internals ──
 
-    private async openConnection(): Promise<void> {
-        if (this.tcpClientId !== null || this.connecting) return;
+    private async openSocket(): Promise<void> {
+        if (this.socketId !== null) return;
 
         this.startDedupCleanup();
 
         if (!Capacitor.isNativePlatform()) {
-            // Web fallback — log only, no TCP socket capability
+            // Web fallback — log only, no UDP capability in browser
             log.info(`AISHub uplink enabled (web mode — log only) → ${this.ip}:${this.port}`);
             this.updateActiveState();
             return;
         }
 
-        this.connecting = true;
         try {
-            const { TcpSocket } = await import('capacitor-tcp-socket');
-            const result = await TcpSocket.connect({
-                ipAddress: this.ip,
-                port: this.port,
-            });
-            this.tcpClientId = result.client;
-            this.connecting = false;
-            this.reconnectAttempts = 0;
-            log.info(`AISHub TCP connected (client ${this.tcpClientId}) → ${this.ip}:${this.port}`);
+            // Dynamic import — only loaded on native where the plugin exists
+            const mod = await import('@frontall/capacitor-udp');
+            this.udpPlugin = mod.UdpSocket || mod.default || mod;
 
-            // Flush any queued sentences
-            this.flushQueue();
+            const result = await this.udpPlugin.create();
+            this.socketId = result.socketId;
+            // Bind to any available local port
+            await this.udpPlugin.bind({ socketId: this.socketId, port: 0 });
+
+            log.info(`AISHub UDP socket created (id=${this.socketId}) → ${this.ip}:${this.port}`);
             this.updateActiveState();
             this.notify();
         } catch (e) {
-            this.connecting = false;
-            log.warn('AISHub TCP connect failed:', e);
-            this.scheduleReconnect();
+            log.error('Failed to create AISHub UDP socket:', e);
+            this.socketId = null;
         }
     }
 
-    private async closeConnection(): Promise<void> {
-        if (this.reconnectTimer) {
-            clearTimeout(this.reconnectTimer);
-            this.reconnectTimer = null;
-        }
+    private async closeSocket(): Promise<void> {
         if (this.dedupTimer) {
             clearInterval(this.dedupTimer);
             this.dedupTimer = null;
         }
         this.recentSentences.clear();
-        this.outboundQueue = [];
-        this.reconnectAttempts = 0;
 
-        if (this.tcpClientId !== null) {
+        if (this.socketId !== null && this.udpPlugin) {
             try {
-                const { TcpSocket } = await import('capacitor-tcp-socket');
-                await TcpSocket.disconnect({ client: this.tcpClientId });
+                await this.udpPlugin.close({ socketId: this.socketId });
             } catch (e) {
-                log.warn('AISHub TCP disconnect error:', e);
+                log.warn('AISHub UDP close error:', e);
             }
-            this.tcpClientId = null;
+            this.socketId = null;
         }
 
         this.updateActiveState();
     }
 
-    private async sendLine(sentence: string): Promise<void> {
+    private async sendDatagram(sentence: string): Promise<void> {
         const payload = sentence + '\r\n'; // NMEA line termination
         const bytes = payload.length;
 
@@ -241,17 +222,15 @@ class AisHubServiceClass {
             return;
         }
 
-        if (this.tcpClientId === null) {
-            // Queue while reconnecting
-            if (this.outboundQueue.length < this.MAX_QUEUE) {
-                this.outboundQueue.push(payload);
-            }
-            return;
-        }
+        if (this.socketId === null || !this.udpPlugin) return;
 
         try {
-            const { TcpSocket } = await import('capacitor-tcp-socket');
-            await TcpSocket.send({ client: this.tcpClientId, data: payload });
+            await this.udpPlugin.send({
+                socketId: this.socketId,
+                address: this.ip,
+                port: this.port,
+                buffer: payload,
+            });
 
             this.stats.sentenceCount++;
             this.stats.bytesSent += bytes;
@@ -262,30 +241,8 @@ class AisHubServiceClass {
                 this.notify();
             }
         } catch (e) {
-            log.warn('AISHub TCP write failed:', e);
-            this.tcpClientId = null;
-            this.updateActiveState();
-            this.scheduleReconnect();
+            log.warn('AISHub UDP send failed:', e);
         }
-    }
-
-    private async flushQueue(): Promise<void> {
-        const queued = [...this.outboundQueue];
-        this.outboundQueue = [];
-        for (const line of queued) {
-            await this.sendLine(line.replace(/\r\n$/, '')); // sendLine re-adds \r\n
-        }
-    }
-
-    private scheduleReconnect(): void {
-        if (!this.enabled || this.reconnectTimer) return;
-        const delay = Math.min(RECONNECT_BASE_MS * Math.pow(2, this.reconnectAttempts), RECONNECT_MAX_MS);
-        this.reconnectAttempts++;
-        log.info(`AISHub reconnect in ${delay}ms (attempt ${this.reconnectAttempts})`);
-        this.reconnectTimer = setTimeout(() => {
-            this.reconnectTimer = null;
-            this.openConnection();
-        }, delay);
     }
 
     private startDedupCleanup(): void {
@@ -299,7 +256,7 @@ class AisHubServiceClass {
     }
 
     private updateActiveState(): void {
-        this.stats.isActive = this.enabled && (this.tcpClientId !== null || !Capacitor.isNativePlatform());
+        this.stats.isActive = this.enabled && (this.socketId !== null || !Capacitor.isNativePlatform());
     }
 
     private notify(): void {
