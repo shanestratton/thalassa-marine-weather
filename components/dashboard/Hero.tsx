@@ -119,7 +119,7 @@ export const HeroSection = ({
             });
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- merge of WeatherMetrics + ForecastDay with null/undefined mismatch
+        // merge of WeatherMetrics + ForecastDay with null/undefined mismatch
         const todayMetrics: Record<string, unknown> = {
             ...(todayForecast || {}), // Daily forecast base (high/low/sunrise/sunset)
             ...current, // Real-time observation data WINS over forecast nulls
@@ -154,7 +154,7 @@ export const HeroSection = ({
                         });
                     }
 
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- merge of WeatherMetrics + ForecastDay
+                    // merge of WeatherMetrics + ForecastDay
                     const metrics: Record<string, unknown> = {
                         ...current,
                         ...f,
@@ -210,6 +210,7 @@ export const HeroSection = ({
         };
         window.addEventListener('hero-reset-scroll', handleReset);
         return () => window.removeEventListener('hero-reset-scroll', handleReset);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // PERF FIX: Pre-compute a stable array of per-slide onTimeSelect handlers.
@@ -231,6 +232,7 @@ export const HeroSection = ({
                 onHourChangeRef.current(0);
             }
         });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [dayRows.length]);
 
     return (

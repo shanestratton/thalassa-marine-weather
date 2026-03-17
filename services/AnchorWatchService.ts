@@ -83,10 +83,10 @@ export type AnchorWatchListener = (snapshot: AnchorWatchSnapshot) => void;
 
 // ------- CONSTANTS -------
 
-const TRANSISTOR_LICENSE_KEY = import.meta.env.VITE_TRANSISTOR_LICENSE_KEY || '';
+const _TRANSISTOR_LICENSE_KEY = import.meta.env.VITE_TRANSISTOR_LICENSE_KEY || '';
 const GPS_INTERVAL_MS = 3000; // High-frequency GPS when watching
 const HISTORY_MAX_POINTS = 500; // Max position trail points
-const JITTER_WINDOW = 5; // Default moving average window (adaptive via GpsPrecision)
+const _JITTER_WINDOW = 5; // Default moving average window (adaptive via GpsPrecision)
 const ALARM_CONFIRM_COUNT = 3; // # consecutive readings outside circle before alarm
 const MIN_GPS_ACCURACY = 50; // Ignore readings worse than 50m accuracy
 const GEOFENCE_ID = 'anchor-swing-radius';

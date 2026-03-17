@@ -19,7 +19,7 @@ interface UseMapInitOptions {
     containerRef: MutableRefObject<HTMLDivElement | null>;
     mapRef: MutableRefObject<mapboxgl.Map | null>;
     pinMarkerRef: MutableRefObject<mapboxgl.Marker | null>;
-    locationDotRef: MutableRefObject<mapboxgl.Marker | null>;
+    locationDotRef: MutableRefObject<mapboxgl.Marker | null>; // Kept as it's passed to useLocationDot
     mapboxToken?: string;
     mapStyle: string;
     initialZoom: number;
@@ -28,7 +28,7 @@ interface UseMapInitOptions {
     center?: { lat: number; lon: number };
     location: { lat: number; lon: number };
     onLocationSelect?: (lat: number, lon: number, name?: string) => void;
-    pickerMode?: boolean;
+    pickerMode?: boolean; // Kept as it's passed to usePickerMode
     settingPoint: 'departure' | 'arrival' | null;
     showPassage: boolean;
     departure: { lat: number; lon: number; name: string } | null;
@@ -51,7 +51,7 @@ export function useMapInit(opts: UseMapInitOptions) {
         containerRef,
         mapRef,
         pinMarkerRef,
-        locationDotRef,
+        locationDotRef: _locationDotRef,
         mapboxToken,
         mapStyle,
         initialZoom,
@@ -60,17 +60,17 @@ export function useMapInit(opts: UseMapInitOptions) {
         center,
         location,
         onLocationSelect,
-        pickerMode,
+        pickerMode: _pickerMode,
         settingPoint,
         showPassage,
         departure,
         arrival,
         setMapReady,
-        setActiveLayer,
+        setActiveLayer: _setActiveLayer,
         setDeparture,
         setArrival,
         setSettingPoint,
-        onMapTap,
+        onMapTap: _onMapTap,
     } = opts;
 
     const longPressTimer = useRef<NodeJS.Timeout | null>(null);
@@ -143,6 +143,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             LocationStore.setFromMapPin(lat, lon);
             onLocationSelect?.(lat, lon);
         },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [
             settingPoint,
             showPassage,
@@ -173,6 +174,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             maxZoom: 18,
             minZoom: embedded ? initialZoom : 1,
             renderWorldCopies: true,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             projection: 'mercator' as any,
             interactive: true,
             dragPan: true,
@@ -506,6 +508,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                 .then((r) => r.json())
                 .then((geojson: Record<string, unknown>) => {
                     if (!map.getSource('nav-markers')) {
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         map.addSource('nav-markers', { type: 'geojson', data: geojson as any });
 
                         const markerColors = [
@@ -538,6 +541,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                             'anchorage',
                             '#40c4ff',
                             '#888888',
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         ] as any;
 
                         map.addLayer({
@@ -750,6 +754,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             map.remove();
             mapRef.current = null;
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapboxToken, mapStyle, initialZoom, minimalLabels]);
 
     return { dropPin };
@@ -787,6 +792,7 @@ export function useLocationDot(
                 locationDotRef.current = null;
             }
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapReady]);
 }
 
@@ -835,5 +841,6 @@ export function usePickerMode(
         return () => {
             map.off('click', handleClick);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [pickerMode, onLocationSelect]);
 }

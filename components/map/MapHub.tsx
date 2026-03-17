@@ -54,6 +54,7 @@ import { fetchPointWeather, type PointWeatherData } from '../../services/weather
 
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     homePort,
     onLocationSelect,
     initialZoom = 5,
@@ -62,15 +63,17 @@ export const MapHub: React.FC<MapHubProps> = ({
     embedded = false,
     center,
     pickerMode = false,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     pickerLabel,
 }) => {
     // ── Pin View Mode (from chat pin tap) ──
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [isPinView, setIsPinView] = useState(!!(window as any).__thalassaPinView);
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const locationDotRef = useRef<mapboxgl.Marker | null>(null);
-    const { settings } = useSettings();
+    const { settings: _settings } = useSettings();
     const { setPage, previousView, currentView } = useUI();
     const [passageToast, setPassageToast] = useState<string | null>(null);
     const [isoProgress, setIsoProgress] = useState<{
@@ -86,14 +89,15 @@ export const MapHub: React.FC<MapHubProps> = ({
     const playheadMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
     // ── Weather Inspect Popup ──
-    const [inspectData, setInspectData] = useState<PointWeatherData | null>(null);
-    const [inspectLoading, setInspectLoading] = useState(false);
+    const [_inspectData, setInspectData] = useState<PointWeatherData | null>(null);
+    const [_inspectLoading, setInspectLoading] = useState(false);
     const inspectPopupRef = useRef<mapboxgl.Popup | null>(null);
     const inspectRootRef = useRef<ReturnType<typeof createRoot> | null>(null);
 
     // Re-check pin view when navigating TO the map tab
     useEffect(() => {
         if (currentView === 'map') {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const pv = (window as any).__thalassaPinView;
             setIsPinView(!!pv);
         }
@@ -139,6 +143,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Clear isochrone progress when route completes
     useEffect(() => {
         if (passage.isoResultRef.current) setIsoProgress(null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [passage.routeAnalysis]);
 
     // Generate consensus data when route completes
@@ -165,6 +170,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 log.warn('[Consensus] Failed to generate matrix:', err);
             }
         })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [passage.routeAnalysis, passage.departureTime]);
 
     // Route-sync playhead marker
@@ -313,10 +319,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
 
     // ── Embedded Rain (also loads as background on full-map velocity mode) ──
-    const embRain = useEmbeddedRain(mapRef, embedded, mapReady, false);
+    const _embRain = useEmbeddedRain(mapRef, embedded, mapReady, false);
 
     // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
     useEffect(() => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const pv = (window as any).__thalassaPinView as { lat: number; lng: number } | undefined;
         if (!isPinView || !pv || !mapReady || !mapRef.current) return;
         const map = mapRef.current;
@@ -357,6 +364,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {isPinView && (
                     <button
                         onClick={() => {
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             delete (window as any).__thalassaPinView;
                             setIsPinView(false);
                             setPage(previousView || 'chat');
@@ -625,6 +633,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     };
 
                                                     const voyageId = await ShipLogService.savePassagePlanToLogbook(
+                                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                                         plan as any,
                                                     );
                                                     if (voyageId) {

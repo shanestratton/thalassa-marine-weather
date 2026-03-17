@@ -42,7 +42,7 @@ export type ActivityCallback = (event: { activity: string; confidence: number })
 
 // ---------- CONSTANTS ----------
 
-const TRANSISTOR_LICENSE_KEY = import.meta.env.VITE_TRANSISTOR_LICENSE_KEY || '';
+const _TRANSISTOR_LICENSE_KEY = import.meta.env.VITE_TRANSISTOR_LICENSE_KEY || '';
 
 // ---------- SINGLETON ----------
 

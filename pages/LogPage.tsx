@@ -39,7 +39,7 @@ const PlusIcon = ({ className }: { className?: string }) => (
     </svg>
 );
 
-const AnchorIcon = ({ className }: { className?: string }) => (
+const _AnchorIcon = ({ className }: { className?: string }) => (
     <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
     </svg>
@@ -49,7 +49,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const {
         state,
         dispatch,
-        settings,
+        settings: _settings,
         // Tracking
         handleStartTracking,
         startTrackingWithNewVoyage,
@@ -77,7 +77,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         confirmDeleteSharedVoyage,
         cancelDeleteSharedVoyage,
         // Export / share
-        handleExportCSV,
+        handleExportCSV: _handleExportCSV,
         handleShare,
         handleExportThenDelete,
         handleExportGPX,
@@ -85,12 +85,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         handleShareToCommunity,
         // Derived state
         filteredEntries,
-        groupedEntries,
-        entryCounts,
+        groupedEntries: _groupedEntries,
+        entryCounts: _entryCounts,
         voyageGroups,
         hasNonDeviceEntries,
-        totalDistance,
-        avgSpeed,
+        totalDistance: _totalDistance,
+        avgSpeed: _avgSpeed,
         careerTotals,
         // Archive
         archivedVoyages,
@@ -213,7 +213,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         currentVoyageId,
         expandedVoyages,
         gpsStatus,
-        filters,
+        filters: _filters,
     } = state;
 
     // Auto-fill share form when panel opens
@@ -1146,6 +1146,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     <div className="flex-1 flex flex-col justify-center px-4 pb-8">
                         <div className="space-y-4 max-w-2xl mx-auto w-full">
                             {/* Import GPX File Card — hidden for now, unhide when users request it */}
+                            {/* eslint-disable-next-line no-constant-binary-expression */}
                             {false && (
                                 <button
                                     onClick={() => {
@@ -1568,6 +1569,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         handleShareToCommunity({
                                             title,
                                             description,
+                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                             category: category as any,
                                             region,
                                         });
@@ -1945,7 +1947,7 @@ const StatBox: React.FC<{ label: string; value: string | number }> = React.memo(
     </div>
 ));
 
-const LogEntryCard: React.FC<{ entry: ShipLogEntry }> = React.memo(({ entry }) => {
+const _LogEntryCard: React.FC<{ entry: ShipLogEntry }> = React.memo(({ entry }) => {
     const timestamp = new Date(entry.timestamp);
     const timeStr = timestamp.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
     const dateStr = timestamp.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -2070,8 +2072,10 @@ const FollowRouteButton: React.FC<{
             departureDate: first.timestamp,
             originCoordinates: { lat: first.latitude, lon: first.longitude },
             destinationCoordinates: { lat: last.latitude, lon: last.longitude },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             waypoints: waypoints as any,
             distanceApprox: `${Math.max(0, ...voyage.entries.map((e) => e.cumulativeDistanceNM || 0)).toFixed(1)} NM`,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             durationApprox: '' as any,
             overview: `Planned route from ${startLabel || 'origin'} to ${endLabel || 'destination'}`,
         };

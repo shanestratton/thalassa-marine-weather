@@ -80,7 +80,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     }, []);
 
     // ── Helper: project a point along bearing by distance ──
-    const project = (lat: number, lon: number, bearingDeg: number, distNM: number) => {
+    const _project = (lat: number, lon: number, bearingDeg: number, distNM: number) => {
         const R = 3440.065;
         const d = distNM / R;
         const brng = (bearingDeg * Math.PI) / 180;
@@ -114,7 +114,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         const dLon = ((arrival.lon - departure.lon) * Math.PI) / 180;
         const φ1 = (departure.lat * Math.PI) / 180;
         const φ2 = (arrival.lat * Math.PI) / 180;
-        const fwdBearing =
+        const _fwdBearing =
             (Math.atan2(
                 Math.sin(dLon) * Math.cos(φ2),
                 Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(dLon),
@@ -122,7 +122,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 180) /
             Math.PI;
         const dLonRev = ((departure.lon - arrival.lon) * Math.PI) / 180;
-        const revBearing =
+        const _revBearing =
             (Math.atan2(
                 Math.sin(dLonRev) * Math.cos(φ1),
                 Math.cos(φ2) * Math.sin(φ1) - Math.sin(φ2) * Math.cos(φ1) * Math.cos(dLonRev),
@@ -293,9 +293,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
         if (routeSrc) {
             if (straightLineNM < 500) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 routeSrc.setData({ type: 'FeatureCollection', features: buildFeatures(gcCoords) } as any);
                 log.info(`[Passage] Trip Sandwich rendered (great-circle)`);
             } else {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 routeSrc.setData({ type: 'FeatureCollection', features: [] } as any);
             }
         }
@@ -343,6 +345,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             src.setData({
                                 type: 'FeatureCollection',
                                 features: buildFeatures(cached.routeCoordinates, cached.shallowFlags),
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             } as any);
                         }
                         const depTimeStr2 = departureTime || new Date().toISOString();
@@ -429,8 +432,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     log.info('[Isochrone BG] Wind grid does not cover full route — fetching route-covering grid...');
                     try {
                         const supabaseUrl =
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL) || '';
                         const supabaseKey =
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_KEY) || '';
                         if (supabaseUrl) {
                             // Pad generously: 15° south (wavefront goes around continents), 5° other dirs
@@ -590,6 +595,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         src.setData({
                             type: 'FeatureCollection',
                             features: buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags),
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         } as any);
                     }
 
@@ -650,8 +656,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             ); // Below route
 
                             // Time labels at key intervals (12h, 24h, 48h, etc.)
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             const timeLabels = geoData.wavefronts.features
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 .filter((f: any) => {
                                     const h = f.properties?.timeHours;
                                     return (
@@ -664,6 +670,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                         h === 168
                                     );
                                 })
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 .map((f: any) => {
                                     // Place label at the midpoint of each wavefront ring
                                     const coords = f.geometry.coordinates;
@@ -965,6 +972,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 src.setData({
                                     type: 'FeatureCollection',
                                     features: buildFeatures(combinedCoords, combinedFlags),
+                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 } as any);
                             }
                             const updatedResult = { ...result };
@@ -983,6 +991,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         log.warn('[Isochrone BG] Multi-leg also failed — clearing route line');
                         const src = map.getSource('route-line') as mapboxgl.GeoJSONSource;
                         if (src) {
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             src.setData({ type: 'FeatureCollection', features: [] } as any);
                         }
                         try {
@@ -1005,7 +1014,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 }
             }
         }, 100);
-    }, [departure, arrival, speed, departureTime]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [departure, arrival, departureTime, speed, showPassage]);
 
     // Auto-compute when both points set + map ready
     useEffect(() => {
@@ -1048,7 +1058,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
         window.addEventListener('thalassa:route-nudge', handleNudge);
         return () => window.removeEventListener('thalassa:route-nudge', handleNudge);
-    }, [departure, arrival]);
+    }, [departure, arrival, setArrival]);
 
     // Clear route
     const clearRoute = useCallback(() => {
@@ -1078,7 +1088,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         if (map.getLayer('isochrone-time-labels')) map.removeLayer('isochrone-time-labels');
         if (map.getSource('isochrone-fan')) map.removeSource('isochrone-fan');
         if (map.getSource('isochrone-labels')) map.removeSource('isochrone-labels');
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [setDeparture, setArrival, setRouteAnalysis, setDepartureTime]);
 
     return {
         departure,

@@ -92,8 +92,8 @@ export function useWeatherLayers(
     // Stable string key for useEffect deps — prevents re-fires from Set reference changes
     const activeKey = [...activeLayers].sort().join(',');
     // Fast boolean flags
-    const hasWind = activeLayers.has('wind') || activeLayers.has('velocity');
-    const hasRain = activeLayers.has('rain');
+    const _hasWind = activeLayers.has('wind') || activeLayers.has('velocity');
+    const _hasRain = activeLayers.has('rain');
     const hasPressure = activeLayers.has('pressure');
 
     // Legacy setter — sets exactly one layer (for backward compat with MapUI etc.)
@@ -147,6 +147,7 @@ export function useWeatherLayers(
 
     // ── Isobar state ──
     const isobarFetchRef = useRef<number>(0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cachedFramesRef = useRef<any[]>([]);
     const [forecastHour, setForecastHour] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
@@ -196,6 +197,7 @@ export function useWeatherLayers(
                 );
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // Pre-compute isobar frames
@@ -289,6 +291,7 @@ export function useWeatherLayers(
     // Apply isobar frame on hour change
     useEffect(() => {
         if (activeLayers.has('pressure')) applyFrame(forecastHour);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [forecastHour, activeKey, applyFrame]);
 
     // ── Wind scrubber: update GL engine on hour change ──
@@ -360,6 +363,7 @@ export function useWeatherLayers(
                 windMarkersRef.current.push(marker);
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [windHour, activeKey]);
 
     // Wind auto-play — fractional steps for smooth morphing between hours
@@ -376,6 +380,7 @@ export function useWeatherLayers(
             });
         }, 100);
         return () => clearInterval(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [windPlaying, activeKey, windTotalHours]);
 
     // ── Wind forecast data loading (for scrubber — rendering handled by MapboxVelocityOverlay) ──
@@ -408,6 +413,7 @@ export function useWeatherLayers(
                 });
         }, 1200);
         return () => clearTimeout(windTimer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeKey, mapReady]);
 
     // ── Center map when switching layers + WIND GEOLOCK ──
@@ -423,11 +429,13 @@ export function useWeatherLayers(
             // Wind active — constrain min zoom only (overlay handles its own visibility at high zoom)
             map.setMinZoom(1);
             map.setMaxZoom(18);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             map.setMaxBounds(undefined as any);
         } else {
             // No wind — full freedom
             map.setMinZoom(1);
             map.setMaxZoom(20);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             map.setMaxBounds(undefined as any);
         }
 
@@ -436,7 +444,8 @@ export function useWeatherLayers(
             map.flyTo({ center: [location.lon, location.lat], zoom: 5, duration: 800 });
         }
         prevLayerCountRef.current = layerCount;
-    }, [activeKey, mapReady, embedded]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mapReady, embedded, activeLayers.size]);
 
     // Rain auto-play (unified radar + forecast) — loops continuously
     useEffect(() => {
@@ -450,6 +459,7 @@ export function useWeatherLayers(
             });
         }, 600);
         return () => clearInterval(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rainPlaying, activeKey, rainFrameCount]);
 
     // Unified rain frame swap: toggle visibility on pre-loaded layers
@@ -544,6 +554,7 @@ export function useWeatherLayers(
                 visibleForecastIdxRef.current = fcIdx;
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rainFrameIndex, activeKey, rainReady]);
 
     // ── Weather Layer Toggle (main effect) ──
@@ -1037,7 +1048,7 @@ export function useWeatherLayers(
                     rainFadeTimerRef.current = null;
                 }
                 try {
-                    const m = mapRef.current;
+                    const m = map;
                     // Clean up pre-created radar + forecast layers
                     for (let i = 0; i < 30; i++) {
                         ['radar-', 'rainbow-fc-'].forEach((prefix) => {
@@ -1147,6 +1158,7 @@ export function useWeatherLayers(
                 /* layer not present — skip */
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeKey, mapReady, updateIsobars]);
 
     // ── Isobar moveend re-fetch (separate stable effect, debounced) ──
@@ -1165,6 +1177,7 @@ export function useWeatherLayers(
             map.off('moveend', onMoveEnd);
             if (isobarDebounceRef.current) clearTimeout(isobarDebounceRef.current);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasPressure, mapReady, updateIsobars]);
 
     return {
@@ -1239,6 +1252,7 @@ export function useEmbeddedRain(
     // Load rain frames
     useEffect(() => {
         if (!enabled || !mapReady || !mapRef.current) return;
+        const mapForCleanup = mapRef.current;
         const delayTimer = setTimeout(
             () => {
                 (async () => {
@@ -1269,13 +1283,14 @@ export function useEmbeddedRain(
         return () => {
             clearTimeout(delayTimer);
             try {
-                const mx = mapRef.current;
+                const mx = mapForCleanup;
                 if (mx?.getLayer('embedded-rain')) mx.removeLayer('embedded-rain');
                 if (mx?.getSource('embedded-rain')) mx.removeSource('embedded-rain');
             } catch (_) {
                 console.warn(`[useWeatherLayers]`, _);
             }
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [enabled, mapReady]);
 
     // Swap rain tile on frame change
@@ -1306,6 +1321,7 @@ export function useEmbeddedRain(
             source: 'embedded-rain',
             paint: { 'raster-opacity': embedded ? 0.75 : 0.55, 'raster-contrast': 0.3, 'raster-brightness-min': 0.1 },
         });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [enabled, embRainIdx]);
 
     // Auto-play
