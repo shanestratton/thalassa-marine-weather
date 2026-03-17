@@ -16,7 +16,7 @@
  *   file selected → data URI (local) → upload to Storage → public URL → update record
  */
 
-import { createLogger } from '../utils/createLogger';
+import { createLogger } from '../../utils/createLogger';
 import { supabase } from '../supabase';
 import { LocalDocumentService } from './LocalDocumentService';
 import { bulkUpsert } from './LocalDatabase';

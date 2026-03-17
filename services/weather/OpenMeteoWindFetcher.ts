@@ -9,7 +9,7 @@
  * and the IsochroneRouter (which needs a full WindGrid/WindField for wavefront expansion).
  */
 
-import { createLogger } from '../utils/createLogger';
+import { createLogger } from '../../utils/createLogger';
 import { getOpenMeteoKey } from './keys';
 import type { WindGrid } from './windField';
 import type { ModelSource } from './WindFieldAdapter';

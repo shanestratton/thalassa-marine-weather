@@ -9,7 +9,6 @@ import {
     UnitPreferences,
     VesselDimensionUnits,
 } from '../types';
-import { createLogger } from '../utils/createLogger';
 import { convertLength, convertSpeed } from '../utils';
 import { fetchStormGlassWeather } from './weather/api/stormglass';
 const log = createLogger('Gemini');
