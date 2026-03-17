@@ -643,57 +643,98 @@ export function useMapInit(opts: UseMapInitOptions) {
             });
 
             // ── AIS Vessel Targets ──
+
+            // Create boat icon programmatically (pointed hull shape)
+            const boatSize = 48;
+            const canvas = document.createElement('canvas');
+            canvas.width = boatSize;
+            canvas.height = boatSize;
+            const ctx = canvas.getContext('2d')!;
+
+            // Draw boat pointing UP (0° heading)
+            ctx.clearRect(0, 0, boatSize, boatSize);
+            ctx.fillStyle = '#ffffff';
+            ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            // Bow (pointed top)
+            ctx.moveTo(boatSize / 2, 4);
+            // Starboard hull
+            ctx.lineTo(boatSize * 0.72, boatSize * 0.4);
+            ctx.lineTo(boatSize * 0.68, boatSize * 0.78);
+            // Stern (flat bottom)
+            ctx.lineTo(boatSize * 0.32, boatSize * 0.78);
+            // Port hull
+            ctx.lineTo(boatSize * 0.28, boatSize * 0.4);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+
+            // Add centre line (keel)
+            ctx.beginPath();
+            ctx.moveTo(boatSize / 2, 8);
+            ctx.lineTo(boatSize / 2, boatSize * 0.72);
+            ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+
+            const boatImageData = ctx.getImageData(0, 0, boatSize, boatSize);
+            map.addImage('ais-boat', boatImageData, { sdf: true });
+
             map.addSource('ais-targets', {
                 type: 'geojson',
                 data: { type: 'FeatureCollection', features: [] },
             });
 
-            // Glow effect behind vessel dots
+            // Glow ring behind vessel
             map.addLayer({
                 id: 'ais-targets-glow',
                 type: 'circle',
                 source: 'ais-targets',
                 paint: {
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 6, 10, 12, 14, 18],
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 5, 10, 10, 14, 16],
                     'circle-blur': 0.8,
-                    'circle-opacity': 0.5,
+                    'circle-opacity': 0.4,
                     'circle-color': ['get', 'statusColor'],
                 },
             });
 
-            // Vessel dot — colour-coded by navigational status
+            // Boat icon — rotated by heading, colour-coded by status
             map.addLayer({
                 id: 'ais-targets-circle',
-                type: 'circle',
+                type: 'symbol',
                 source: 'ais-targets',
+                layout: {
+                    'icon-image': 'ais-boat',
+                    'icon-size': ['interpolate', ['linear'], ['zoom'], 3, 0.2, 7, 0.35, 10, 0.5, 14, 0.8],
+                    'icon-rotate': [
+                        'case',
+                        ['has', 'heading'],
+                        ['case', ['!=', ['get', 'heading'], 511], ['get', 'heading'], ['get', 'cog']],
+                        ['get', 'cog'],
+                    ],
+                    'icon-rotation-alignment': 'map',
+                    'icon-allow-overlap': true,
+                    'icon-pitch-alignment': 'map',
+                },
                 paint: {
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 3, 10, 6, 14, 10],
-                    'circle-color': ['get', 'statusColor'],
-                    'circle-stroke-width': 1.5,
-                    'circle-stroke-color': 'rgba(0,0,0,0.6)',
-                    'circle-opacity': 0.95,
+                    'icon-color': ['get', 'statusColor'],
+                    'icon-opacity': [
+                        'case',
+                        ['==', ['get', 'source'], 'aisstream'], 0.8,
+                        1,
+                    ],
                 },
             });
 
-            // Heading arrow — shows vessel direction
-            // Uses a triangle symbol rotated to match COG
+            // Remove the separate heading arrow — boat icon already shows direction
+            // (keeping 'ais-targets-heading' layer ID for visibility toggle compatibility)
             map.addLayer({
                 id: 'ais-targets-heading',
                 type: 'symbol',
                 source: 'ais-targets',
-                minzoom: 9,
-                layout: {
-                    'icon-image': 'triangle-11',
-                    'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.6, 14, 1.2],
-                    'icon-rotate': ['get', 'cog'],
-                    'icon-rotation-alignment': 'map',
-                    'icon-allow-overlap': true,
-                    'icon-offset': [0, -12],
-                },
-                paint: {
-                    'icon-color': ['get', 'statusColor'],
-                    'icon-opacity': 0.85,
-                },
+                minzoom: 99, // Effectively hidden — heading is shown by boat rotation
+                layout: { visibility: 'none' },
             });
 
             // Vessel name labels — visible at higher zoom
