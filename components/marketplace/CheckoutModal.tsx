@@ -155,7 +155,12 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                 {/* Listing context card */}
                 <div className="mx-5 mt-2 mb-4 p-3 rounded-2xl bg-white/[0.04] border border-white/[0.08] flex gap-3 items-center">
                     {listing.images.length > 0 && (
-                        <img src={listing.images[0]} loading="lazy" alt="" className="w-16 h-16 rounded-xl object-cover shrink-0" />
+                        <img
+                            src={listing.images[0]}
+                            loading="lazy"
+                            alt=""
+                            className="w-16 h-16 rounded-xl object-cover shrink-0"
+                        />
                     )}
                     <div className="flex-1 min-w-0">
                         <h3 className="text-sm font-semibold text-white truncate">{listing.title}</h3>

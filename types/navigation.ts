@@ -35,7 +35,15 @@ export interface ShipLogEntry {
     watchPeriod?: 'middle' | 'morning' | 'forenoon' | 'afternoon' | 'firstDog' | 'secondDog' | 'first';
     entryType: 'auto' | 'manual' | 'waypoint';
     source?: 'device' | 'gpx_import' | 'community_download' | 'planned_route';
-    eventCategory?: 'navigation' | 'weather' | 'equipment' | 'crew' | 'arrival' | 'departure' | 'safety' | 'observation';
+    eventCategory?:
+        | 'navigation'
+        | 'weather'
+        | 'equipment'
+        | 'crew'
+        | 'arrival'
+        | 'departure'
+        | 'safety'
+        | 'observation';
     engineStatus?: 'running' | 'stopped' | 'maneuvering';
     notes?: string;
     waypointName?: string;
@@ -47,7 +55,7 @@ export interface ShipLogEntry {
 
 export interface Waypoint {
     name: string;
-    coordinates?: { lat: number, lon: number };
+    coordinates?: { lat: number; lon: number };
     windSpeed?: number;
     waveHeight?: number;
     depth_m?: number;
@@ -57,8 +65,8 @@ export interface VoyagePlan {
     origin: string;
     destination: string;
     departureDate: string;
-    originCoordinates?: { lat: number, lon: number };
-    destinationCoordinates?: { lat: number, lon: number };
+    originCoordinates?: { lat: number; lon: number };
+    destinationCoordinates?: { lat: number; lon: number };
     distanceApprox: string;
     durationApprox: string;
     overview: string;

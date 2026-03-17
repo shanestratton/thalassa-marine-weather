@@ -114,7 +114,12 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                             const focused = document.activeElement as HTMLElement;
                             const container = scrollRef.current;
                             if (!focused || !container) return;
-                            if (focused.tagName !== 'INPUT' && focused.tagName !== 'TEXTAREA' && focused.tagName !== 'SELECT') return;
+                            if (
+                                focused.tagName !== 'INPUT' &&
+                                focused.tagName !== 'TEXTAREA' &&
+                                focused.tagName !== 'SELECT'
+                            )
+                                return;
                             const focusRect = focused.getBoundingClientRect();
                             const containerRect = container.getBoundingClientRect();
                             const offsetInContainer = focusRect.top - containerRect.top + container.scrollTop;
@@ -204,9 +209,10 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <div>
                             <h4 className="text-sm font-bold text-sky-300 mb-1">Observer Mode Active</h4>
                             <p className="text-[11px] text-gray-400 leading-relaxed">
-                                You're currently in observer mode — weather only, no vessel features.
-                                Select <strong className="text-white">Sail</strong> or <strong className="text-white">Power</strong> below to unlock
-                                Passage Planning, Polars, and hydrostatics.
+                                You're currently in observer mode — weather only, no vessel features. Select{' '}
+                                <strong className="text-white">Sail</strong> or{' '}
+                                <strong className="text-white">Power</strong> below to unlock Passage Planning, Polars,
+                                and hydrostatics.
                             </p>
                         </div>
                     </div>
@@ -240,7 +246,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         </label>
                         <input
                             type="text"
-                            value={isObserver ? '' : (settings.vessel?.name || '')}
+                            value={isObserver ? '' : settings.vessel?.name || ''}
                             onChange={(e) => updateVessel('name', e.target.value)}
                             placeholder={isObserver ? 'Select Sail or Power first' : 'e.g. Black Pearl'}
                             disabled={isObserver}

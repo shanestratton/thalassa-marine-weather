@@ -60,10 +60,25 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
             'Vessel will be inspected — have all documents accessible',
         ],
         contacts: [
-            { name: 'Australian Border Force', phone: '1300 363 263', email: 'maritime@abf.gov.au', vhf: 'Ch 16', website: 'https://www.abf.gov.au/entering-and-leaving-australia/yachts-and-private-vessels' },
+            {
+                name: 'Australian Border Force',
+                phone: '1300 363 263',
+                email: 'maritime@abf.gov.au',
+                vhf: 'Ch 16',
+                website: 'https://www.abf.gov.au/entering-and-leaving-australia/yachts-and-private-vessels',
+            },
             { name: 'AMSA (Safety)', phone: '1800 641 792', vhf: 'Ch 16', website: 'https://www.amsa.gov.au' },
-            { name: 'Dept of Agriculture (Biosecurity)', phone: '1800 900 090', email: 'imports@agriculture.gov.au', website: 'https://www.agriculture.gov.au/biosecurity/arriving' },
-            { name: 'MADS (Departures)', website: 'https://www.abf.gov.au/entering-and-leaving-australia/crossing-the-border/maritime-arrivals-and-departures' },
+            {
+                name: 'Dept of Agriculture (Biosecurity)',
+                phone: '1800 900 090',
+                email: 'imports@agriculture.gov.au',
+                website: 'https://www.agriculture.gov.au/biosecurity/arriving',
+            },
+            {
+                name: 'MADS (Departures)',
+                website:
+                    'https://www.abf.gov.au/entering-and-leaving-australia/crossing-the-border/maritime-arrivals-and-departures',
+            },
         ],
         requiredDocuments: [
             { name: 'Vessel Registration Certificate', critical: true },
@@ -75,9 +90,14 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
             { name: 'EPIRB Registration (406 MHz)', critical: true, notes: 'Must be registered with AMSA' },
             { name: 'Radio Operator Certificate', critical: false },
             { name: 'Safety Equipment Compliance', critical: false, notes: 'Life raft, flares, EPIRB, etc.' },
-            { name: 'Yacht Export Declaration (if AU-registered)', critical: true, notes: 'Required to re-import duty-free' },
+            {
+                name: 'Yacht Export Declaration (if AU-registered)',
+                critical: true,
+                notes: 'Required to re-import duty-free',
+            },
         ],
-        yachtExport: 'Australian-registered vessels MUST be exported through Customs before departing internationally. This involves:\n\n1. Complete an Export Declaration via the MADS system\n2. Apply for a Temporary Export permit (to re-import duty-free on return)\n3. ABF will issue an Export Clearance Number\n4. Without this, you may face import duties when you return (potentially 5% + 10% GST on the vessel\'s value)\n\nThis process is notoriously confusing. We strongly recommend following a detailed walkthrough.',
+        yachtExport:
+            "Australian-registered vessels MUST be exported through Customs before departing internationally. This involves:\n\n1. Complete an Export Declaration via the MADS system\n2. Apply for a Temporary Export permit (to re-import duty-free on return)\n3. ABF will issue an Export Clearance Number\n4. Without this, you may face import duties when you return (potentially 5% + 10% GST on the vessel's value)\n\nThis process is notoriously confusing. We strongly recommend following a detailed walkthrough.",
         importantNotes: [
             '⚠️ Biosecurity is EXTREMELY strict — any undeclared food items = heavy fines',
             '⚠️ Yacht export is essential for Australian-registered vessels to avoid massive import duties on return',
@@ -88,8 +108,16 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
         guideUrl: 'https://www.serene-summer.com',
         guideLabel: 'Serene Summer — Complete Australian departure guide',
         portsOfEntry: [
-            'Cairns', 'Townsville', 'Bundaberg', 'Brisbane', 'Gold Coast (Southport)',
-            'Sydney', 'Coffs Harbour', 'Newcastle', 'Darwin', 'Thursday Island',
+            'Cairns',
+            'Townsville',
+            'Bundaberg',
+            'Brisbane',
+            'Gold Coast (Southport)',
+            'Sydney',
+            'Coffs Harbour',
+            'Newcastle',
+            'Darwin',
+            'Thursday Island',
         ],
         fees: 'No standard clearance fee, but biosecurity inspection fees may apply ($200-$400+)',
     },
@@ -112,7 +140,13 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
             'All crew need valid visas or NZ passport',
         ],
         contacts: [
-            { name: 'NZ Customs Service', phone: '0800 428 786', email: 'customs@customs.govt.nz', vhf: 'Ch 16', website: 'https://www.customs.govt.nz/personal/travel-to-and-from-nz/travelling-by-private-boat/' },
+            {
+                name: 'NZ Customs Service',
+                phone: '0800 428 786',
+                email: 'customs@customs.govt.nz',
+                vhf: 'Ch 16',
+                website: 'https://www.customs.govt.nz/personal/travel-to-and-from-nz/travelling-by-private-boat/',
+            },
             { name: 'MPI Biosecurity', phone: '0800 008 333', website: 'https://www.mpi.govt.nz/bring-send-to-nz/' },
             { name: 'Coastguard NZ', phone: '*500 (mobile)', vhf: 'Ch 16' },
         ],
@@ -466,21 +500,33 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
         ],
         contacts: [
             { name: 'Douanes (French Customs)', phone: '0 800 94 40 40', website: 'https://www.douane.gouv.fr' },
-            { name: 'Affaires Maritimes', phone: '+33 1 40 81 72 45', website: 'https://www.ecologie.gouv.fr/direction-des-affaires-maritimes' },
+            {
+                name: 'Affaires Maritimes',
+                phone: '+33 1 40 81 72 45',
+                website: 'https://www.ecologie.gouv.fr/direction-des-affaires-maritimes',
+            },
             { name: 'CROSS (Maritime Rescue)', phone: '196', vhf: 'Ch 16' },
         ],
         requiredDocuments: [
             { name: 'Passports or EU ID cards', critical: true },
             { name: 'Vessel Registration', critical: true },
-            { name: 'Proof of VAT-paid status', critical: true, notes: 'Or Temporary Admission (TA) for non-EU vessels' },
+            {
+                name: 'Proof of VAT-paid status',
+                critical: true,
+                notes: 'Or Temporary Admission (TA) for non-EU vessels',
+            },
             { name: 'Insurance Certificate', critical: true, notes: 'Third-party liability required' },
             { name: 'Radio Licence (SRC or higher)', critical: false },
-            { name: 'ICC (International Certificate of Competence)', critical: false, notes: 'Not legally required but recommended' },
+            {
+                name: 'ICC (International Certificate of Competence)',
+                critical: false,
+                notes: 'Not legally required but recommended',
+            },
         ],
         importantNotes: [
             'Mediterranean France can be expensive for berthing — budget carefully',
             'Non-EU vessels get 18 months Temporary Admission (TA) — VAT-free',
-            'Anchoring restrictions common along Côte d\'Azur',
+            "Anchoring restrictions common along Côte d'Azur",
             '⚠️ Schengen 90/180-day rule strictly enforced for non-EU crew',
         ],
         portsOfEntry: ['Marseille', 'Toulon', 'Nice', 'Cannes', 'La Rochelle', 'Brest', 'Cherbourg', 'Antibes'],
@@ -504,9 +550,18 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
             'Post-Brexit: EU citizens need passport (ID card no longer accepted)',
         ],
         contacts: [
-            { name: 'HMRC National Yachtline', phone: '0300 123 2012', website: 'https://www.gov.uk/government/organisations/hm-revenue-customs' },
+            {
+                name: 'HMRC National Yachtline',
+                phone: '0300 123 2012',
+                website: 'https://www.gov.uk/government/organisations/hm-revenue-customs',
+            },
             { name: 'Border Force', phone: '0300 123 7015' },
-            { name: 'HM Coastguard', phone: '999 / 112', vhf: 'Ch 16', website: 'https://www.gov.uk/government/organisations/maritime-and-coastguard-agency' },
+            {
+                name: 'HM Coastguard',
+                phone: '999 / 112',
+                vhf: 'Ch 16',
+                website: 'https://www.gov.uk/government/organisations/maritime-and-coastguard-agency',
+            },
         ],
         requiredDocuments: [
             { name: 'Passports for all crew', critical: true },
@@ -522,7 +577,15 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
             'Tidal waters are extremely variable — check tide tables carefully',
             'VHF Ch 16 monitored continuously by Coastguard',
         ],
-        portsOfEntry: ['Southampton', 'Portsmouth', 'Plymouth', 'Falmouth', 'Dover', 'London (St Katharine Docks)', 'Edinburgh (Granton)'],
+        portsOfEntry: [
+            'Southampton',
+            'Portsmouth',
+            'Plymouth',
+            'Falmouth',
+            'Dover',
+            'London (St Katharine Docks)',
+            'Edinburgh (Granton)',
+        ],
         fees: 'No clearance fees; marina fees vary £15-£80+/night',
     },
 
@@ -562,7 +625,7 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
         fees: 'No clearance fees; marina fees vary £15-£80+/night',
     },
 
-    'türkiye': {
+    türkiye: {
         country: 'Türkiye',
         flag: '🇹🇷',
         difficulty: 'moderate',
@@ -607,10 +670,22 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
         country: 'Türkiye',
         flag: '🇹🇷',
         difficulty: 'moderate',
-        departureProcedure: ['Clear out at marina with Customs, Immigration, Harbour Master', 'Return Transit Log', 'Obtain Port Clearance'],
-        arrivalProcedure: ['Fly Q flag to port of entry', 'Clear with Customs, Coast Guard, Immigration, Health', 'Transit Log issued on arrival', 'e-Visa recommended'],
+        departureProcedure: [
+            'Clear out at marina with Customs, Immigration, Harbour Master',
+            'Return Transit Log',
+            'Obtain Port Clearance',
+        ],
+        arrivalProcedure: [
+            'Fly Q flag to port of entry',
+            'Clear with Customs, Coast Guard, Immigration, Health',
+            'Transit Log issued on arrival',
+            'e-Visa recommended',
+        ],
         contacts: [{ name: 'Sahil Güvenlik (Coast Guard)', phone: '158', vhf: 'Ch 16' }],
-        requiredDocuments: [{ name: 'Passports + e-Visa', critical: true }, { name: 'Vessel Registration', critical: true }],
+        requiredDocuments: [
+            { name: 'Passports + e-Visa', critical: true },
+            { name: 'Vessel Registration', critical: true },
+        ],
         importantNotes: ['Transit Log must be carried on board at all times'],
         portsOfEntry: ['Marmaris', 'Bodrum', 'Fethiye', 'Antalya', 'İzmir'],
         fees: 'Transit Log ~€30-50',
@@ -654,7 +729,16 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
             '⚠️ Turkish-Greek border zones — stay on your side',
             'Meltemi winds (Jun–Sep) in the Aegean can be very strong',
         ],
-        portsOfEntry: ['Piraeus (Athens)', 'Rhodes', 'Corfu (Kerkyra)', 'Kos', 'Heraklion (Crete)', 'Thessaloniki', 'Zakynthos', 'Syros'],
+        portsOfEntry: [
+            'Piraeus (Athens)',
+            'Rhodes',
+            'Corfu (Kerkyra)',
+            'Kos',
+            'Heraklion (Crete)',
+            'Thessaloniki',
+            'Zakynthos',
+            'Syros',
+        ],
         fees: 'TEPAI: €10-20/m LOA/month + port fees vary',
     },
 
@@ -675,7 +759,12 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
             'Schengen 90/180-day rule for non-EU visitors',
         ],
         contacts: [
-            { name: 'Guardia Costiera (Coast Guard)', phone: '1530', vhf: 'Ch 16', website: 'https://www.guardiacostiera.gov.it' },
+            {
+                name: 'Guardia Costiera (Coast Guard)',
+                phone: '1530',
+                vhf: 'Ch 16',
+                website: 'https://www.guardiacostiera.gov.it',
+            },
             { name: 'Guardia di Finanza (Customs)', phone: '117' },
             { name: 'Capitaneria di Porto (Harbour)', vhf: 'Ch 16' },
         ],
@@ -692,7 +781,17 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
             'Marina fees in peak summer (Sardinia, Amalfi) can be extremely expensive',
             'Sicilian Strait — heavy shipping traffic, stay alert',
         ],
-        portsOfEntry: ['Genoa', 'Naples', 'Palermo', 'Cagliari (Sardinia)', 'Venice', 'Brindisi', 'Catania', 'Olbia', 'Civitavecchia (Rome)'],
+        portsOfEntry: [
+            'Genoa',
+            'Naples',
+            'Palermo',
+            'Cagliari (Sardinia)',
+            'Venice',
+            'Brindisi',
+            'Catania',
+            'Olbia',
+            'Civitavecchia (Rome)',
+        ],
         fees: 'Marina fees €30-€300+/night depending on location and season',
     },
 
@@ -712,7 +811,12 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
             'Register at local Marina or Capitanía',
         ],
         contacts: [
-            { name: 'Salvamento Marítimo (Maritime Rescue)', phone: '900 202 202', vhf: 'Ch 16', website: 'https://www.salvamentomaritimo.es' },
+            {
+                name: 'Salvamento Marítimo (Maritime Rescue)',
+                phone: '900 202 202',
+                vhf: 'Ch 16',
+                website: 'https://www.salvamentomaritimo.es',
+            },
             { name: 'Guardia Civil (Immigration)', phone: '062' },
             { name: 'Aduanas (Customs)', phone: '+34 91 728 93 00' },
         ],
@@ -729,7 +833,16 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
             'Non-EU vessels: 18 months Temporary Admission',
             'Marina Seca (dry dock) popular for winter storage',
         ],
-        portsOfEntry: ['Barcelona', 'Palma de Mallorca', 'Valencia', 'Alicante', 'Gibraltar (UK)', 'Málaga', 'Las Palmas (Canaries)', 'Ibiza'],
+        portsOfEntry: [
+            'Barcelona',
+            'Palma de Mallorca',
+            'Valencia',
+            'Alicante',
+            'Gibraltar (UK)',
+            'Málaga',
+            'Las Palmas (Canaries)',
+            'Ibiza',
+        ],
         fees: 'Marina fees vary €15-€150+/night',
     },
 
@@ -750,7 +863,12 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
             'Register crew list at each new port',
         ],
         contacts: [
-            { name: 'Harbour Master (general)', phone: '+385 21 329 200', vhf: 'Ch 10', website: 'https://luka-ploce.hr' },
+            {
+                name: 'Harbour Master (general)',
+                phone: '+385 21 329 200',
+                vhf: 'Ch 10',
+                website: 'https://luka-ploce.hr',
+            },
             { name: 'MRCC Rijeka', phone: '+385 51 195', vhf: 'Ch 16' },
             { name: 'Border Police', phone: '192' },
         ],
@@ -778,10 +896,7 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
         country: 'Montenegro',
         flag: '🇲🇪',
         difficulty: 'easy',
-        departureProcedure: [
-            'Clear out with Harbour Master and Border Police',
-            'Obtain Port Clearance',
-        ],
+        departureProcedure: ['Clear out with Harbour Master and Border Police', 'Obtain Port Clearance'],
         arrivalProcedure: [
             'Fly Q flag and proceed to Kotor, Bar, or Budva',
             'Clear with Harbour Master, Customs, and Border Police',
@@ -811,10 +926,7 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
         country: 'Malta',
         flag: '🇲🇹',
         difficulty: 'easy',
-        departureProcedure: [
-            'Clear out with Malta Transport (Harbour Master)',
-            'Customs clearance for non-EU vessels',
-        ],
+        departureProcedure: ['Clear out with Malta Transport (Harbour Master)', 'Customs clearance for non-EU vessels'],
         arrivalProcedure: [
             'Contact Valletta VTS on VHF Ch 12 for approach',
             'Fly Q flag and proceed to Grand Harbour Marina or Msida',
@@ -844,10 +956,7 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
         country: 'Cyprus',
         flag: '🇨🇾',
         difficulty: 'moderate',
-        departureProcedure: [
-            'Clear out with Customs, Immigration, and Port Authority',
-            'Obtain Port Clearance',
-        ],
+        departureProcedure: ['Clear out with Customs, Immigration, and Port Authority', 'Obtain Port Clearance'],
         arrivalProcedure: [
             'Fly Q flag and proceed to an approved port of entry',
             'Clear with Customs, Immigration, Port Authority, and Health',
@@ -948,7 +1057,7 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
         flag: '🇦🇬',
         difficulty: 'easy',
         departureProcedure: [
-            'Clear out with Customs and Immigration at English Harbour or St John\'s',
+            "Clear out with Customs and Immigration at English Harbour or St John's",
             'Submit departure manifest',
         ],
         arrivalProcedure: [
@@ -969,11 +1078,11 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
             { name: 'Port Clearance from last port', critical: true },
         ],
         importantNotes: [
-            'English Harbour (Nelson\'s Dockyard) is a major yachting hub',
+            "English Harbour (Nelson's Dockyard) is a major yachting hub",
             'Antigua Sailing Week (late April) is world-famous',
             'Hurricane season Jun–Nov',
         ],
-        portsOfEntry: ['English Harbour', 'St John\'s', 'Jolly Harbour'],
+        portsOfEntry: ['English Harbour', "St John's", 'Jolly Harbour'],
         fees: 'Customs fees ~EC$50; cruising permit varies',
     },
 
@@ -981,9 +1090,7 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
         country: 'Saint Lucia',
         flag: '🇱🇨',
         difficulty: 'easy',
-        departureProcedure: [
-            'Clear out with Customs and Immigration at Rodney Bay or Castries',
-        ],
+        departureProcedure: ['Clear out with Customs and Immigration at Rodney Bay or Castries'],
         arrivalProcedure: [
             'Fly Q flag and proceed to Rodney Bay Marina or Castries',
             'Clear with Customs, Immigration, and Health',
@@ -1013,9 +1120,7 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
         country: 'Grenada',
         flag: '🇬🇩',
         difficulty: 'easy',
-        departureProcedure: [
-            'Clear out with Customs and Immigration at Port Louis or Prickly Bay',
-        ],
+        departureProcedure: ['Clear out with Customs and Immigration at Port Louis or Prickly Bay'],
         arrivalProcedure: [
             'Fly Q flag and proceed to Port Louis Marina or Prickly Bay',
             'Clear with Customs, Immigration, and Health',
@@ -1037,7 +1142,7 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
             'Good boatyards for haul-out and maintenance',
             'Friendly and laid-back clearance process',
         ],
-        portsOfEntry: ['St George\'s (Port Louis)', 'Prickly Bay', 'Hillsborough (Carriacou)'],
+        portsOfEntry: ["St George's (Port Louis)", 'Prickly Bay', 'Hillsborough (Carriacou)'],
         fees: 'Customs fees ~EC$50-100',
     },
 
@@ -1045,9 +1150,7 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
         country: 'Sint Maarten',
         flag: '🇸🇽',
         difficulty: 'easy',
-        departureProcedure: [
-            'Clear out with Customs and Immigration at Simpson Bay or Philipsburg',
-        ],
+        departureProcedure: ['Clear out with Customs and Immigration at Simpson Bay or Philipsburg'],
         arrivalProcedure: [
             'Fly Q flag and proceed to Simpson Bay lagoon or Philipsburg',
             'Clear with Customs and Immigration',
@@ -1104,7 +1207,13 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
             'Fishing licence required and easily obtainable on clearance',
             'Shallow waters — need good charts, polarised sunnies, and daylight navigation',
         ],
-        portsOfEntry: ['Nassau', 'Marsh Harbour (Abacos)', 'George Town (Exumas)', 'Freeport (Grand Bahama)', 'Spanish Wells'],
+        portsOfEntry: [
+            'Nassau',
+            'Marsh Harbour (Abacos)',
+            'George Town (Exumas)',
+            'Freeport (Grand Bahama)',
+            'Spanish Wells',
+        ],
         fees: 'Cruising permit ~US$300 for vessel + US$25/person over 4 months',
     },
 };
@@ -1124,21 +1233,21 @@ export const COUNTRY_ALIASES: Record<string, string> = {
     'saint martin': 'sint maarten',
     'saint-martin': 'sint maarten',
     'new cal': 'new caledonia',
-    'noumea': 'new caledonia',
-    'uk': 'united kingdom',
+    noumea: 'new caledonia',
+    uk: 'united kingdom',
     'great britain': 'united kingdom',
     us: 'united states',
     usa: 'united states',
-    'america': 'united states',
-    'png': 'papua new guinea',
-    'nz': 'new zealand',
-    'turkey': 'türkiye',
-    'turkiye': 'türkiye',
-    'oz': 'australia',
-    'antigua': 'antigua and barbuda',
-    'barbuda': 'antigua and barbuda',
-    'cooks': 'cook islands',
-    'rarotonga': 'cook islands',
+    america: 'united states',
+    png: 'papua new guinea',
+    nz: 'new zealand',
+    turkey: 'türkiye',
+    turkiye: 'türkiye',
+    oz: 'australia',
+    antigua: 'antigua and barbuda',
+    barbuda: 'antigua and barbuda',
+    cooks: 'cook islands',
+    rarotonga: 'cook islands',
 };
 
 export function findCountryData(country: string | undefined): CountryClearance | undefined {
@@ -1149,16 +1258,26 @@ export function findCountryData(country: string | undefined): CountryClearance |
     // Alias match
     if (COUNTRY_ALIASES[key] && COUNTRY_DB[COUNTRY_ALIASES[key]]) return COUNTRY_DB[COUNTRY_ALIASES[key]];
     // Partial alias match
-    const aliasKey = Object.keys(COUNTRY_ALIASES).find(a => key.includes(a) || a.includes(key));
+    const aliasKey = Object.keys(COUNTRY_ALIASES).find((a) => key.includes(a) || a.includes(key));
     if (aliasKey && COUNTRY_DB[COUNTRY_ALIASES[aliasKey]]) return COUNTRY_DB[COUNTRY_ALIASES[aliasKey]];
     // Partial country name match
-    return Object.values(COUNTRY_DB).find(c =>
-        c.country.toLowerCase().includes(key) || key.includes(c.country.toLowerCase())
+    return Object.values(COUNTRY_DB).find(
+        (c) => c.country.toLowerCase().includes(key) || key.includes(c.country.toLowerCase()),
     );
 }
 
 export const difficultyStyle = {
-    easy: { text: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', label: 'Straightforward' },
-    moderate: { text: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20', label: 'Moderate Paperwork' },
+    easy: {
+        text: 'text-emerald-400',
+        bg: 'bg-emerald-500/10',
+        border: 'border-emerald-500/20',
+        label: 'Straightforward',
+    },
+    moderate: {
+        text: 'text-amber-400',
+        bg: 'bg-amber-500/10',
+        border: 'border-amber-500/20',
+        label: 'Moderate Paperwork',
+    },
     complex: { text: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20', label: 'Complex — Plan Ahead' },
 };

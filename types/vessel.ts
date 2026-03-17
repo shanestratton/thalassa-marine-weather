@@ -43,10 +43,25 @@ export interface VesselProfile {
 }
 
 /** Inventory item categories */
-export type InventoryCategory = 'Engine' | 'Plumbing' | 'Electrical' | 'Rigging' | 'Safety' | 'Provisions' | 'Medical' | 'Misc';
+export type InventoryCategory =
+    | 'Engine'
+    | 'Plumbing'
+    | 'Electrical'
+    | 'Rigging'
+    | 'Safety'
+    | 'Provisions'
+    | 'Medical'
+    | 'Misc';
 
 export const INVENTORY_CATEGORIES: InventoryCategory[] = [
-    'Engine', 'Plumbing', 'Electrical', 'Rigging', 'Safety', 'Provisions', 'Medical', 'Misc',
+    'Engine',
+    'Plumbing',
+    'Electrical',
+    'Rigging',
+    'Safety',
+    'Provisions',
+    'Medical',
+    'Misc',
 ];
 
 export const INVENTORY_CATEGORY_ICONS: Record<InventoryCategory, string> = {
@@ -124,7 +139,13 @@ export interface EquipmentItem {
     updated_at: string;
 }
 
-export type DocumentCategory = 'Registration' | 'Insurance' | 'Crew Visas/IDs' | 'Radio/MMSI' | 'Customs Clearances' | 'User Manuals';
+export type DocumentCategory =
+    | 'Registration'
+    | 'Insurance'
+    | 'Crew Visas/IDs'
+    | 'Radio/MMSI'
+    | 'Customs Clearances'
+    | 'User Manuals';
 
 export interface ShipDocument {
     id: string;

@@ -1,9 +1,9 @@
 /**
  * Seed Profiles for Crew Finder
- * 
+ *
  * Run this in the browser console or via a script to populate
  * the crew board with realistic starter profiles.
- * 
+ *
  * Usage: import { seedCrewProfiles } from './scripts/seedProfiles';
  *        await seedCrewProfiles();
  */
@@ -76,7 +76,7 @@ const SEED_PROFILES = [
         sailing_region: 'Australia East Coast',
         available_from: '2026-03-15',
         available_to: '2099-12-31',
-        bio: 'Retired engineer, full-time liveaboard. We\'ve been cruising the east coast of Australia for 5 years on our Beneteau 50. Looking for extra hands for the trip up to the Whitsundays. Cold beers guaranteed.',
+        bio: "Retired engineer, full-time liveaboard. We've been cruising the east coast of Australia for 5 years on our Beneteau 50. Looking for extra hands for the trip up to the Whitsundays. Cold beers guaranteed.",
         vibe: ['🌴 Cruisy', '🌅 Sundowner Vibes'],
         languages: ['🇬🇧 English'],
         smoking: 'Non-Smoker',
@@ -108,7 +108,15 @@ const SEED_PROFILES = [
         smoking: 'Non-Smoker',
         drinking: 'Social Drinker',
         pets: 'No Pets',
-        interests: ['🏄 Surfing', '🤿 Snorkelling', '🎪 Festivals', '📸 Photography', '🌍 Exploring New Places', '🎵 Music', '🧘 Yoga'],
+        interests: [
+            '🏄 Surfing',
+            '🤿 Snorkelling',
+            '🎪 Festivals',
+            '📸 Photography',
+            '🌍 Exploring New Places',
+            '🎵 Music',
+            '🧘 Yoga',
+        ],
         location_city: 'Auckland',
         location_state: 'North Island',
         location_country: 'New Zealand',
@@ -186,7 +194,15 @@ const SEED_PROFILES = [
         smoking: 'Non-Smoker',
         drinking: 'Social Drinker',
         pets: 'No Pets',
-        interests: ['🍷 Wine Time', '🍽️ Fine Dining', '🏝️ Island Hopping', '📸 Photography', '🌍 Exploring New Places', '💃 Dancing', '🚗 Weekend Getaways'],
+        interests: [
+            '🍷 Wine Time',
+            '🍽️ Fine Dining',
+            '🏝️ Island Hopping',
+            '📸 Photography',
+            '🌍 Exploring New Places',
+            '💃 Dancing',
+            '🚗 Weekend Getaways',
+        ],
         location_city: 'Lisbon',
         location_state: '',
         location_country: 'Portugal',
@@ -201,7 +217,14 @@ const SEED_PROFILES = [
         age_range: '65+',
         has_partner: false,
         partner_details: null,
-        skills: ['🧭 Navigation', '⚙️ Diesel Engines', '⚡ Electrical', '🪡 Sail Repair', '⛵ Rigging', '📐 Passage Planning'],
+        skills: [
+            '🧭 Navigation',
+            '⚙️ Diesel Engines',
+            '⚡ Electrical',
+            '🪡 Sail Repair',
+            '⛵ Rigging',
+            '📐 Passage Planning',
+        ],
         sailing_experience: 'Salty Dog 🧂',
         sailing_region: 'Worldwide',
         available_from: '2026-01-01',
@@ -234,12 +257,13 @@ export async function seedCrewProfiles(): Promise<{ inserted: number; errors: st
 
     for (const profile of SEED_PROFILES) {
         // 1. Upsert crew profile first (main data)
-        const { error: crewError } = await supabase
-            .from('sailor_crew_profiles')
-            .upsert({
+        const { error: crewError } = await supabase.from('sailor_crew_profiles').upsert(
+            {
                 ...profile,
                 updated_at: new Date().toISOString(),
-            }, { onConflict: 'user_id' });
+            },
+            { onConflict: 'user_id' },
+        );
 
         if (crewError) {
             errors.push(`${profile.first_name}: ${crewError.message}`);
@@ -276,22 +300,16 @@ export async function seedCrewProfiles(): Promise<{ inserted: number; errors: st
 export async function removeSeedProfiles(): Promise<{ removed: number; errors: string[] }> {
     if (!supabase) return { removed: 0, errors: ['Supabase not initialized'] };
 
-    const seedIds = SEED_PROFILES.map(p => p.user_id);
+    const seedIds = SEED_PROFILES.map((p) => p.user_id);
     const errors: string[] = [];
     let removed = 0;
 
     // Remove crew profiles
-    const { error: crewError } = await supabase
-        .from('sailor_crew_profiles')
-        .delete()
-        .in('user_id', seedIds);
+    const { error: crewError } = await supabase.from('sailor_crew_profiles').delete().in('user_id', seedIds);
     if (crewError) errors.push(`Crew cleanup: ${crewError.message}`);
 
     // Remove chat profiles
-    const { error: chatError } = await supabase
-        .from('chat_profiles')
-        .delete()
-        .in('user_id', seedIds);
+    const { error: chatError } = await supabase.from('chat_profiles').delete().in('user_id', seedIds);
     if (chatError) errors.push(`Chat cleanup: ${chatError.message}`);
     else removed = seedIds.length;
 
@@ -299,7 +317,7 @@ export async function removeSeedProfiles(): Promise<{ removed: number; errors: s
     const { error: likesError } = await supabase
         .from('sailor_likes')
         .delete()
-        .or(seedIds.map(id => `liker_id.eq.${id},liked_id.eq.${id}`).join(','));
+        .or(seedIds.map((id) => `liker_id.eq.${id},liked_id.eq.${id}`).join(','));
     if (likesError) errors.push(`Likes cleanup: ${likesError.message}`);
 
     return { removed, errors };
@@ -307,5 +325,5 @@ export async function removeSeedProfiles(): Promise<{ removed: number; errors: s
 
 /** Check if seed profiles exist */
 export function getSeedUserIds(): string[] {
-    return SEED_PROFILES.map(p => p.user_id);
+    return SEED_PROFILES.map((p) => p.user_id);
 }

@@ -109,7 +109,11 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
         <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3">
             <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-bold text-white/80">📍 Drop a Pin</h3>
-                <button onClick={onClose} className="text-white/60 hover:text-white/60 text-lg transition-colors px-2" aria-label="Close">
+                <button
+                    onClick={onClose}
+                    className="text-white/60 hover:text-white/60 text-lg transition-colors px-2"
+                    aria-label="Close"
+                >
                     ✕
                 </button>
             </div>
@@ -206,7 +210,11 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
         <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3">
             <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-bold text-white/80">🗺️ Share Point of Interest</h3>
-                <button onClick={onClose} className="text-white/60 hover:text-white/60 text-lg transition-colors px-2" aria-label="Close">
+                <button
+                    onClick={onClose}
+                    className="text-white/60 hover:text-white/60 text-lg transition-colors px-2"
+                    aria-label="Close"
+                >
                     ✕
                 </button>
             </div>
@@ -271,7 +279,11 @@ export const TrackPickerSheet: React.FC<TrackPickerSheetProps> = React.memo(
         <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3 max-h-[320px] overflow-hidden">
             <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-bold text-white/80">⛵ Share a Voyage</h3>
-                <button onClick={onClose} className="text-white/60 hover:text-white/60 text-lg transition-colors px-2" aria-label="Close">
+                <button
+                    onClick={onClose}
+                    className="text-white/60 hover:text-white/60 text-lg transition-colors px-2"
+                    aria-label="Close"
+                >
                     ✕
                 </button>
             </div>

@@ -406,7 +406,7 @@ class AnchorWatchServiceClass {
                 timestamp: pos.timestamp,
             };
         } catch (e) {
-            log.warn( e);
+            log.warn(e);
             return null;
         }
     }
@@ -463,7 +463,7 @@ class AnchorWatchServiceClass {
             this.notify();
             return true;
         } catch (e) {
-            log.warn( e);
+            log.warn(e);
             /* Corrupted persisted data — clear and start fresh */
             this.clearPersistedWatchState();
             return false;
@@ -485,7 +485,7 @@ class AnchorWatchServiceClass {
             };
             localStorage.setItem(ANCHOR_WATCH_KEY, JSON.stringify(data));
         } catch (e) {
-            log.warn( e);
+            log.warn(e);
             // Non-critical
         }
     }
@@ -495,7 +495,7 @@ class AnchorWatchServiceClass {
         try {
             localStorage.removeItem(ANCHOR_WATCH_KEY);
         } catch (e) {
-            log.warn( e);
+            log.warn(e);
             // Non-critical
         }
     }

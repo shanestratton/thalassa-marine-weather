@@ -397,7 +397,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                     <div className="absolute top-14 left-3 right-3 z-[502] animate-in fade-in slide-in-from-top-2 duration-300">
                         <div className="bg-slate-950 border border-white/[0.12] rounded-2xl px-3 py-2.5 flex items-center justify-between shadow-2xl shadow-black/50">
                             <div className="text-center flex-1">
-                                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Distance</p>
+                                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
+                                    Distance
+                                </p>
                                 <p className="text-base font-black text-white tabular-nums leading-tight">
                                     {passage.routeAnalysis.totalDistance.toFixed(0)}
                                     <span className="text-[11px] text-gray-400"> NM</span>
@@ -599,12 +601,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                             : { lat: arr.lat, lon: arr.lon },
                                                         waypoints:
                                                             hasIsoWPs && turnWPs.length > 2
-                                                                ? turnWPs.slice(1, -1).map((wp: { lat: number; lon: number; name?: string }) => ({
-                                                                      name: wp.id,
-                                                                      coordinates: { lat: wp.lat, lon: wp.lon },
-                                                                      windSpeed: wp.tws,
-                                                                      depth_m: undefined,
-                                                                  }))
+                                                                ? turnWPs
+                                                                      .slice(1, -1)
+                                                                      .map(
+                                                                          (wp: {
+                                                                              lat: number;
+                                                                              lon: number;
+                                                                              name?: string;
+                                                                          }) => ({
+                                                                              name: wp.id,
+                                                                              coordinates: { lat: wp.lat, lon: wp.lon },
+                                                                              windSpeed: wp.tws,
+                                                                              depth_m: undefined,
+                                                                          }),
+                                                                      )
                                                                 : [],
                                                         distanceApprox: `${totalNM.toFixed(0)} NM`,
                                                         durationApprox: `${totalHrs.toFixed(0)} hours`,

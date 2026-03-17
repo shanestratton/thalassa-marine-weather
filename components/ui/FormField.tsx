@@ -110,8 +110,16 @@ export const FormField: React.FC<FormFieldProps> = ({
                     className={inputClass}
                 />
             )}
-            {error && <p id={errorId} className="text-micro text-red-400 mt-1" role="alert">{error}</p>}
-            {hint && !error && <p id={hintId} className="text-micro text-gray-400 mt-0.5">{hint}</p>}
+            {error && (
+                <p id={errorId} className="text-micro text-red-400 mt-1" role="alert">
+                    {error}
+                </p>
+            )}
+            {hint && !error && (
+                <p id={hintId} className="text-micro text-gray-400 mt-0.5">
+                    {hint}
+                </p>
+            )}
         </div>
     );
 };

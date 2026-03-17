@@ -73,9 +73,7 @@ describe('fetchWithRetry', () => {
 
     it('should call onRetry callback', async () => {
         const onRetry = vi.fn();
-        fetchSpy
-            .mockRejectedValueOnce(new Error('fail'))
-            .mockResolvedValueOnce(new Response('ok', { status: 200 }));
+        fetchSpy.mockRejectedValueOnce(new Error('fail')).mockResolvedValueOnce(new Response('ok', { status: 200 }));
 
         await fetchWithRetry('https://example.com', undefined, {
             maxRetries: 2,

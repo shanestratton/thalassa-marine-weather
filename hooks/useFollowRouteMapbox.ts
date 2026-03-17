@@ -22,10 +22,7 @@ const LAYER_PREVIOUS = 'follow-route-previous-line';
 const LAYER_MARKERS = 'follow-route-markers-circle';
 const LAYER_MARKER_LABELS = 'follow-route-markers-labels';
 
-export const useFollowRouteMapbox = (
-    mapRef: React.MutableRefObject<mapboxgl.Map | null>,
-    mapReady: boolean,
-) => {
+export const useFollowRouteMapbox = (mapRef: React.MutableRefObject<mapboxgl.Map | null>, mapReady: boolean) => {
     const { isFollowing, routeCoords, previousRouteCoords, voyagePlan } = useFollowRoute();
     const addedRef = useRef(false);
 

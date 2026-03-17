@@ -113,7 +113,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
                 <input
                     value={isObserver ? '' : profileVesselName}
                     onChange={(e) => setProfileVesselName(e.target.value)}
-                    placeholder={isObserver ? 'Observer Mode — No Vessel' : (vesselPlaceholder || 'Black Pearl')}
+                    placeholder={isObserver ? 'Observer Mode — No Vessel' : vesselPlaceholder || 'Black Pearl'}
                     className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/30 transition-colors disabled:cursor-not-allowed"
                     maxLength={40}
                     disabled={isObserver}

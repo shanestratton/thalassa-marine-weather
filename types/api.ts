@@ -23,7 +23,7 @@ export interface WorldTidesResponse {
     heights?: WorldTidesHeight[];
     extremes?: WorldTidesExtreme[];
     callCount?: number;
-    station?: { name: string, lat: number, lon: number };
+    station?: { name: string; lat: number; lon: number };
 }
 
 export interface StormGlassValue {

@@ -30,13 +30,13 @@ export const FONT = {
 // ── Type Scale ─────────────────────────────────────────────────────
 // Floor: 11px. No text below this for accessibility.
 export const SIZE = {
-    xs: 11,    // Unit suffixes ("NM", "kts"), tertiary info
-    caption: 12,    // Labels, status pills
-    body: 13,    // Default body text
-    subhead: 14,    // Card subheadings, data values
-    title: 16,    // Section titles, prominent data
-    display: 20,    // Hero numbers, large headings
-    hero: 24,    // Single focal numbers (cost score, etc.)
+    xs: 11, // Unit suffixes ("NM", "kts"), tertiary info
+    caption: 12, // Labels, status pills
+    body: 13, // Default body text
+    subhead: 14, // Card subheadings, data values
+    title: 16, // Section titles, prominent data
+    display: 20, // Hero numbers, large headings
+    hero: 24, // Single focal numbers (cost score, etc.)
 } as const;
 
 // ── Minimum tap target ─────────────────────────────────────────────

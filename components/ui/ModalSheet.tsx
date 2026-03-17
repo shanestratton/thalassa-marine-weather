@@ -110,7 +110,7 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
         if (!panel) return;
 
         const focusable = panel.querySelectorAll<HTMLElement>(
-            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
         );
         if (focusable.length === 0) return;
 
@@ -136,7 +136,7 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
         // Delay to allow animation to complete
         const timer = setTimeout(() => {
             const firstFocusable = panelRef.current?.querySelector<HTMLElement>(
-                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+                'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
             );
             firstFocusable?.focus();
         }, 100);
@@ -195,7 +195,11 @@ export const ModalSheet: React.FC<ModalSheetProps> = ({
                 </button>
 
                 {/* Title */}
-                {title && <h3 id={modalId} className="text-lg font-black text-white mb-4">{title}</h3>}
+                {title && (
+                    <h3 id={modalId} className="text-lg font-black text-white mb-4">
+                        {title}
+                    </h3>
+                )}
 
                 {children}
             </div>

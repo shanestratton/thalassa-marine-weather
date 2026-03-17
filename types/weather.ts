@@ -4,7 +4,13 @@
  * All weather metrics, forecasts, observations, and marine report types.
  */
 
-export type WeatherModel = 'best_match' | 'ecmwf_ifs04' | 'gfs_seamless' | 'icon_seamless' | 'bom_access_global' | 'gfs_global';
+export type WeatherModel =
+    | 'best_match'
+    | 'ecmwf_ifs04'
+    | 'gfs_seamless'
+    | 'icon_seamless'
+    | 'bom_access_global'
+    | 'gfs_global';
 export type WeatherConditionKey = 'rain' | 'storm' | 'fog' | 'cloudy' | 'night' | 'sunny' | 'default';
 
 export interface GridPoint {
@@ -208,15 +214,15 @@ export interface ObservationStation {
     pressure?: number | null;
     airTemperature: number | null;
     condition?: string;
-    coordinates?: { lat: number, lon: number };
+    coordinates?: { lat: number; lon: number };
 }
 
 export interface DebugInfo {
     logs: string[];
     candidatesChecked: number;
-    finalLocation: { lat: number, lon: number };
+    finalLocation: { lat: number; lon: number };
     rawCurrent?: unknown;
-    attemptedLocations?: { label: string, lat: number, lon: number, status: string }[];
+    attemptedLocations?: { label: string; lat: number; lon: number; status: string }[];
 }
 
 export interface GroundingSource {
@@ -226,7 +232,7 @@ export interface GroundingSource {
 
 export interface MarineWeatherReport {
     locationName: string;
-    coordinates?: { lat: number, lon: number };
+    coordinates?: { lat: number; lon: number };
     current: SourcedWeatherMetrics;
     forecast: ForecastDay[];
     hourly: HourlyForecast[];
@@ -269,14 +275,14 @@ export interface ChartDataPoint {
 }
 
 export interface NotificationPreferences {
-    wind: { enabled: boolean, threshold: number };
-    gusts: { enabled: boolean, threshold: number };
-    waves: { enabled: boolean, threshold: number };
-    swellPeriod: { enabled: boolean, threshold: number };
-    visibility: { enabled: boolean, threshold: number };
-    uv: { enabled: boolean, threshold: number };
-    tempHigh: { enabled: boolean, threshold: number };
-    tempLow: { enabled: boolean, threshold: number };
+    wind: { enabled: boolean; threshold: number };
+    gusts: { enabled: boolean; threshold: number };
+    waves: { enabled: boolean; threshold: number };
+    swellPeriod: { enabled: boolean; threshold: number };
+    visibility: { enabled: boolean; threshold: number };
+    uv: { enabled: boolean; threshold: number };
+    tempHigh: { enabled: boolean; threshold: number };
+    tempLow: { enabled: boolean; threshold: number };
     precipitation: { enabled: boolean };
 }
 

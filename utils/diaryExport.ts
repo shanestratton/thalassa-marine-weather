@@ -406,7 +406,8 @@ export async function generateDiaryPDF(
                         if (wd.description) weatherParts.push(wd.description);
                         if (wd.airTemp != null) weatherParts.push(`Air: ${wd.airTemp}°C`);
                         if (wd.seaTemp != null) weatherParts.push(`Sea: ${wd.seaTemp}°C`);
-                        if (wd.windSpeed != null) weatherParts.push(`Wind: ${wd.windSpeed}kts${wd.windDir ? ` ${wd.windDir}` : ''}`);
+                        if (wd.windSpeed != null)
+                            weatherParts.push(`Wind: ${wd.windSpeed}kts${wd.windDir ? ` ${wd.windDir}` : ''}`);
                         if (wd.humidity != null) weatherParts.push(`Humidity: ${wd.humidity}%`);
                         if (wd.rain != null) weatherParts.push(`Rain: ${wd.rain}mm`);
                         pdf.text(weatherParts.join('  |  '), margin + 6, entryY);

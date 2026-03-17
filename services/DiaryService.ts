@@ -20,13 +20,13 @@ const log = createLogger('Diary');
 
 /** Structured weather snapshot captured at a pin-drop location */
 export interface DiaryWeatherData {
-    description?: string;   // e.g. "Partly Cloudy"
-    airTemp?: number;       // °C
-    seaTemp?: number;       // °C
-    windSpeed?: number;     // kts
-    windDir?: string;       // e.g. "NNE"
-    humidity?: number;      // %
-    rain?: number;          // mm
+    description?: string; // e.g. "Partly Cloudy"
+    airTemp?: number; // °C
+    seaTemp?: number; // °C
+    windSpeed?: number; // kts
+    windDir?: string; // e.g. "NNE"
+    humidity?: number; // %
+    rain?: number; // mm
 }
 
 export interface DiaryEntry {
