@@ -14,6 +14,10 @@ const getSupabaseUrl = (): string =>
 const getSupabaseKey = (): string =>
     (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_KEY) || '';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('BathymetryCache');
+
 const GRID_STRIDE = 6; // 6 arcminutes = 0.1° per cell (catches narrow islands like Fraser)
 const BASE_PADDING_DEG = 3; // Minimum padding around route bbox
 

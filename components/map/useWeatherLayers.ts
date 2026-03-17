@@ -199,8 +199,9 @@ export function useWeatherLayers(
     }, []);
 
     // Pre-compute isobar frames
-    const precomputeFrames = useCallback((grid: Record<string, unknown>) => {
-        const total = grid.totalHours;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const precomputeFrames = useCallback((grid: any) => {
+        const total = grid.totalHours as number;
         setTotalFrames(total);
         setFramesReady(0);
         cachedFramesRef.current = new Array(total);

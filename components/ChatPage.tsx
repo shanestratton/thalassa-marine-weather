@@ -236,8 +236,8 @@ export const ChatPage: React.FC = React.memo(() => {
             return;
         }
 
-        let kbShowHandle: { remove: () => void } | undefined;
-        let kbHideHandle: { remove: () => void } | undefined;
+        let kbShowHandle: Promise<{ remove: () => void }> | undefined;
+        let kbHideHandle: Promise<{ remove: () => void }> | undefined;
         let usingNativePlugin = false;
 
         // Try Capacitor Keyboard plugin first (accurate on native iOS)
@@ -271,11 +271,8 @@ export const ChatPage: React.FC = React.memo(() => {
 
         return () => {
             if (usingNativePlugin) {
-                kbShowHandle?.then?.((h: { remove: () => void }) => h.remove());
-                kbHideHandle?.then?.((h: { remove: () => void }) => h.remove());
-                // Also handle if they resolved synchronously
-                if (kbShowHandle?.remove) kbShowHandle.remove();
-                if (kbHideHandle?.remove) kbHideHandle.remove();
+                kbShowHandle?.then((h) => h.remove());
+                kbHideHandle?.then((h) => h.remove());
             }
             (window as any).__chatKbCleanup?.();
             delete (window as any).__chatKbCleanup;

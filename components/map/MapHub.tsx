@@ -218,7 +218,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         departure: passage.departure,
         arrival: passage.arrival,
         setMapReady,
-        setActiveLayer: (layer: string) => weather.setActiveLayer(layer),
+        setActiveLayer: (layer: string) => weather.setActiveLayer(layer as import('./mapConstants').WeatherLayer),
         setDeparture: passage.setDeparture,
         setArrival: passage.setArrival,
         setSettingPoint: passage.setSettingPoint,
@@ -382,7 +382,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         mapboxMap={mapRef.current}
                         visible={weather.activeLayers.has('velocity')}
                         windHour={weather.windHour}
-                        windGrid={weather.windGridRef?.current}
+                        windGrid={weather.windGridRef?.current ?? undefined}
                         hideBadge={passage.showPassage}
                     />
                 )}
@@ -608,8 +608,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                               lat: number;
                                                                               lon: number;
                                                                               name?: string;
+                                                                              id?: string;
+                                                                              tws?: number;
                                                                           }) => ({
-                                                                              name: wp.id,
+                                                                              name: wp.id ?? wp.name,
                                                                               coordinates: { lat: wp.lat, lon: wp.lon },
                                                                               windSpeed: wp.tws,
                                                                               depth_m: undefined,
@@ -622,8 +624,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                             passage.departureTime || new Date().toISOString(),
                                                     };
 
-                                                    const voyageId =
-                                                        await ShipLogService.savePassagePlanToLogbook(plan);
+                                                    const voyageId = await ShipLogService.savePassagePlanToLogbook(
+                                                        plan as any,
+                                                    );
                                                     if (voyageId) {
                                                         setPassageToast('Route saved to logbook ✓');
                                                         setTimeout(() => setPassageToast(null), 2000);
