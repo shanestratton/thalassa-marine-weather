@@ -66,6 +66,7 @@ interface SettingsViewProps {
     settings: UserSettings;
     onSave: (settings: Partial<UserSettings>) => void;
     onLocationSelect: (location: string) => void;
+    onBack?: () => void;
 }
 
 const NavButton = React.memo(
@@ -294,7 +295,7 @@ const MENU_ITEMS: {
     },
 ];
 
-export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, onLocationSelect }) => {
+export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, onLocationSelect, onBack }) => {
     const { user, logout, resetSettings } = useThalassa();
     const [activeTab, setActiveTab] = useState<SettingsTab | null>(() => {
         // Desktop (md breakpoint): default to 'general' so content area isn't empty
@@ -479,13 +480,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave, on
             {activeTab === null && (
                 <div className="md:hidden flex-1 flex flex-col overflow-y-auto">
                     <div className="px-6 pt-8 pb-4">
-                        <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-sky-300 flex items-center gap-3">
-                            <GearIcon className="w-6 h-6 text-sky-400" />
-                            SETTINGS
-                        </h2>
-                        <p className="text-[11px] text-sky-300/60 font-mono tracking-widest uppercase mt-1 ml-9">
-                            Control Center
-                        </p>
+                        <div className="flex items-center gap-3">
+                            {onBack && (
+                                <button
+                                    onClick={onBack}
+                                    className="p-2 rounded-xl bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all active:scale-90"
+                                    aria-label="Back"
+                                >
+                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                                    </svg>
+                                </button>
+                            )}
+                            <div>
+                                <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-sky-300 flex items-center gap-3">
+                                    <GearIcon className="w-6 h-6 text-sky-400" />
+                                    SETTINGS
+                                </h2>
+                                <p className="text-[11px] text-sky-300/60 font-mono tracking-widest uppercase mt-1 ml-9">
+                                    Control Center
+                                </p>
+                            </div>
+                        </div>
                     </div>
                     <div className="flex-1 px-4 pb-32 space-y-2">
                         {MENU_ITEMS.map((item) => {

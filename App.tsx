@@ -552,6 +552,7 @@ const App: React.FC = () => {
                                                             settings={settings}
                                                             onSave={updateSettings}
                                                             onLocationSelect={handleFavoriteSelect}
+                                                            onBack={() => setPage('vessel')}
                                                         />
                                                     </ErrorBoundary>
                                                 )}
