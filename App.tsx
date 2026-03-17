@@ -400,7 +400,8 @@ const App: React.FC = () => {
                             currentView !== 'diary' &&
                             currentView !== 'route' &&
                             currentView !== 'crew' &&
-                            currentView !== 'checklists' && (
+                            currentView !== 'checklists' &&
+                            currentView !== 'settings' && (
                                 <div
                                     className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}
                                 >
