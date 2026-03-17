@@ -251,7 +251,7 @@ class AisHubServiceClass {
 
         try {
             const { TcpSocket } = await import('capacitor-tcp-socket');
-            await TcpSocket.write({ client: this.tcpClientId, data: payload });
+            await TcpSocket.send({ client: this.tcpClientId, data: payload });
 
             this.stats.sentenceCount++;
             this.stats.bytesSent += bytes;
