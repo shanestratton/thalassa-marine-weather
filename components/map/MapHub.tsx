@@ -41,6 +41,7 @@ import { useMapInit, useLocationDot, usePickerMode } from './useMapInit';
 import { useWeatherLayers, useEmbeddedRain } from './useWeatherLayers';
 import { usePassagePlanner } from './usePassagePlanner';
 import { useRouteNudge } from './useRouteNudge';
+import { useAisLayer } from './useAisLayer';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { SynopticScrubber } from './SynopticScrubber';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
@@ -133,6 +134,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const location = useLocationStore();
     const [mapReady, setMapReady] = useState(false);
     const deviceMode = useDeviceMode();
+    const [aisVisible, setAisVisible] = useState(true);
 
     // ── Passage Planner ──
     const passage = usePassagePlanner(mapRef, mapReady);
@@ -320,6 +322,9 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Embedded Rain (also loads as background on full-map velocity mode) ──
     const _embRain = useEmbeddedRain(mapRef, embedded, mapReady, false);
+
+    // ── AIS Vessel Target Layer ──
+    useAisLayer(mapRef, mapReady, aisVisible);
 
     // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
     useEffect(() => {
@@ -691,6 +696,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                         mapRef={mapRef}
                         toggleLayer={weather.toggleLayer}
                         setShowLayerMenu={weather.setShowLayerMenu}
+                        aisVisible={aisVisible}
+                        onToggleAis={() => setAisVisible(v => !v)}
                     />
                 )}
 

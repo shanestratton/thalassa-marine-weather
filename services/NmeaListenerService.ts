@@ -10,6 +10,9 @@
 import { createLogger } from '../utils/createLogger';
 import type { NmeaSample } from '../types';
 import { Capacitor } from '@capacitor/core';
+import { processAisSentence } from './AisDecoder';
+import { AisStore } from './AisStore';
+import { AisHubService } from './AisHubService';
 const log = createLogger('NMEA');
 
 // ── Configuration ──
@@ -330,6 +333,15 @@ class NmeaListenerServiceClass {
     // ── NMEA Parsing ──
 
     private parseNmeaSentence(sentence: string) {
+        // ── AIS sentences: !AIVDM or !AIVDO ──
+        if (sentence.startsWith('!')) {
+            const result = processAisSentence(sentence);
+            if (result) AisStore.update(result);
+            // Forward raw sentence to AISHub if enabled
+            AisHubService.forward(sentence);
+            return;
+        }
+
         // Strip checksum
         const raw = sentence.split('*')[0];
         const parts = raw.split(',');
