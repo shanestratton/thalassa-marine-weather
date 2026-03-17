@@ -1,19 +1,8 @@
 /**
  * sweep-stale-vessels — Supabase Edge Function (Cron)
  *
- * Deletes vessels from the `vessels` table that haven't been
- * updated in 24 hours. Should be triggered via Supabase Cron
- * every 6 hours.
- *
- * Cron setup (Supabase Dashboard → Database → Extensions → pg_cron):
- *   SELECT cron.schedule(
- *     'sweep-stale-vessels',
- *     '0 */6 * * *',
- *     $$SELECT net.http_post(
- *       url := '<your-project>.supabase.co/functions/v1/sweep-stale-vessels',
- *       headers := '{"Authorization": "Bearer <service_role_key>"}'::jsonb
- *     )$$
- *   );
+ * Deletes vessels from the vessels table that haven't been
+ * updated in 24 hours. Trigger via pg_cron every 6 hours.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
