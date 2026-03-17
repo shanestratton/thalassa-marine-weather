@@ -650,8 +650,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             ); // Below route
 
                             // Time labels at key intervals (12h, 24h, 48h, etc.)
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             const timeLabels = geoData.wavefronts.features
-                                .filter((f: Record<string, unknown>) => {
+                                .filter((f: any) => {
                                     const h = f.properties?.timeHours;
                                     return (
                                         h === 12 ||
@@ -663,7 +664,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                         h === 168
                                     );
                                 })
-                                .map((f: Record<string, unknown>) => {
+                                .map((f: any) => {
                                     // Place label at the midpoint of each wavefront ring
                                     const coords = f.geometry.coordinates;
                                     const midIdx = Math.floor(coords.length / 2);

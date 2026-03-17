@@ -130,7 +130,7 @@ export const HeroSection = ({
             sunset: todayForecast?.sunset ?? (current as WeatherMetrics & { sunset?: string }).sunset,
         };
         rows.push({
-            data: todayMetrics as WeatherMetrics,
+            data: todayMetrics as unknown as WeatherMetrics,
             hourly: todayHourly,
             customTime: undefined, // Live — uses new Date() for "now" line
         });
@@ -161,7 +161,7 @@ export const HeroSection = ({
                         condition: f.condition,
                     };
                     rows.push({
-                        data: metrics as WeatherMetrics,
+                        data: metrics as unknown as WeatherMetrics,
                         hourly: dayHourly,
                         customTime: undefined,
                     });

@@ -270,7 +270,8 @@ export interface TrackPickerSheetProps {
     }[];
     trackLoadingVoyages: boolean;
     trackSharing: boolean;
-    onSendTrack: (v: Record<string, unknown>) => void;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    onSendTrack: (v: any) => void;
     onClose: () => void;
 }
 

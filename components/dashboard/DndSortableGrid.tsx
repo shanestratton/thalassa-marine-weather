@@ -48,11 +48,11 @@ const DndSortableGrid: React.FC<DndSortableGridProps> = ({ items, onReorder, chi
         useSensor(TouchSensor, { activationConstraint: { delay: 100, tolerance: 5 } }),
     );
 
-    const handleDragEnd = (event: { active: { id: string }; over: { id: string } | null }) => {
+    const handleDragEnd = (event: { active: { id: string | number }; over: { id: string | number } | null }) => {
         const { active, over } = event;
         if (active && over && active.id !== over.id) {
-            const oldIndex = items.indexOf(active.id);
-            const newIndex = items.indexOf(over.id);
+            const oldIndex = items.indexOf(String(active.id));
+            const newIndex = items.indexOf(String(over.id));
             onReorder(arrayMove(items, oldIndex, newIndex));
         }
     };

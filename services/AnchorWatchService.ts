@@ -406,7 +406,7 @@ class AnchorWatchServiceClass {
                 timestamp: pos.timestamp,
             };
         } catch (e) {
-            log.warn(e);
+            log.warn('Web fallback:', String(e));
             return null;
         }
     }
@@ -463,7 +463,7 @@ class AnchorWatchServiceClass {
             this.notify();
             return true;
         } catch (e) {
-            log.warn(e);
+            log.warn('Restore failed:', String(e));
             /* Corrupted persisted data — clear and start fresh */
             this.clearPersistedWatchState();
             return false;
@@ -485,7 +485,7 @@ class AnchorWatchServiceClass {
             };
             localStorage.setItem(ANCHOR_WATCH_KEY, JSON.stringify(data));
         } catch (e) {
-            log.warn(e);
+            log.warn('Persist failed:', String(e));
             // Non-critical
         }
     }
@@ -495,7 +495,7 @@ class AnchorWatchServiceClass {
         try {
             localStorage.removeItem(ANCHOR_WATCH_KEY);
         } catch (e) {
-            log.warn(e);
+            log.warn('Clear persist failed:', String(e));
             // Non-critical
         }
     }

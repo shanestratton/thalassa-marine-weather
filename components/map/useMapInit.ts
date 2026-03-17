@@ -506,7 +506,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                 .then((r) => r.json())
                 .then((geojson: Record<string, unknown>) => {
                     if (!map.getSource('nav-markers')) {
-                        map.addSource('nav-markers', { type: 'geojson', data: geojson });
+                        map.addSource('nav-markers', { type: 'geojson', data: geojson as any });
 
                         const markerColors = [
                             'match',
