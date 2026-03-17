@@ -45,7 +45,7 @@ interface OnboardingWizardProps {
     onComplete: (settings: Partial<UserSettings>) => void;
 }
 
-export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }) => {
+export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ onComplete }) => {
     const [step, setStep] = useState(1);
     const [keyboardHeight, setKeyboardHeight] = useState(0);
 
@@ -572,10 +572,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                         👆
                                     </div>
                                     <div className="min-w-0 text-left">
-                                        <h4 className="text-sm font-bold text-white tracking-wide">Swipe for Forecast</h4>
+                                        <h4 className="text-sm font-bold text-white tracking-wide">
+                                            Swipe for Forecast
+                                        </h4>
                                         <p className="text-xs text-slate-400 leading-relaxed mt-0.5">
-                                            Swipe left/right on the weather cards to scrub through hours.
-                                            Swipe up/down to change days.
+                                            Swipe left/right on the weather cards to scrub through hours. Swipe up/down
+                                            to change days.
                                         </p>
                                     </div>
                                 </div>
@@ -588,10 +590,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                         🔄
                                     </div>
                                     <div className="min-w-0 text-left">
-                                        <h4 className="text-sm font-bold text-white tracking-wide">Essential &amp; Full Views</h4>
+                                        <h4 className="text-sm font-bold text-white tracking-wide">
+                                            Essential &amp; Full Views
+                                        </h4>
                                         <p className="text-xs text-slate-400 leading-relaxed mt-0.5">
-                                            Toggle between a quick glance and detailed marine data
-                                            using the chevron button in the header.
+                                            Toggle between a quick glance and detailed marine data using the chevron
+                                            button in the header.
                                         </p>
                                     </div>
                                 </div>
@@ -606,8 +610,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                     <div className="min-w-0 text-left">
                                         <h4 className="text-sm font-bold text-white tracking-wide">Passage Planner</h4>
                                         <p className="text-xs text-slate-400 leading-relaxed mt-0.5">
-                                            Plan routes, check conditions, and export GPX tracks
-                                            from the Ship's Office &gt; Passages tab.
+                                            Plan routes, check conditions, and export GPX tracks from the Ship's Office
+                                            &gt; Passages tab.
                                         </p>
                                     </div>
                                 </div>
@@ -620,10 +624,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
                                         💬
                                     </div>
                                     <div className="min-w-0 text-left">
-                                        <h4 className="text-sm font-bold text-white tracking-wide">Crew Talk Community</h4>
+                                        <h4 className="text-sm font-bold text-white tracking-wide">
+                                            Crew Talk Community
+                                        </h4>
                                         <p className="text-xs text-slate-400 leading-relaxed mt-0.5">
-                                            Join channels, share pins and voyage tracks, and connect
-                                            with sailors worldwide via Cloud.
+                                            Join channels, share pins and voyage tracks, and connect with sailors
+                                            worldwide via Cloud.
                                         </p>
                                     </div>
                                 </div>
@@ -1305,4 +1311,4 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }
             </div>
         </div>
     );
-};
+});

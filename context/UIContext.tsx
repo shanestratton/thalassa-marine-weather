@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { TransitionDirection } from '../components/ui/PageTransition';
 
 // Main tab pages (bottom nav) — switching between these = "tab" transition
@@ -85,25 +85,24 @@ export const UIProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         setCurrentView(page);
     }, []);
 
-    const addDebugLog = (msg: string) => {
+    const addDebugLog = useCallback((msg: string) => {
         setDebugLogs((prev) => [`[${new Date().toLocaleTimeString().split(' ')[0]}] ${msg}`, ...prev].slice(0, 20));
-    };
+    }, []);
 
-    return (
-        <UIContext.Provider
-            value={{
-                currentView,
-                previousView,
-                transitionDirection,
-                setPage,
-                isOffline,
-                debugLogs,
-                addDebugLog,
-            }}
-        >
-            {children}
-        </UIContext.Provider>
+    const contextValue = useMemo(
+        () => ({
+            currentView,
+            previousView,
+            transitionDirection,
+            setPage,
+            isOffline,
+            debugLogs,
+            addDebugLog,
+        }),
+        [currentView, previousView, transitionDirection, setPage, isOffline, debugLogs, addDebugLog],
     );
+
+    return <UIContext.Provider value={contextValue}>{children}</UIContext.Provider>;
 };
 
 export const useUI = () => {

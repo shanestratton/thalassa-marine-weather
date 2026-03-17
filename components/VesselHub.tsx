@@ -13,7 +13,7 @@ import { useSettings } from '../context/SettingsContext';
 import { triggerHaptic } from '../utils/system';
 import { supabase } from '../services/supabase';
 import { getPendingInviteCount } from '../services/CrewService';
-const AdminPanel = React.lazy(() => import('./AdminPanel').then(m => ({ default: m.AdminPanel })));
+const AdminPanel = React.lazy(() => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })));
 
 interface VesselHubProps {
     onNavigate: (page: string) => void;
@@ -32,7 +32,7 @@ interface OfficeCard {
     accentBg: string;
 }
 
-export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSave }) => {
+export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, settings, onSave }) => {
     // ── Vessel state ──
     const { settings: ctx } = useSettings();
     const isObserver = (ctx as any)?.vessel?.type === 'observer';
@@ -246,7 +246,9 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
                             </div>
                         </div>
                         <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Passages</h4>
-                        <p className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${isObserver ? 'text-gray-400' : 'text-emerald-400'}`}>
+                        <p
+                            className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${isObserver ? 'text-gray-400' : 'text-emerald-400'}`}
+                        >
                             {isObserver ? 'Vessel Required' : 'Route Plan'}
                         </p>
                     </button>
@@ -266,7 +268,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
 
                 <div className="grid grid-cols-4 gap-3 stagger-cascade">
                     {officeCards.map((card) => {
-                        const disabled = (card.id === 'polars') && isObserver;
+                        const disabled = card.id === 'polars' && isObserver;
                         return (
                             <button
                                 key={card.id}
@@ -410,7 +412,7 @@ export const VesselHub: React.FC<VesselHubProps> = ({ onNavigate, settings, onSa
             <AdminPanel isOpen={showAdminPanel} onClose={() => setShowAdminPanel(false)} />
         </div>
     );
-};
+});
 
 // ── Zone Icons (compact: w-4 h-4) ──
 

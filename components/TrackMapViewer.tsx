@@ -44,7 +44,7 @@ const VESSEL_ICON_HTML = `<div style="
     box-shadow: 0 0 12px rgba(0,240,255,0.6), 0 2px 8px rgba(0,0,0,0.4);
 "></div>`;
 
-export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose, entries }) => {
+export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpen, onClose, entries }) => {
     const mapRef = useRef<HTMLDivElement>(null);
     const mapInstanceRef = useRef<L.Map | null>(null);
     const layerGroupRef = useRef<L.LayerGroup | null>(null);
@@ -988,7 +988,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = ({ isOpen, onClose,
             </div>
         </div>
     );
-};
+});
 
 // ── HUD Metric Cell ──
 const HUDCell: React.FC<{

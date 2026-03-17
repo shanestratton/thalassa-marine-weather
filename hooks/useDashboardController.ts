@@ -141,7 +141,7 @@ export const useDashboardController = (viewMode: 'overview' | 'details' = 'overv
     }, [isPlaying, preloadedAudio, boatingAdvice, playAudio, stopAudio, speakNativeFallback]);
 
     // SHARING
-    const shareReport = async () => {
+    const shareReport = useCallback(async () => {
         if (!data || !current) return;
         const text =
             `🌊 Marine Weather Report for ${data.locationName}\n` +
@@ -160,7 +160,7 @@ export const useDashboardController = (viewMode: 'overview' | 'details' = 'overv
         } catch (e) {
             /* Share cancelled or unsupported */
         }
-    };
+    }, [data, current]);
 
     return {
         // Data
@@ -193,7 +193,7 @@ export const useDashboardController = (viewMode: 'overview' | 'details' = 'overv
         setPage, // for 'Open Map' actions
 
         // Calculated — dynamic refresh interval based on location type & weather severity
-        refreshInterval: (() => {
+        refreshInterval: useMemo(() => {
             // Bad weather detection: high winds, large waves, or poor visibility
             const isBadWeather =
                 current &&
@@ -212,6 +212,6 @@ export const useDashboardController = (viewMode: 'overview' | 'details' = 'overv
                 default:
                     return 30 * 60 * 1000; // 30 min fallback
             }
-        })(),
+        }, [current, data?.locationType]),
     };
 };
