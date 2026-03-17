@@ -1,6 +1,5 @@
-import { createLogger } from '../utils/createLogger';
 import { CapacitorHttp } from '@capacitor/core';
-import { createLogger } from '../utils/createLogger';
+import { createLogger } from '../../../utils/createLogger';
 import { MarineWeatherReport, HourlyForecast, ForecastDay, SourcedWeatherMetrics, MetricSource } from '../../../types';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
 const log = createLogger('WeatherKit');
