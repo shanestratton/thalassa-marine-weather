@@ -479,7 +479,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
 
                 {/* --- MOBILE: Vertical Menu Screen (shown when no tab selected) --- */}
                 {activeTab === null && (
-                    <div className="md:hidden flex-1 flex flex-col overflow-y-auto">
+                    <div className="md:hidden flex-1 flex flex-col">
                         <div className="px-6 pt-8 pb-4">
                             <div className="flex items-center gap-3">
                                 {onBack && (
@@ -510,7 +510,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                 </div>
                             </div>
                         </div>
-                        <div className="flex-1 px-4 pb-32 space-y-2">
+                        <div className="flex-1 px-4 pb-6 space-y-2">
                             {MENU_ITEMS.map((item) => {
                                 return (
                                     <button

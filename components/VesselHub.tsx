@@ -158,7 +158,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
     return (
         <div
-            className="w-full h-full flex flex-col px-4 pt-4 overflow-y-auto animate-in fade-in duration-300 vessel-hub-no-scrollbar"
+            className="w-full h-full flex flex-col px-4 pt-4 overflow-hidden animate-in fade-in duration-300 vessel-hub-no-scrollbar"
             style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
         >
             {/* ═══════════════════════════════════════════ */}
