@@ -12,7 +12,7 @@
  * The controller feeds data to WindStore, which the Custom Layer engine reads.
  */
 
-import { createLogger } from '../utils/createLogger';
+import { createLogger } from '../../utils/createLogger';
 import type mapboxgl from 'mapbox-gl';
 import { fetchWindGrid, fetchGlobalWindField } from './windField';
 import { loadLocalWindFile } from './GribWindParser';

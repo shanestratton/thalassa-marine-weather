@@ -1,6 +1,5 @@
-import { createLogger } from '../utils/createLogger';
 import { CapacitorHttp } from '@capacitor/core';
-import { createLogger } from '../utils/createLogger';
+import { createLogger } from '../../../utils/createLogger';
 import { getWorldTidesKey } from '../keys';
 import { WorldTidesResponse } from '../../../types';
 const log = createLogger('Tides');
