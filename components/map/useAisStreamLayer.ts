@@ -27,12 +27,51 @@ function zoomToRadiusNm(zoom: number): number {
     return 200;
 }
 
+/**
+ * Map AIS navigational status code to a display colour.
+ * Matches the same palette used in AisStore for local targets.
+ */
+function navStatusColor(status: number): string {
+    switch (status) {
+        case 0: return '#22c55e'; // Under way (engine) — green
+        case 1: return '#f59e0b'; // At anchor — amber
+        case 2: return '#ef4444'; // Not under command — red
+        case 3: return '#f97316'; // Restricted manoeuvrability — orange
+        case 4: return '#f97316'; // Constrained by draught — orange
+        case 5: return '#94a3b8'; // Moored — grey
+        case 6: return '#ef4444'; // Aground — red
+        case 7: return '#06b6d4'; // Fishing — cyan
+        case 8: return '#22c55e'; // Under way (sail) — green
+        case 15: return '#38bdf8'; // Not defined / Class B — sky blue
+        default: return '#38bdf8'; // Unknown — sky blue
+    }
+}
+
+/** Human-readable nav status label */
+function navStatusLabel(status: number): string {
+    switch (status) {
+        case 0: return 'Under Way (Engine)';
+        case 1: return 'At Anchor';
+        case 2: return 'Not Under Command';
+        case 3: return 'Restricted Manoeuvrability';
+        case 4: return 'Constrained by Draught';
+        case 5: return 'Moored';
+        case 6: return 'Aground';
+        case 7: return 'Fishing';
+        case 8: return 'Under Way (Sail)';
+        case 14: return 'AIS-SART Active';
+        case 15: return 'Not Defined';
+        default: return 'Unknown';
+    }
+}
+
 export function useAisStreamLayer(
     map: mapboxgl.Map | null,
     enabled: boolean,
 ): void {
     const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isMounted = useRef(true);
+    const popupRef = useRef<mapboxgl.Popup | null>(null);
 
     const fetchAndMerge = useCallback(async () => {
         if (!map || !enabled || !supabase) return;
@@ -57,12 +96,17 @@ export function useAisStreamLayer(
             );
 
             // Filter out internet targets that are already tracked locally
-            const internetOnly = {
-                type: 'FeatureCollection' as const,
-                features: geojson.features.filter(
-                    (f: GeoJSON.Feature) => !localMmsis.has(f.properties?.mmsi),
-                ),
-            };
+            // and add statusColor based on navStatus
+            const internetFeatures = geojson.features
+                .filter((f: GeoJSON.Feature) => !localMmsis.has(f.properties?.mmsi))
+                .map((f: GeoJSON.Feature) => ({
+                    ...f,
+                    properties: {
+                        ...f.properties,
+                        source: 'aisstream',
+                        statusColor: navStatusColor(f.properties?.navStatus ?? 15),
+                    },
+                }));
 
             // Merge: local targets + internet-only targets
             const merged: GeoJSON.FeatureCollection = {
@@ -73,11 +117,8 @@ export function useAisStreamLayer(
                         ...f,
                         properties: { ...f.properties, source: 'local' },
                     })),
-                    // Internet targets (slightly lower opacity)
-                    ...internetOnly.features.map((f: GeoJSON.Feature) => ({
-                        ...f,
-                        properties: { ...f.properties, source: 'aisstream' },
-                    })),
+                    // Internet targets (with colour applied)
+                    ...internetFeatures,
                 ],
             };
 
@@ -115,6 +156,123 @@ export function useAisStreamLayer(
             }
         };
     }, [map, enabled, fetchAndMerge]);
+
+    // ── Vessel detail popup on tap/click ──
+    useEffect(() => {
+        if (!map || !enabled) return;
+
+        const handleClick = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
+            if (!e.features || e.features.length === 0) return;
+
+            const f = e.features[0];
+            const p = f.properties;
+            if (!p) return;
+
+            const coords = (f.geometry as GeoJSON.Point).coordinates.slice() as [number, number];
+
+            // Close existing popup
+            if (popupRef.current) {
+                popupRef.current.remove();
+            }
+
+            const name = p.name || `MMSI ${p.mmsi}`;
+            const statusColor = p.statusColor || '#38bdf8';
+            const status = navStatusLabel(p.navStatus ?? 15);
+            const sog = p.sog != null ? `${Number(p.sog).toFixed(1)} kn` : '—';
+            const cog = p.cog != null ? `${Number(p.cog).toFixed(0)}°` : '—';
+            const heading = p.heading != null && p.heading !== 511 ? `${p.heading}°` : '—';
+            const callSign = p.callSign || '—';
+            const destination = p.destination || '—';
+            const source = p.source === 'local' ? '📡 Local NMEA' : '🌐 AISStream';
+
+            const html = `
+                <div style="
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                    background: rgba(15, 23, 42, 0.95);
+                    backdrop-filter: blur(12px);
+                    border: 1px solid rgba(255,255,255,0.1);
+                    border-radius: 12px;
+                    padding: 14px 16px;
+                    color: #e2e8f0;
+                    min-width: 220px;
+                    max-width: 280px;
+                ">
+                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                        <div style="
+                            width:10px; height:10px; border-radius:50%;
+                            background:${statusColor};
+                            box-shadow: 0 0 6px ${statusColor};
+                            flex-shrink:0;
+                        "></div>
+                        <div style="font-weight:800; font-size:13px; letter-spacing:0.3px;">
+                            ${name}
+                        </div>
+                    </div>
+                    <div style="
+                        display:grid; grid-template-columns: auto 1fr;
+                        gap: 4px 12px; font-size:11px;
+                    ">
+                        <span style="color:#94a3b8;">Status</span>
+                        <span style="color:${statusColor}; font-weight:600;">${status}</span>
+
+                        <span style="color:#94a3b8;">MMSI</span>
+                        <span>${p.mmsi}</span>
+
+                        <span style="color:#94a3b8;">Call Sign</span>
+                        <span>${callSign}</span>
+
+                        <span style="color:#94a3b8;">SOG</span>
+                        <span>${sog}</span>
+
+                        <span style="color:#94a3b8;">COG</span>
+                        <span>${cog}</span>
+
+                        <span style="color:#94a3b8;">Heading</span>
+                        <span>${heading}</span>
+
+                        <span style="color:#94a3b8;">Destination</span>
+                        <span style="font-weight:600;">${destination}</span>
+
+                        <span style="color:#94a3b8;">Source</span>
+                        <span style="font-size:10px;">${source}</span>
+                    </div>
+                </div>
+            `;
+
+            popupRef.current = new mapboxgl.Popup({
+                closeButton: true,
+                closeOnClick: true,
+                maxWidth: '300px',
+                className: 'ais-vessel-popup',
+                offset: 12,
+            })
+                .setLngLat(coords)
+                .setHTML(html)
+                .addTo(map);
+        };
+
+        // Cursor change on hover
+        const handleMouseEnter = () => {
+            map.getCanvas().style.cursor = 'pointer';
+        };
+        const handleMouseLeave = () => {
+            map.getCanvas().style.cursor = '';
+        };
+
+        map.on('click', 'ais-targets-circle', handleClick);
+        map.on('mouseenter', 'ais-targets-circle', handleMouseEnter);
+        map.on('mouseleave', 'ais-targets-circle', handleMouseLeave);
+
+        return () => {
+            map.off('click', 'ais-targets-circle', handleClick);
+            map.off('mouseenter', 'ais-targets-circle', handleMouseEnter);
+            map.off('mouseleave', 'ais-targets-circle', handleMouseLeave);
+            if (popupRef.current) {
+                popupRef.current.remove();
+                popupRef.current = null;
+            }
+        };
+    }, [map, enabled]);
 
     // Reset mounted flag on mount
     useEffect(() => {
