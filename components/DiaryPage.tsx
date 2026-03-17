@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('DiaryPage');
@@ -15,6 +15,9 @@ import { OfflineBadge } from './ui/OfflineBadge';
 import { UndoToast } from './ui/UndoToast';
 import { SwipeableDiaryCard } from './diary/SwipeableDiaryCard';
 import { toast } from './Toast';
+import { AudioWidget } from './diary/AudioWidget';
+import { DiaryEntryView } from './diary/DiaryEntryView';
+import { DiaryComposeForm } from './diary/DiaryComposeForm';
 import { useDiaryState } from '../hooks/useDiaryState';
 
 interface DiaryPageProps {
@@ -62,7 +65,7 @@ const groupByDate = (entries: DiaryEntry[]): Map<string, DiaryEntry[]> => {
 
 // ── Component ──────────────────────────────────────────────────
 
-export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
+export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // ── Consolidated state (replaces 29 individual useState calls) ──
     // Single useReducer eliminates cascade re-renders (openCompose: 11 → 1)
     const { state, dispatch } = useDiaryState();
@@ -672,25 +675,29 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
 
     // ── Grouped entries ────────────────────────────────────────
 
-    const grouped = groupByDate(entries);
+    const grouped = useMemo(() => groupByDate(entries), [entries]);
 
     // ── PDF Export ───────────────────────────────────────────────
 
     const exportDiaryPdf = useCallback(async (entriesToPrint: DiaryEntry[]) => {
         setExportProgress('Preparing...');
         const { generateDiaryPDF } = await import('../utils/diaryExport');
-        generateDiaryPDF(entriesToPrint, {
-            onProgress: (msg) => setExportProgress(msg),
-            onSuccess: () => {
-                setExportProgress(null);
-                setSelectMode(false);
-                setSelectedIds(new Set());
+        generateDiaryPDF(
+            entriesToPrint,
+            {
+                onProgress: (msg) => setExportProgress(msg),
+                onSuccess: () => {
+                    setExportProgress(null);
+                    setSelectMode(false);
+                    setSelectedIds(new Set());
+                },
+                onError: (err) => {
+                    setExportProgress(null);
+                    log.error('Diary PDF export error:', err);
+                },
             },
-            onError: (err) => {
-                setExportProgress(null);
-                log.error('Diary PDF export error:', err);
-            },
-        }, settings.firstName || undefined);
+            settings.firstName || undefined,
+        );
     }, []);
 
     const toggleEntrySelection = useCallback(
@@ -707,654 +714,72 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
         setSelectedIds(new Set());
     }, []);
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    //  AUDIO PLAYER WIDGET — reused in entry view and compose
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    const AudioWidget: React.FC<{
-        url: string;
-        allowTranscribe?: boolean;
-        allowRemove?: boolean;
-    }> = ({ url, allowTranscribe, allowRemove }) => (
-        <div className="bg-gradient-to-r from-emerald-500/10 to-emerald-500/10 border border-emerald-500/15 rounded-xl p-3">
-            <div className="flex items-center gap-2.5">
-                <button
-                    onClick={() => togglePlayback(url)}
-                    className="p-2.5 bg-emerald-500/20 rounded-full hover:bg-emerald-500/30 transition-colors active:scale-95"
-                >
-                    {isPlaying ? (
-                        <svg className="w-5 h-5 text-emerald-400" fill="currentColor" viewBox="0 0 24 24">
-                            <rect x="6" y="4" width="4" height="16" rx="1" />
-                            <rect x="14" y="4" width="4" height="16" rx="1" />
-                        </svg>
-                    ) : (
-                        <svg className="w-5 h-5 text-emerald-400" fill="currentColor" viewBox="0 0 24 24">
-                            <path d="M8 5v14l11-7z" />
-                        </svg>
-                    )}
-                </button>
-                <div className="flex-1">
-                    <p className="text-[11px] font-bold text-emerald-400/70 uppercase tracking-wider">Voice Memo</p>
-                    <div className="flex items-center gap-1 mt-0.5">
-                        {/* Waveform visualization */}
-                        {[3, 5, 8, 12, 6, 10, 4, 7, 11, 5, 8, 3, 6, 9, 4].map((h, i) => (
-                            <div
-                                key={i}
-                                className={`w-1 rounded-full transition-all ${isPlaying ? 'bg-emerald-400 animate-pulse' : 'bg-emerald-500/30'}`}
-                                style={{ height: `${h}px`, animationDelay: `${i * 0.1}s` }}
-                            />
-                        ))}
-                    </div>
-                </div>
-                <div className="flex items-center gap-1">
-                    {allowTranscribe && (
-                        <button
-                            onClick={() => handleTranscribe(url)}
-                            disabled={transcribing}
-                            className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[11px] font-bold text-purple-300 hover:bg-purple-500/15 transition-colors disabled:opacity-40"
-                            title="Transcribe to text"
-                        >
-                            {transcribing ? '⏳' : '📝'} {transcribing ? 'Transcribing…' : 'To Text'}
-                        </button>
-                    )}
-                    {allowRemove && (
-                        <button
-                            onClick={removeAudio}
-                            className="p-1.5 rounded-lg hover:bg-red-500/20 transition-colors"
-                        >
-                            <svg
-                                className="w-4 h-4 text-red-400/60"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={1.5}
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
+    // AudioWidget is now imported from ./diary/AudioWidget
 
     // SwipeableDiaryCard — extracted to components/diary/SwipeableDiaryCard.tsx (React.memo)
 
     // ── Render: Full Entry View ─────────────────────────────────
 
     if (selectedEntry) {
-        const e = selectedEntry;
-        const moodCfg = MOOD_CONFIG[e.mood] || MOOD_CONFIG.neutral;
-        const hasCoords = e.latitude != null && e.longitude != null;
-
         return (
-            <div className="flex flex-col h-full bg-slate-950 text-white">
-                {/* Header */}
-                <div className="shrink-0 px-4 pt-4 pb-3">
-                    <div className="flex items-center gap-3">
-                        <button
-                            onClick={() => setSelectedEntry(null)}
-                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
-                        >
-                            <svg
-                                className="w-5 h-5 text-gray-400"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                            </svg>
-                        </button>
-                        <div className="flex-1 min-w-0">
-                            <h1 className="text-lg font-extrabold text-white truncate">{e.title}</h1>
-                        </div>
-                        <button
-                            onClick={() => openEdit(e)}
-                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
-                        >
-                            <svg
-                                className="w-5 h-5 text-sky-400"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={1.5}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
-                                />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 overflow-y-auto">
-                    {e.photos.length > 0 && (
-                        <div className="flex gap-1 overflow-x-auto snap-x snap-mandatory">
-                            {e.photos.map((url, i) => (
-                                <img
-                                    key={i}
-                                    src={url}
-                                    alt=""
-                                    className="w-full h-56 object-cover snap-center shrink-0"
-                                />
-                            ))}
-                        </div>
-                    )}
-
-                    <div className="p-5 space-y-4">
-                        {/* 1. Date & Time */}
-                        <div className="flex items-center gap-2 text-xs text-gray-400">
-                            <span className="font-mono">{formatDate(e.created_at)}</span>
-                            <span>•</span>
-                            <span className="font-mono">{formatTime(e.created_at)}</span>
-                        </div>
-
-                        {/* 2. Heading — {Name}'s Diary: {title} */}
-                        <h2 className="text-lg font-extrabold text-white leading-tight">
-                            {settings.firstName
-                                ? `${settings.firstName}'s Diary: `
-                                : ''}
-                            {e.title || 'Untitled'}
-                        </h2>
-
-                        {/* 3. Mood badge */}
-                        <div className="flex items-center gap-2">
-                            <span className="text-lg">{moodCfg.emoji}</span>
-                            <span className={`text-sm font-bold uppercase tracking-wider ${moodCfg.color}`}>
-                                {moodCfg.label}
-                            </span>
-                        </div>
-
-                        {/* 4. Body (diary text) */}
-                        {e.body && (
-                            <div className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{e.body}</div>
-                        )}
-
-                        {/* 5. Voice Memo */}
-                        {e.audio_url && <AudioWidget url={e.audio_url} allowTranscribe={true} />}
-
-                        {/* 6. Tags */}
-                        {e.tags.length > 0 && (
-                            <div className="flex flex-wrap gap-2 pt-2">
-                                {e.tags.map((tag) => (
-                                    <span
-                                        key={tag}
-                                        className="text-[11px] font-bold text-sky-400/60 bg-sky-500/10 px-2 py-1 rounded-full uppercase tracking-wider"
-                                    >
-                                        #{tag}
-                                    </span>
-                                ))}
-                            </div>
-                        )}
-
-                        {/* 7. Pin Location + Weather (only if pin dropped) */}
-                        {hasCoords && (
-                            <div className="bg-gradient-to-br from-sky-500/[0.06] to-emerald-500/[0.04] border border-white/[0.08] rounded-2xl p-4 space-y-3">
-                                {/* Position */}
-                                <div className="flex items-center gap-2.5">
-                                    <div className="p-2 bg-sky-500/15 rounded-lg">
-                                        <svg
-                                            className="w-4 h-4 text-sky-400"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={1.5}
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
-                                            />
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
-                                            />
-                                        </svg>
-                                    </div>
-                                    <div className="flex-1">
-                                        <p className="text-[11px] font-bold text-sky-400/60 uppercase tracking-wider">
-                                            Position
-                                        </p>
-                                        <p className="text-sm font-bold text-white font-mono tracking-wide">
-                                            {formatCoord(e.latitude!, e.longitude!)}
-                                        </p>
-                                        {e.location_name && !e.location_name.includes('°') && (
-                                            <p className="text-xs text-gray-400 mt-0.5">{e.location_name}</p>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Weather Grid (only if weather_data exists) */}
-                                {e.weather_data && (
-                                    <div className="border-t border-white/[0.06] pt-3">
-                                        <p className="text-[11px] font-bold text-emerald-400/60 uppercase tracking-wider mb-2">
-                                            🌤 Weather at Location
-                                        </p>
-                                        {e.weather_data.description && (
-                                            <p className="text-xs text-gray-300 mb-2 italic">{e.weather_data.description}</p>
-                                        )}
-                                        <div className="grid grid-cols-3 gap-2">
-                                            {e.weather_data.airTemp != null && (
-                                                <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
-                                                    <p className="text-[11px] text-gray-400 uppercase tracking-wider">Air</p>
-                                                    <p className="text-sm font-bold text-white">{e.weather_data.airTemp}°C</p>
-                                                </div>
-                                            )}
-                                            {e.weather_data.seaTemp != null && (
-                                                <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
-                                                    <p className="text-[11px] text-gray-400 uppercase tracking-wider">Sea</p>
-                                                    <p className="text-sm font-bold text-sky-300">{e.weather_data.seaTemp}°C</p>
-                                                </div>
-                                            )}
-                                            {e.weather_data.windSpeed != null && (
-                                                <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
-                                                    <p className="text-[11px] text-gray-400 uppercase tracking-wider">Wind</p>
-                                                    <p className="text-sm font-bold text-white">
-                                                        {e.weather_data.windSpeed}kts{e.weather_data.windDir ? ` ${e.weather_data.windDir}` : ''}
-                                                    </p>
-                                                </div>
-                                            )}
-                                            {e.weather_data.humidity != null && (
-                                                <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
-                                                    <p className="text-[11px] text-gray-400 uppercase tracking-wider">Humidity</p>
-                                                    <p className="text-sm font-bold text-white">{e.weather_data.humidity}%</p>
-                                                </div>
-                                            )}
-                                            {e.weather_data.rain != null && (
-                                                <div className="bg-white/[0.04] rounded-xl p-2.5 text-center">
-                                                    <p className="text-[11px] text-gray-400 uppercase tracking-wider">Rain</p>
-                                                    <p className="text-sm font-bold text-white">{e.weather_data.rain}mm</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-                                {/* Fall back to text summary if no structured data */}
-                                {!e.weather_data && e.weather_summary && (
-                                    <div className="border-t border-white/[0.06] pt-3">
-                                        <p className="text-xs text-gray-400 italic">🌤 {e.weather_summary}</p>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-
-                        {/* Location name only (no coords) */}
-                        {!hasCoords && e.location_name && (
-                            <div className="flex items-center gap-2 text-xs text-sky-400/70">
-                                <svg
-                                    className="w-3.5 h-3.5"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={1.5}
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
-                                    />
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
-                                    />
-                                </svg>
-                                <span className="font-medium">{e.location_name}</span>
-                            </div>
-                        )}
-
-                        {/* Weather summary (no pin, fallback) */}
-                        {!hasCoords && e.weather_summary && (
-                            <div className="text-xs text-gray-400 italic bg-white/[0.03] rounded-xl p-3 border border-white/5">
-                                🌤 {e.weather_summary}
-                            </div>
-                        )}
-
-                        {e._offline && (
-                            <div className="flex items-center gap-2 text-[11px] text-amber-400/70 bg-amber-500/10 rounded-lg px-3 py-2 border border-amber-500/10">
-                                <span>⏳</span>
-                                <span className="font-bold uppercase tracking-wider">
-                                    Pending sync — will upload when online
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* Undo toast */}
-                <UndoToast
-                    isOpen={!!deletedItem}
-                    message={`"${deletedItem?.title}" deleted`}
-                    onUndo={handleUndoDelete}
-                    onDismiss={handleDismissDelete}
-                    duration={5000}
-                />
-            </div>
+            <DiaryEntryView
+                entry={selectedEntry}
+                firstName={settings.firstName}
+                isPlaying={isPlaying}
+                transcribing={transcribing}
+                deletedItem={deletedItem}
+                onBack={() => setSelectedEntry(null)}
+                onEdit={openEdit}
+                onTogglePlayback={togglePlayback}
+                onTranscribe={handleTranscribe}
+                onUndo={handleUndoDelete}
+                onDismissDelete={handleDismissDelete}
+            />
         );
     }
 
     // ── Render: Compose / Edit ───────────────────────────────────
 
     if (showCompose) {
-        const isEditing = !!editingId;
-        // Dynamic bottom padding: when keyboard is up, add extra space so textarea stays visible
-        const bottomPad = keyboardHeight > 0 ? `${keyboardHeight}px` : 'calc(4rem + env(safe-area-inset-bottom) + 8px)';
         return (
-            <div className="flex flex-col h-full bg-slate-950 text-white" style={{ paddingBottom: bottomPad }}>
-                {/* Header */}
-                <div className="shrink-0 px-4 pt-4 pb-3">
-                    <div className="flex items-center gap-3">
-                        <button
-                            onClick={() => {
-                                setShowCompose(false);
-                                setEditingId(null);
-                            }}
-                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
-                        >
-                            <svg
-                                className="w-5 h-5 text-gray-400"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                            </svg>
-                        </button>
-                        <div className="flex-1">
-                            <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">
-                                {isEditing ? 'Edit Entry' : 'New Entry'}
-                            </h1>
-                        </div>
-                        <OfflineBadge />
-                    </div>
-                </div>
-
-                {/* Compose body — flex column fills viewport, no scroll */}
-                <div className="flex-1 flex flex-col p-4 gap-3 min-h-0 overflow-auto no-scrollbar">
-                    {/* Title */}
-                    <input
-                        type="text"
-                        placeholder="Entry title (optional)"
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        onFocus={scrollInputAboveKeyboard}
-                        autoFocus
-                        className="shrink-0 w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 text-lg font-bold text-white placeholder-gray-500 outline-none focus:border-sky-500/30 transition-colors"
-                    />
-
-                    {/* Mood selector — 4 moods, single row */}
-                    <div className="shrink-0 grid grid-cols-4 gap-1.5">
-                        {(['epic', 'good', 'neutral', 'rough'] as DiaryMood[]).map((key) => {
-                            const cfg = MOOD_CONFIG[key];
-                            return (
-                                <button
-                                    key={key}
-                                    onClick={() => {
-                                        setMood(key);
-                                        triggerHaptic('light');
-                                    }}
-                                    className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-all ${
-                                        mood === key
-                                            ? 'bg-white/15 border border-white/20 scale-[1.02]'
-                                            : 'bg-white/5 border border-white/[0.06] opacity-60 hover:opacity-90'
-                                    }`}
-                                >
-                                    <span>{cfg.emoji}</span>
-                                    <span className={cfg.color}>{cfg.label}</span>
-                                </button>
-                            );
-                        })}
-                    </div>
-
-                    {/* ═══ POSITION | VOICE | POLISH — single row ═══ */}
-                    <div className="shrink-0 space-y-2">
-                        <div className="flex gap-2">
-                            {/* Position — 2/3 width, tappable */}
-                            <button
-                                type="button"
-                                onClick={grabGps}
-                                disabled={gpsLoading}
-                                className="flex-[2] bg-gradient-to-r from-sky-500/10 to-sky-500/10 border border-sky-500/15 rounded-xl p-2.5 flex items-center gap-2 min-w-0 transition-colors hover:bg-sky-500/15 active:scale-[0.98] disabled:opacity-60"
-                            >
-                                <div className="p-1.5 bg-sky-500/15 rounded-lg shrink-0">
-                                    {gpsLoading ? (
-                                        <div className="w-4 h-4 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
-                                    ) : (
-                                        <svg
-                                            className="w-4 h-4 text-sky-400"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={1.5}
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
-                                            />
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
-                                            />
-                                        </svg>
-                                    )}
-                                </div>
-                                <div className="flex-1 min-w-0 text-left">
-                                    {lat != null && lon != null ? (
-                                        <p className="text-xs font-bold text-white font-mono tracking-wide truncate">
-                                            {formatCoord(lat, lon)}
-                                        </p>
-                                    ) : (
-                                        <p className="text-[11px] text-sky-400 font-bold truncate">
-                                            {gpsLoading ? 'Acquiring…' : 'Add Position'}
-                                        </p>
-                                    )}
-                                </div>
-                            </button>
-
-                            {/* Voice — 1/6 width */}
-                            <button
-                                onClick={isRecording ? stopRecording : startRecording}
-                                className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-xl border transition-all active:scale-[0.95] ${
-                                    isRecording
-                                        ? 'bg-red-500/20 border-red-500/30 animate-pulse'
-                                        : 'bg-white/[0.03] border-white/[0.06] hover:bg-emerald-500/10 hover:border-emerald-500/15'
-                                }`}
-                            >
-                                <svg
-                                    className={`w-5 h-5 ${isRecording ? 'text-red-400' : 'text-emerald-400'}`}
-                                    fill={isRecording ? 'currentColor' : 'none'}
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={1.5}
-                                >
-                                    {isRecording ? (
-                                        <rect x="6" y="6" width="12" height="12" rx="2" />
-                                    ) : (
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z"
-                                        />
-                                    )}
-                                </svg>
-                                <span
-                                    className={`text-[8px] font-bold uppercase tracking-wider leading-none ${isRecording ? 'text-red-400' : 'text-emerald-400/70'}`}
-                                >
-                                    {isRecording ? 'Stop' : 'Voice'}
-                                </span>
-                            </button>
-
-                            {/* Polish — 1/6 width */}
-                            <button
-                                onClick={handlePolish}
-                                disabled={polishing || body.trim().length < 10}
-                                className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-xl border transition-all active:scale-[0.95] ${
-                                    polishing
-                                        ? 'bg-purple-500/30 border-purple-500/30 animate-pulse'
-                                        : body.trim().length >= 10
-                                          ? 'bg-purple-500/20 border-purple-500/30 hover:bg-purple-500/30'
-                                          : 'bg-white/[0.03] border-white/[0.06] opacity-30 cursor-default'
-                                }`}
-                            >
-                                <span className="text-lg">{polishing ? '⏳' : '✨'}</span>
-                                <span className="text-[8px] font-bold text-purple-300/70 uppercase tracking-wider leading-none">
-                                    Polish
-                                </span>
-                            </button>
-                        </div>
-
-                        {/* Polish intensity slider */}
-                        <div className="flex items-center gap-2 px-1">
-                            <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider shrink-0 w-10">
-                                Clean
-                            </span>
-                            <input
-                                type="range"
-                                min={0}
-                                max={100}
-                                step={5}
-                                value={polishIntensity}
-                                onChange={(e) => setPolishIntensity(Number(e.target.value))}
-                                className="flex-1 h-1.5 appearance-none bg-gradient-to-r from-gray-600 via-purple-500 to-amber-500 rounded-full outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:cursor-pointer"
-                            />
-                            <span className="text-[11px] font-bold text-amber-400/70 uppercase tracking-wider shrink-0 w-12 text-right">
-                                Literary
-                            </span>
-                        </div>
-
-                        {/* Location name input — below the row */}
-                        <input
-                            type="text"
-                            placeholder="Location (e.g. Moreton Bay)"
-                            value={locationName}
-                            onChange={(e) => setLocationName(e.target.value)}
-                            onFocus={scrollInputAboveKeyboard}
-                            className="w-full bg-white/5 border border-white/5 rounded-lg px-3 py-1.5 text-[11px] text-gray-300 placeholder-gray-500 outline-none focus:border-sky-500/30 transition-colors"
-                        />
-
-                        {/* Recording indicator */}
-                        {isRecording && (
-                            <div className="flex items-center gap-3 px-3 py-2 bg-gradient-to-r from-red-500/15 to-amber-500/15 border border-red-500/20 rounded-xl">
-                                <p className="text-xs font-bold text-red-400 animate-pulse">● Recording</p>
-                                <p className="text-sm font-mono font-bold text-white">
-                                    {formatDuration(recordingTime)}
-                                </p>
-                                <div className="flex-1 flex items-center justify-end gap-0.5">
-                                    {Array.from({ length: 8 }).map((_, i) => (
-                                        <div
-                                            key={i}
-                                            className="w-1 bg-red-400 rounded-full animate-pulse"
-                                            style={{
-                                                height: `${6 + Math.random() * 12}px`,
-                                                animationDelay: `${i * 0.08}s`,
-                                                animationDuration: '0.5s',
-                                            }}
-                                        />
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Body text */}
-                    <div className="flex-1 min-h-0">
-                        <textarea
-                            placeholder=""
-                            value={body}
-                            onChange={(e) => setBody(e.target.value)}
-                            onFocus={scrollInputAboveKeyboard}
-                            className="w-full h-full min-h-0 bg-slate-900 border border-white/[0.08] rounded-2xl p-4 text-sm text-gray-200 placeholder-gray-500 leading-relaxed resize-none outline-none focus:border-sky-500/30 transition-colors"
-                        />
-                    </div>
-
-                    {/* Transcribing indicator */}
-                    {transcribing && (
-                        <div className="shrink-0 flex items-center justify-center gap-2 px-3 py-2 bg-emerald-500/10 border border-emerald-500/15 rounded-xl">
-                            <span className="text-sm animate-pulse">🎙️</span>
-                            <span className="text-xs font-bold text-emerald-400">Converting speech to text…</span>
-                        </div>
-                    )}
-
-                    {/* Weather snapshot is auto-captured on save but not shown during compose */}
-
-                    {/* Photos */}
-                    <div className="shrink-0">
-                        <div
-                            className="grid gap-2"
-                            style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(56px, 1fr))' }}
-                        >
-                            {photos.map((url, i) => (
-                                <div key={i} className="relative aspect-square rounded-xl overflow-hidden group">
-                                    <img src={url} loading="lazy" alt="" className="w-full h-full object-cover" />
-                                    <button
-                                        onClick={() => removePhoto(i)}
-                                        className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center text-white text-[11px] opacity-0 group-hover:opacity-100 transition-opacity"
-                                    >
-                                        ✕
-                                    </button>
-                                </div>
-                            ))}
-                            {/* Fill remaining slots with Add buttons */}
-                            {Array.from({ length: Math.max(1, 6 - photos.length) }).map((_, i) => (
-                                <button
-                                    key={`add-${i}`}
-                                    onClick={() => fileRef.current?.click()}
-                                    disabled={uploading || photos.length >= 6}
-                                    className="aspect-square rounded-xl border-2 border-dashed border-white/10 hover:border-sky-500/30 flex flex-col items-center justify-center gap-0.5 text-gray-400 hover:text-sky-400 transition-colors disabled:opacity-30"
-                                >
-                                    {uploading && i === 0 ? (
-                                        <span className="text-xs animate-pulse">📷</span>
-                                    ) : (
-                                        <>
-                                            <svg
-                                                className="w-4 h-4"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                                strokeWidth={1.5}
-                                            >
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                                            </svg>
-                                        </>
-                                    )}
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-
-                {/* ═══ SAVE + CANCEL — fixed at bottom ═══ */}
-                <div className="shrink-0 px-4 py-3 border-t border-white/5 bg-slate-950">
-                    <div className="flex gap-3">
-                        <button
-                            onClick={() => {
-                                setShowCompose(false);
-                                setEditingId(null);
-                            }}
-                            className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.08] text-gray-400 font-bold text-sm hover:bg-white/10 transition-colors active:scale-[0.98]"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            onClick={handleSave}
-                            disabled={saving || (!body.trim() && !title.trim() && !audioUrl)}
-                            className="flex-[2] py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-400 text-white font-bold text-sm transition-colors active:scale-[0.98]"
-                        >
-                            {saving ? 'Saving…' : isEditing ? 'Update Entry' : 'Save Entry'}
-                        </button>
-                    </div>
-                </div>
-
-                <input ref={fileRef} type="file" accept="image/*" onChange={handlePhotoSelect} className="hidden" />
-            </div>
+            <DiaryComposeForm
+                isEditing={!!editingId}
+                title={title}
+                body={body}
+                mood={mood}
+                photos={photos}
+                audioUrl={audioUrl}
+                lat={lat}
+                lon={lon}
+                locationName={locationName}
+                keyboardHeight={keyboardHeight}
+                saving={saving}
+                uploading={uploading}
+                polishing={polishing}
+                gpsLoading={gpsLoading}
+                isRecording={isRecording}
+                recordingTime={recordingTime}
+                transcribing={transcribing}
+                isPlaying={isPlaying}
+                onSetTitle={setTitle}
+                onSetBody={setBody}
+                onSetMood={setMood}
+                onSetLocationName={setLocationName}
+                onSave={handleSave}
+                onCancel={() => {
+                    setShowCompose(false);
+                    setEditingId(null);
+                }}
+                onGrabGps={grabGps}
+                onStartRecording={startRecording}
+                onStopRecording={stopRecording}
+                onRemoveAudio={removeAudio}
+                onTogglePlayback={togglePlayback}
+                onTranscribe={handleTranscribe}
+                onPolish={handlePolish}
+                onPhotoSelect={handlePhotoSelect}
+                onPhotoRemove={removePhoto}
+            />
         );
     }
 
@@ -1598,4 +1023,4 @@ export const DiaryPage: React.FC<DiaryPageProps> = ({ onBack }) => {
             />
         </div>
     );
-};
+});

@@ -74,7 +74,7 @@ function formatElapsed(startMs: number): string {
 
 // ------- MAIN COMPONENT -------
 
-export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
+export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onBack }) => {
     const { weatherData } = useWeather();
     const keyboardScrollRef = useKeyboardScroll<HTMLDivElement>();
 
@@ -1478,4 +1478,4 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = ({ onBack }) => {
             </div>
         </div>
     );
-};
+});

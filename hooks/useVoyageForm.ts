@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSettings } from '../context/SettingsContext';
 import { useWeather } from '../context/WeatherContext';
 // geminiService dynamically imported at call sites
@@ -336,8 +336,8 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         });
     };
 
-    const toggleCheck = (item: string) => setChecklistState((p) => ({ ...p, [item]: !p[item] }));
-    const clearVoyagePlan = () => saveVoyagePlan(null as any);
+    const toggleCheck = useCallback((item: string) => setChecklistState((p) => ({ ...p, [item]: !p[item] })), []);
+    const clearVoyagePlan = useCallback(() => saveVoyagePlan(null as any), [saveVoyagePlan]);
 
     const handleMapSelect = async (lat: number, lon: number, name: string) => {
         // Attempt reverse geocode for a friendly name if only coords provided
@@ -368,10 +368,10 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         setMapSelectionTarget(null);
     };
 
-    const openMap = (target: 'origin' | 'destination' | 'via') => {
+    const openMap = useCallback((target: 'origin' | 'destination' | 'via') => {
         setMapSelectionTarget(target);
         setIsMapOpen(true);
-    };
+    }, []);
 
     // Computed properties
     const routeCoords = useMemo(() => {
@@ -395,10 +395,13 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         }
     }, [voyagePlan]);
 
-    const distVal =
-        voyagePlan && typeof voyagePlan.distanceApprox === 'string'
-            ? parseInt(voyagePlan.distanceApprox.match(/(\d+)/)?.[0] || '0', 10)
-            : 0;
+    const distVal = useMemo(
+        () =>
+            voyagePlan && typeof voyagePlan.distanceApprox === 'string'
+                ? parseInt(voyagePlan.distanceApprox.match(/(\d+)/)?.[0] || '0', 10)
+                : 0,
+        [voyagePlan],
+    );
     const isShortTrip = distVal < 20;
 
     return {
@@ -437,13 +440,13 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         isShortTrip,
         activeChecklistTab,
         setActiveChecklistTab,
-        minDate: new Date().toLocaleDateString('en-CA'),
+        minDate: useMemo(() => new Date().toLocaleDateString('en-CA'), []),
 
         // Context
         voyagePlan,
         vessel,
         isPro,
         mapboxToken,
-        hourlyForecasts: weatherData?.hourly || [],
+        hourlyForecasts: useMemo(() => weatherData?.hourly || [], [weatherData?.hourly]),
     };
 };

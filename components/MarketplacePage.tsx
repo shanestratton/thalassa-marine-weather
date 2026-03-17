@@ -635,7 +635,7 @@ interface MarketplacePageProps {
     ) => void;
 }
 
-export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpenDM }) => {
+export const MarketplacePage: React.FC<MarketplacePageProps> = React.memo(({ onBack, onOpenDM }) => {
     const [listings, setListings] = useState<MarketplaceListing[]>([]);
     const [loading, setLoading] = useState(true);
     const [activeCategory, setActiveCategory] = useState<ListingCategory | null>(null);
@@ -884,4 +884,4 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = ({ onBack, onOpen
             />
         </div>
     );
-};
+});

@@ -150,7 +150,7 @@ const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mode, onD
 
 // ── Main Component ─────────────────────────────────────────────
 
-export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
+export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBack }) => {
     const [isAuthed, setIsAuthed] = useState(false);
 
     // Captain state
@@ -808,4 +808,4 @@ export const CrewManagement: React.FC<CrewManagementProps> = ({ onBack }) => {
             />
         </div>
     );
-};
+});
