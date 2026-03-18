@@ -710,6 +710,7 @@ export function useLogPageState() {
                 }
                 // Stamp with provenance
                 entries.forEach((e) => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     (e as any).source = 'gpx_import';
                 });
                 const { savedCount } = await ShipLogService.importGPXVoyage(entries);

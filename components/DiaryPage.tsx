@@ -2,16 +2,16 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('DiaryPage');
-import { DiaryService, DiaryEntry, DiaryMood, MOOD_CONFIG, DiaryWeatherData } from '../services/DiaryService';
+import { DiaryService, DiaryEntry, DiaryMood, _MOOD_CONFIG, DiaryWeatherData } from '../services/DiaryService';
 import { triggerHaptic } from '../utils/system';
 import { Capacitor } from '@capacitor/core';
-import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
+import { _scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { SlideToAction } from './ui/SlideToAction';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { useWeather } from '../context/WeatherContext';
 import { useSettings } from '../context/SettingsContext';
 import { PageHeader } from './ui/PageHeader';
-import { OfflineBadge } from './ui/OfflineBadge';
+import { _OfflineBadge } from './ui/OfflineBadge';
 import { UndoToast } from './ui/UndoToast';
 import { SwipeableDiaryCard } from './diary/SwipeableDiaryCard';
 import { toast } from './Toast';
@@ -36,7 +36,7 @@ const formatDate = (iso: string): string => {
     });
 };
 
-const formatTime = (iso: string): string => {
+const _formatTime = (iso: string): string => {
     return new Date(iso).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
 };
 
@@ -46,7 +46,7 @@ const formatCoord = (lat: number, lon: number): string => {
     return `${Math.abs(lat).toFixed(4)}°${latDir}, ${Math.abs(lon).toFixed(4)}°${lonDir}`;
 };
 
-const formatDuration = (seconds: number): string => {
+const _formatDuration = (seconds: number): string => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
@@ -210,7 +210,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         [dispatch],
     );
     const setIsPlaying = useCallback((v: boolean) => dispatch({ type: 'SET_PLAYING', playing: v }), [dispatch]);
-    const [polishIntensity, setPolishIntensity] = useState(30); // 0=clean grammar, 100=shakespearean
+    const [polishIntensity, _setPolishIntensity] = useState(30); // 0=clean grammar, 100=shakespearean
 
     // Weather context
     const { weatherData } = useWeather();
@@ -709,7 +709,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         [dispatch, state.selectMode],
     );
 
-    const exitSelectMode = useCallback(() => {
+    const _exitSelectMode = useCallback(() => {
         setSelectMode(false);
         setSelectedIds(new Set());
     }, []);

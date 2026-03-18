@@ -7,7 +7,7 @@
  *   Future: pipe to Sentry, Crashlytics, or in-app debug panel
  */
 
-type LogLevel = 'info' | 'warn' | 'error';
+type _LogLevel = 'info' | 'warn' | 'error';
 
 interface Logger {
     info: (msg: string, data?: unknown) => void;
@@ -61,6 +61,7 @@ export function createLogger(module: string): Logger {
                         level: 'error',
                     });
                     if (err instanceof Error) {
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         captureException(err, { tags: { module } } as any);
                     }
                 });

@@ -105,7 +105,7 @@ const HeroSlideComponent = ({
     isEssentialMode?: boolean;
     minutelyRain?: MinutelyRain[];
 }) => {
-    const { nextUpdate, weatherData } = useWeather();
+    const { _nextUpdate, weatherData } = useWeather();
     const forecast = weatherData?.forecast || [];
 
     // 1. STATE HOISTING (Zero-Latency Architecture)
@@ -168,7 +168,7 @@ const HeroSlideComponent = ({
     }, [hourly, index, timeZone]);
 
     // --- RESTORED HELPERS ---
-    const rowHeightClass = 'min-h-[52px] sm:flex-1';
+    const _rowHeightClass = 'min-h-[52px] sm:flex-1';
 
     // FIX: Offshore should show 3x3 Grid, not Tide Graph (unless Coastal)
     const showTideGraph = locationType === 'coastal' && !isLandlocked && tides && tides.length > 0;
@@ -176,10 +176,10 @@ const HeroSlideComponent = ({
     const tidesExpectedButMissing = locationType === 'coastal' && !isLandlocked && (!tides || tides.length === 0);
     // In essential mode, show map for any coastal location — independent of tide availability
     const showMapInstead = isEssentialMode && (locationType === 'coastal' || locationType === 'inland' || isLandlocked);
-    const showGrid = !showTideGraph && !showMapInstead; // Explicit switch
+    const _showGrid = !showTideGraph && !showMapInstead; // Explicit switch
 
     // Rain detection — only on Today slide (index 0) with minutely data
-    const hasActiveRain = useMemo(() => {
+    const _hasActiveRain = useMemo(() => {
         if (index !== 0 || !minutelyRain || minutelyRain.length === 0) return false;
         return minutelyRain.some((d) => d.intensity > 0);
     }, [index, minutelyRain]);
@@ -258,8 +258,11 @@ const HeroSlideComponent = ({
                 waterTemperature: currentSlot.waterTemperature ?? data.waterTemperature,
 
                 // Offshore marine fields
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 cape: currentSlot.cape ?? (data as any).cape,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 secondarySwellHeight: currentSlot.secondarySwellHeight ?? (data as any).secondarySwellHeight,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 secondarySwellPeriod: currentSlot.secondarySwellPeriod ?? (data as any).secondarySwellPeriod,
                 swellPeriod: currentSlot.swellPeriod ?? data.swellPeriod,
                 dewPoint: currentSlot.dewPoint ?? data.dewPoint,
@@ -289,8 +292,11 @@ const HeroSlideComponent = ({
             waterTemperature: closestHour?.waterTemperature ?? data.waterTemperature,
             currentSpeed: closestHour?.currentSpeed ?? data.currentSpeed,
             currentDirection: closestHour?.currentDirection ?? data.currentDirection,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             cape: closestHour?.cape ?? (data as any).cape,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             secondarySwellHeight: closestHour?.secondarySwellHeight ?? (data as any).secondarySwellHeight,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             secondarySwellPeriod: closestHour?.secondarySwellPeriod ?? (data as any).secondarySwellPeriod,
             swellPeriod: closestHour?.swellPeriod ?? data.swellPeriod,
             dewPoint: closestHour?.dewPoint ?? data.dewPoint,
@@ -455,7 +461,7 @@ const HeroSlideComponent = ({
 
     const fullWidgetList =
         settings.heroWidgets && settings.heroWidgets.length > 0 ? settings.heroWidgets : ['wind', 'wave', 'pressure'];
-    const displayWidgets = fullWidgetList.slice(0, 3);
+    const _displayWidgets = fullWidgetList.slice(0, 3);
 
     // Display Logic used for WIDGETS (Not the Card itself? Wait, Widgets use this too)
     const rawGust = displayData.windGust || (displayData.windSpeed || 0) * 1.3;
@@ -477,7 +483,7 @@ const HeroSlideComponent = ({
         return d.getTime() >= rise && d.getTime() < set;
     }, [index, displayData.sunrise, displayData.sunset, visualTime, tick]); // Added tick
 
-    const isHighGust = hasWind && rawGust > (displayData.windSpeed || 0) * 1.5;
+    const _isHighGust = hasWind && rawGust > (displayData.windSpeed || 0) * 1.5;
     const hasWave = displayData.waveHeight !== null && displayData.waveHeight !== undefined;
 
     const displayValues = {
@@ -495,6 +501,7 @@ const HeroSlideComponent = ({
                 return convertPrecip(displayData.precipitation, units.length) ?? '0';
             }
             // Forecast: use precipChance from daily match or hourly data
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const chance = (displayData as any).precipChance;
             return chance !== undefined && chance !== null ? Math.round(chance) : 0;
         })(),
@@ -536,10 +543,12 @@ const HeroSlideComponent = ({
             return '--';
         })(),
         secondarySwellHeight: (() => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const v = (displayData as any).secondarySwellHeight;
             return v !== undefined && v !== null && !isNaN(v) ? v : '--';
         })(),
         secondarySwellPeriod: (() => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const v = (displayData as any).secondarySwellPeriod;
             return v !== undefined && v !== null && !isNaN(v) ? Math.round(v) : '--';
         })(),
@@ -685,7 +694,7 @@ const HeroSlideComponent = ({
         );
     };
 
-    const renderTopWidget = () => {
+    const _renderTopWidget = () => {
         const topWidgetId = settings.topHeroWidget || 'sunrise'; // Default
 
         if (topWidgetId === 'sunrise') {
@@ -883,6 +892,7 @@ const HeroSlideComponent = ({
                         if (!isHourly && index === 0) {
                             return convertPrecip(cardData.precipitation, units.length) ?? '0';
                         }
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         const chance = (cardData as any).precipChance;
                         return chance !== undefined && chance !== null ? Math.round(chance) : 0;
                     })(),
@@ -930,10 +940,12 @@ const HeroSlideComponent = ({
                             ? Math.round(cardData.cape as number)
                             : '--',
                     secondarySwellHeight: (() => {
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         const v = (cardData as any).secondarySwellHeight;
                         return v !== undefined && v !== null && !isNaN(v) ? v : '--';
                     })(),
                     secondarySwellPeriod: (() => {
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         const v = (cardData as any).secondarySwellPeriod;
                         return v !== undefined && v !== null && !isNaN(v) ? Math.round(v) : '--';
                     })(),
@@ -1004,7 +1016,7 @@ const HeroSlideComponent = ({
             return fallbackCheck();
         }
     })();
-    const activeIsCardDay = !activeIsLive && index > 0 ? true : activeSunPhase.isDay;
+    const _activeIsCardDay = !activeIsLive && index > 0 ? true : activeSunPhase.isDay;
 
     // Calculate display values for static widgets based on activeCardData
     // These values will update if dynamicHeaderMetrics is enabled
@@ -1012,7 +1024,7 @@ const HeroSlideComponent = ({
     const rawActiveGust = activeCardData?.windGust || (activeCardData?.windSpeed || 0) * 1.3;
     const hasActiveWave = activeCardData?.waveHeight !== null && activeCardData?.waveHeight !== undefined;
 
-    const staticDisplayValues = {
+    const _staticDisplayValues = {
         airTemp:
             activeCardData?.airTemperature !== null
                 ? convertTemp(activeCardData?.airTemperature || 0, units.temp)
@@ -1052,7 +1064,7 @@ const HeroSlideComponent = ({
 
     // Get source colors for static header metrics
     // Shows amber (StormGlass), emerald (Buoy), or white (forecast)
-    const getActiveSourceColor = (metricKey: keyof WeatherMetrics): string => {
+    const _getActiveSourceColor = (metricKey: keyof WeatherMetrics): string => {
         // When showing forecast data (not live), always use white
         if (!activeIsLive) {
             return 'text-white';
@@ -1172,11 +1184,11 @@ const HeroSlideComponent = ({
                         // NOTE: Do NOT gate on horizontal card proximity (activeHIdx) — that causes
                         // TideGraph to unmount/remount on every scroll frame, producing flicker.
                         const shouldRenderChart = isVisible;
-                        const forceLabel = rowDateLabel;
+                        const _forceLabel = rowDateLabel;
 
                         // Helper to get source color for card metrics (kept inline as it's lightweight)
                         const cardSources = cardData.sources;
-                        const getCardSourceColor = (metricKey: keyof WeatherMetrics): string => {
+                        const _getCardSourceColor = (metricKey: keyof WeatherMetrics): string => {
                             // Only show source colors on the live/current card (index 0)
                             // All forecast cards should be white since they're all from StormGlass
                             if (!cardIsLive) return 'text-white';

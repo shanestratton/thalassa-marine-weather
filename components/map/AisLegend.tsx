@@ -70,8 +70,11 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                 {/* Guard Zone Shield Toggle */}
                 <button
                     onClick={toggleGuard}
-                    onContextMenu={(e) => { e.preventDefault(); setShowRadiusPicker(p => !p); }}
-                    onDoubleClick={() => setShowRadiusPicker(p => !p)}
+                    onContextMenu={(e) => {
+                        e.preventDefault();
+                        setShowRadiusPicker((p) => !p);
+                    }}
+                    onDoubleClick={() => setShowRadiusPicker((p) => !p)}
                     style={{
                         display: 'flex',
                         alignItems: 'center',
@@ -104,10 +107,7 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
 
                 {/* Status colour dots */}
                 {STATUS_ITEMS.map(({ color, label }) => (
-                    <div
-                        key={label}
-                        style={{ display: 'flex', alignItems: 'center', gap: 5 }}
-                    >
+                    <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                         <div
                             style={{
                                 width: 8,
@@ -162,7 +162,8 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                                 padding: '4px 10px',
                                 borderRadius: 10,
                                 border: 'none',
-                                background: r === guardState.radiusNm ? 'rgba(239, 68, 68, 0.3)' : 'rgba(255,255,255,0.05)',
+                                background:
+                                    r === guardState.radiusNm ? 'rgba(239, 68, 68, 0.3)' : 'rgba(255,255,255,0.05)',
                                 color: r === guardState.radiusNm ? '#fca5a5' : '#94a3b8',
                                 fontSize: 11,
                                 fontWeight: 700,

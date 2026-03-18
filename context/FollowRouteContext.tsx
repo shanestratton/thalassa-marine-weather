@@ -169,7 +169,9 @@ function loadFromStorage(): FollowRouteState | null {
 function clearStorage() {
     try {
         localStorage.removeItem(STORAGE_KEY);
-    } catch {}
+    } catch {
+        /* best effort */
+    }
 }
 
 // ── Context ────────────────────────────────────────────────────

@@ -101,7 +101,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
             }),
         [dispatch, state.filterAgeRanges],
     );
-    const setFilterSkills = useCallback(
+    const _setFilterSkills = useCallback(
         (v: string[] | ((prev: string[]) => string[])) =>
             dispatch({ type: 'SET_FILTER_SKILLS', payload: typeof v === 'function' ? v(state.filterSkills) : v }),
         [dispatch, state.filterSkills],
@@ -336,10 +336,12 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
 
     // ── Save Profile ──
     const handleSaveProfile = async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let uid = (LonelyHeartsService as any).currentUserId as string | null;
         log.info('[CrewFinder Save] uid from service:', uid?.slice(0, 8) || 'null');
         if (!uid) {
             await LonelyHeartsService.init();
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             uid = (LonelyHeartsService as any).currentUserId as string | null;
             log.info('[CrewFinder Save] uid after re-init:', uid?.slice(0, 8) || 'null');
         }
@@ -353,6 +355,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
                     log.info('[CrewFinder Save] direct session check:', session?.user?.id?.slice(0, 8) || 'null');
                     if (session?.user?.id) {
                         uid = session.user.id;
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         (LonelyHeartsService as any).currentUserId = uid;
                     }
                 } else {
@@ -737,6 +740,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
     };
 
     // ── Derived values ──
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const currentUserId = (LonelyHeartsService as any).currentUserId as string | null;
     const matchedUserIds = useMemo(() => new Set(state.matches.map((m) => m.user_id)), [state.matches]);
 

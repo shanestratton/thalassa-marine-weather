@@ -9,7 +9,7 @@ export const useLeafletMap = (
     enableZoom: boolean,
     mapboxToken?: string,
     showZoomControl: boolean = true,
-    enableWrapping: boolean = false,
+    _enableWrapping: boolean = false,
 ) => {
     const mapInstance = useRef<L.Map | null>(null);
     const [mapReady, setMapReady] = useState(false);

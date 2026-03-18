@@ -23,7 +23,7 @@ export const NmeaGpsIndicator: React.FC = () => {
     const [nmeaActive, setNmeaActive] = useState(false);
     const [precisionActive, setPrecisionActive] = useState(false);
     const [satellites, setSatellites] = useState<number | null>(null);
-    const [qualityLabel, setQualityLabel] = useState('GPS');
+    const [_qualityLabel, setQualityLabel] = useState('GPS');
     const [hdop, setHdop] = useState<number | null>(null);
     const [avgAccuracy, setAvgAccuracy] = useState<number | null>(null);
 

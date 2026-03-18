@@ -66,7 +66,7 @@ describe('AisStore — target management', () => {
 
         expect(AisStore.getCount()).toBe(1);
         const t = AisStore.getTargets().get(111222333)!;
-        expect(t.lat).toBe(-27.5);       // From first update
+        expect(t.lat).toBe(-27.5); // From first update
         expect(t.name).toBe('SPIRIT OF BRISBANE'); // From second update
         expect(t.destination).toBe('SYDNEY');
     });
@@ -158,7 +158,7 @@ describe('AisStore — statusColor mapping', () => {
         it(`should map navStatus ${navStatus} (${label}) to ${expected}`, () => {
             AisStore.update({ mmsi: 100 + navStatus, lat: -27.4, lon: 153.1, navStatus });
             const geojson = AisStore.toGeoJSON();
-            const feature = geojson.features.find(f => f.properties.mmsi === 100 + navStatus);
+            const feature = geojson.features.find((f) => f.properties.mmsi === 100 + navStatus);
             expect(feature?.properties.statusColor).toBe(expected);
         });
     });

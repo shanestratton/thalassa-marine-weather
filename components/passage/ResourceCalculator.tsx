@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { VesselProfile, VoyagePlan } from '../../types';
-import { FuelIcon, WaterIcon, FoodIcon, AlertTriangleIcon, GearIcon, WindIcon } from '../Icons';
+import { FuelIcon, WaterIcon, FoodIcon, AlertTriangleIcon, GearIcon, _WindIcon } from '../Icons';
 
 /* ───────────────────────────────────────────────────────────
    Provisioning Standards (ISAF / maritime best-practice)
@@ -11,7 +11,7 @@ const WATER_HYGIENE_L = 0.5; // litres/person/day (minimal ocean hygiene)
 const WATER_TOTAL_L = WATER_DRINKING_L + WATER_COOKING_L + WATER_HYGIENE_L;
 const WATER_EMERGENCY_DAYS = 2; // extra emergency water buffer
 
-const CALORIES_PER_DAY = 3000; // active sailing
+const _CALORIES_PER_DAY = 3000; // active sailing
 const SNACKS_PER_DAY = 2;
 
 /* ───────────────────────────────────────────────────────────
@@ -85,7 +85,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
     const [showMealPlan, setShowMealPlan] = useState(false);
 
     // Parse distance
-    const distanceNm = parseFloat(voyagePlan.distanceApprox.match(/(\d+\.?\d*)/)?.[0] || '0');
+    const _distanceNm = parseFloat(voyagePlan.distanceApprox.match(/(\d+\.?\d*)/)?.[0] || '0');
 
     // Parse duration
     const durationStr = voyagePlan.durationApprox.toLowerCase();

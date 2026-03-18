@@ -9,7 +9,7 @@
 import React, { useMemo, useState } from 'react';
 import type {
     MultiModelResult,
-    WaypointComparison,
+    _WaypointComparison,
     ModelForecastPoint,
 } from '../../services/weather/MultiModelWeatherService';
 

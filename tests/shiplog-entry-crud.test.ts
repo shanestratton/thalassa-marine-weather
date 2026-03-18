@@ -10,10 +10,10 @@ import { getLogEntries, deleteVoyage, deleteEntry, importGPXVoyage } from '../se
 const mockSelect = vi.fn();
 const mockInsert = vi.fn();
 const mockDelete = vi.fn();
-const mockEq = vi.fn();
-const mockOr = vi.fn();
-const mockOrder = vi.fn();
-const mockLimit = vi.fn();
+const _mockEq = vi.fn();
+const _mockOr = vi.fn();
+const _mockOrder = vi.fn();
+const _mockLimit = vi.fn();
 
 const mockFrom = vi.fn((_tableName: string) => ({
     select: mockSelect,

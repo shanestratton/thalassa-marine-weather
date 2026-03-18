@@ -742,6 +742,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             west: b.west,
         };
         if (clamped.north !== b.north || clamped.south !== b.south) {
+            /* best effort */
         }
         return clamped;
     }
@@ -909,6 +910,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
                 sample.push({ x: data[b2], y: data[b2 + 1], age: ages[i] });
             }
             const wind0 = hasWind ? this.sampleWind(data[0], data[1]) : [0, 0];
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (window as any).__windDebug = {
                 frame: this._debugFrame,
                 hasWind,
@@ -960,6 +962,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         ) {
             // In MapLibre GL JS v3, defaultProjectionData.mainMatrix is the correct matrix for
             // 2D custom layers. modelViewProjectionMatrix does NOT work for [0,1] Mercator coords.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const opts = matrixOrOptions as any;
             rawMatrix =
                 opts.defaultProjectionData?.mainMatrix ?? opts.modelViewProjectionMatrix ?? opts.projectionMatrix;

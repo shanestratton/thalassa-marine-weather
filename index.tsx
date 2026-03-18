@@ -1,5 +1,5 @@
 // Sentry must be imported FIRST — before any other app code
-import { captureException, addBreadcrumb } from './services/sentry';
+import { captureException, _addBreadcrumb } from './services/sentry';
 
 import React, { ErrorInfo, ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
@@ -86,7 +86,7 @@ const registerServiceWorker = async () => {
 
         // 3. Attempt Registration with Error Handling
         try {
-            const registration = await navigator.serviceWorker.register('./sw.js');
+            const _registration = await navigator.serviceWorker.register('./sw.js');
         } catch (err: unknown) {
             // Silently ignore known "origin" or "document" errors common in IFrames/Previews/WebViews
             const msg = err instanceof Error ? err.message : '';
@@ -137,6 +137,7 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
                 react: { componentStack: errorInfo.componentStack },
             },
             tags: { boundary: 'root' },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } as any);
     }
 

@@ -209,6 +209,7 @@ export const fetchOpenMeteo = async (
             waveData = proxResult.data as OMMarineResponse;
             distToWaterIdx = proxResult.nearestWaterDistanceKm;
         } else {
+            /* best effort */
         }
     } catch (e) {
         // Silently ignored — non-critical failure
@@ -256,7 +257,7 @@ export const fetchOpenMeteo = async (
     const curUV = wData.hourly?.uv_index ? wData.hourly.uv_index[currentHourIndex] : 0;
     const curCAPE = wData.hourly?.cape ? wData.hourly.cape[currentHourIndex] : 0;
 
-    const windKts = cur.wind_speed_10m * 1.94384; // km/h to knots? NO. OM uses km/h by default unless specified.
+    const _windKts = cur.wind_speed_10m * 1.94384; // km/h to knots? NO. OM uses km/h by default unless specified.
     // Wait, params didn't specify units. Default is km/h.
     // Is 1 km/h = 0.539957 knots.
     // 1 m/s = 1.94384 knots.

@@ -103,7 +103,7 @@ const NavButton = React.memo(
     ),
 );
 
-const MobileNavTab = React.memo(
+const _MobileNavTab = React.memo(
     ({
         active,
         onClick,
@@ -129,6 +129,7 @@ const MobileNavTab = React.memo(
 
 // Section, Row — imported from ./settings/SettingsPrimitives
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const MetricInput = ({
     label,
     valInStandard,
@@ -306,7 +307,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             }
             return null;
         });
-        const [detectingLoc, setDetectingLoc] = useState(false);
+        const [_detectingLoc, setDetectingLoc] = useState(false);
         const [authOpen, setAuthOpen] = useState(false);
         const [sgStatus, setSgStatus] = useState<{ status: string; message: string } | null>(null);
         const [showFactoryReset, setShowFactoryReset] = useState(false);

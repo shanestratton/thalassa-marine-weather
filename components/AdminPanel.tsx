@@ -63,6 +63,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
     const [activeChannels, setActiveChannels] = useState<ChatChannel[]>([]);
 
     // Audit tab
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [auditLog, setAuditLog] = useState<any[]>([]);
 
     // Confirm dialog state

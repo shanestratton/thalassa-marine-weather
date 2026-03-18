@@ -133,7 +133,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
 
     // Use exact WeatherKit condition text for display, icon from category
     const displayCondition = data.condition || 'Cloudy';
-    const conditionIcon = getConditionIcon(conditionCategory);
+    const _conditionIcon = getConditionIcon(conditionCategory);
 
     return (
         <div className="relative w-full rounded-2xl overflow-hidden border bg-white/[0.08] shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] border-white/[0.15]">

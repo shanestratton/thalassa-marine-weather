@@ -6,7 +6,7 @@ import { generateTacticalAdvice, getSkipperLockerItems } from '../utils/advisory
 import { toast } from '../components/Toast';
 
 export const useDashboardController = (viewMode: 'overview' | 'details' = 'overview') => {
-    const { weatherData: data, refreshData, loading, staleRefresh } = useWeather();
+    const { weatherData: data, refreshData, _loading, staleRefresh } = useWeather();
     const { settings } = useSettings();
     const { setPage } = useUI();
     const { isPro } = settings;
@@ -16,14 +16,14 @@ export const useDashboardController = (viewMode: 'overview' | 'details' = 'overv
     const [view, setView] = useState<'forecast' | 'charts'>('forecast');
 
     // Audio State
-    const [isAudioPreloading, setIsAudioPreloading] = useState(false);
-    const [preloadedAudio, setPreloadedAudio] = useState<ArrayBuffer | null>(null);
+    const [isAudioPreloading, _setIsAudioPreloading] = useState(false);
+    const [preloadedAudio, _setPreloadedAudio] = useState<ArrayBuffer | null>(null);
     const [isPlaying, setIsPlaying] = useState(false);
     const [audioSource, setAudioSource] = useState<AudioBufferSourceNode | null>(null);
-    const [audioPreloadAttempted, setAudioPreloadAttempted] = useState(false);
+    const [_audioPreloadAttempted, _setAudioPreloadAttempted] = useState(false);
 
     // Refs
-    const processedAdviceRef = useRef<string | null>(null);
+    const _processedAdviceRef = useRef<string | null>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
 
     // RESET SCROLL ON MOUNT

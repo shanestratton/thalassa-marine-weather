@@ -31,7 +31,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     const [arming, setArming] = useState(false);
     const [nearbyUsers, setNearbyUsers] = useState<NearbyUser[]>([]);
     const [alerts, setAlerts] = useState<GuardianAlert[]>([]);
-    const [hasProfile, setHasProfile] = useState(false);
+    const [_hasProfile, setHasProfile] = useState(false);
     const [loading, setLoading] = useState(true);
 
     // Modals

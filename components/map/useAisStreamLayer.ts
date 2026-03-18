@@ -30,9 +30,7 @@ const TRACK_INTERVALS_MIN = [5, 10, 15]; // Projected positions at 5, 10, 15 min
  * Project a position forward by given minutes at given COG/SOG.
  * Returns [lon, lat].
  */
-function projectPosition(
-    lat: number, lon: number, cogDeg: number, sogKn: number, minutes: number,
-): [number, number] {
+function projectPosition(lat: number, lon: number, cogDeg: number, sogKn: number, minutes: number): [number, number] {
     const hours = minutes / 60;
     const distNm = sogKn * hours;
     const distDeg = distNm / 60; // 1° latitude ≈ 60 NM
@@ -58,34 +56,57 @@ function zoomToRadiusNm(zoom: number): number {
  */
 function navStatusColor(status: number): string {
     switch (status) {
-        case 0: return '#22c55e';
-        case 1: return '#f59e0b';
-        case 2: return '#ef4444';
-        case 3: return '#f97316';
-        case 4: return '#f97316';
-        case 5: return '#94a3b8';
-        case 6: return '#ef4444';
-        case 7: return '#06b6d4';
-        case 8: return '#22c55e';
-        case 15: return '#38bdf8';
-        default: return '#38bdf8';
+        case 0:
+            return '#22c55e';
+        case 1:
+            return '#f59e0b';
+        case 2:
+            return '#ef4444';
+        case 3:
+            return '#f97316';
+        case 4:
+            return '#f97316';
+        case 5:
+            return '#94a3b8';
+        case 6:
+            return '#ef4444';
+        case 7:
+            return '#06b6d4';
+        case 8:
+            return '#22c55e';
+        case 15:
+            return '#38bdf8';
+        default:
+            return '#38bdf8';
     }
 }
 
 function navStatusLabel(status: number): string {
     switch (status) {
-        case 0: return 'Under Way (Engine)';
-        case 1: return 'At Anchor';
-        case 2: return 'Not Under Command';
-        case 3: return 'Restricted Manoeuvrability';
-        case 4: return 'Constrained by Draught';
-        case 5: return 'Moored';
-        case 6: return 'Aground';
-        case 7: return 'Fishing';
-        case 8: return 'Under Way (Sail)';
-        case 14: return 'AIS-SART Active';
-        case 15: return 'Not Defined';
-        default: return 'Unknown';
+        case 0:
+            return 'Under Way (Engine)';
+        case 1:
+            return 'At Anchor';
+        case 2:
+            return 'Not Under Command';
+        case 3:
+            return 'Restricted Manoeuvrability';
+        case 4:
+            return 'Constrained by Draught';
+        case 5:
+            return 'Moored';
+        case 6:
+            return 'Aground';
+        case 7:
+            return 'Fishing';
+        case 8:
+            return 'Under Way (Sail)';
+        case 14:
+            return 'AIS-SART Active';
+        case 15:
+            return 'Not Defined';
+        default:
+            return 'Unknown';
     }
 }
 
@@ -116,19 +137,31 @@ function decodeShipType(code: number): { icon: string; label: string } {
     }
     if (code >= 70 && code <= 79) {
         const labels: Record<number, string> = {
-            70: 'Cargo Ship', 71: 'Cargo — Hazmat (A)', 72: 'Cargo — Hazmat (B)',
-            73: 'Cargo — Hazmat (C)', 74: 'Cargo — Hazmat (D)',
-            75: 'Car Carrier', 76: 'Bulk Carrier', 77: 'Container Ship',
-            78: 'RoRo Cargo', 79: 'Cargo (Other)',
+            70: 'Cargo Ship',
+            71: 'Cargo — Hazmat (A)',
+            72: 'Cargo — Hazmat (B)',
+            73: 'Cargo — Hazmat (C)',
+            74: 'Cargo — Hazmat (D)',
+            75: 'Car Carrier',
+            76: 'Bulk Carrier',
+            77: 'Container Ship',
+            78: 'RoRo Cargo',
+            79: 'Cargo (Other)',
         };
         return { icon: '🚢', label: labels[code] || 'Cargo Ship' };
     }
     if (code >= 80 && code <= 89) {
         const labels: Record<number, string> = {
-            80: 'Tanker', 81: 'Tanker — Hazmat (A)', 82: 'Tanker — Hazmat (B)',
-            83: 'Tanker — Hazmat (C)', 84: 'Tanker — Hazmat (D)',
-            85: 'LNG / LPG Carrier', 86: 'Chemical Tanker',
-            87: 'Oil Tanker', 88: 'Gas Carrier', 89: 'Tanker (Other)',
+            80: 'Tanker',
+            81: 'Tanker — Hazmat (A)',
+            82: 'Tanker — Hazmat (B)',
+            83: 'Tanker — Hazmat (C)',
+            84: 'Tanker — Hazmat (D)',
+            85: 'LNG / LPG Carrier',
+            86: 'Chemical Tanker',
+            87: 'Oil Tanker',
+            88: 'Gas Carrier',
+            89: 'Tanker (Other)',
         };
         return { icon: '🚢', label: labels[code] || 'Tanker' };
     }
@@ -136,10 +169,7 @@ function decodeShipType(code: number): { icon: string; label: string } {
     return { icon: '🚢', label: 'Unknown Type' };
 }
 
-export function useAisStreamLayer(
-    map: mapboxgl.Map | null,
-    enabled: boolean,
-): void {
+export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): void {
     const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isMounted = useRef(true);
     const popupRef = useRef<mapboxgl.Popup | null>(null);
@@ -149,9 +179,7 @@ export function useAisStreamLayer(
         if (!map || !enabled) return;
 
         const localGeoJson = AisStore.toGeoJSON();
-        const localMmsis = new Set(
-            localGeoJson.features.map((f) => f.properties?.mmsi),
-        );
+        const localMmsis = new Set(localGeoJson.features.map((f) => f.properties?.mmsi));
 
         const now = Date.now();
 
@@ -263,10 +291,7 @@ export function useAisStreamLayer(
                 const pts: [number, number][] = [];
                 for (let i = 0; i <= 64; i++) {
                     const angle = (i / 64) * 2 * Math.PI;
-                    pts.push([
-                        own.lon + (radiusDeg * Math.cos(angle)) / cosLat,
-                        own.lat + radiusDeg * Math.sin(angle),
-                    ]);
+                    pts.push([own.lon + (radiusDeg * Math.cos(angle)) / cosLat, own.lat + radiusDeg * Math.sin(angle)]);
                 }
                 guardSource.setData({
                     type: 'Feature',
@@ -386,8 +411,14 @@ export function useAisStreamLayer(
             const ownSog = nmea.sog.value ?? 0;
             const ownCog = nmea.cog.value ?? 0;
             const cpaResult = computeCpa(
-                own.lat, own.lon, ownCog, ownSog,
-                targetLat, targetLon, cogVal, sogVal,
+                own.lat,
+                own.lon,
+                ownCog,
+                ownSog,
+                targetLat,
+                targetLon,
+                cogVal,
+                sogVal,
                 p.navStatus ?? p.nav_status ?? 15,
             );
 
@@ -395,7 +426,10 @@ export function useAisStreamLayer(
             if (cpaResult) {
                 const { cpa, tcpa, distance, bearing, risk } = cpaResult;
                 const rc: Record<string, string> = {
-                    DANGER: '#ef4444', CAUTION: '#f59e0b', SAFE: '#22c55e', NONE: '#64748b',
+                    DANGER: '#ef4444',
+                    CAUTION: '#f59e0b',
+                    SAFE: '#22c55e',
+                    NONE: '#64748b',
                 };
                 // Context-aware NONE label
                 const noneLabel = tcpa < 0 ? '↔ Diverging' : '🔇 No Risk';
@@ -407,11 +441,13 @@ export function useAisStreamLayer(
                 };
                 const riskColor = rc[risk] || '#64748b';
 
-                const banner = (risk === 'DANGER' || risk === 'CAUTION')
-                    ? `<div style="background:${riskColor}18;border:1px solid ${riskColor}40;border-radius:8px;padding:6px 10px;margin-bottom:10px;text-align:center;font-size:11px;font-weight:700;color:${riskColor};letter-spacing:0.3px;">${rl[risk]}</div>`
-                    : '';
+                const banner =
+                    risk === 'DANGER' || risk === 'CAUTION'
+                        ? `<div style="background:${riskColor}18;border:1px solid ${riskColor}40;border-radius:8px;padding:6px 10px;margin-bottom:10px;text-align:center;font-size:11px;font-weight:700;color:${riskColor};letter-spacing:0.3px;">${rl[risk]}</div>`
+                        : '';
 
-                const tcpaStr = tcpa < 0 ? 'Diverging' : tcpa < 60 ? `${tcpa.toFixed(0)} min` : `${(tcpa / 60).toFixed(1)} hrs`;
+                const tcpaStr =
+                    tcpa < 0 ? 'Diverging' : tcpa < 60 ? `${tcpa.toFixed(0)} min` : `${(tcpa / 60).toFixed(1)} hrs`;
 
                 cpaSection = `
                     ${banner}
@@ -481,8 +517,12 @@ export function useAisStreamLayer(
                 .addTo(map);
         };
 
-        const handleMouseEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
-        const handleMouseLeave = () => { map.getCanvas().style.cursor = ''; };
+        const handleMouseEnter = () => {
+            map.getCanvas().style.cursor = 'pointer';
+        };
+        const handleMouseLeave = () => {
+            map.getCanvas().style.cursor = '';
+        };
 
         map.on('click', 'ais-targets-circle', handleClick);
         map.on('mouseenter', 'ais-targets-circle', handleMouseEnter);
@@ -492,12 +532,17 @@ export function useAisStreamLayer(
             map.off('click', 'ais-targets-circle', handleClick);
             map.off('mouseenter', 'ais-targets-circle', handleMouseEnter);
             map.off('mouseleave', 'ais-targets-circle', handleMouseLeave);
-            if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
+            if (popupRef.current) {
+                popupRef.current.remove();
+                popupRef.current = null;
+            }
         };
     }, [map, enabled]);
 
     useEffect(() => {
         isMounted.current = true;
-        return () => { isMounted.current = false; };
+        return () => {
+            isMounted.current = false;
+        };
     }, []);
 }

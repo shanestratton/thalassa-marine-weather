@@ -12,9 +12,9 @@ import { createLogger } from '../utils/createLogger';
 const log = createLogger('AIS');
 
 // ── Configuration ──
-const SWEEP_INTERVAL_MS = 60_000;       // Check for stale targets every 60s
-const TARGET_EXPIRY_MS = 10 * 60_000;   // Remove targets silent for 10 minutes
-const MAX_TARGETS = 500;                 // Cap to prevent memory issues in busy ports
+const SWEEP_INTERVAL_MS = 60_000; // Check for stale targets every 60s
+const TARGET_EXPIRY_MS = 10 * 60_000; // Remove targets silent for 10 minutes
+const MAX_TARGETS = 500; // Cap to prevent memory issues in busy ports
 
 export type AisStoreListener = (targets: Map<number, AisTarget>) => void;
 
@@ -205,17 +205,28 @@ class AisStoreClass {
  */
 function navStatusColor(status: number): string {
     switch (status) {
-        case 0: return '#22c55e'; // Under way (engine) — green
-        case 1: return '#f59e0b'; // At anchor — amber
-        case 2: return '#ef4444'; // Not under command — red
-        case 3: return '#f97316'; // Restricted manoeuvrability — orange
-        case 4: return '#f97316'; // Constrained by draught — orange
-        case 5: return '#94a3b8'; // Moored — grey
-        case 6: return '#ef4444'; // Aground — red
-        case 7: return '#06b6d4'; // Fishing — cyan
-        case 8: return '#22c55e'; // Under way (sail) — green
-        case 15: return '#38bdf8'; // Not defined / Class B — sky blue
-        default: return '#94a3b8'; // Unknown — grey
+        case 0:
+            return '#22c55e'; // Under way (engine) — green
+        case 1:
+            return '#f59e0b'; // At anchor — amber
+        case 2:
+            return '#ef4444'; // Not under command — red
+        case 3:
+            return '#f97316'; // Restricted manoeuvrability — orange
+        case 4:
+            return '#f97316'; // Constrained by draught — orange
+        case 5:
+            return '#94a3b8'; // Moored — grey
+        case 6:
+            return '#ef4444'; // Aground — red
+        case 7:
+            return '#06b6d4'; // Fishing — cyan
+        case 8:
+            return '#22c55e'; // Under way (sail) — green
+        case 15:
+            return '#38bdf8'; // Not defined / Class B — sky blue
+        default:
+            return '#94a3b8'; // Unknown — grey
     }
 }
 

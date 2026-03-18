@@ -16,8 +16,8 @@ interface VesselData {
 
 const NAVY = '#1a2a3a';
 const GOLD = '#c9a227';
-const GRAY = '#6a7a8a';
-const LIGHT_GRAY = '#e8eef4';
+const _GRAY = '#6a7a8a';
+const _LIGHT_GRAY = '#e8eef4';
 
 /** 16-point compass rose: N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW */
 function degreesToCardinal16(deg: number): string {
@@ -249,7 +249,7 @@ async function fetchMapboxStaticImage(
         const response = await fetch(url);
 
         if (!response.ok) {
-            const errorText = await response.text().catch(() => 'no error text');
+            const _errorText = await response.text().catch(() => 'no error text');
             return null;
         }
 
@@ -356,7 +356,7 @@ export async function exportToCSV(
 
         // Create file blob with UTF-8 encoding
         const csvBlob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-        const csvFile = new File([csvBlob], filename, { type: 'text/csv' });
+        const _csvFile = new File([csvBlob], filename, { type: 'text/csv' });
 
         // Generate filename based on voyage dates
         const startDate = sortedEntries[0] ? new Date(sortedEntries[0].timestamp) : new Date();

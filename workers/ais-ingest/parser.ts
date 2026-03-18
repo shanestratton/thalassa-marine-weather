@@ -28,6 +28,7 @@ export interface VesselRecord {
  * Returns null if the message is not a supported type or is invalid.
  */
 export function parseAisStreamMessage(raw: string): VesselRecord | null {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let msg: any;
     try {
         msg = JSON.parse(raw);

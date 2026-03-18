@@ -24,6 +24,7 @@ import { ChatService } from './services/ChatService';
 // Retry wrapper: if a dynamic import fails (stale Vite module hash after HMR/restart),
 // reload the page once to fetch fresh module URLs. Prevents "Failed to fetch dynamically
 // imported module" errors from crashing the app.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function lazyRetry<T extends React.ComponentType<any>>(
     factory: () => Promise<{ default: T }>,
 ): React.LazyExoticComponent<T> {
@@ -768,6 +769,7 @@ const App: React.FC = () => {
                             <button
                                 onClick={() => {
                                     // Clear pin-view state when leaving map
+                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                     delete (window as any).__thalassaPinView;
                                     // Go back to wherever we came from
                                     setPage(previousView || 'dashboard');

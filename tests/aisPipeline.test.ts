@@ -91,7 +91,7 @@ describe('AIS Pipeline — raw sentence → GeoJSON', () => {
             '!AIVDM,1,1,,A,15MwkT1P05Fo;H`EKP8a8:R`0@Fv,0*74',
         ];
 
-        const decoded = sentences.map(s => processAisSentence(s));
+        const decoded = sentences.map((s) => processAisSentence(s));
         for (const d of decoded) {
             if (d) AisStore.update(d);
         }
@@ -114,8 +114,8 @@ describe('AIS Pipeline — raw sentence → GeoJSON', () => {
 
         const geojson = AisStore.toGeoJSON();
         // Should have 2 features (if both have valid positions)
-        const validFeatures = geojson.features.filter(f =>
-            f.geometry.coordinates[0] !== 0 || f.geometry.coordinates[1] !== 0
+        const validFeatures = geojson.features.filter(
+            (f) => f.geometry.coordinates[0] !== 0 || f.geometry.coordinates[1] !== 0,
         );
         expect(validFeatures.length).toBe(2);
     });
@@ -201,7 +201,7 @@ describe('AIS Pipeline — GeoJSON for map rendering', () => {
         }
 
         // Verify different statuses have different colours
-        const colours = new Set(geojson.features.map(f => f.properties.statusColor));
+        const colours = new Set(geojson.features.map((f) => f.properties.statusColor));
         expect(colours.size).toBeGreaterThan(1); // At least 2 different colours
     });
 });

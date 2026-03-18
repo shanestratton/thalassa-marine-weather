@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Waypoint } from '../types';
 
 export const useMapMarkers = (
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mapInstance: React.MutableRefObject<any>,
     centerLat: number,
     centerLon: number,

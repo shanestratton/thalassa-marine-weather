@@ -44,7 +44,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
         isMapOpen,
         setIsMapOpen,
         mapSelectionTarget,
-        setMapSelectionTarget,
+        _setMapSelectionTarget,
         loading,
         loadingStep,
         error,
@@ -58,7 +58,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
         handleMapSelect,
         openMap,
 
-        routeCoords,
+        _routeCoords,
         isShortTrip,
 
         voyagePlan,
@@ -74,7 +74,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
         setActiveChecklistTab,
     } = useVoyageForm(onTriggerUpgrade);
 
-    const [tempMapSelection, setTempMapSelection] = useState<{ lat: number; lon: number; name: string } | null>(null);
+    const [_tempMapSelection, setTempMapSelection] = useState<{ lat: number; lon: number; name: string } | null>(null);
     const [departureTime, setDepartureTime] = useState('06:00');
     const [suggestingDeparture, setSuggestingDeparture] = useState(false);
     const [suggestedReasoning, setSuggestedReasoning] = useState<string | null>(null);

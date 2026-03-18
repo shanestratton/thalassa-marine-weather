@@ -79,6 +79,7 @@ const ConsensusRowView: React.FC<{
 
     return (
         <div
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             ref={rowRef as any}
             data-hours={row.hoursFromDep}
             data-lat={row.lat}

@@ -28,7 +28,7 @@ export function exportVoyageAsGPX(entries: ShipLogEntry[], voyageName: string, v
         throw new Error('No entries to export');
     }
 
-    const firstEntry = sorted[0];
+    const _firstEntry = sorted[0];
     const lastEntry = sorted[sorted.length - 1];
     const totalDistanceNM = lastEntry.cumulativeDistanceNM || 0;
 

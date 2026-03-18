@@ -29,24 +29,23 @@ Deno.serve(async (req: Request) => {
 
         if (error) {
             console.error('sweep_stale_vessels error:', error);
-            return new Response(
-                JSON.stringify({ error: error.message }),
-                { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-            );
+            return new Response(JSON.stringify({ error: error.message }), {
+                status: 500,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
         }
 
         const deletedCount = data ?? 0;
         console.log(`[SWEEP] Deleted ${deletedCount} stale vessels`);
 
-        return new Response(
-            JSON.stringify({ deleted: deletedCount, timestamp: new Date().toISOString() }),
-            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
+        return new Response(JSON.stringify({ deleted: deletedCount, timestamp: new Date().toISOString() }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
     } catch (e) {
         console.error('Sweep error:', e);
-        return new Response(
-            JSON.stringify({ error: 'Internal server error' }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
+        return new Response(JSON.stringify({ error: 'Internal server error' }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
     }
 });

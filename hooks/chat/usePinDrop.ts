@@ -34,7 +34,9 @@ export function usePinDrop(options: UsePinDropOptions) {
 
     // POI map refs
     const poiMapRef = useRef<HTMLDivElement>(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const poiMapInstance = useRef<any>(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const poiMarkerRef = useRef<any>(null);
     const poiMapInitialized = useRef(false);
 

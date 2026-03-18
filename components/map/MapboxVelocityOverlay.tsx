@@ -570,6 +570,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         // Update wind data smoothly — bypass clearAndRestart to keep particles alive.
         // Particles naturally pick up new wind vectors on their next animation frame.
         try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const vl = velocityLayerRef.current as any;
             if (vl._windy) {
                 // Directly update the internal Windy grid — particles keep their positions
@@ -630,6 +631,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
 
         const setup = async () => {
             // Ensure Leaflet is on window BEFORE the plugin loads
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (window as any).L = L;
             await import('leaflet-velocity-ts');
 

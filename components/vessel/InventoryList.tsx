@@ -321,7 +321,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         [filtered],
     );
 
-    const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+    const [_deleteTargetId, _setDeleteTargetId] = useState<string | null>(null);
     const [deletedItem, setDeletedItem] = useState<InventoryItem | null>(null);
 
     // ── Soft-delete with undo ──

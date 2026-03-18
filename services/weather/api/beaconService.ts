@@ -370,7 +370,7 @@ async function fetchHKOStation(stationId: string): Promise<NDBCRawData | null> {
         const tempData = data.temperature?.data?.find((s: { place?: string; value?: number }) =>
             s.place?.toLowerCase().includes(stationId.toLowerCase()),
         );
-        const humidityData = data.humidity?.data?.find((s: { place?: string; value?: number }) =>
+        const _humidityData = data.humidity?.data?.find((s: { place?: string; value?: number }) =>
             s.place?.toLowerCase().includes(stationId.toLowerCase()),
         );
 
@@ -567,6 +567,7 @@ export async function findAndFetchNearestBeacon(
 
                 return observation;
             } else {
+                /* best effort */
             }
         }
 

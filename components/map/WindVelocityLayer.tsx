@@ -55,6 +55,7 @@ export const WindVelocityLayer: React.FC<WindVelocityLayerProps> = ({
     showReadout = true,
 }) => {
     const layerRef = useRef<L.Layer | null>(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [windData, setWindData] = useState<any[] | null>(null);
     const [error, setError] = useState<string | null>(null);
 
@@ -91,6 +92,7 @@ export const WindVelocityLayer: React.FC<WindVelocityLayerProps> = ({
         if (!map || !visible || !windData) return;
 
         // Create velocity layer
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const vLayer = (L as any).velocityLayer({
             displayValues: showReadout,
             displayOptions: {

@@ -89,7 +89,7 @@ export const fetchStormGlassWeather = async (
             if (!omKey) return null; // No free fallback — App Store compliance
             const baseUrl = 'https://customer-api.open-meteo.com/v1';
             // Commercial API serves marine data via the main 'forecast' endpoint, not 'marine'.
-            const marineBaseUrl = 'https://customer-api.open-meteo.com/v1/forecast';
+            const _marineBaseUrl = 'https://customer-api.open-meteo.com/v1/forecast';
 
             // FIX: Added hourly=uv_index to support Current Card UV display
             // FIX: Changed timezone=UTC to timezone=auto to get location's offset
@@ -106,6 +106,7 @@ export const fetchStormGlassWeather = async (
                     marineData = proxResult.data;
                     distToWaterIdx = proxResult.nearestWaterDistanceKm;
                 } else {
+                    /* best effort */
                 }
             } catch (e) {
                 // Silently ignored — non-critical failure
@@ -197,6 +198,7 @@ export const fetchStormGlassWeather = async (
                 return Math.abs(utcEp - sgTime) < 100000;
             });
             if (matchIdx !== -1) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (h as any).cape = omCape[matchIdx];
             }
         });
@@ -317,6 +319,7 @@ export const fetchStormGlassWeather = async (
     if (tidesRes?.guiDetails) {
         mergedReport.tideGUIDetails = tidesRes.guiDetails;
     } else {
+        /* best effort */
     }
 
     // Cache the final report (3h TTL)

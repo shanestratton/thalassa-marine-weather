@@ -71,7 +71,7 @@ export const renderHeroWidget = (
     };
 
     // Helper to render trend arrow
-    const renderTrend = (t?: string, inverse = false) => {
+    const renderTrend = (t?: string, _inverse = false) => {
         if (!t || t === 'steady' || t === 'neutral') return null;
         const isUp = t === 'rising';
 

@@ -143,7 +143,7 @@ vi.mock('../../components/Toast', () => ({
 }));
 
 // --- Test Helpers ---
-const noop = () => {};
+const _noop = () => {};
 const defaultMessageOpts = { setView: vi.fn(), setNavDirection: vi.fn(), setLoading: vi.fn() };
 const defaultDMOpts = { setView: vi.fn(), setNavDirection: vi.fn(), setLoading: vi.fn() };
 

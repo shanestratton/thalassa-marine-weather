@@ -98,6 +98,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                         title: trimmedNotes.slice(0, 80), // Use notes as task title (truncated)
                         description: trimmedNotes.length > 80 ? trimmedNotes : null,
                         category: 'Repair',
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         trigger_type: 'monthly' as any, // Ad-hoc — no schedule enforced
                         interval_value: null,
                         next_due_date: null,
@@ -289,6 +290,8 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                         <button
                             type="button"
                             onClick={() => {
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
                                 if (!SR) {
                                     toast.error('Speech recognition not supported');

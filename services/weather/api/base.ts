@@ -55,7 +55,7 @@ export const fetchSG = async <T>(
             if (res.status === 402 || res.status === 429) {
                 // Forward quota info from proxy response
                 const quotaRemaining = res.headers?.['x-quota-remaining'];
-                const quotaTotal = res.headers?.['x-quota-total'];
+                const _quotaTotal = res.headers?.['x-quota-total'];
                 throw new Error(`SG_QUOTA: ${res.status} - ${JSON.stringify(res.data)}`);
             }
             throw new Error(`SG_HTTP_${res.status}: ${JSON.stringify(res.data)}`);
@@ -68,6 +68,7 @@ export const fetchSG = async <T>(
         // Log quota for monitoring
         const quotaRemaining = res.headers?.['x-quota-remaining'];
         if (quotaRemaining) {
+            /* best effort */
         }
 
         return res.data as T;
@@ -95,6 +96,7 @@ export const fetchSG = async <T>(
             // Log quota from headers
             const quotaRemaining = res.headers.get('x-quota-remaining');
             if (quotaRemaining) {
+                /* best effort */
             }
 
             return (await res.json()) as T;

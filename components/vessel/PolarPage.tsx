@@ -40,6 +40,7 @@ export const PolarPage: React.FC<PolarPageProps> = ({ onBack, onNavigateToNmea }
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     <PolarManagerTab
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         settings={settings as any}
                         onSave={handleSave}
                         onNavigateToNmea={onNavigateToNmea}

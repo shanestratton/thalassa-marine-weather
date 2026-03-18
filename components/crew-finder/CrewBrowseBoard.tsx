@@ -5,7 +5,7 @@
  * Receives state + dispatch from parent with action callbacks.
  */
 
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, _useRef } from 'react';
 import { CrewFinderState, CrewFinderAction } from '../../hooks/useCrewFinderState';
 import { CrewCard, AGE_RANGES, ListingType } from '../../services/LonelyHeartsService';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';

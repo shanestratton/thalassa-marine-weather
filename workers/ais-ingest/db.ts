@@ -110,9 +110,7 @@ export class VesselDB {
         });
 
         try {
-            const { error } = await this.client
-                .from('vessels')
-                .upsert(rows, { onConflict: 'mmsi' });
+            const { error } = await this.client.from('vessels').upsert(rows, { onConflict: 'mmsi' });
 
             if (error) {
                 console.error(`[DB] Upsert error (${rows.length} rows):`, error.message);

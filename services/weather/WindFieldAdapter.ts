@@ -27,7 +27,7 @@ export function createWindFieldFromGrid(
     grid: WindGrid,
     forecastBaseTime?: Date, // When the forecast starts (default: now)
 ): WindField {
-    const baseTime = forecastBaseTime ?? new Date();
+    const _baseTime = forecastBaseTime ?? new Date();
     const hoursPerStep = grid.totalHours > 1 ? 1 : 1; // Grid is hourly
 
     return {

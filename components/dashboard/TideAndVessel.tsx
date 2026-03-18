@@ -124,7 +124,7 @@ const TideCanvas = React.memo(
             }
 
             // --- Helper: get interpolated height at any time ---
-            const getHeightAtTime = (t: number): number => {
+            const _getHeightAtTime = (t: number): number => {
                 const idx = dataPoints.findIndex((p) => p.time >= t);
                 if (idx === -1) return dataPoints[dataPoints.length - 1].height;
                 if (idx === 0) return dataPoints[0].height;
@@ -581,7 +581,7 @@ export const TideGraphOriginal = ({
     const nextLow = allMarkers.find((m) => m.time > currentHour && m.type === 'Low');
 
     const heroLabelClass = 'text-[11px] text-sky-300/80 font-bold uppercase tracking-widest';
-    const heroValueClass = 'text-xl font-bold text-white tracking-tight leading-none';
+    const _heroValueClass = 'text-xl font-bold text-white tracking-tight leading-none';
 
     return (
         <div

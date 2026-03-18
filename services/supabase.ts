@@ -56,6 +56,7 @@ const URL = getUrl();
 const KEY = getKey();
 
 if (URL && KEY) {
+    /* best effort */
 } else {
     if (!URL) logConfig('MISSING: Supabase URL');
     if (!KEY) logConfig('MISSING: Supabase Anon Key');

@@ -31,6 +31,7 @@ export function useChatProposals(options: UseChatProposalsOptions) {
     const [joinRequestSent, setJoinRequestSent] = useState(false);
 
     // --- Report State ---
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [reportingMsg, setReportingMsg] = useState<any | null>(null);
     const [reportReason, setReportReason] = useState<'spam' | 'harassment' | 'hate_speech' | 'inappropriate' | 'other'>(
         'inappropriate',

@@ -133,6 +133,7 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
                 react: { componentStack: errorInfo.componentStack },
             },
             tags: { boundary: boundaryName },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
         } as any);
 
         // Call optional error callback

@@ -2,7 +2,7 @@ import { CapacitorHttp } from '@capacitor/core';
 import { createLogger } from '../../../utils/createLogger';
 import { getWorldTidesKey } from '../keys';
 import { WorldTidesResponse } from '../../../types';
-const log = createLogger('Tides');
+const _log = createLogger('Tides');
 
 /**
  * fetchWorldTides — Tide Extremes via Supabase Edge Proxy
@@ -88,7 +88,7 @@ async function fetchViaProxy(lat: number, lon: number, days: number): Promise<Wo
         });
 
         if (res.status !== 200) {
-            const errorData = await res.json().catch(() => ({}));
+            const _errorData = await res.json().catch(() => ({}));
             return null;
         }
 
@@ -127,7 +127,7 @@ async function fetchDirect(lat: number, lon: number, days: number): Promise<Worl
             recordCall();
             return processResponse(res.data, lat, lon);
         } else {
-            const errorBody = typeof res.data === 'object' ? JSON.stringify(res.data) : String(res.data);
+            const _errorBody = typeof res.data === 'object' ? JSON.stringify(res.data) : String(res.data);
             return null;
         }
     } catch (e) {

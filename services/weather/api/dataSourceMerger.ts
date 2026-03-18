@@ -10,7 +10,7 @@ import {
 import { degreesToCardinal } from '../../../utils/format';
 
 // --- CONSTANTS ---
-const BUOY_THRESHOLD_NM = 10; // Maximum distance to use buoy data
+const _BUOY_THRESHOLD_NM = 10; // Maximum distance to use buoy data
 
 // --- HELPER FUNCTIONS ---
 
@@ -88,7 +88,7 @@ function createMetricSource(
     };
 }
 
-function formatWindDirection(degrees?: number | null, cardinal?: string): string {
+function _formatWindDirection(degrees?: number | null, cardinal?: string): string {
     if (degrees !== null && degrees !== undefined) {
         return cardinal || degreesToCardinal(degrees);
     }
@@ -98,7 +98,7 @@ function formatWindDirection(degrees?: number | null, cardinal?: string): string
 /**
  * Calculate distance between two coordinates in nautical miles
  */
-function calculateDistanceNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
+function _calculateDistanceNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 3440.065; // Earth's radius in nautical miles
     const dLat = ((lat2 - lat1) * Math.PI) / 180;
     const dLon = ((lon2 - lon1) * Math.PI) / 180;
@@ -162,6 +162,7 @@ export function mergeWeatherData(
     location: { lat: number; lon: number; name: string },
 ): MarineWeatherReport {
     const stormglass = stormglassReport.current;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sources: Record<string, any> = {};
 
     // Preserve existing source labels from the incoming report.
@@ -265,6 +266,7 @@ export function mergeWeatherData(
 
     // PRECIPITATION: WeatherKit (precipitationIntensity) > existing source > StormGlass
     // WeatherKit stores current rain as 'precipitationIntensity' (mm/hr) on the observation
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const wkPrecip = (stormglass as any).precipitationIntensity;
     const precipitation = setMetric(
         'precipitation',
@@ -339,7 +341,7 @@ export function mergeWeatherData(
 }
 
 // Helper to calculate relative humidity from temperature and dew point
-function calculateRelativeHumidity(temp: number, dewpoint: number): number {
+function _calculateRelativeHumidity(temp: number, dewpoint: number): number {
     // Simplified Magnus formula
     const a = 17.27;
     const b = 237.7;

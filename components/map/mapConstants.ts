@@ -39,7 +39,9 @@ export type WeatherLayer =
 
 // ── Tile sources ──
 function getOwmKey(): string {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_OWM_API_KEY) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return (import.meta as any).env.VITE_OWM_API_KEY;
     }
     return '';

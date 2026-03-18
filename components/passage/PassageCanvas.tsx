@@ -61,7 +61,7 @@ const PowerIcon = () => (
     </svg>
 );
 
-const CloseIcon = () => (
+const _CloseIcon = () => (
     <svg
         width="16"
         height="16"
@@ -304,6 +304,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                 departureDate: payload.summary.departure_time || new Date().toISOString(),
             };
 
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             downloadRouteGPX(plan as any);
             setSaveState('saved');
             toast.success('GPX route exported');
@@ -346,6 +347,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                 departureDate: payload.summary.departure_time || new Date().toISOString(),
             };
 
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const voyageId = await ShipLogService.savePassagePlanToLogbook(plan as any);
             if (voyageId) {
                 setLogbookState('saved');

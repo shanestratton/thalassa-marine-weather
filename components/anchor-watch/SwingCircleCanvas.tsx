@@ -303,9 +303,9 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
                     ctx.translate(tx, ty);
                     ctx.rotate(cogRad);
                     ctx.beginPath();
-                    ctx.moveTo(size, 0);         // nose
+                    ctx.moveTo(size, 0); // nose
                     ctx.lineTo(-size * 0.6, -size * 0.5); // port stern
-                    ctx.lineTo(-size * 0.6, size * 0.5);  // starboard stern
+                    ctx.lineTo(-size * 0.6, size * 0.5); // starboard stern
                     ctx.closePath();
                     ctx.fillStyle = color;
                     ctx.fill();

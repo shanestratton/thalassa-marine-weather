@@ -215,6 +215,7 @@ export async function deleteVoyage(voyageId: string): Promise<boolean> {
                 const { error } = await query;
                 if (error) {
                 } else {
+                    /* best effort */
                 }
             }
         } catch (error) {
@@ -248,6 +249,7 @@ export async function deleteEntry(entryId: string): Promise<boolean> {
 
                 if (error) {
                 } else {
+                    /* best effort */
                 }
             }
         } catch (error) {

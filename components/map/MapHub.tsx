@@ -163,13 +163,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const mapboxgl = (window as any).mapboxgl || (window as any).maplibregl;
                 if (mapboxgl?.Marker) {
-                    const marker = new mapboxgl.Marker({ element: el })
-                        .setLngLat([lon, lat])
-                        .addTo(map);
+                    const marker = new mapboxgl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
 
                     // Auto-remove after 10 seconds
                     setTimeout(() => {
-                        try { marker.remove(); } catch { /* already removed */ }
+                        try {
+                            marker.remove();
+                        } catch {
+                            /* already removed */
+                        }
                     }, 10_000);
                 }
             }, 500);
@@ -746,14 +748,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                         toggleLayer={weather.toggleLayer}
                         setShowLayerMenu={weather.setShowLayerMenu}
                         aisVisible={aisVisible}
-                        onToggleAis={() => setAisVisible(v => !v)}
+                        onToggleAis={() => setAisVisible((v) => !v)}
                     />
                 )}
 
                 {/* ═══ AIS COLOUR LEGEND + GUARD ZONE TOGGLE ═══ */}
-                {!passage.showPassage && !embedded && !isPinView && (
-                    <AisLegend visible={aisVisible} />
-                )}
+                {!passage.showPassage && !embedded && !isPinView && <AisLegend visible={aisVisible} />}
 
                 {/* ═══ AIS GUARD ZONE ALERT TOAST ═══ */}
                 <AisGuardAlert />
