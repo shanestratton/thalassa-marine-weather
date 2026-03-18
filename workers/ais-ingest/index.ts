@@ -21,6 +21,7 @@ import http from 'node:http';
 import WebSocket from 'ws';
 import { parseAisStreamMessage } from './parser.js';
 import { VesselDB } from './db.js';
+import { startWatchdog } from './watchdog.js';
 
 // ── Config ──
 const AISSTREAM_URL = 'wss://stream.aisstream.io/v0/stream';
@@ -76,11 +77,7 @@ function connect(): void {
         const subscription = {
             Apikey: API_KEY,
             BoundingBoxes: BOUNDING_BOXES,
-            FilterMessageTypes: [
-                'PositionReport',
-                'ShipStaticData',
-                'StandardClassBPositionReport',
-            ],
+            FilterMessageTypes: ['PositionReport', 'ShipStaticData', 'StandardClassBPositionReport'],
         };
 
         ws!.send(JSON.stringify(subscription));
@@ -134,12 +131,16 @@ function checkStaleConnection(): void {
         staleReconnects++;
         console.warn(
             `[DEADMAN] ⚠️ No AIS messages for ${Math.round(staleDuration / 1000)}s ` +
-            `(threshold: ${STALE_THRESHOLD_MS / 1000}s). Forcing reconnect #${staleReconnects}...`
+                `(threshold: ${STALE_THRESHOLD_MS / 1000}s). Forcing reconnect #${staleReconnects}...`,
         );
 
         // Kill the current connection and force reconnect
         if (ws) {
-            try { ws.terminate(); } catch { /* ignore */ }
+            try {
+                ws.terminate();
+            } catch {
+                /* ignore */
+            }
             ws = null;
         }
 
@@ -195,12 +196,12 @@ function logStats(): void {
     const staleSec = Math.round((Date.now() - lastMessageAt) / 1000);
     console.log(
         `[STATS] Messages: ${messageCount} | ` +
-        `Parsed: ${parsedCount} | ` +
-        `Buffered: ${dbStats.buffered} | ` +
-        `Upserted: ${dbStats.totalUpserts} | ` +
-        `Errors: ${dbStats.totalErrors} | ` +
-        `Last msg: ${staleSec}s ago | ` +
-        `Stale reconnects: ${staleReconnects}`
+            `Parsed: ${parsedCount} | ` +
+            `Buffered: ${dbStats.buffered} | ` +
+            `Upserted: ${dbStats.totalUpserts} | ` +
+            `Errors: ${dbStats.totalErrors} | ` +
+            `Last msg: ${staleSec}s ago | ` +
+            `Stale reconnects: ${staleReconnects}`,
     );
 }
 
@@ -246,6 +247,16 @@ db.start();
 connect();
 setInterval(logStats, STATS_INTERVAL_MS);
 setInterval(checkStaleConnection, STALE_CHECK_INTERVAL_MS);
+
+// ── Guardian Watchdog: BOLO + Geofence monitor ──
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
+if (SUPABASE_URL && SUPABASE_KEY) {
+    startWatchdog(SUPABASE_URL, SUPABASE_KEY);
+    console.log('[GUARDIAN] Watchdog started — monitoring armed vessels + geofences');
+} else {
+    console.warn('[GUARDIAN] Watchdog disabled — missing SUPABASE_URL or SUPABASE_SERVICE_KEY');
+}
 
 healthServer.listen(HEALTH_PORT, '0.0.0.0', () => {
     console.log(`[HEALTH] Listening on port ${HEALTH_PORT}`);

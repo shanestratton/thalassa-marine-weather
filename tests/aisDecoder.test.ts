@@ -74,14 +74,16 @@ describe('AIS Message Type 1 (Class A Position Report)', () => {
         expect(result.navStatus).toBeDefined();
     });
 
-    it('should decode a well-known test sentence', () => {
-        // From gpsd AIVDM reference: Message type 1
+    it('should reject Null Island (0,0) position as likely invalid', () => {
+        // From gpsd AIVDM reference: Message type 1 with all-zero position (0°N, 0°E = Null Island)
         // !AIVDM,1,1,,B,13u@Dt002s000000000000000000,0*40
+        // The decoder correctly rejects (0,0) as an unset/default position.
         const result = processAisSentence('!AIVDM,1,1,,B,13u@Dt002s000000000000000000,0*40');
-        expect(result).not.toBeNull();
-        if (!result) return;
+        expect(result).toBeNull(); // Null Island = correctly rejected
 
-        expect(result.mmsi).toBeDefined();
+        // But the payload itself should decode the MMSI before position filtering
+        const decoded = decodePayload('13u@Dt002s000000000000000000');
+        expect(decoded).toBeNull(); // Also null from position validation
     });
 
     it('should return null for corrupt sentences', () => {

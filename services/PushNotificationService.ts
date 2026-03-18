@@ -184,6 +184,27 @@ class PushNotificationServiceClass {
         }
     }
 
+    /**
+     * Clear badge count — call when app enters foreground.
+     * Resets the iOS badge to 0 and marks pending notifications as "read" in DB.
+     */
+    async clearBadge(): Promise<void> {
+        if (!Capacitor.isNativePlatform()) return;
+
+        try {
+            // Reset iOS badge to 0
+            await PushNotifications.removeAllDeliveredNotifications();
+
+            // Clear pending count in database
+            if (supabase) {
+                await supabase.rpc('clear_push_badge');
+            }
+            log.info('Badge cleared');
+        } catch (e) {
+            log.warn('Badge clear failed:', e);
+        }
+    }
+
     // ---- PRIVATE ----
 
     /** Save current token + user to Supabase push_device_tokens table */

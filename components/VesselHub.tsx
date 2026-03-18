@@ -170,7 +170,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     <span className="text-[11px] font-black text-red-400 uppercase tracking-[0.2em]">Active Watch</span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3 stagger-cascade">
+                <div className="grid grid-cols-4 gap-3 stagger-cascade">
                     {/* Anchor Watch Card */}
                     <button
                         onClick={() => {
@@ -250,6 +250,35 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${isObserver ? 'text-gray-400' : 'text-emerald-400'}`}
                         >
                             {isObserver ? 'Vessel Required' : 'Route Plan'}
+                        </p>
+                    </button>
+
+                    {/* 🛡️ Guardian Card — Maritime Neighborhood Watch */}
+                    <button
+                        onClick={() => {
+                            triggerHaptic('light');
+                            onNavigate('guardian');
+                        }}
+                        className="stagger-item bg-gradient-to-br from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]"
+                    >
+                        <div className="p-1.5 rounded-lg bg-white/5 inline-block mb-1.5 group-hover:bg-white/10 transition-colors">
+                            <svg
+                                className="w-4 h-4 text-amber-400"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"
+                                />
+                            </svg>
+                        </div>
+                        <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Guardian</h4>
+                        <p className="text-[11px] text-amber-400 font-bold uppercase tracking-widest mt-0.5">
+                            Bay Watch
                         </p>
                     </button>
                 </div>
