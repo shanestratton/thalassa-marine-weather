@@ -44,7 +44,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
         isMapOpen,
         setIsMapOpen,
         mapSelectionTarget,
-        _setMapSelectionTarget,
+        setMapSelectionTarget: _setMapSelectionTarget,
         loading,
         loadingStep,
         error,
@@ -58,7 +58,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
         handleMapSelect,
         openMap,
 
-        _routeCoords,
+        routeCoords: _routeCoords,
         isShortTrip,
 
         voyagePlan,

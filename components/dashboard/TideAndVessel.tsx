@@ -286,10 +286,10 @@ export const TideGraphOriginal = ({
     timeZone,
     hourlyTides,
     tideSeries,
-    _modelUsed,
+    modelUsed: _modelUsed,
     unitPref,
     stationName,
-    _secondaryStationName,
+    secondaryStationName: _secondaryStationName,
     guiDetails,
     stationPosition = 'bottom',
     customTime,
@@ -773,7 +773,7 @@ export const TideWidget = React.memo(TideWidgetComponent);
 
 const SunMoonWidgetComponent = ({
     current,
-    _units,
+    units: _units,
     timeZone,
     lat,
 }: {
@@ -914,7 +914,7 @@ const VesselStatusWidgetComponent = ({
     vessel,
     current,
     vesselStatus,
-    _statusStyles,
+    statusStyles: _statusStyles,
     tides,
     hourlyTides,
     tideHourly,

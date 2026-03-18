@@ -12,7 +12,7 @@
  * All animations are triggered via CSS classes with animation-fill-mode: both
  * so they play once on mount and settle.
  */
-import React, { _useRef } from 'react';
+import React, { useRef } from 'react';
 
 // ── All keyframes moved to index.css to prevent CSSOM thrashing ──
 // Classes: .anim-icon, .anim-wind, .anim-rain-1/2/3, .anim-sun-core,

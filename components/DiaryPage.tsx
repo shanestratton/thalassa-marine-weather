@@ -2,20 +2,20 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('DiaryPage');
-import { DiaryService, DiaryEntry, DiaryMood, _MOOD_CONFIG, DiaryWeatherData } from '../services/DiaryService';
+import { DiaryService, DiaryEntry, DiaryMood, MOOD_CONFIG, DiaryWeatherData } from '../services/DiaryService';
 import { triggerHaptic } from '../utils/system';
 import { Capacitor } from '@capacitor/core';
-import { _scrollInputAboveKeyboard } from '../utils/keyboardScroll';
+import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { SlideToAction } from './ui/SlideToAction';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { useWeather } from '../context/WeatherContext';
 import { useSettings } from '../context/SettingsContext';
 import { PageHeader } from './ui/PageHeader';
-import { _OfflineBadge } from './ui/OfflineBadge';
+import { OfflineBadge } from './ui/OfflineBadge';
 import { UndoToast } from './ui/UndoToast';
 import { SwipeableDiaryCard } from './diary/SwipeableDiaryCard';
 import { toast } from './Toast';
-import { _AudioWidget } from './diary/AudioWidget';
+import { AudioWidget } from './diary/AudioWidget';
 import { DiaryEntryView } from './diary/DiaryEntryView';
 import { DiaryComposeForm } from './diary/DiaryComposeForm';
 import { useDiaryState } from '../hooks/useDiaryState';
@@ -91,7 +91,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         polishing,
         gpsLoading,
         deletedItem,
-        _selectMode,
+        selectMode: _selectMode,
         selectedIds,
         menuOpen,
         exportProgress,

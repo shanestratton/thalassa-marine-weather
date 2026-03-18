@@ -50,7 +50,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
         messages,
         pinnedMessages,
         isMod,
-        _isAdmin,
+        isAdmin: _isAdmin,
         isModerator,
         likedMessages,
         showModMenu,

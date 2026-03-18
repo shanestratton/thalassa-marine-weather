@@ -18,7 +18,12 @@ interface RainForecastCardProps {
  * Compact State: Small card with summary text. "Wakes up" with cyan glow when rain detected.
  * Expanded State: Full modal with Dark Sky-style 60-bar minute-by-minute precipitation chart.
  */
-export const RainForecastCard: React.FC<RainForecastCardProps> = ({ data, className = '', _timeZone, rainSummary }) => {
+export const RainForecastCard: React.FC<RainForecastCardProps> = ({
+    data,
+    className = '',
+    timeZone: _timeZone,
+    rainSummary,
+}) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     // 60-second tick — forces re-evaluation of "Rain in X min" countdown

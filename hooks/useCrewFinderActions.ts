@@ -228,7 +228,9 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
                         hideHandle.then((h) => h.remove());
                     };
                 })
-                .catch(() => {});
+                .catch(() => {
+                    /* Keyboard plugin unavailable on web */
+                });
         } else {
             const vp = window.visualViewport;
             if (vp) {

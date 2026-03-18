@@ -71,7 +71,7 @@ const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
     task,
     categories,
     lightColors,
-    _triggerLabels,
+    triggerLabels: _triggerLabels,
     onTap,
     onDelete,
 }) => {

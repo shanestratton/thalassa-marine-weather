@@ -1,5 +1,5 @@
 // Sentry must be imported FIRST — before any other app code
-import { captureException, _addBreadcrumb } from './services/sentry';
+import { captureException, addBreadcrumb } from './services/sentry';
 
 import React, { ErrorInfo, ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
@@ -11,7 +11,9 @@ import { Capacitor } from '@capacitor/core';
 // Enable iOS keyboard "Done" toolbar — lets you dismiss the keyboard
 // without having to find somewhere else to tap
 if (Capacitor.isNativePlatform()) {
-    Keyboard.setAccessoryBarVisible({ isVisible: true }).catch(() => {});
+    Keyboard.setAccessoryBarVisible({ isVisible: true }).catch(() => {
+        /* Keyboard API unavailable on web */
+    });
 }
 
 // Suppress Recharts "width(-1) and height(-1)" warnings — a known cosmetic issue

@@ -8,7 +8,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { useFollowRoute } from '../context/FollowRouteContext';
-import { RouteIcon, _MapPinIcon } from './Icons';
+import { RouteIcon, MapPinIcon } from './Icons';
 
 // ── Stop Following Confirmation Dialog ──
 
@@ -142,7 +142,7 @@ export const FollowRouteBadge: React.FC = () => {
         routeChanged,
         changeDescription,
         isRefreshing,
-        _lastRefresh,
+        lastRefresh: _lastRefresh,
         stopFollowing,
         acceptRouteChange,
         dismissRouteChange,
