@@ -121,6 +121,16 @@ interface QueuedMessage {
 // --- PRE-SEEDED CHANNELS ---
 export const DEFAULT_CHANNELS: Omit<ChatChannel, 'id' | 'created_at'>[] = [
     {
+        name: 'Neighbourhood Watch',
+        description: 'Maritime safety alerts, suspicious activity, and community watch',
+        region: null,
+        icon: '🛡️',
+        is_global: true,
+        is_private: false,
+        owner_id: null,
+        parent_id: null,
+    },
+    {
         name: 'Marketplace',
         description: 'Buy, sell, and trade gear, boats, and services',
         region: null,
