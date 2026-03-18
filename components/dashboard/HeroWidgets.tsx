@@ -440,11 +440,9 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
         }
         // Fallback: use the active data's own precipChance or precipitation, not the live observation
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ((data as any).precipChance !== undefined) return (data as any).precipChance;
+        if (data.precipChance !== undefined) return data.precipChance;
         return safeRound(data.precipitation);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    }, [isLive, hourly, data.precipitation, (data as any).precipChance, cardTime]);
+    }, [isLive, hourly, data.precipitation, data.precipChance, cardTime]);
     const rainUnit = isLive ? (units.temp === 'F' ? 'in' : 'mm') : '%';
 
     const isOffshore = locationType === 'offshore';

@@ -198,8 +198,7 @@ export const fetchStormGlassWeather = async (
                 return Math.abs(utcEp - sgTime) < 100000;
             });
             if (matchIdx !== -1) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (h as any).cape = omCape[matchIdx];
+                h.cape = omCape[matchIdx];
             }
         });
     }

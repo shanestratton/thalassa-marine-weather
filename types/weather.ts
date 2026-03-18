@@ -110,6 +110,7 @@ export interface WeatherMetrics {
     cape?: number | null;
     secondarySwellHeight?: number | null;
     secondarySwellPeriod?: number | null;
+    precipChance?: number;
 }
 
 export interface SourcedWeatherMetrics extends WeatherMetrics {
