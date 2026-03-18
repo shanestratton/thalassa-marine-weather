@@ -25,30 +25,16 @@ import {
 import { AlarmAudioService } from '../services/AlarmAudioService';
 import { triggerHaptic } from '../utils/system';
 import { SwingCircleCanvas, type AisTargetDot } from './anchor-watch/SwingCircleCanvas';
+import { AnchorAlarmOverlay } from './anchor-watch/AnchorAlarmOverlay';
 import { AisStreamService } from '../services/AisStreamService';
 
-// Nav status → color (same logic as useAisStreamLayer)
-function navStatusColorSimple(code: number): string {
-    switch (code) {
-        case 0:
-            return '#22c55e';
-        case 1:
-            return '#f59e0b';
-        case 5:
-        case 6:
-            return '#94a3b8';
-        case 7:
-            return '#06b6d4';
-        case 2:
-        case 3:
-        case 4:
-            return '#f97316';
-        case 14:
-            return '#ef4444';
-        default:
-            return '#38bdf8';
-    }
-}
+import {
+    navStatusColorSimple,
+    getWeatherRecommendation,
+    formatDistance,
+    bearingToCardinal,
+    formatElapsed,
+} from './anchor-watch/anchorUtils';
 
 // ------- TYPES -------
 
@@ -56,44 +42,6 @@ type ViewMode = 'setup' | 'watching' | 'shore';
 
 interface AnchorWatchPageProps {
     onBack?: () => void;
-}
-
-// ------- HELPERS -------
-
-/** Compute weather-aware scope recommendation */
-function getWeatherRecommendation(windKts: number, gustKts: number, waveM: number) {
-    const effectiveWind = Math.max(windKts, gustKts * 0.85);
-    if (effectiveWind >= 30 || waveM >= 3) {
-        return { scope: 10, label: 'Storm Scope', severity: 'red' as const, icon: '🌊' };
-    }
-    if (effectiveWind >= 20 || waveM >= 2) {
-        return { scope: 8, label: 'Strong Wind', severity: 'amber' as const, icon: '💨' };
-    }
-    if (effectiveWind >= 10 || waveM >= 1) {
-        return { scope: 7, label: 'Moderate', severity: 'sky' as const, icon: '🌬️' };
-    }
-    return { scope: 5, label: 'Light Air', severity: 'emerald' as const, icon: '☀️' };
-}
-
-/** Format meters to human-readable */
-function formatDistance(meters: number): string {
-    if (meters < 1000) return `${meters.toFixed(0)}m`;
-    return `${(meters / 1852).toFixed(1)} NM`;
-}
-
-/** Format bearing to compass cardinal */
-function bearingToCardinal(deg: number): string {
-    const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-    return dirs[Math.round(deg / 45) % 8];
-}
-
-/** Format elapsed time since timestamp */
-function formatElapsed(startMs: number): string {
-    const elapsed = Date.now() - startMs;
-    const hours = Math.floor(elapsed / 3600000);
-    const minutes = Math.floor((elapsed % 3600000) / 60000);
-    if (hours > 0) return `${hours}h ${minutes}m`;
-    return `${minutes}m`;
 }
 
 // ------- MAIN COMPONENT -------
@@ -473,101 +421,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
     // ---- RENDER: ALARM OVERLAY ----
     if (snapshot?.state === 'alarm') {
-        return (
-            <div
-                className="fixed inset-0 z-[9999] flex flex-col items-center justify-center"
-                style={{ background: 'radial-gradient(circle at center, #450a0a 0%, #1c0505 50%, #0a0202 100%)' }}
-            >
-                {/* Animated concentric pulse rings */}
-                <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                    {[0, 1, 2].map((i) => (
-                        <div
-                            key={i}
-                            className="absolute rounded-full border-2 border-red-500/20 animate-ping"
-                            style={{
-                                width: `${200 + i * 120}px`,
-                                height: `${200 + i * 120}px`,
-                                top: '50%',
-                                left: '50%',
-                                transform: 'translate(-50%, -50%)',
-                                animationDelay: `${i * 0.4}s`,
-                                animationDuration: '2s',
-                            }}
-                        />
-                    ))}
-                </div>
-
-                {/* Alarm icon with glow */}
-                <div
-                    className="text-4xl mb-6 drop-shadow-[0_0_30px_rgba(239,68,68,0.5)]"
-                    style={{ animation: 'pulse 1s ease-in-out infinite' }}
-                >
-                    🚨
-                </div>
-
-                {/* DRAG ALARM heading */}
-                <h1
-                    className="text-4xl font-black text-red-400 tracking-[0.2em] mb-4 uppercase"
-                    style={{ textShadow: '0 0 30px rgba(239,68,68,0.4)' }}
-                    role="alert"
-                    aria-live="assertive"
-                >
-                    Drag Alarm
-                </h1>
-
-                {/* Distance readout */}
-                <div className="text-center mb-8">
-                    <div
-                        className="text-4xl font-mono font-black text-white mb-1"
-                        style={{ textShadow: '0 0 20px rgba(255,255,255,0.2)' }}
-                    >
-                        {formatDistance(snapshot.distanceFromAnchor)}
-                    </div>
-                    <div className="text-lg text-red-300/80">
-                        from anchor ({formatDistance(snapshot.swingRadius)} radius)
-                    </div>
-                    <div className="text-sm text-red-400/60 mt-2 font-mono">
-                        {snapshot.bearingToAnchor.toFixed(0)}° {bearingToCardinal(snapshot.bearingToAnchor)} to anchor
-                    </div>
-                </div>
-
-                {/* Bearing compass — gradient ring */}
-                <div
-                    className="w-24 h-24 rounded-full flex items-center justify-center mb-8 relative"
-                    style={{
-                        background:
-                            'conic-gradient(from 0deg, rgba(239,68,68,0.1), rgba(239,68,68,0.3), rgba(239,68,68,0.1))',
-                        border: '3px solid rgba(239,68,68,0.3)',
-                    }}
-                >
-                    <div
-                        className="absolute w-1 h-10 rounded-full origin-bottom"
-                        style={{
-                            transform: `rotate(${snapshot.bearingToAnchor}deg)`,
-                            bottom: '50%',
-                            left: 'calc(50% - 2px)',
-                            background: 'linear-gradient(to top, transparent, #ef4444)',
-                        }}
-                    />
-                    <span className="text-sm text-red-400/80 font-bold">⚓</span>
-                </div>
-
-                {/* Silence button — premium gradient */}
-                <button
-                    onClick={handleAcknowledgeAlarm}
-                    className="px-10 py-4 rounded-2xl text-white text-xl font-black transition-all active:scale-95"
-                    style={{
-                        background: 'linear-gradient(135deg, #dc2626 0%, #991b1b 100%)',
-                        boxShadow: '0 8px 32px rgba(220, 38, 38, 0.4), 0 0 60px rgba(220, 38, 38, 0.2)',
-                    }}
-                    aria-label="Acknowledge Alarm"
-                >
-                    Silence Alarm
-                </button>
-
-                <p className="text-red-400/40 text-sm mt-4 tracking-wider">Monitoring continues after silencing</p>
-            </div>
-        );
+        return <AnchorAlarmOverlay snapshot={snapshot} onAcknowledge={handleAcknowledgeAlarm} />;
     }
 
     // ---- RENDER: SETUP (IDLE) — Instrument-Grade Dashboard ----
