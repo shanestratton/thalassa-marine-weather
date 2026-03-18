@@ -385,10 +385,13 @@ const App: React.FC = () => {
             </Suspense>
 
             <div className="relative z-10 flex flex-col h-full overflow-hidden">
-                {/* OFFLINE BANNER */}
+                {/* OFFLINE INDICATOR — subtle floating pill */}
                 {isOffline && (
-                    <div className="bg-orange-600/90 text-white text-xs font-bold uppercase tracking-widest text-center py-2 px-4 shadow-lg flex items-center justify-center gap-2 pt-[max(0.5rem,env(safe-area-inset-top))] shrink-0">
-                        <ServerIcon className="w-4 h-4" /> OFFLINE MODE
+                    <div className="flex justify-center pt-[max(0.5rem,env(safe-area-inset-top))] pb-1 shrink-0">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 backdrop-blur-md border border-white/10 text-[10px] text-white/50 font-medium uppercase tracking-widest">
+                            <div className="w-1.5 h-1.5 rounded-full bg-orange-400/80 animate-pulse" />
+                            Offline
+                        </div>
                     </div>
                 )}
 
@@ -486,7 +489,7 @@ const App: React.FC = () => {
                                                 value={query}
                                                 readOnly
                                                 placeholder="Select via Map..."
-                                                className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default ${isOffline ? 'bg-white/5 opacity-75 border border-orange-500/30' : 'bg-slate-900/60 border border-white/10'}`}
+                                                className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default ${isOffline ? 'bg-slate-900/40 border border-white/5 opacity-80' : 'bg-slate-900/60 border border-white/10'}`}
                                                 onClick={() => {
                                                     mapFromWxRef.current = true;
                                                     setPage('map');
