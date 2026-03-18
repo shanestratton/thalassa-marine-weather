@@ -1295,6 +1295,16 @@ body,
     }
 }
 
+@keyframes fadeOut {
+    from {
+        opacity: 1;
+    }
+
+    to {
+        opacity: 0;
+    }
+}
+
 /* GPS dedup feedback badge animations */
 @keyframes dedupFadeIn {
     from {
