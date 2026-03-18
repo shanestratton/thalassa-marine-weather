@@ -44,6 +44,11 @@ export const FEATURE_REGISTRY = {
         tier: 'premium',
         description: 'Set custom collision alert perimeters around your vessel',
     },
+    vessel_intel: {
+        label: 'Vessel Intelligence',
+        tier: 'premium',
+        description: 'Instant vessel identification with name, flag, photo, and dimensions',
+    },
     anchor_watch_shore: {
         label: 'Shore Monitoring',
         tier: 'premium',

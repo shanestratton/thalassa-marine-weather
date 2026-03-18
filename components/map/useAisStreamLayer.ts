@@ -20,6 +20,9 @@ import { NmeaStore } from '../../services/NmeaStore';
 import { computeCpa } from '../../utils/cpaCalculation';
 import { AisGuardZone } from '../../services/AisGuardZone';
 import { triggerHaptic } from '../../utils/system';
+import { VesselMetadataService } from '../../services/VesselMetadataService';
+import { getMmsiFlag } from '../../utils/MmsiDecoder';
+import { isFeatureLockedSync } from '../../managers/FeatureGate';
 
 const FETCH_DEBOUNCE_MS = 1500;
 const AIS_SOURCE_ID = 'ais-targets';
@@ -373,8 +376,18 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
 
             if (popupRef.current) popupRef.current.remove();
 
-            // ── Identity ──
-            const name = p.name || `MMSI ${p.mmsi}`;
+            // ── Identity — "Bingo" interception ──
+            const isPremium = !isFeatureLockedSync('vessel_intel');
+            const flagEmoji = getMmsiFlag(p.mmsi);
+            const intel = isPremium ? VesselMetadataService.getVesselIntel(p.mmsi) : null;
+
+            // Premium "Bingo" name: enriched DB name > AIS name > MMSI fallback
+            const vesselName = isPremium
+                ? (intel?.name ?? p.name ?? `MMSI ${p.mmsi}`)
+                : (p.name || `MMSI ${p.mmsi}`);
+            const namePrefix = isPremium && intel?.flag ? `${intel.flag} ` : `${flagEmoji} `;
+            const displayName = `${namePrefix}${vesselName}`;
+
             const statusColor = p.statusColor || '#38bdf8';
             const status = navStatusLabel(p.navStatus ?? 15);
             const sogVal = p.sog != null ? Number(p.sog) : 0;
@@ -382,12 +395,43 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             const sog = sogVal > 0 ? `${sogVal.toFixed(1)} kn` : 'Stationary';
             const cogStr = p.cog != null ? `${cogVal.toFixed(0)}°` : '—';
             const hdg = p.heading != null && p.heading !== 511 ? `${p.heading}°` : '—';
-            const callSign = p.callSign || '—';
+            const callSign = (isPremium && intel?.metadata?.call_sign) || p.callSign || '—';
             const destination = p.destination || '—';
             const source = p.source === 'local' ? '📡 Local NMEA' : '🌐 AISStream';
 
             // ── Ship type ──
+            const vesselType = isPremium && intel?.metadata?.vessel_type
+                ? intel.metadata.vessel_type
+                : null;
             const { icon: shipIcon, label: shipLabel } = decodeShipType(p.shipType ?? 0);
+            const typeLabel = vesselType || shipLabel;
+
+            // ── Thumbnail (premium only) ──
+            const thumbnail = isPremium ? intel?.thumbnail : null;
+
+            // ── Dimensions (premium only) ──
+            let dimensionsHtml = '';
+            if (isPremium && intel?.metadata) {
+                const m = intel.metadata;
+                const dims: string[] = [];
+                if (m.loa) dims.push(`LOA: ${m.loa}m`);
+                if (m.beam) dims.push(`Beam: ${m.beam}m`);
+                if (m.draft) dims.push(`Draft: ${m.draft}m`);
+                if (dims.length > 0) {
+                    dimensionsHtml = `
+                        <div style="display:flex;gap:8px;margin-bottom:10px;padding:6px 8px;background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.15);border-radius:8px;font-size:10px;color:#94a3b8;">
+                            ${dims.map(d => `<span>${d}</span>`).join('<span style="color:#334155;">•</span>')}
+                        </div>
+                    `;
+                }
+            }
+
+            // ── Upgrade banner (free users only) ──
+            const upgradeBanner = !isPremium
+                ? `<div style="background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.15);border-radius:8px;padding:6px 10px;margin-bottom:10px;text-align:center;font-size:10px;color:#38bdf8;cursor:pointer;" onclick="window.dispatchEvent(new CustomEvent('trigger-paywall'))">
+                    🔒 Upgrade for vessel name, flag, photo &amp; dimensions
+                   </div>`
+                : '';
 
             // ── Last seen ──
             let lastSeen = '—';
@@ -475,10 +519,13 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             const html = `
                 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:rgba(15,23,42,0.95);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:14px 16px;color:#e2e8f0;min-width:240px;max-width:300px;">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                        <span style="font-size:20px;">${shipIcon}</span>
+                        ${thumbnail
+                            ? `<img src="${thumbnail}" alt="" style="width:40px;height:40px;border-radius:10px;object-fit:cover;border:1px solid rgba(255,255,255,0.1);flex-shrink:0;" />`
+                            : `<span style="font-size:20px;">${shipIcon}</span>`
+                        }
                         <div style="flex:1;min-width:0;">
-                            <div style="font-weight:800;font-size:14px;letter-spacing:0.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</div>
-                            <div style="font-size:10px;color:#94a3b8;">${shipLabel}</div>
+                            <div style="font-weight:800;font-size:14px;letter-spacing:0.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${displayName}</div>
+                            <div style="font-size:10px;color:#94a3b8;">${typeLabel}${isPremium && intel?.metadata?.is_verified ? ' ✓' : ''}</div>
                         </div>
                         <div style="width:10px;height:10px;border-radius:50%;background:${statusColor};box-shadow:0 0 8px ${statusColor};flex-shrink:0;"></div>
                     </div>
@@ -489,6 +536,8 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                         <span style="color:#475569;">•</span>
                         <span style="font-size:10px;color:${lastSeen === 'Live' ? '#22c55e' : '#64748b'};">${lastSeen}</span>
                     </div>
+                    ${upgradeBanner}
+                    ${dimensionsHtml}
                     ${cpaSection}
                     <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:11px;">
                         <span style="color:#64748b;">MMSI</span>
