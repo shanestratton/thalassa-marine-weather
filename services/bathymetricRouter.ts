@@ -70,8 +70,8 @@ export async function fetchBathymetricRoute(
     origin: { lat: number; lon: number },
     destination: { lat: number; lon: number },
     _vesselDraft: number = 2.5,
-    via?: { lat: number; lon: number },
-    region?: string,
+    _via?: { lat: number; lon: number },
+    _region?: string,
 ): Promise<BathymetricResponse | null> {
     // RouteOrchestrator was removed — return null to fall back to AI voyage plan
     console.info('[BathyRouter] Client-side orchestrator unavailable — skipping bathymetric route');

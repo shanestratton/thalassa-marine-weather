@@ -12,7 +12,7 @@
 
 import { createLogger } from '../utils/createLogger';
 import { supabase } from './supabase';
-const log = createLogger('Moderation');
+const _log = createLogger('Moderation');
 
 // --- CONFIG ---
 const MESSAGES_TABLE = 'chat_messages';

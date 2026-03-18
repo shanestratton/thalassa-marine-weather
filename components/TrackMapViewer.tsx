@@ -616,7 +616,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         : '';
 
     const maxIdx = sortedEntries.length - 1;
-    const pct = maxIdx > 0 ? (playbackIndex / maxIdx) * 100 : 0;
+    const _pct = maxIdx > 0 ? (playbackIndex / maxIdx) * 100 : 0;
 
     // ── Compute elapsed duration from first entry to current ──
     const elapsedLabel = (() => {

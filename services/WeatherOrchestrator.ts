@@ -434,7 +434,7 @@ export class WeatherOrchestrator {
     // ── Core Fetch ─────────────────────────────────────────────
 
     async fetchWeather(location: string, options: FetchWeatherOptions = {}): Promise<void> {
-        const { force = false, coords, showOverlay = false, silent = false } = options;
+        const { force = false, coords, _showOverlay = false, silent = false } = options;
 
         if (!location) return;
 

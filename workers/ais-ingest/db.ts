@@ -31,6 +31,7 @@ export class VesselDB {
     start(): void {
         if (this.flushTimer) return;
         this.flushTimer = setInterval(() => this.flush(), FLUSH_INTERVAL);
+        // eslint-disable-next-line no-console
         console.log(`[DB] Flush timer started (${FLUSH_INTERVAL}ms, max ${BATCH_MAX}/batch)`);
     }
 

@@ -151,7 +151,7 @@ export async function saveLocalWindFile(grid: WindGrid, filename = 'passage_wind
     }
     const base64 = btoa(binary);
 
-    const result = await Filesystem.writeFile({
+    const _result = await Filesystem.writeFile({
         path: filename,
         data: base64,
         directory: Directory.Documents,

@@ -113,7 +113,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     /** Detect Supabase rate-limit errors */
     const isRateLimited = (err: unknown): boolean => {
         const msg = getErrorMessage(err).toLowerCase();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const status = (err as any)?.status ?? (err as any)?.statusCode;
         if (status === 429) return true;
@@ -123,7 +123,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     /** Log raw error for debugging */
     const logAuthError = (context: string, err: unknown) => {
         const msg = getErrorMessage(err);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const status = (err as any)?.status ?? (err as any)?.statusCode ?? 'n/a';
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

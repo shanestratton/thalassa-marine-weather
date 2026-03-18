@@ -22,7 +22,7 @@ export const generateTacticalAdvice = (
     const wind = metrics.windSpeed || 0;
     const wave = metrics.waveHeight || 0;
     const vis = metrics.visibility;
-    const gust = metrics.windGust || wind * 1.3;
+    const _gust = metrics.windGust || wind * 1.3;
     const cond = (metrics.condition || '').toLowerCase();
     const now = new Date();
 

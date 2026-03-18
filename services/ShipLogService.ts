@@ -440,7 +440,7 @@ class ShipLogServiceClass {
      *      2-min interval  → fires at xx:00, xx:02, xx:04, ...
      *      30-sec interval → fires at xx:xx:00, xx:xx:30
      */
-    private scheduleClockAlignedInterval(intervalMs: number, zone: string): void {
+    private scheduleClockAlignedInterval(intervalMs: number, _zone: string): void {
         this.clearAllTimers();
 
         const now = Date.now();
@@ -1168,7 +1168,7 @@ class ShipLogServiceClass {
                     }
                     return saveResult;
                 }
-            } catch (networkError) {
+            } catch (_networkError) {
                 await this.queueOfflineEntry(entry);
             }
         } else {
@@ -1459,7 +1459,7 @@ class ShipLogServiceClass {
                     } else {
                         return saveResult;
                     }
-                } catch (networkError) {
+                } catch (_networkError) {
                     // Offline - queue for later
                     await this.queueOfflineEntry(entry);
                 }
@@ -1651,7 +1651,7 @@ class ShipLogServiceClass {
                 } else {
                     return saveResult;
                 }
-            } catch (networkError) {
+            } catch (_networkError) {
                 await this.queueOfflineEntry(entry);
             }
         } else {
@@ -1957,7 +1957,7 @@ class ShipLogServiceClass {
                     } else {
                         log.warn('savePassagePlan: No authenticated user, queuing offline');
                     }
-                } catch (networkError) {
+                } catch (_networkError) {
                     log.warn('savePassagePlan: Network error, queuing offline');
                 }
             }

@@ -48,13 +48,13 @@ class AisStreamServiceClass {
 
         try {
             // Get Supabase project URL and key for direct fetch
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             
             const supabaseUrl =
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (supabase as any).supabaseUrl ||
                 (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
                 '';
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             
             const supabaseKey =
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (supabase as any).supabaseKey ||

@@ -140,7 +140,7 @@ export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2
  * getSunTimes(new Date('2024-06-21'), -27.47, 153.02) // Brisbane summer solstice
  */
 export const getSunTimes = (date: Date, lat: number, lon: number): { sunrise: Date; sunset: Date } | null => {
-    const times = {
+    const _times = {
         sunrise: new Date(date),
         sunset: new Date(date),
     };

@@ -225,7 +225,7 @@ export const ToastPortal: React.FC = () => {
 
 // ── Legacy useToast hook (backwards-compatible) ────────────────────
 export const useToast = () => {
-    const [toasts, setToasts] = useState<ToastItem[]>([]);
+    const [_toasts, setToasts] = useState<ToastItem[]>([]);
 
     const showToast = (message: string, type: ToastType = 'info', duration?: number) => {
         const id = nextId++;

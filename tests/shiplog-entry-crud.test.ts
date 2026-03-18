@@ -82,7 +82,7 @@ beforeEach(() => {
 describe('getLogEntries', () => {
     it('returns mapped entries when authenticated', async () => {
         mockAuthUser('user-1');
-        const chain = setupChainedQuery([
+        const _chain = setupChainedQuery([
             {
                 id: 'e1',
                 user_id: 'user-1',

@@ -194,7 +194,7 @@ export async function unarchiveVoyage(voyageId: string): Promise<boolean> {
  */
 export async function deleteVoyage(voyageId: string): Promise<boolean> {
     // First, try to delete from offline queue (local storage)
-    const offlineDeleted = await deleteVoyageFromOfflineQueue(voyageId);
+    const _offlineDeleted = await deleteVoyageFromOfflineQueue(voyageId);
 
     // If Supabase is available, also delete from there
     if (supabase) {
@@ -231,7 +231,7 @@ export async function deleteVoyage(voyageId: string): Promise<boolean> {
  */
 export async function deleteEntry(entryId: string): Promise<boolean> {
     // First, try to delete from offline queue (local storage)
-    const offlineDeleted = await deleteEntryFromOfflineQueue(entryId);
+    const _offlineDeleted = await deleteEntryFromOfflineQueue(entryId);
 
     // If Supabase is available, also delete from there
     if (supabase) {

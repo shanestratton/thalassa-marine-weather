@@ -5,7 +5,7 @@ import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
 import { useAppController } from './hooks/useAppController';
 import { Dashboard } from './components/Dashboard';
-import { SearchIcon, WindIcon, MapIcon, ShipWheelIcon, ServerIcon, StarIcon, ChatIcon } from './components/Icons';
+import { SearchIcon, WindIcon, MapIcon, ShipWheelIcon, StarIcon, ChatIcon } from './components/Icons';
 import { SkeletonDashboard } from './components/SkeletonLoader';
 const ForecastSheet = lazyRetry(() => import('./components/ForecastSheet').then((m) => ({ default: m.ForecastSheet })));
 import { NotificationManager } from './components/NotificationManager';

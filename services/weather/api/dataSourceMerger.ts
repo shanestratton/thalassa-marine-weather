@@ -159,7 +159,7 @@ function _calculateDistanceNM(lat1: number, lon1: number, lat2: number, lon2: nu
 export function mergeWeatherData(
     buoy: BeaconObservation | null,
     stormglassReport: MarineWeatherReport,
-    location: { lat: number; lon: number; name: string },
+    _location: { lat: number; lon: number; name: string },
 ): MarineWeatherReport {
     const stormglass = stormglassReport.current;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

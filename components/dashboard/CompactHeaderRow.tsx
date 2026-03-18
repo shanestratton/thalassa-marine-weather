@@ -26,10 +26,10 @@ export const CompactHeaderRow = ({
     alerts,
     sunrise,
     sunset,
-    precipitation,
+    _precipitation,
     moonPhase,
-    dashboardMode,
-    onToggleDashboardMode,
+    _dashboardMode,
+    _onToggleDashboardMode,
 }: {
     alerts?: string[];
     sunrise?: string;

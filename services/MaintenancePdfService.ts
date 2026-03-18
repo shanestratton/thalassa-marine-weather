@@ -8,7 +8,6 @@
  * Uses jsPDF for generation + @capacitor/share for native share sheet.
  * Falls back to browser download on web.
  */
-import type jsPDF from 'jspdf';
 import { MaintenanceService, calculateStatus, sortByUrgency } from './MaintenanceService';
 import type { MaintenanceTask, MaintenanceHistory } from '../types';
 

@@ -224,7 +224,7 @@ function mapDailyForecast(forecastDaily: WeatherKitRaw): ForecastDay[] {
 /** Map Apple forecastNextHour → MinutelyRain[] */
 function mapNextHourForecast(forecastNextHour: WeatherKitRaw): { rain: MinutelyRain[]; summary: string } {
     const minutes = forecastNextHour?.minutes;
-    const summary = forecastNextHour?.summary?.[0]?.condition ?? forecastNextHour?.metadata?.conditionCode ?? '';
+    const _summary = forecastNextHour?.summary?.[0]?.condition ?? forecastNextHour?.metadata?.conditionCode ?? '';
 
     // Build human-readable summary from Apple's data
     let summaryText = '';

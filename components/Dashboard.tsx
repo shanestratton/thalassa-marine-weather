@@ -68,7 +68,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
     // Derived UI Props
     const isDetailMode = props.viewMode === 'details';
-    const [selectedTime, setSelectedTime] = useState<number | undefined>(undefined);
+    const [_selectedTime, setSelectedTime] = useState<number | undefined>(undefined);
 
     // Fixed header state management — refs + state for throttled updates
     // Refs hold the latest value instantly (no re-render). State triggers the UI update.

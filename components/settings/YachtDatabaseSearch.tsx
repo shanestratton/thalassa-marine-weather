@@ -19,7 +19,7 @@ interface YachtDatabaseSearchProps {
     compact?: boolean;
 }
 
-export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ selectedModel, onSelect, compact }) => {
+export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({ selectedModel, onSelect, _compact }) => {
     const [search, setSearch] = useState('');
     const [localSelected, setLocalSelected] = useState(selectedModel || '');
 

@@ -286,10 +286,10 @@ export const TideGraphOriginal = ({
     timeZone,
     hourlyTides,
     tideSeries,
-    modelUsed,
+    _modelUsed,
     unitPref,
     stationName,
-    secondaryStationName,
+    _secondaryStationName,
     guiDetails,
     stationPosition = 'bottom',
     customTime,
@@ -773,7 +773,7 @@ export const TideWidget = React.memo(TideWidgetComponent);
 
 const SunMoonWidgetComponent = ({
     current,
-    units,
+    _units,
     timeZone,
     lat,
 }: {
@@ -830,7 +830,7 @@ const VesselWidgetComponent = ({ vessel, vesselStatus }: { vessel: VesselProfile
     const hullSpeed = vessel && vessel.type !== 'observer' ? calculateHullSpeed(vessel.length) : null;
     const mcr = vessel && vessel.type === 'sail' ? calculateMCR(vessel.displacement, vessel.length, vessel.beam) : null;
     const csf = vessel && vessel.type === 'sail' ? calculateCSF(vessel.displacement, vessel.beam) : null;
-    const dlr = vessel && vessel.type === 'sail' ? calculateDLR(vessel.displacement, vessel.length) : null;
+    const _dlr = vessel && vessel.type === 'sail' ? calculateDLR(vessel.displacement, vessel.length) : null;
 
     if (!vessel || vessel.type === 'observer') {
         return (
@@ -914,7 +914,7 @@ const VesselStatusWidgetComponent = ({
     vessel,
     current,
     vesselStatus,
-    statusStyles,
+    _statusStyles,
     tides,
     hourlyTides,
     tideHourly,

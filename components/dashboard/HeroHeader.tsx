@@ -93,7 +93,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     isDay,
     dateLabel,
     timeLabel,
-    timeZone,
+    _timeZone,
     sources,
     isExpanded = true,
     onToggleExpand,

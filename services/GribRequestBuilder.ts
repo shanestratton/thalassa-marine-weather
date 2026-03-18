@@ -197,7 +197,7 @@ export class GribRequestBuilder {
      * Uses NOAA's NOMADS GRIB filter service.
      */
     static buildDownloadUrl(request: GribRequest): string {
-        const { bbox, parameters, resolution, timeStep, forecastHours, model } = request;
+        const { bbox, parameters, _resolution, _timeStep, _forecastHours, model } = request;
 
         if (model === 'GFS') {
             // NOAA NOMADS GFS GRIB filter

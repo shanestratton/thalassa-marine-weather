@@ -108,7 +108,7 @@ const OVERLAY_CARD_STYLE: React.CSSProperties = {
     color: '#e2e8f0',
 };
 
-const CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle }) => {
+const _CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle }) => {
     const { summary, mesh_stats, track } = payload;
     const departure = track[0];
     const arrival = track[track.length - 1];
@@ -262,8 +262,8 @@ interface PassageCanvasProps {
 
 const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
     const [currentTimeHours, setCurrentTimeHours] = useState(0);
-    const [deckCollapsed, setDeckCollapsed] = useState(true);
-    const [hudCollapsed, setHudCollapsed] = useState(false);
+    const [_deckCollapsed, _setDeckCollapsed] = useState(true);
+    const [_hudCollapsed, _setHudCollapsed] = useState(false);
     const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
     const [logbookState, setLogbookState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 

@@ -15,7 +15,7 @@ import { _OfflineBadge } from './ui/OfflineBadge';
 import { UndoToast } from './ui/UndoToast';
 import { SwipeableDiaryCard } from './diary/SwipeableDiaryCard';
 import { toast } from './Toast';
-import { AudioWidget } from './diary/AudioWidget';
+import { _AudioWidget } from './diary/AudioWidget';
 import { DiaryEntryView } from './diary/DiaryEntryView';
 import { DiaryComposeForm } from './diary/DiaryComposeForm';
 import { useDiaryState } from '../hooks/useDiaryState';
@@ -91,7 +91,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         polishing,
         gpsLoading,
         deletedItem,
-        selectMode,
+        _selectMode,
         selectedIds,
         menuOpen,
         exportProgress,

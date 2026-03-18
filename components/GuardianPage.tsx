@@ -137,7 +137,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             document.addEventListener('touchend', handleEnd);
             document.addEventListener('mousemove', handleMove);
             document.addEventListener('mouseup', handleEnd);
-            // eslint-disable-next-line react-hooks/exhaustive-deps
+             
         },
         [armed, arming, sliderX],
     );
