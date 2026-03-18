@@ -20,9 +20,10 @@ const getChannelIcon = (ch: { name: string; icon: string }) => ICON_OVERRIDES[ch
 const getChannelName = (ch: { name: string }) => NAME_OVERRIDES[ch.name] ?? ch.name;
 
 const CHANNEL_PRIORITY: Record<string, number> = {
-    Marketplace: 0,
-    'Find Crew': 1,
-    General: 2,
+    'Neighbourhood Watch': 0,
+    Marketplace: 1,
+    'Find Crew': 2,
+    General: 3,
 };
 
 interface ChannelListProps {
