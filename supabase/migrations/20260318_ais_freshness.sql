@@ -1,13 +1,15 @@
 -- ============================================================================
--- Fix: Add freshness filter to vessels_nearby query
--- Only return vessels updated within the last 2 hours
+-- AIS Freshness — 2-hour vessel expiry
+--
+-- Adds a 2-hour freshness filter to vessels_nearby so stale AIS targets
+-- disappear from the map. Also reduces the sweep default to 2 hours.
 -- ============================================================================
 
--- Update the spatial query function to filter stale vessels
+-- Update vessels_nearby to filter out vessels older than 2 hours
 CREATE OR REPLACE FUNCTION public.vessels_nearby(
     query_lat double precision,
     query_lon double precision,
-    radius_m double precision DEFAULT 46300, -- ~25 NM
+    radius_m double precision DEFAULT 46300,
     max_results integer DEFAULT 500
 )
 RETURNS TABLE (
@@ -52,7 +54,7 @@ AS $$
     LIMIT max_results;
 $$;
 
--- Also reduce the default sweep from 24h to 2h
+-- Update sweep default to 2 hours
 CREATE OR REPLACE FUNCTION public.sweep_stale_vessels(max_age_hours integer DEFAULT 2)
 RETURNS integer
 LANGUAGE plpgsql
