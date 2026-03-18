@@ -11,32 +11,36 @@
 import React, { useMemo } from 'react';
 
 interface DepthGaugeProps {
-    value: number | null; // Depth in meters
+    value: number | null; // Depth in meters (raw from transducer)
     maxDepth?: number; // Maximum gauge range (default 100m)
     unit?: string;
     freshness?: 'live' | 'stale' | 'dead';
+    keelOffset?: number; // Keel depth offset in meters (negative, subtracted from raw depth)
 }
 
-export const DepthGauge: React.FC<DepthGaugeProps> = ({ value, maxDepth = 100, unit = 'm', freshness = 'dead' }) => {
+export const DepthGauge: React.FC<DepthGaugeProps> = ({ value, maxDepth = 100, unit = 'm', freshness = 'dead', keelOffset = 0 }) => {
+    // Apply keel offset: subtract offset from raw depth
+    const adjustedValue = value !== null ? Math.max(0, value + keelOffset) : null;
+    const hasOffset = keelOffset < 0;
     const isDead = freshness === 'dead' || value === null;
     const isStale = freshness === 'stale';
     const opacity = isDead ? 0.3 : isStale ? 0.6 : 1;
 
     // Auto-scale: pick a sensible max based on current value
     const effectiveMax = useMemo(() => {
-        if (value === null) return maxDepth;
-        if (value < 10) return 20;
-        if (value < 25) return 50;
-        if (value < 50) return 100;
-        if (value < 100) return 200;
-        return Math.ceil(value / 100) * 100 + 50;
-    }, [value, maxDepth]);
+        if (adjustedValue === null) return maxDepth;
+        if (adjustedValue < 10) return 20;
+        if (adjustedValue < 25) return 50;
+        if (adjustedValue < 50) return 100;
+        if (adjustedValue < 100) return 200;
+        return Math.ceil(adjustedValue / 100) * 100 + 50;
+    }, [adjustedValue, maxDepth]);
 
-    const clamped = value !== null ? Math.max(0, Math.min(effectiveMax, value)) : 0;
+    const clamped = adjustedValue !== null ? Math.max(0, Math.min(effectiveMax, adjustedValue)) : 0;
     const fraction = clamped / effectiveMax;
 
     // Danger zone: below 5m is shallow water danger
-    const isShallow = value !== null && value < 5;
+    const isShallow = adjustedValue !== null && adjustedValue < 5;
 
     // Generate depth markers
     const markers = useMemo(() => {
@@ -97,7 +101,7 @@ export const DepthGauge: React.FC<DepthGaugeProps> = ({ value, maxDepth = 100, u
                     />
 
                     {/* Water fill — fills from bottom */}
-                    {value !== null && fraction > 0.01 && (
+                    {adjustedValue !== null && fraction > 0.01 && (
                         <g opacity={opacity}>
                             <clipPath id="depth-clip">
                                 <rect x={BAR_X + 1} y={BAR_Y + 1} width={BAR_W - 2} height={BAR_H - 2} rx="7" ry="7" />
@@ -173,7 +177,7 @@ export const DepthGauge: React.FC<DepthGaugeProps> = ({ value, maxDepth = 100, u
                     </g>
 
                     {/* Current depth indicator — right side arrow */}
-                    {value !== null && (
+                    {adjustedValue !== null && (
                         <g opacity={opacity} style={{ transition: 'transform 0.6s ease' }}>
                             <polygon
                                 points={`${BAR_X + BAR_W + 4},${BAR_Y + fraction * BAR_H} ${BAR_X + BAR_W + 14},${BAR_Y + fraction * BAR_H - 6} ${BAR_X + BAR_W + 14},${BAR_Y + fraction * BAR_H + 6}`}
@@ -244,13 +248,18 @@ export const DepthGauge: React.FC<DepthGaugeProps> = ({ value, maxDepth = 100, u
                     <span
                         className={`text-6xl font-black tracking-tighter font-mono tabular-nums ${isShallow ? 'text-red-400' : 'text-white'}`}
                     >
-                        {value !== null ? value.toFixed(1) : '--.-'}
+                        {adjustedValue !== null ? adjustedValue.toFixed(1) : '--.-'}
                     </span>
                     <span className="text-2xl font-bold text-gray-400">{unit}</span>
                 </div>
                 <span className="text-xs font-bold uppercase tracking-[0.25em] text-gray-400">
-                    Depth Below Transducer
+                    {hasOffset ? 'Depth Below Keel' : 'Depth Below Transducer'}
                 </span>
+                {hasOffset && (
+                    <span className="text-[10px] font-semibold text-sky-400/70 mt-0.5">
+                        Keel offset: {keelOffset.toFixed(1)}m
+                    </span>
+                )}
                 {isShallow && (
                     <span className="text-xs font-black uppercase tracking-widest text-red-400 animate-pulse mt-1">
                         ⚠ Shallow Water
