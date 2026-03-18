@@ -24,7 +24,21 @@ import {
 } from '../services/AnchorWatchSyncService';
 import { AlarmAudioService } from '../services/AlarmAudioService';
 import { triggerHaptic } from '../utils/system';
-import { SwingCircleCanvas } from './anchor-watch/SwingCircleCanvas';
+import { SwingCircleCanvas, type AisTargetDot } from './anchor-watch/SwingCircleCanvas';
+import { AisStreamService } from '../services/AisStreamService';
+
+// Nav status → color (same logic as useAisStreamLayer)
+function navStatusColorSimple(code: number): string {
+    switch (code) {
+        case 0: return '#22c55e';
+        case 1: return '#f59e0b';
+        case 5: case 6: return '#94a3b8';
+        case 7: return '#06b6d4';
+        case 2: case 3: case 4: return '#f97316';
+        case 14: return '#ef4444';
+        default: return '#38bdf8';
+    }
+}
 
 // ------- TYPES -------
 
@@ -94,6 +108,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     // Sound check modal — shown once per session before first anchor set
     const [showSoundCheck, setShowSoundCheck] = useState(false);
     const soundCheckShownRef = useRef(false);
+
+    // AIS targets on anchor watch radar
+    const [aisTargets, setAisTargets] = useState<AisTargetDot[]>([]);
+    const [showAisOnRadar, setShowAisOnRadar] = useState(() => {
+        try { return localStorage.getItem('thalassa_anchor_ais') !== 'off'; } catch { return true; }
+    });
 
     // Canvas ref no longer needed — SwingCircleCanvas manages its own ref
 
@@ -286,6 +306,55 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     }, [viewMode, syncState?.connected]);
 
     // Swing circle visualization extracted to SwingCircleCanvas component
+
+    // ── AIS target polling for anchor watch radar ──
+    useEffect(() => {
+        if (viewMode !== 'watching' || !showAisOnRadar) {
+            setAisTargets([]);
+            return;
+        }
+
+        const fetchAisTargets = async () => {
+            const snap = snapshotRef.current;
+            if (!snap?.anchorPosition) return;
+
+            try {
+                const geojson = await AisStreamService.fetchNearby({
+                    lat: snap.anchorPosition.latitude,
+                    lon: snap.anchorPosition.longitude,
+                    radiusNm: 2,
+                    limit: 50,
+                });
+
+                const dots: AisTargetDot[] = (geojson.features || [])
+                    .filter((f) => {
+                        const coords = (f.geometry as GeoJSON.Point)?.coordinates;
+                        return coords && coords.length >= 2;
+                    })
+                    .map((f) => {
+                        const p = f.properties || {};
+                        const coords = (f.geometry as GeoJSON.Point).coordinates;
+                        return {
+                            mmsi: Number(p.mmsi),
+                            name: p.name || `MMSI ${p.mmsi}`,
+                            lat: coords[1],
+                            lon: coords[0],
+                            cog: Number(p.cog ?? 0),
+                            sog: Number(p.sog ?? 0),
+                            statusColor: navStatusColorSimple(p.navStatus ?? p.nav_status ?? 15),
+                        };
+                    });
+
+                setAisTargets(dots);
+            } catch {
+                // Silently fail — AIS is a nice-to-have overlay
+            }
+        };
+
+        fetchAisTargets();
+        const interval = setInterval(fetchAisTargets, 30_000);
+        return () => clearInterval(interval);
+    }, [viewMode, showAisOnRadar]);
 
     // ---- HANDLERS ----
 
@@ -1341,6 +1410,22 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     </button>
                 )}
                 <button
+                    onClick={() => {
+                        const next = !showAisOnRadar;
+                        setShowAisOnRadar(next);
+                        try { localStorage.setItem('thalassa_anchor_ais', next ? 'on' : 'off'); } catch { /* */ }
+                        triggerHaptic('light');
+                    }}
+                    className={`py-3 px-3 border rounded-xl text-sm font-bold transition-all active:scale-[0.97] ${
+                        showAisOnRadar
+                            ? 'bg-sky-500/[0.12] border-sky-500/30 text-sky-400'
+                            : 'bg-white/[0.03] border-white/[0.06] text-slate-500'
+                    }`}
+                    aria-label={showAisOnRadar ? 'Hide AIS targets' : 'Show AIS targets'}
+                >
+                    🚢
+                </button>
+                <button
                     onClick={handleStopWatch}
                     className={`flex-1 py-3 bg-red-500/[0.08] border border-red-500/20 rounded-xl text-red-400 text-sm font-bold transition-all active:scale-[0.97] hover:bg-red-500/[0.12]`}
                     aria-label="Stop Watch"
@@ -1383,6 +1468,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 <div className="flex-1 relative min-h-0">
                     <SwingCircleCanvas
                         snapshot={snapshot}
+                        aisTargets={showAisOnRadar ? aisTargets : undefined}
                         ariaLabel={`Anchor watch radar display. ${isHolding ? 'Vessel holding position' : 'Vessel drifting'}. Current distance from anchor: ${snapshot ? formatDistance(snapshot.distanceFromAnchor) : 'unknown'}. Swing radius: ${snapshot ? formatDistance(snapshot.swingRadius) : 'unknown'}.`}
                     />
                 </div>

@@ -15,13 +15,24 @@
 import React, { useRef, useEffect } from 'react';
 import type { AnchorWatchSnapshot } from '../../services/AnchorWatchService';
 
+export interface AisTargetDot {
+    mmsi: number;
+    name: string;
+    lat: number;
+    lon: number;
+    cog: number;
+    sog: number;
+    statusColor: string;
+}
+
 interface SwingCircleCanvasProps {
     snapshot: AnchorWatchSnapshot | null;
+    aisTargets?: AisTargetDot[];
     className?: string;
     ariaLabel?: string;
 }
 
-export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, className, ariaLabel }) => {
+export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, aisTargets, className, ariaLabel }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
     useEffect(() => {
@@ -248,6 +259,72 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
                     ctx.setLineDash([2, 3]);
                     ctx.stroke();
                     ctx.setLineDash([]);
+                }
+            }
+
+            // ── AIS targets ──
+            if (aisTargets && aisTargets.length > 0 && snapshot.anchorPosition) {
+                const ancLat = snapshot.anchorPosition.latitude;
+                const ancLon = snapshot.anchorPosition.longitude;
+                const cosAncLat = Math.cos((ancLat * Math.PI) / 180);
+                // Max visible radius in meters
+                const maxVisibleM = snapshot.swingRadius * 1.3;
+
+                for (const target of aisTargets) {
+                    // Offset from anchor in meters
+                    const tdx = (target.lon - ancLon) * 111320 * cosAncLat;
+                    const tdy = (target.lat - ancLat) * 110540;
+
+                    // Skip if too far from anchor to be visible
+                    const distM = Math.sqrt(tdx * tdx + tdy * tdy);
+                    if (distM > maxVisibleM * 2) continue;
+
+                    const tx = cx + tdx * scale;
+                    const ty = cy - tdy * scale;
+
+                    // Skip if off canvas
+                    if (tx < -10 || tx > W + 10 || ty < -10 || ty > H + 10) continue;
+
+                    const color = target.statusColor || '#38bdf8';
+
+                    // Subtle glow
+                    const tGlow = ctx.createRadialGradient(tx, ty, 0, tx, ty, 8);
+                    tGlow.addColorStop(0, color.replace(')', ', 0.2)').replace('rgb(', 'rgba('));
+                    tGlow.addColorStop(1, 'rgba(0,0,0,0)');
+                    ctx.beginPath();
+                    ctx.arc(tx, ty, 8, 0, Math.PI * 2);
+                    ctx.fillStyle = tGlow;
+                    ctx.fill();
+
+                    // Rotated triangle (boat shape)
+                    const cogRad = ((target.cog - 90) * Math.PI) / 180;
+                    const size = 5;
+                    ctx.save();
+                    ctx.translate(tx, ty);
+                    ctx.rotate(cogRad);
+                    ctx.beginPath();
+                    ctx.moveTo(size, 0);         // nose
+                    ctx.lineTo(-size * 0.6, -size * 0.5); // port stern
+                    ctx.lineTo(-size * 0.6, size * 0.5);  // starboard stern
+                    ctx.closePath();
+                    ctx.fillStyle = color;
+                    ctx.fill();
+                    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+                    ctx.lineWidth = 0.5;
+                    ctx.stroke();
+                    ctx.restore();
+                }
+
+                // AIS count badge
+                const visibleCount = aisTargets.length;
+                if (visibleCount > 0) {
+                    const badgeX = W - 8;
+                    const badgeY = 14;
+                    ctx.font = 'bold 9px system-ui';
+                    ctx.textAlign = 'right';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillStyle = 'rgba(56, 189, 248, 0.5)';
+                    ctx.fillText(`🚢 ${visibleCount}`, badgeX, badgeY);
                 }
             }
 
