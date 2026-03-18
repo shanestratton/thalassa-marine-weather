@@ -100,7 +100,7 @@ function decodeShipType(code: number): { icon: string; label: string } {
             75: 'Car Carrier', 76: 'Bulk Carrier', 77: 'Container Ship',
             78: 'RoRo Cargo', 79: 'Cargo (Other)',
         };
-        return { icon: '📦', label: labels[code] || 'Cargo Ship' };
+        return { icon: '🚢', label: labels[code] || 'Cargo Ship' };
     }
     if (code >= 80 && code <= 89) {
         const labels: Record<number, string> = {
@@ -109,7 +109,7 @@ function decodeShipType(code: number): { icon: string; label: string } {
             85: 'LNG / LPG Carrier', 86: 'Chemical Tanker',
             87: 'Oil Tanker', 88: 'Gas Carrier', 89: 'Tanker (Other)',
         };
-        return { icon: '🛢️', label: labels[code] || 'Tanker' };
+        return { icon: '🚢', label: labels[code] || 'Tanker' };
     }
     if (code >= 90 && code <= 99) return { icon: '🚢', label: 'Other Vessel' };
     return { icon: '🚢', label: 'Unknown Type' };
