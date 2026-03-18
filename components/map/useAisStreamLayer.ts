@@ -1,18 +1,19 @@
 /**
- * useAisStreamLayer — Fetches server-side AIS targets from Supabase
- * and merges them with local NMEA AIS data on the map.
+ * useAisStreamLayer — Sole owner of the 'ais-targets' map source.
  *
- * Local NMEA targets always take priority (by MMSI).
- * Internet targets fill coverage beyond VHF range.
+ * Fetches server-side AIS targets from Supabase and merges them
+ * with local NMEA AIS data. Local targets always take priority.
  *
- * Triggers on map `idle` event (debounced) to refresh when the user
- * pans or zooms the map.
+ * Triggers re-merge on:
+ *   - Map idle (debounced, refetches from server)
+ *   - Local AIS data change (immediate re-merge with cached server data)
  */
 import { useEffect, useRef, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { AisStreamService } from '../../services/AisStreamService';
 import { AisStore } from '../../services/AisStore';
 import { supabase } from '../../services/supabase';
+import { onLocalAisChange } from './useAisLayer';
 
 const FETCH_DEBOUNCE_MS = 1500;
 const AIS_SOURCE_ID = 'ais-targets';
@@ -72,9 +73,64 @@ export function useAisStreamLayer(
     const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isMounted = useRef(true);
     const popupRef = useRef<mapboxgl.Popup | null>(null);
+    // Cache the last server fetch so local-change re-merges don't need a new fetch
+    const cachedServerFeatures = useRef<GeoJSON.Feature[]>([]);
 
+    /**
+     * Merge local AIS + cached internet AIS and write to map source.
+     * Local targets always take priority by MMSI.
+     */
+    const mergeAndWrite = useCallback(() => {
+        if (!map || !enabled) return;
+
+        // Get local AIS targets
+        const localGeoJson = AisStore.toGeoJSON();
+        const localMmsis = new Set(
+            localGeoJson.features.map((f) => f.properties?.mmsi),
+        );
+
+        // Filter internet targets: remove any MMSI already tracked locally
+        const internetFeatures = cachedServerFeatures.current
+            .filter((f) => !localMmsis.has(f.properties?.mmsi))
+            .map((f) => ({
+                ...f,
+                properties: {
+                    ...f.properties,
+                    source: 'aisstream',
+                    statusColor: navStatusColor(f.properties?.navStatus ?? f.properties?.nav_status ?? 15),
+                },
+            }));
+
+        // Merge: local targets (tagged 'local') + internet-only targets
+        const merged: GeoJSON.FeatureCollection = {
+            type: 'FeatureCollection',
+            features: [
+                // Local targets (full opacity, fresher data)
+                ...localGeoJson.features.map((f) => ({
+                    ...f,
+                    properties: { ...f.properties, source: 'local' },
+                })),
+                // Internet targets (slightly transparent)
+                ...internetFeatures,
+            ],
+        };
+
+        // Write to map source — this is the ONLY place that writes to 'ais-targets'
+        const source = map.getSource(AIS_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
+        if (source) {
+            source.setData(merged);
+        }
+    }, [map, enabled]);
+
+    /**
+     * Fetch from server, cache the response, then merge with local data.
+     */
     const fetchAndMerge = useCallback(async () => {
-        if (!map || !enabled || !supabase) return;
+        if (!map || !enabled || !supabase) {
+            // No Supabase? Just render local data
+            mergeAndWrite();
+            return;
+        }
 
         const center = map.getCenter();
         const zoom = map.getZoom();
@@ -89,52 +145,30 @@ export function useAisStreamLayer(
 
             if (!isMounted.current || !map) return;
 
-            // Get local AIS targets to skip (local takes priority)
-            const localGeoJson = AisStore.toGeoJSON();
-            const localMmsis = new Set(
-                localGeoJson.features.map((f) => f.properties?.mmsi),
-            );
-
-            // Filter out internet targets that are already tracked locally
-            // and add statusColor based on navStatus
-            const internetFeatures = geojson.features
-                .filter((f: GeoJSON.Feature) => !localMmsis.has(f.properties?.mmsi))
-                .map((f: GeoJSON.Feature) => ({
-                    ...f,
-                    properties: {
-                        ...f.properties,
-                        source: 'aisstream',
-                        statusColor: navStatusColor(f.properties?.navStatus ?? 15),
-                    },
-                }));
-
-            // Merge: local targets + internet-only targets
-            const merged: GeoJSON.FeatureCollection = {
-                type: 'FeatureCollection',
-                features: [
-                    // Local targets (higher opacity, fresher data)
-                    ...localGeoJson.features.map((f) => ({
-                        ...f,
-                        properties: { ...f.properties, source: 'local' },
-                    })),
-                    // Internet targets (with colour applied)
-                    ...internetFeatures,
-                ],
-            };
-
-            // Update the map source
-            const source = map.getSource(AIS_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
-            if (source) {
-                source.setData(merged);
-            }
+            // Cache server features for re-merge on local data changes
+            cachedServerFeatures.current = geojson.features || [];
         } catch (e) {
             console.warn('[useAisStreamLayer] Fetch failed:', e);
         }
-    }, [map, enabled]);
 
-    // Debounced fetch on map idle
+        // Merge with latest local data
+        mergeAndWrite();
+    }, [map, enabled, mergeAndWrite]);
+
+    // ── Listen for local AIS data changes → re-merge immediately ──
     useEffect(() => {
-        if (!map || !enabled || !supabase) return;
+        if (!map || !enabled) return;
+
+        const unsub = onLocalAisChange(() => {
+            mergeAndWrite();
+        });
+
+        return unsub;
+    }, [map, enabled, mergeAndWrite]);
+
+    // ── Debounced fetch on map idle ──
+    useEffect(() => {
+        if (!map || !enabled) return;
 
         const onIdle = () => {
             if (debounceTimer.current) {
