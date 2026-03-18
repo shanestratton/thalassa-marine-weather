@@ -686,6 +686,50 @@ export function useMapInit(opts: UseMapInitOptions) {
                 data: { type: 'FeatureCollection', features: [] },
             });
 
+            // Predicted track lines source
+            map.addSource('ais-predicted-tracks', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] },
+            });
+
+            // Predicted track dashed lines — rendered before vessel icons
+            map.addLayer({
+                id: 'ais-predicted-tracks-line',
+                type: 'line',
+                source: 'ais-predicted-tracks',
+                paint: {
+                    'line-color': ['get', 'statusColor'],
+                    'line-width': 1.5,
+                    'line-opacity': [
+                        'interpolate', ['linear'], ['coalesce', ['get', 'staleMinutes'], 0],
+                        0, 0.5,
+                        60, 0.2,
+                        120, 0.1,
+                    ],
+                    'line-dasharray': [2, 3],
+                },
+            });
+
+            // Time tick dots along predicted tracks (5, 10, 15 min marks)
+            map.addLayer({
+                id: 'ais-predicted-tracks-dots',
+                type: 'circle',
+                source: 'ais-predicted-tracks',
+                filter: ['==', ['geometry-type'], 'Point'],
+                paint: {
+                    'circle-radius': 3,
+                    'circle-color': ['get', 'statusColor'],
+                    'circle-opacity': [
+                        'interpolate', ['linear'], ['coalesce', ['get', 'staleMinutes'], 0],
+                        0, 0.6,
+                        60, 0.2,
+                        120, 0.08,
+                    ],
+                    'circle-stroke-width': 0.5,
+                    'circle-stroke-color': 'rgba(255,255,255,0.15)',
+                },
+            });
+
             // Glow ring behind vessel
             map.addLayer({
                 id: 'ais-targets-glow',

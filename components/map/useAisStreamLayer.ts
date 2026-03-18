@@ -21,6 +21,25 @@ import { computeCpa } from '../../utils/cpaCalculation';
 
 const FETCH_DEBOUNCE_MS = 1500;
 const AIS_SOURCE_ID = 'ais-targets';
+const PREDICTED_TRACKS_SOURCE_ID = 'ais-predicted-tracks';
+const TRACK_INTERVALS_MIN = [5, 10, 15]; // Projected positions at 5, 10, 15 minutes
+
+/**
+ * Project a position forward by given minutes at given COG/SOG.
+ * Returns [lon, lat].
+ */
+function projectPosition(
+    lat: number, lon: number, cogDeg: number, sogKn: number, minutes: number,
+): [number, number] {
+    const hours = minutes / 60;
+    const distNm = sogKn * hours;
+    const distDeg = distNm / 60; // 1° latitude ≈ 60 NM
+    const cogRad = (cogDeg * Math.PI) / 180;
+    const cosLat = Math.cos((lat * Math.PI) / 180);
+    const newLat = lat + distDeg * Math.cos(cogRad);
+    const newLon = lon + (distDeg * Math.sin(cogRad)) / cosLat;
+    return [newLon, newLat];
+}
 
 // Convert map zoom to a sensible radius in nautical miles
 function zoomToRadiusNm(zoom: number): number {
@@ -165,6 +184,50 @@ export function useAisStreamLayer(
         const source = map.getSource(AIS_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
         if (source) {
             source.setData(merged);
+        }
+
+        // ── Generate predicted track lines for moving vessels ──
+        const trackFeatures: GeoJSON.Feature[] = [];
+        for (const feat of merged.features) {
+            const p = feat.properties;
+            if (!p) continue;
+            const sog = Number(p.sog ?? 0);
+            const cog = Number(p.cog ?? 0);
+            const stale = Number(p.staleMinutes ?? 0);
+
+            // Skip stationary, very stale, or no-position vessels
+            if (sog < 0.5 || stale > 60) continue;
+            const coords = (feat.geometry as GeoJSON.Point)?.coordinates;
+            if (!coords || coords.length < 2) continue;
+
+            const [lon, lat] = coords;
+            const color = p.statusColor || '#38bdf8';
+
+            // Build projected line: current pos → 5 → 10 → 15 min
+            const lineCoords: [number, number][] = [[lon, lat]];
+            for (const minutes of TRACK_INTERVALS_MIN) {
+                const projected = projectPosition(lat, lon, cog, sog, minutes);
+                lineCoords.push(projected);
+
+                // Time-tick dot at each interval
+                trackFeatures.push({
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: projected },
+                    properties: { statusColor: color, staleMinutes: stale, minutes },
+                });
+            }
+
+            // The track line itself
+            trackFeatures.push({
+                type: 'Feature',
+                geometry: { type: 'LineString', coordinates: lineCoords },
+                properties: { statusColor: color, staleMinutes: stale },
+            });
+        }
+
+        const trackSource = map.getSource(PREDICTED_TRACKS_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
+        if (trackSource) {
+            trackSource.setData({ type: 'FeatureCollection', features: trackFeatures });
         }
     }, [map, enabled]);
 
