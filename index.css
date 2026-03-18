@@ -2141,3 +2141,15 @@ body,
   color: #e2e8f0 !important;
   background: rgba(255,255,255,0.1) !important;
 }
+
+/* ── AIS Legend entrance animation ──────── */
+@keyframes aisLegendIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
