@@ -133,8 +133,12 @@ class AisHubServiceClass {
 
         // ── Deduplication: skip if same sentence seen within window ──
         const now = Date.now();
-        // Strip checksum for dedup key (same msg on channels A/B has different checksums)
-        const dedupKey = sentence.split('*')[0];
+        // Strip checksum AND channel letter for dedup key.
+        // Same AIS message arrives on both channels A+B with different checksums.
+        // NMEA format: !AIVDM,fragments,fragNum,seqId,channel,payload,fillBits*checksum
+        // We extract just the payload portion (field index 5) for dedup.
+        const parts = sentence.split('*')[0].split(',');
+        const dedupKey = parts.length >= 6 ? parts.slice(5).join(',') : parts.join(',');
         const lastSeen = this.recentSentences.get(dedupKey);
         if (lastSeen && now - lastSeen < DEDUP_WINDOW_MS) return;
         this.recentSentences.set(dedupKey, now);
@@ -151,10 +155,22 @@ class AisHubServiceClass {
         this.sendDatagram(sentence);
     }
 
-    /** Clean up on app shutdown */
+    /** Clean up on app shutdown — full state reset for testability */
     destroy(): void {
         this.closeSocket();
         this.listeners.clear();
+        this.enabled = false;
+        this.ip = '';
+        this.port = 0;
+        this.rateCounter = 0;
+        this.rateWindowStart = 0;
+        this.stats = {
+            sentenceCount: 0,
+            bytesSent: 0,
+            lastForwardedAt: 0,
+            isActive: false,
+            networkOk: true,
+        };
     }
 
     // ── Internals ──

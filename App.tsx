@@ -16,6 +16,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemStatusButton } from './components/SystemStatusButton';
 import { PushNotificationService } from './services/PushNotificationService';
 import { ToastPortal, toast } from './components/Toast';
+import { PushToast, pushForegroundToast } from './components/PushToast';
 import { PageTransition } from './components/ui/PageTransition';
 import { ChatService } from './services/ChatService';
 
@@ -85,6 +86,7 @@ const CrewPage = lazyRetry(() => import('./components/CrewManagement').then((m) 
 const ChecklistsPage = lazyRetry(() =>
     import('./components/vessel/ChecklistsPage').then((m) => ({ default: m.ChecklistsPage })),
 );
+const GuardianPage = lazyRetry(() => import('./components/GuardianPage').then((m) => ({ default: m.GuardianPage })));
 const IOSInstallPrompt = React.lazy(() =>
     import('./components/IOSInstallPrompt').then((m) => ({ default: m.IOSInstallPrompt })),
 );
@@ -111,7 +113,8 @@ const App: React.FC = () => {
         currentView === 'diary' ||
         currentView === 'route' ||
         currentView === 'crew' ||
-        currentView === 'checklists';
+        currentView === 'checklists' ||
+        currentView === 'guardian';
 
     // Unread DM count for Chat tab badge
     const [chatUnread, setChatUnread] = useState(0);
@@ -176,10 +179,9 @@ const App: React.FC = () => {
 
     // Wire Push Notification callbacks for in-app handling + deep navigation
     useEffect(() => {
-        // Gap 3: Show in-app toast when push arrives while app is in foreground
+        // Rich in-app toast when push arrives while app is in foreground
         PushNotificationService.onForegroundPush = (notification) => {
-            const title = notification.title || 'Notification';
-            toast.info(title);
+            pushForegroundToast(notification);
         };
 
         // Gap 4: Navigate to the correct page when user taps a push notification
@@ -195,6 +197,13 @@ const App: React.FC = () => {
                 case 'anchor_alarm':
                     setPage('map');
                     break;
+                case 'bolo_alert':
+                case 'suspicious_alert':
+                case 'drag_warning':
+                case 'geofence_alert':
+                case 'hail':
+                    setPage('guardian');
+                    break;
                 default:
                     setPage('dashboard');
                     break;
@@ -206,6 +215,31 @@ const App: React.FC = () => {
             PushNotificationService.onNotificationTap = null;
         };
     }, [setPage]);
+
+    // Clear badge count when app comes to foreground
+    useEffect(() => {
+        let listener: { remove: () => void } | null = null;
+        import('@capacitor/app')
+            .then(({ App }) => {
+                App.addListener('appStateChange', ({ isActive }) => {
+                    if (isActive) {
+                        PushNotificationService.clearBadge();
+                    }
+                }).then((l) => {
+                    listener = l;
+                });
+            })
+            .catch(() => {
+                /* web: no Capacitor App plugin */
+            });
+
+        // Also clear on initial mount
+        PushNotificationService.clearBadge();
+
+        return () => {
+            listener?.remove();
+        };
+    }, []);
 
     // Listen for cross-component tab navigation requests (e.g. pin drops in DMs → map)
     useEffect(() => {
@@ -360,6 +394,34 @@ const App: React.FC = () => {
                 {/* GLOBAL TOAST PORTAL */}
                 <ToastPortal />
 
+                {/* PUSH NOTIFICATION FOREGROUND TOAST */}
+                <PushToast
+                    onTap={(data) => {
+                        const type = data.notification_type as string;
+                        switch (type) {
+                            case 'dm':
+                                setPage('chat');
+                                break;
+                            case 'weather_alert':
+                                setPage('dashboard');
+                                break;
+                            case 'anchor_alarm':
+                                setPage('map');
+                                break;
+                            case 'bolo_alert':
+                            case 'suspicious_alert':
+                            case 'drag_warning':
+                            case 'geofence_alert':
+                            case 'hail':
+                                setPage('guardian');
+                                break;
+                            default:
+                                setPage('dashboard');
+                                break;
+                        }
+                    }}
+                />
+
                 {/* HEADER */}
                 {showHeader && (
                     <header
@@ -411,6 +473,7 @@ const App: React.FC = () => {
                             currentView !== 'route' &&
                             currentView !== 'crew' &&
                             currentView !== 'checklists' &&
+                            currentView !== 'guardian' &&
                             currentView !== 'settings' && (
                                 <div
                                     className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}
@@ -483,6 +546,7 @@ const App: React.FC = () => {
                             currentView === 'documents' ||
                             currentView === 'crew' ||
                             currentView === 'checklists' ||
+                            currentView === 'guardian' ||
                             currentView === 'vessel'
                         }
                     >
@@ -659,6 +723,11 @@ const App: React.FC = () => {
                                                         {currentView === 'checklists' && (
                                                             <ErrorBoundary boundaryName="Checklists">
                                                                 <ChecklistsPage onBack={() => setPage('vessel')} />
+                                                            </ErrorBoundary>
+                                                        )}
+                                                        {currentView === 'guardian' && (
+                                                            <ErrorBoundary boundaryName="Guardian">
+                                                                <GuardianPage onBack={() => setPage('vessel')} />
                                                             </ErrorBoundary>
                                                         )}
                                                     </>
