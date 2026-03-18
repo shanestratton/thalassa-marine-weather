@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../services/supabase';
 import { PushNotificationService } from '../services/PushNotificationService';
+import { setUser as setSentryUser } from '../services/sentry';
 
 interface AuthContextType {
     user: User | null;
@@ -27,6 +28,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 // User already logged in — register push token
                 PushNotificationService.setUser(u.id);
                 PushNotificationService.requestPermissionAndRegister();
+                setSentryUser({ id: u.id, email: u.email });
             }
         });
 
@@ -39,8 +41,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (u) {
                 PushNotificationService.setUser(u.id);
                 PushNotificationService.requestPermissionAndRegister();
+                setSentryUser({ id: u.id, email: u.email });
             } else {
                 PushNotificationService.clearUser();
+                setSentryUser(null);
             }
         });
 
@@ -50,6 +54,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const logout = async () => {
         if (!supabase) return;
         await PushNotificationService.clearUser();
+        setSentryUser(null);
         await supabase.auth.signOut();
         setUser(null);
     };

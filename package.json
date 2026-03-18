@@ -39,7 +39,7 @@
         "@dnd-kit/utilities": "^3.2.2",
         "@frontall/capacitor-udp": "^0.3.4",
         "@google/generative-ai": "^0.24.1",
-        "@sentry/react": "^10.43.0",
+        "@sentry/react": "^10.44.0",
         "@supabase/supabase-js": "^2.39.0",
         "@transistorsoft/capacitor-background-fetch": "^8.0.0",
         "@transistorsoft/capacitor-background-geolocation": "^8.0.1",
