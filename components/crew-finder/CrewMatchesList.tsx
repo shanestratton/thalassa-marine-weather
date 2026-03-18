@@ -28,7 +28,7 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
                     <div className="text-center py-16">
                         <span className="text-3xl block mb-4">🤝</span>
                         <h3 className="text-lg font-bold text-white/60 mb-2">No Connections Yet</h3>
-                        <p className="text-sm text-white/25">
+                        <p className="text-sm text-white/40">
                             When you ⭐ someone and they ⭐ you back, you'll both appear here. Start browsing!
                         </p>
                     </div>
@@ -103,7 +103,7 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
                                                     </span>
                                                 ))}
                                                 {match.interests.length > 4 && (
-                                                    <span className="px-2 py-0.5 rounded-full bg-white/[0.03] text-[11px] text-white/25">
+                                                    <span className="px-2 py-0.5 rounded-full bg-white/[0.03] text-[11px] text-white/40">
                                                         +{match.interests.length - 4}
                                                     </span>
                                                 )}

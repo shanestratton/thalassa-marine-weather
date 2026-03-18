@@ -537,7 +537,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 </svg>
                             </div>
                             <p className="text-sm text-white/40 font-medium mb-1">No connection</p>
-                            <p className="text-xs text-white/25 leading-relaxed">
+                            <p className="text-xs text-white/40 leading-relaxed">
                                 Cached data will appear when available
                             </p>
                         </>

@@ -28,6 +28,6 @@ export const TypingIndicator: React.FC<TypingIndicatorProps> = ({ name }) => (
             <span className="typing-dot w-1.5 h-1.5 rounded-full bg-white/30" style={{ animationDelay: '160ms' }} />
             <span className="typing-dot w-1.5 h-1.5 rounded-full bg-white/30" style={{ animationDelay: '320ms' }} />
         </div>
-        {name && <span className="text-[11px] text-white/20 self-center">{name} is typing…</span>}
+        {name && <span className="text-[11px] text-white/40 self-center">{name} is typing…</span>}
     </div>
 );

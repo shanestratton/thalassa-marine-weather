@@ -126,7 +126,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                 <>
                     {savedPins.length > 0 && (
                         <div className="mb-2">
-                            <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/25 mb-1.5">
+                            <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/40 mb-1.5">
                                 📌 Recent Pins
                             </p>
                             <div
@@ -165,7 +165,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                             loading="eager"
                         />
                     </div>
-                    <p className="text-[11px] text-white/25 mb-2 text-center tabular-nums">
+                    <p className="text-[11px] text-white/40 mb-2 text-center tabular-nums">
                         📍 {Math.abs(pinLat).toFixed(4)}°{pinLat < 0 ? 'S' : 'N'}, {Math.abs(pinLng).toFixed(4)}°
                         {pinLng < 0 ? 'W' : 'E'}
                     </p>
@@ -176,7 +176,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                             onChange={(e) => setPinCaption(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && onSendPin()}
                             placeholder="What's here? (e.g. Great anchorage)"
-                            className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 transition-colors"
+                            className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors"
                             maxLength={120}
                         />
                         <button
@@ -229,10 +229,10 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                         ref={poiMapRef as React.RefObject<HTMLDivElement>}
                         className="w-full h-[200px] rounded-xl overflow-hidden border border-white/[0.08] mb-2"
                     />
-                    <p className="text-[11px] text-white/25 mb-2 text-center tabular-nums">
+                    <p className="text-[11px] text-white/40 mb-2 text-center tabular-nums">
                         📍 {Math.abs(pinLat).toFixed(4)}°{pinLat < 0 ? 'S' : 'N'}, {Math.abs(pinLng).toFixed(4)}°
                         {pinLng < 0 ? 'W' : 'E'}
-                        <span className="ml-2 text-white/15">• Tap or drag to set location</span>
+                        <span className="ml-2 text-white/40">• Tap or drag to set location</span>
                     </p>
                     <div className="flex items-center gap-2">
                         <input
@@ -241,7 +241,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                             onChange={(e) => setPinCaption(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && onSendPoi()}
                             placeholder="Describe this spot..."
-                            className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 transition-colors"
+                            className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors"
                             maxLength={120}
                         />
                         <button

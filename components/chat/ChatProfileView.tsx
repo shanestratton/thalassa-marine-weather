@@ -64,7 +64,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
                     {myAvatarUrl && (
                         <button
                             onClick={onRemovePhoto}
-                            className="text-sm text-white/25 hover:text-red-400 transition-colors"
+                            className="text-sm text-white/40 hover:text-red-400 transition-colors"
                         >
                             Remove
                         </button>
@@ -99,7 +99,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
                     value={profileDisplayName}
                     onChange={(e) => setProfileDisplayName(e.target.value)}
                     placeholder="Captain Jack"
-                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/30 transition-colors"
+                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/30 transition-colors"
                     maxLength={30}
                 />
                 <p className="text-xs text-white/60 mt-1.5 px-1">This is how you appear in chat</p>
@@ -114,7 +114,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
                     value={isObserver ? '' : profileVesselName}
                     onChange={(e) => setProfileVesselName(e.target.value)}
                     placeholder={isObserver ? 'Observer Mode — No Vessel' : vesselPlaceholder || 'Black Pearl'}
-                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/30 transition-colors disabled:cursor-not-allowed"
+                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/30 transition-colors disabled:cursor-not-allowed"
                     maxLength={40}
                     disabled={isObserver}
                 />

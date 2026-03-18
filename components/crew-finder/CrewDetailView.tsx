@@ -69,7 +69,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                     <div className="grid grid-cols-2 gap-2">
                         {selectedCard.home_port && (
                             <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">
+                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                     Home Port
                                 </p>
                                 <p className="text-sm text-white/70">🏠 {selectedCard.home_port}</p>
@@ -77,7 +77,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                         )}
                         {selectedCard.sailing_region && (
                             <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">
+                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                     Region
                                 </p>
                                 <p className="text-sm text-white/70">📍 {selectedCard.sailing_region}</p>
@@ -85,7 +85,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                         )}
                         {selectedCard.sailing_experience && (
                             <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">
+                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                     Experience
                                 </p>
                                 <p className="text-sm text-white/70">🧭 {selectedCard.sailing_experience}</p>
@@ -93,7 +93,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                         )}
                         {selectedCard.gender && (
                             <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">
+                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                     Gender
                                 </p>
                                 <p className="text-sm text-white/70">{selectedCard.gender}</p>
@@ -101,7 +101,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                         )}
                         {selectedCard.age_range && (
                             <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">
+                                <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                     Age
                                 </p>
                                 <p className="text-sm text-white/70">{selectedCard.age_range}</p>
@@ -165,7 +165,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                     {/* Skills */}
                     {selectedCard.skills.length > 0 && (
                         <div>
-                            <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-2">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-2">
                                 Seeking:
                             </p>
                             <div className="flex flex-wrap gap-1.5">
@@ -184,7 +184,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                     {/* Bio */}
                     {selectedCard.bio && (
                         <div>
-                            <h3 className="text-xs font-bold uppercase tracking-widest text-white/25 mb-2">📝 About</h3>
+                            <h3 className="text-xs font-bold uppercase tracking-widest text-white/40 mb-2">📝 About</h3>
                             <p className="text-sm text-white/60 leading-relaxed whitespace-pre-wrap">
                                 {selectedCard.bio}
                             </p>
@@ -201,7 +201,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                                 onOpenDM(selectedCard.user_id, selectedCard.display_name);
                             }}
                             disabled={messagedUsers.has(selectedCard.user_id)}
-                            className={`flex-1 py-4 rounded-2xl font-bold text-base transition-all active:scale-[0.97] shadow-xl ${messagedUsers.has(selectedCard.user_id) ? 'bg-white/[0.04] text-white/25 cursor-not-allowed shadow-none' : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-emerald-500/20'}`}
+                            className={`flex-1 py-4 rounded-2xl font-bold text-base transition-all active:scale-[0.97] shadow-xl ${messagedUsers.has(selectedCard.user_id) ? 'bg-white/[0.04] text-white/40 cursor-not-allowed shadow-none' : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-emerald-500/20'}`}
                         >
                             {messagedUsers.has(selectedCard.user_id) ? '✓ Message Sent' : '💬 Send Message'}
                         </button>

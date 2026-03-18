@@ -559,7 +559,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                                 <button
                                                     key={s}
                                                     onClick={() => setRateStars(s)}
-                                                    className={`text-2xl transition-transform active:scale-90 ${s <= rateStars ? 'text-amber-400' : 'text-white/20'}`}
+                                                    className={`text-2xl transition-transform active:scale-90 ${s <= rateStars ? 'text-amber-400' : 'text-white/40'}`}
                                                 >
                                                     ★
                                                 </button>

@@ -647,7 +647,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                 <div className="text-center py-8 space-y-2">
                                     <div className="text-3xl">📭</div>
                                     <p className="text-sm font-semibold text-white/40">No Pending Proposals</p>
-                                    <p className="text-xs text-white/25">
+                                    <p className="text-xs text-white/40">
                                         Channel proposals from users will appear here
                                     </p>
                                 </div>
@@ -712,7 +712,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                 <div className="text-center py-8 space-y-2">
                                     <div className="text-3xl">📡</div>
                                     <p className="text-sm font-semibold text-white/40">No Active Channels</p>
-                                    <p className="text-xs text-white/25">Approved channels will appear here</p>
+                                    <p className="text-xs text-white/40">Approved channels will appear here</p>
                                 </div>
                             ) : (
                                 <div className="space-y-1.5">
@@ -731,7 +731,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                         </span>
                                                     )}
                                                     {ch.parent_id && (
-                                                        <span className="text-[11px] font-bold text-white/25 bg-white/[0.04] px-1 py-0.5 rounded-full">
+                                                        <span className="text-[11px] font-bold text-white/40 bg-white/[0.04] px-1 py-0.5 rounded-full">
                                                             SUB
                                                         </span>
                                                     )}
@@ -762,7 +762,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                             <div className="text-center py-16 space-y-3">
                                 <div className="text-4xl">📋</div>
                                 <p className="text-sm font-semibold text-white/40">Clean Slate</p>
-                                <p className="text-xs text-white/25">
+                                <p className="text-xs text-white/40">
                                     Admin actions will be logged here for accountability.
                                     <br />
                                     Every role change, block, mute, and channel action is tracked.
@@ -802,7 +802,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                                         .join(' · ')}
                                                 </p>
                                             )}
-                                            <p className="text-[11px] text-white/20 mt-0.5">{timeStr}</p>
+                                            <p className="text-[11px] text-white/40 mt-0.5">{timeStr}</p>
                                         </div>
                                     </div>
                                 );
