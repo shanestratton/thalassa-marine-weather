@@ -385,11 +385,26 @@ const App: React.FC = () => {
             </Suspense>
 
             <div className="relative z-10 flex flex-col h-full overflow-hidden">
+                {/* Skip to content — keyboard accessibility */}
+                <a
+                    href="#main-content"
+                    className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[9999] focus:px-4 focus:py-2 focus:bg-sky-600 focus:text-white focus:rounded-lg focus:text-sm focus:font-bold focus:outline-none focus:ring-2 focus:ring-white"
+                >
+                    Skip to content
+                </a>
+
                 {/* OFFLINE INDICATOR — subtle floating pill */}
                 {isOffline && (
-                    <div className="flex justify-center pt-[max(0.5rem,env(safe-area-inset-top))] pb-1 shrink-0">
+                    <div
+                        className="flex justify-center pt-[max(0.5rem,env(safe-area-inset-top))] pb-1 shrink-0"
+                        role="status"
+                        aria-live="polite"
+                    >
                         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 backdrop-blur-md border border-white/10 text-[10px] text-white/50 font-medium uppercase tracking-widest">
-                            <div className="w-1.5 h-1.5 rounded-full bg-orange-400/80 animate-pulse" />
+                            <div
+                                className="w-1.5 h-1.5 rounded-full bg-orange-400/80 animate-pulse"
+                                aria-hidden="true"
+                            />
                             Offline
                         </div>
                     </div>
@@ -489,6 +504,7 @@ const App: React.FC = () => {
                                                 value={query}
                                                 readOnly
                                                 placeholder="Select via Map..."
+                                                aria-label="Current location"
                                                 className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default ${isOffline ? 'bg-slate-900/40 border border-white/5 opacity-80' : 'bg-slate-900/60 border border-white/10'}`}
                                                 onClick={() => {
                                                     mapFromWxRef.current = true;
@@ -502,6 +518,9 @@ const App: React.FC = () => {
                                                 <button
                                                     type="button"
                                                     onClick={toggleFavorite}
+                                                    aria-label={
+                                                        isFavorite ? 'Remove from favorites' : 'Add to favorites'
+                                                    }
                                                     className="p-1.5 rounded-full hover:bg-white/10 text-gray-300 hover:text-yellow-400 transition-colors"
                                                 >
                                                     <StarIcon
@@ -517,6 +536,7 @@ const App: React.FC = () => {
                                                         setPage('map');
                                                     }}
                                                     className="p-1.5 hover:bg-white/10 rounded-full text-gray-300 hover:text-emerald-400 transition-colors"
+                                                    aria-label="Open map"
                                                 >
                                                     <MapIcon className="w-4 h-4" />
                                                 </button>
