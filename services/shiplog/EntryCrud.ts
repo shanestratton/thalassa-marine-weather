@@ -214,8 +214,7 @@ export async function deleteVoyage(voyageId: string): Promise<boolean> {
 
                 const { error } = await query;
                 if (error) {
-                } else {
-                    /* best effort */
+                    log.warn('deleteVoyage: DB delete failed', error);
                 }
             }
         } catch (error) {
@@ -248,8 +247,7 @@ export async function deleteEntry(entryId: string): Promise<boolean> {
                     .eq('user_id', user.id);
 
                 if (error) {
-                } else {
-                    /* best effort */
+                    log.warn('deleteEntry: DB delete failed', error);
                 }
             }
         } catch (error) {

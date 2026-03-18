@@ -327,8 +327,7 @@ class ShipLogServiceClass {
             try {
                 const entry = await this.captureLogEntry();
                 if (entry) {
-                } else {
-                    /* best effort */
+                    log.info('checkMissedEntries: catch-up entry saved');
                 }
             } catch (err: unknown) {
                 log.error('checkMissedEntries: catch-up entry failed', err);
@@ -363,14 +362,13 @@ class ShipLogServiceClass {
         this.clearAllTimers();
 
         // Schedule next quarter-hour entry
-        const { _nextTime, msUntil } = getNextQuarterHour();
+        const { nextTime: _nextTime, msUntil } = getNextQuarterHour();
 
         this.quarterTimeoutId = setTimeout(() => {
             this.captureLogEntry()
                 .then((entry) => {
                     if (entry) {
-                    } else {
-                        /* best effort */
+                        log.info('quarter-hour entry saved');
                     }
                 })
                 .catch((err) => {
@@ -382,8 +380,7 @@ class ShipLogServiceClass {
                 this.captureLogEntry()
                     .then((entry) => {
                         if (entry) {
-                        } else {
-                            /* best effort */
+                            log.info('interval entry saved');
                         }
                     })
                     .catch((err) => {
