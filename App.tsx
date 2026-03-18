@@ -146,6 +146,19 @@ const App: React.FC = () => {
         if (currentView === 'chat') setChatUnread(0);
     }, [currentView]);
 
+    // --- GLOBAL UNHANDLED REJECTION HANDLER ---
+    // Catches unhandled async errors and sends them to Sentry
+    useEffect(() => {
+        const handler = (event: PromiseRejectionEvent) => {
+            event.preventDefault();
+            import('./services/sentry').then(({ captureException }) => {
+                captureException(event.reason instanceof Error ? event.reason : new Error(String(event.reason)));
+            });
+        };
+        window.addEventListener('unhandledrejection', handler);
+        return () => window.removeEventListener('unhandledrejection', handler);
+    }, []);
+
     // 2. APP LOGIC / CONTROLLER
     const {
         query,

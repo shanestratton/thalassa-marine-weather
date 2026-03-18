@@ -27,14 +27,18 @@ jobs:
             - name: Install dependencies
               run: npm ci --legacy-peer-deps
 
+            - name: Dependency audit
+              run: npm audit --audit-level=high || true
+              continue-on-error: true
+
             - name: Lint
-              run: npx eslint . --max-warnings 200
+              run: npx eslint . --max-warnings 100
 
             - name: TypeScript type check
               run: npx tsc --noEmit
 
-            - name: Run unit tests
-              run: npx vitest run --reporter=verbose
+            - name: Run unit tests with coverage
+              run: npx vitest run --reporter=verbose --coverage
 
             - name: Build
               run: npx vite build
@@ -63,3 +67,12 @@ jobs:
                       playwright-report/
                       test-results/
                   retention-days: 7
+
+            - name: Upload coverage report
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: coverage-report
+                  path: coverage/
+                  retention-days: 30
+
