@@ -730,6 +730,32 @@ export function useMapInit(opts: UseMapInitOptions) {
                 },
             });
 
+            // Guard zone circle source + layers
+            map.addSource('ais-guard-zone', {
+                type: 'geojson',
+                data: { type: 'FeatureCollection', features: [] },
+            });
+
+            map.addLayer({
+                id: 'ais-guard-zone-fill',
+                type: 'fill',
+                source: 'ais-guard-zone',
+                paint: {
+                    'fill-color': 'rgba(239, 68, 68, 0.06)',
+                },
+            });
+
+            map.addLayer({
+                id: 'ais-guard-zone-stroke',
+                type: 'line',
+                source: 'ais-guard-zone',
+                paint: {
+                    'line-color': 'rgba(239, 68, 68, 0.35)',
+                    'line-width': 1.5,
+                    'line-dasharray': [4, 4],
+                },
+            });
+
             // Glow ring behind vessel
             map.addLayer({
                 id: 'ais-targets-glow',

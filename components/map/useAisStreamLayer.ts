@@ -240,6 +240,32 @@ export function useAisStreamLayer(
             // Dispatch custom event for UI to show alert toast
             window.dispatchEvent(new CustomEvent('ais-guard-alert', { detail: newAlerts }));
         }
+
+        // ── Guard Zone radius circle on map ──
+        const guardSource = map.getSource('ais-guard-zone') as mapboxgl.GeoJSONSource | undefined;
+        if (guardSource) {
+            const gz = AisGuardZone.getState();
+            if (gz.enabled && own.lat !== 0 && own.lon !== 0) {
+                // Generate circle polygon (64 points)
+                const radiusDeg = gz.radiusNm / 60; // NM to degrees latitude
+                const cosLat = Math.cos((own.lat * Math.PI) / 180);
+                const pts: [number, number][] = [];
+                for (let i = 0; i <= 64; i++) {
+                    const angle = (i / 64) * 2 * Math.PI;
+                    pts.push([
+                        own.lon + (radiusDeg * Math.cos(angle)) / cosLat,
+                        own.lat + radiusDeg * Math.sin(angle),
+                    ]);
+                }
+                guardSource.setData({
+                    type: 'Feature',
+                    geometry: { type: 'Polygon', coordinates: [pts] },
+                    properties: {},
+                });
+            } else {
+                guardSource.setData({ type: 'FeatureCollection', features: [] });
+            }
+        }
     }, [map, enabled]);
 
     const fetchAndMerge = useCallback(async () => {
@@ -360,11 +386,13 @@ export function useAisStreamLayer(
                 const rc: Record<string, string> = {
                     DANGER: '#ef4444', CAUTION: '#f59e0b', SAFE: '#22c55e', NONE: '#64748b',
                 };
+                // Context-aware NONE label
+                const noneLabel = tcpa < 0 ? '↔ Diverging' : '🔇 No Risk';
                 const rl: Record<string, string> = {
                     DANGER: '⚠️ DANGER — Risk of Collision',
                     CAUTION: '⚡ CAUTION — Close Approach',
                     SAFE: '✅ Safe Passage',
-                    NONE: '↔ Diverging',
+                    NONE: noneLabel,
                 };
                 const riskColor = rc[risk] || '#64748b';
 
