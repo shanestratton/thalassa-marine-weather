@@ -109,7 +109,7 @@ function decodeShipType(code: number): { icon: string; label: string } {
             85: 'LNG / LPG Carrier', 86: 'Chemical Tanker',
             87: 'Oil Tanker', 88: 'Gas Carrier', 89: 'Tanker (Other)',
         };
-        return { icon: '⛽', label: labels[code] || 'Tanker' };
+        return { icon: '🛢️', label: labels[code] || 'Tanker' };
     }
     if (code >= 90 && code <= 99) return { icon: '🚢', label: 'Other Vessel' };
     return { icon: '🚢', label: 'Unknown Type' };
