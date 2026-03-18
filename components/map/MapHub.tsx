@@ -44,6 +44,7 @@ import { useRouteNudge } from './useRouteNudge';
 import { useAisLayer } from './useAisLayer';
 import { useAisStreamLayer } from './useAisStreamLayer';
 import { AisLegend } from './AisLegend';
+import { AisGuardAlert } from './AisGuardAlert';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { SynopticScrubber } from './SynopticScrubber';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
@@ -704,10 +705,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
-                {/* ═══ AIS COLOUR LEGEND ═══ */}
+                {/* ═══ AIS COLOUR LEGEND + GUARD ZONE TOGGLE ═══ */}
                 {!passage.showPassage && !embedded && !isPinView && (
                     <AisLegend visible={aisVisible} />
                 )}
+
+                {/* ═══ AIS GUARD ZONE ALERT TOAST ═══ */}
+                <AisGuardAlert />
 
                 {/* ═══ CONSENSUS MATRIX FAB (during passage mode) ═══ */}
                 {passage.showPassage && passage.routeAnalysis && consensusData && !embedded && !isPinView && (
