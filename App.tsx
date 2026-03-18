@@ -126,11 +126,15 @@ const App: React.FC = () => {
             const poll = () =>
                 ChatService.getUnreadDMCount()
                     .then((n) => setChatUnread(n))
-                    .catch(() => {});
+                    .catch(() => {
+                        /* Non-critical — badge count is best-effort */
+                    });
             poll();
             timer = setInterval(poll, 30000);
         });
-        return () => { if (timer) clearInterval(timer); };
+        return () => {
+            if (timer) clearInterval(timer);
+        };
     }, []);
     // Clear badge when viewing chat
     useEffect(() => {
@@ -181,7 +185,9 @@ const App: React.FC = () => {
                 .catch((e) => console.error('[App] Local DB init failed:', e));
             stopSync = stopSyncEngine;
         });
-        return () => { stopSync?.(); };
+        return () => {
+            stopSync?.();
+        };
     }, []);
 
     // Wire Push Notification callbacks for in-app handling + deep navigation

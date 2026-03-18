@@ -150,8 +150,8 @@ export function useNavMeshOverlay(
             }
 
             // Render edges first (behind nodes)
-            const _edgeCount = 0;
-            const _dangerCount = 0;
+            let _edgeCount = 0;
+            let _dangerCount = 0;
             for (const edge of data.edges) {
                 const [fromIdx, toIdx, weight] = edge;
                 if (!visibleNodeIndices.has(fromIdx) && !visibleNodeIndices.has(toIdx)) continue;
@@ -181,7 +181,7 @@ export function useNavMeshOverlay(
             }
 
             // Render nodes
-            const _nodeCount = 0;
+            let _nodeCount = 0;
             for (const idx of visibleNodeIndices) {
                 const [lon, lat] = data.nodes[idx];
                 const mType = markerTypes.get(idx);

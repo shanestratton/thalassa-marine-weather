@@ -10,7 +10,7 @@
  */
 
 import { createLogger } from '../utils/createLogger';
-import { MarineWeatherReport, _VoyagePlan, VesselProfile, UnitPreferences, VesselDimensionUnits } from '../types';
+import { MarineWeatherReport, VoyagePlan, VesselProfile, UnitPreferences, VesselDimensionUnits } from '../types';
 import { fetchPrecisionWeather, fetchWeatherByStrategy, parseLocation, reverseGeocode } from './weatherService';
 import { fetchWeatherKitRealtime } from './weather/api/weatherkit';
 import { isStormglassKeyPresent } from './weather/keys';
@@ -19,7 +19,7 @@ import { EnvironmentService } from './EnvironmentService';
 import { getErrorMessage } from '../utils/logger';
 import { GpsService } from './GpsService';
 import {
-    _saveLargeData,
+    saveLargeData as _saveLargeData,
     saveLargeDataImmediate,
     loadLargeData,
     loadLargeDataSync,
@@ -434,7 +434,7 @@ export class WeatherOrchestrator {
     // ── Core Fetch ─────────────────────────────────────────────
 
     async fetchWeather(location: string, options: FetchWeatherOptions = {}): Promise<void> {
-        const { force = false, coords, _showOverlay = false, silent = false } = options;
+        const { force = false, coords, showOverlay: _showOverlay = false, silent = false } = options;
 
         if (!location) return;
 

@@ -368,7 +368,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     data,
     units,
     cardTime,
-    _sources,
+    sources: _sources,
     trends,
     isLive = true,
     locationType,
@@ -439,7 +439,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
             if (currentHour?.precipitation !== undefined) return safeRound(currentHour.precipitation);
         }
         // Fallback: use the active data's own precipChance or precipitation, not the live observation
-         
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if ((data as any).precipChance !== undefined) return (data as any).precipChance;
         return safeRound(data.precipitation);

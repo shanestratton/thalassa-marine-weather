@@ -85,11 +85,11 @@ const METRIC_LABELS: Record<string, string> = {
 export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
     ({
         isLandlocked,
-        _locationName,
-        _displaySource,
+        locationName: _locationName,
+        displaySource: _displaySource,
         nextUpdate,
         fallbackInland,
-        _stationId,
+        stationId: _stationId,
         locationType,
         beaconName,
         buoyName,

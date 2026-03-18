@@ -6,7 +6,7 @@ import { generateTacticalAdvice, getSkipperLockerItems } from '../utils/advisory
 import { toast } from '../components/Toast';
 
 export const useDashboardController = (viewMode: 'overview' | 'details' = 'overview') => {
-    const { weatherData: data, refreshData, _loading, staleRefresh } = useWeather();
+    const { weatherData: data, refreshData, loading: _loading, staleRefresh } = useWeather();
     const { settings } = useSettings();
     const { setPage } = useUI();
     const { isPro } = settings;

@@ -53,12 +53,12 @@ const HeroSlideComponent = ({
     units,
     tides,
     settings,
-    _updateSettings,
-    _addDebugLog,
+    updateSettings: _updateSettings,
+    addDebugLog: _addDebugLog,
     timeZone,
-    _locationName,
+    locationName: _locationName,
     isLandlocked,
-    _displaySource,
+    displaySource: _displaySource,
     vessel,
     customTime,
     hourly,
@@ -66,7 +66,7 @@ const HeroSlideComponent = ({
     guiDetails,
     coordinates,
     locationType,
-    _generatedAt,
+    generatedAt: _generatedAt,
     onTimeSelect,
     onHourChange,
     onActiveDataChange,
@@ -105,7 +105,7 @@ const HeroSlideComponent = ({
     isEssentialMode?: boolean;
     minutelyRain?: MinutelyRain[];
 }) => {
-    const { _nextUpdate, weatherData } = useWeather();
+    const { nextUpdate: _nextUpdate, weatherData } = useWeather();
     const forecast = weatherData?.forecast || [];
 
     // 1. STATE HOISTING (Zero-Latency Architecture)
@@ -1170,11 +1170,11 @@ const HeroSlideComponent = ({
                         // Guard against undefined precomputed data (race condition safety)
                         if (!precomputed) return null;
                         const {
-                            _sunPhase,
+                            sunPhase: _sunPhase,
                             cardDisplayValues,
                             isCardDay,
                             cardIsLive,
-                            _isHourly,
+                            isHourly: _isHourly,
                             cardData,
                             cardTime,
                             isGolden,

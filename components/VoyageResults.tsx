@@ -1,6 +1,6 @@
 import React from 'react';
 import { useSettings } from '../context/SettingsContext';
-import { _convertLength } from '../utils';
+import { convertLength } from '../utils';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('VoyageResults');
@@ -22,7 +22,7 @@ import {
     ClockIcon,
     AlertTriangleIcon,
     FlagIcon,
-    _PhoneIcon,
+    PhoneIcon as _PhoneIcon,
     ServerIcon,
     ShareIcon,
 } from './Icons';
@@ -137,14 +137,14 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
         voyagePlan,
         vessel,
         checklistState,
-        _toggleCheck,
+        toggleCheck: _toggleCheck,
         deepReport,
         analyzingDeep,
         handleDeepAnalysis,
-        _activeChecklistTab,
-        _setActiveChecklistTab,
+        activeChecklistTab: _activeChecklistTab,
+        setActiveChecklistTab: _setActiveChecklistTab,
         setIsMapOpen,
-        _isShortTrip,
+        isShortTrip: _isShortTrip,
     }) => {
         // Count checked items for badge
         const _totalChecklistItems = CHECKLIST_DATA.reduce((sum, cat) => sum + cat.items.length, 0);

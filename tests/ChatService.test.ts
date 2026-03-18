@@ -14,13 +14,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // --- Mock fns (hoisted so vi.mock factories can reference them) ---
 const {
     mockSingle,
-    _mockFrom,
+    mockFrom: _mockFrom,
     mockGetUser,
-    _mockRpc,
+    mockRpc: _mockRpc,
     mockChannel,
     mockRemoveChannel,
-    _mockOn,
-    _mockSubscribe,
+    mockOn: _mockOn,
+    mockSubscribe: _mockSubscribe,
     mockSupabase,
     mockPreferencesGet,
     mockPreferencesSet,

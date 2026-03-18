@@ -1,4 +1,4 @@
-import React, { _useState } from 'react';
+import React, { useState } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('CompactHeaderRow');
@@ -26,10 +26,10 @@ export const CompactHeaderRow = ({
     alerts,
     sunrise,
     sunset,
-    _precipitation,
+    precipitation: _precipitation,
     moonPhase,
-    _dashboardMode,
-    _onToggleDashboardMode,
+    dashboardMode: _dashboardMode,
+    onToggleDashboardMode: _onToggleDashboardMode,
 }: {
     alerts?: string[];
     sunrise?: string;

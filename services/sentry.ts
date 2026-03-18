@@ -64,11 +64,11 @@ if (typeof window !== 'undefined') {
 
 // ── Thin async wrappers ─────────────────────────────────────
 
-export const captureException = (err: unknown) => {
+export const captureException = (err: unknown, scope?: Record<string, unknown>) => {
     if (_sentry) {
-        _sentry.captureException(err);
+        _sentry.captureException(err, scope);
     } else {
-        loadSentry().then((s) => s.captureException(err));
+        loadSentry().then((s) => s.captureException(err, scope));
         console.error('[Sentry:deferred]', err);
     }
 };
@@ -81,7 +81,7 @@ export const captureMessage = (msg: string) => {
     }
 };
 
-export const addBreadcrumb = (crumb: { category?: string; message?: string; level?: string }) => {
+export const addBreadcrumb = (crumb: Record<string, unknown>) => {
     if (_sentry) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         _sentry.addBreadcrumb(crumb as any);

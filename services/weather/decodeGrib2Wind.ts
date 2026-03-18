@@ -108,7 +108,7 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Mes
     let binaryScale = 0;
     let decimalScale = 0;
     let bitsPerValue = 0;
-    const _numDataPoints = 0;
+    let _numDataPoints = 0;
     let packedData: number[] = [];
 
     const endOfMessage = offset + totalLength;
