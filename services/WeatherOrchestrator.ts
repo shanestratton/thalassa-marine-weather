@@ -32,6 +32,7 @@ import {
 } from './nativeStorage';
 import { getUpdateInterval, alignToNextInterval, AI_UPDATE_INTERVAL } from './WeatherScheduler';
 import { addBreadcrumb, captureException } from './sentry';
+import { isPremiumUser } from '../managers/SubscriptionManager';
 const log = createLogger('WxOrch');
 
 // ── Types ──────────────────────────────────────────────────────
@@ -639,13 +640,24 @@ export class WeatherOrchestrator {
     }
 
     private async fetchFromStrategy(lat: number, lon: number, name: string): Promise<MarineWeatherReport | null> {
+        // --- SUBSCRIPTION TIER ROUTING ---
+        // Premium users get the full multi-source pipeline (WeatherKit + StormGlass + GRIB).
+        // Free/expired users get standard resolution only (OpenMeteo GFS).
+        let premium = true; // default to full pipeline if check fails
+        try {
+            premium = await isPremiumUser();
+        } catch {
+            // If subscription check fails, don't block weather — give full pipeline
+            log.warn('Subscription check failed, defaulting to premium pipeline');
+        }
+
         try {
             const report = await fetchWeatherByStrategy(lat, lon, name, undefined);
             this.cb.incrementQuota();
             return report;
         } catch (e: unknown) {
-            // Fallback to legacy StormGlass-only
-            if (isStormglassKeyPresent()) {
+            // Premium fallback: try StormGlass high-res if available
+            if (premium && isStormglassKeyPresent()) {
                 try {
                     const report = await fetchPrecisionWeather(name, { lat, lon }, false, undefined);
                     this.cb.incrementQuota();
@@ -654,6 +666,7 @@ export class WeatherOrchestrator {
                     throw e;
                 }
             }
+            // Free users: no StormGlass fallback — save API credits
             throw e;
         }
     }

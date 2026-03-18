@@ -17,6 +17,8 @@ import { SystemStatusButton } from './components/SystemStatusButton';
 import { ToastPortal, toast } from './components/Toast';
 import { PushToast, pushForegroundToast } from './components/PushToast';
 import { PageTransition } from './components/ui/PageTransition';
+import { checkDisclaimerAccepted } from './modules/LegalGuard';
+import { DisclaimerOverlay } from './modules/DisclaimerOverlay';
 // ChatService and PushNotificationService loaded dynamically in useEffects below
 
 // --- LAZY LOAD HEAVY COMPONENTS ---
@@ -115,6 +117,9 @@ const App: React.FC = () => {
         currentView === 'crew' ||
         currentView === 'checklists' ||
         currentView === 'guardian';
+
+    // --- LEGAL DISCLAIMER GATE ---
+    const [disclaimerAccepted, setDisclaimerAccepted] = useState(() => checkDisclaimerAccepted());
 
     // Unread DM count for Chat tab badge
     const [chatUnread, setChatUnread] = useState(0);
@@ -361,6 +366,11 @@ const App: React.FC = () => {
     const showBackgroundImage = false; // Background images disabled — all modes use solid backgrounds
     const showHeader = !['map', 'warnings'].includes(currentView);
     const isDashboard = currentView === 'dashboard';
+
+    // --- DISCLAIMER GATE: block app until accepted ---
+    if (!disclaimerAccepted) {
+        return <DisclaimerOverlay onAccepted={() => setDisclaimerAccepted(true)} />;
+    }
 
     return (
         <div
