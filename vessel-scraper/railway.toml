@@ -1,7 +1,7 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
+watchPatterns = ["src/**", "package.json", "tsconfig.json", "Dockerfile"]
 
 [deploy]
-# Run every 15 minutes
 cronSchedule = "*/15 * * * *"
