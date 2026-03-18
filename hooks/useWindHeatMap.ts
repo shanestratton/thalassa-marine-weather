@@ -56,6 +56,7 @@ function sampleWindSpeed(lat: number, lon: number, baseSpeed: number): number {
 
 export const useWindHeatMap = (
     canvasRef: MutableRefObject<HTMLCanvasElement | null>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mapInstance: MutableRefObject<any>,
     activeLayer: string,
     metrics: WeatherMetrics,

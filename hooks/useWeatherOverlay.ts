@@ -4,6 +4,7 @@ import { WeatherMetrics } from '../types';
 
 export const useWeatherOverlay = (
     canvasRef: MutableRefObject<HTMLCanvasElement | null>,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mapInstance: MutableRefObject<any>,
     activeLayer: 'wind' | 'waves' | 'rain' | 'global-wind',
     metrics: WeatherMetrics,

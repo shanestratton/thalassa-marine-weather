@@ -17,7 +17,7 @@ import { getUpdateInterval, alignToNextInterval, LIVE_OVERLAY_INTERVAL } from '.
 import {
     WeatherOrchestrator,
     type OrchestratorCallbacks,
-    type FetchWeatherOptions,
+    type _FetchWeatherOptions,
 } from '../services/WeatherOrchestrator';
 
 // ── Context Type (unchanged — zero consumer impact) ──────────

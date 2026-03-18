@@ -52,16 +52,19 @@ export const NmeaGaugeOverlay: React.FC<NmeaGaugeOverlayProps> = ({ metricId, me
         return saved ? parseFloat(saved) : 0;
     });
 
-    const updateOffset = useCallback((delta: number) => {
-        setKeelOffset(prev => {
-            const next = Math.round((prev + delta) * 10) / 10;
-            // Can't go past 0 (no positive offset) and can't exceed current depth
-            const maxOffset = metric.value != null ? -metric.value : 0;
-            const clamped = Math.max(maxOffset, Math.min(0, next));
-            localStorage.setItem(OFFSET_KEY, String(clamped));
-            return clamped;
-        });
-    }, [metric.value]);
+    const updateOffset = useCallback(
+        (delta: number) => {
+            setKeelOffset((prev) => {
+                const next = Math.round((prev + delta) * 10) / 10;
+                // Can't go past 0 (no positive offset) and can't exceed current depth
+                const maxOffset = metric.value != null ? -metric.value : 0;
+                const clamped = Math.max(maxOffset, Math.min(0, next));
+                localStorage.setItem(OFFSET_KEY, String(clamped));
+                return clamped;
+            });
+        },
+        [metric.value],
+    );
 
     // Animate in
     useEffect(() => {
@@ -175,7 +178,9 @@ export const NmeaGaugeOverlay: React.FC<NmeaGaugeOverlayProps> = ({ metricId, me
         },
         depth: {
             title: 'Depth',
-            component: <DepthGauge value={metric.value} unit="m" freshness={metric.freshness} keelOffset={keelOffset} />,
+            component: (
+                <DepthGauge value={metric.value} unit="m" freshness={metric.freshness} keelOffset={keelOffset} />
+            ),
         },
         waterTemp: {
             title: 'Water Temperature',

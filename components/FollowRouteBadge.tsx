@@ -8,7 +8,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { useFollowRoute } from '../context/FollowRouteContext';
-import { RouteIcon, MapPinIcon } from './Icons';
+import { RouteIcon, _MapPinIcon } from './Icons';
 
 // ── Stop Following Confirmation Dialog ──
 
@@ -142,7 +142,7 @@ export const FollowRouteBadge: React.FC = () => {
         routeChanged,
         changeDescription,
         isRefreshing,
-        lastRefresh,
+        _lastRefresh,
         stopFollowing,
         acceptRouteChange,
         dismissRouteChange,
@@ -168,7 +168,7 @@ export const FollowRouteBadge: React.FC = () => {
                 name: i === 0 ? 'DEP' : i === routeCoords.length - 1 ? 'ARR' : `WP${i}`,
             }));
 
-            let gpx = `<?xml version="1.0" encoding="UTF-8"?>
+            const gpx = `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="Thalassa Marine Weather">
   <trk>
     <name>${voyagePlan.origin} → ${voyagePlan.destination}</name>

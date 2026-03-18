@@ -43,6 +43,7 @@ const ONBOARDED_STORAGE = {
 };
 
 test.describe('Accessibility', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     test.use({ storageState: ONBOARDED_STORAGE as any });
 
     test('modals have role=dialog and aria-modal', async ({ page }) => {

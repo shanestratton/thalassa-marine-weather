@@ -46,17 +46,24 @@ function loadState(): GuardZoneState {
                 alerts: [], // Don't persist alerts
             };
         }
-    } catch { /* ignore */ }
+    } catch {
+        /* ignore */
+    }
     return { enabled: false, radiusNm: DEFAULT_RADIUS_NM, alerts: [] };
 }
 
 function persist() {
     try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({
-            enabled: state.enabled,
-            radiusNm: state.radiusNm,
-        }));
-    } catch { /* ignore */ }
+        localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({
+                enabled: state.enabled,
+                radiusNm: state.radiusNm,
+            }),
+        );
+    } catch {
+        /* ignore */
+    }
 }
 
 function notify() {
@@ -68,8 +75,7 @@ function haversineNm(lat1: number, lon1: number, lat2: number, lon2: number): nu
     const DEG = Math.PI / 180;
     const dLat = (lat2 - lat1) * DEG;
     const dLon = (lon2 - lon1) * DEG;
-    const a = Math.sin(dLat / 2) ** 2 +
-        Math.cos(lat1 * DEG) * Math.cos(lat2 * DEG) * Math.sin(dLon / 2) ** 2;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * DEG) * Math.cos(lat2 * DEG) * Math.sin(dLon / 2) ** 2;
     return 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 3440.065;
 }
 
@@ -77,8 +83,8 @@ function initialBearing(lat1: number, lon1: number, lat2: number, lon2: number):
     const DEG = Math.PI / 180;
     const dLon = (lon2 - lon1) * DEG;
     const y = Math.sin(dLon) * Math.cos(lat2 * DEG);
-    const x = Math.cos(lat1 * DEG) * Math.sin(lat2 * DEG) -
-        Math.sin(lat1 * DEG) * Math.cos(lat2 * DEG) * Math.cos(dLon);
+    const x =
+        Math.cos(lat1 * DEG) * Math.sin(lat2 * DEG) - Math.sin(lat1 * DEG) * Math.cos(lat2 * DEG) * Math.cos(dLon);
     return (Math.atan2(y, x) / DEG + 360) % 360;
 }
 
@@ -110,11 +116,7 @@ export const AisGuardZone = {
      * Called from useAisStreamLayer on every merge cycle.
      * Returns new alerts (vessels that just entered the zone).
      */
-    checkFeatures(
-        ownLat: number,
-        ownLon: number,
-        features: GeoJSON.Feature[],
-    ): GuardAlert[] {
+    checkFeatures(ownLat: number, ownLon: number, features: GeoJSON.Feature[]): GuardAlert[] {
         if (!state.enabled) return [];
 
         const newAlerts: GuardAlert[] = [];

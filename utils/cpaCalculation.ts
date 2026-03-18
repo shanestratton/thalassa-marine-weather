@@ -165,8 +165,7 @@ function haversineNm(lat1: number, lon1: number, lat2: number, lon2: number): nu
     const dLon = (lon2 - lon1) * DEG_TO_RAD;
     const a =
         Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat1 * DEG_TO_RAD) * Math.cos(lat2 * DEG_TO_RAD) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        Math.cos(lat1 * DEG_TO_RAD) * Math.cos(lat2 * DEG_TO_RAD) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return c * 3440.065; // Earth radius in NM
 }

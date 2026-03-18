@@ -51,7 +51,7 @@ const TrendArrow: React.FC<{ trend?: 'up' | 'down' | 'stable'; improving?: boole
 };
 
 // --- Premium SVG Compass Widget ---
-const CompassWidget: React.FC<{ degrees: number; size?: number }> = ({ degrees, size = 200 }) => {
+const _CompassWidget: React.FC<{ degrees: number; size?: number }> = ({ degrees, size = 200 }) => {
     const needleRotation = degrees;
     const cx = size / 2;
     const cy = size / 2;
@@ -398,7 +398,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
             ? Math.round(topRowData.swellPeriod)
             : '--';
     const windDir = topRowData.windDirection || '--';
-    const windDeg = topRowData.windDegree || 0;
+    const _windDeg = topRowData.windDegree || 0;
     const swellDirDeg = cardinalToDeg(topRowData.swellDirection || undefined);
 
     const safeRound = (v: number | null | undefined): number | string =>
@@ -413,7 +413,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
         return isNaN(num) ? converted : Math.round(num);
     })();
     const pressureVal = safeRound(data.pressure);
-    const seaTemp =
+    const _seaTemp =
         data.waterTemperature !== null && data.waterTemperature !== undefined && !isNaN(data.waterTemperature)
             ? convertTemp(data.waterTemperature, units.temp)
             : '--';
@@ -439,8 +439,11 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
             if (currentHour?.precipitation !== undefined) return safeRound(currentHour.precipitation);
         }
         // Fallback: use the active data's own precipChance or precipitation, not the live observation
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if ((data as any).precipChance !== undefined) return (data as any).precipChance;
         return safeRound(data.precipitation);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
     }, [isLive, hourly, data.precipitation, (data as any).precipChance, cardTime]);
     const rainUnit = isLive ? (units.temp === 'F' ? 'in' : 'mm') : '%';
 
@@ -457,7 +460,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     const isGustImproving = trends?.windGust === 'down';
     const isWaveImproving = trends?.waveHeight === 'down';
     const isVisImproving = trends?.visibility === 'up';
-    const isPressureImproving = trends?.pressure === 'up'; // Rising pressure = improving weather
+    const _isPressureImproving = trends?.pressure === 'up'; // Rising pressure = improving weather
     const isHumidityImproving = trends?.humidity === 'down'; // Lower humidity = more comfortable
 
     // PERF: useState kept to maintain hook order (React rules-of-hooks).

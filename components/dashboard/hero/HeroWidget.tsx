@@ -82,7 +82,7 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
     const flexColAlign = align === 'center' ? 'items-center' : align === 'right' ? 'items-end' : 'items-start';
 
     // Helper to render trend arrow
-    const renderTrend = (t?: string, inverse = false) => {
+    const renderTrend = (t?: string, _inverse = false) => {
         if (!t || t === 'neutral') return null;
         if (t === 'steady') {
             return (

@@ -23,13 +23,14 @@ interface CustomsClearanceCardProps {
 
 export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voyagePlan }) => {
     const customs = voyagePlan.customs;
+    const [activeTab, setActiveTab] = useState<'depart' | 'arrive'>('depart');
+
     if (!customs?.required) return null;
 
     const departCountry = customs.departingCountry;
     const arriveCountry = customs.destinationCountry;
     const departData = findCountryData(departCountry);
     const arriveData = findCountryData(arriveCountry);
-    const [activeTab, setActiveTab] = useState<'depart' | 'arrive'>('depart');
 
     // Which clearance data to show
     const activeData = activeTab === 'depart' ? departData : arriveData;

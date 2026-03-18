@@ -102,7 +102,7 @@ export function getNextQuarterHour(): { nextTime: Date; msUntil: number } {
     const now = new Date();
     const minutes = now.getMinutes();
     const seconds = now.getSeconds();
-    const ms = now.getMilliseconds();
+    const _ms = now.getMilliseconds();
 
     // Calculate next quarter hour
     const nextQuarter = Math.ceil((minutes + 1) / 15) * 15;
@@ -130,6 +130,7 @@ export function getNextQuarterHour(): { nextTime: Date; msUntil: number } {
 /**
  * Convert ShipLogEntry to database format (snake_case)
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function toDbFormat(entry: Partial<ShipLogEntry>): Record<string, any> {
     const mapping: Record<string, string> = {
         id: 'id',
@@ -166,6 +167,7 @@ export function toDbFormat(entry: Partial<ShipLogEntry>): Record<string, any> {
         linkedPlanId: 'linked_plan_id',
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const dbEntry: Record<string, any> = {};
     for (const [key, value] of Object.entries(entry)) {
         const dbKey = mapping[key];
@@ -180,6 +182,7 @@ export function toDbFormat(entry: Partial<ShipLogEntry>): Record<string, any> {
 /**
  * Convert database row to ShipLogEntry format (camelCase)
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function fromDbFormat(row: Record<string, any>): ShipLogEntry {
     return {
         id: row.id,
@@ -231,6 +234,7 @@ export function getWeatherSnapshot(): Partial<ShipLogEntry> {
         // Eliminates ~500ms Capacitor bridge latency per call.
         // Critical for offline tracking where flushBufferedTrack processes
         // hundreds of points sequentially — async reads accumulated minutes of delay.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const cache = loadLargeDataSync(DATA_CACHE_KEY) as Record<string, any> | null;
         if (!cache) {
             return { watchPeriod };
@@ -286,6 +290,7 @@ export function determineLoggingZone(): LoggingZone {
     try {
         // SYNC READ: Uses localStorage for instant zone detection.
         // Same rationale as getWeatherSnapshot — avoids Capacitor bridge delays.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const cachedData = loadLargeDataSync(DATA_CACHE_KEY) as Record<string, any> | null;
         if (!cachedData) return 'nearshore'; // No data = safe default
 

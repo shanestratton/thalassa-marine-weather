@@ -10,7 +10,7 @@
  */
 
 import { createLogger } from '../utils/createLogger';
-import { MarineWeatherReport, VoyagePlan, VesselProfile, UnitPreferences, VesselDimensionUnits } from '../types';
+import { MarineWeatherReport, _VoyagePlan, VesselProfile, UnitPreferences, VesselDimensionUnits } from '../types';
 import { fetchPrecisionWeather, fetchWeatherByStrategy, parseLocation, reverseGeocode } from './weatherService';
 import { fetchWeatherKitRealtime } from './weather/api/weatherkit';
 import { isStormglassKeyPresent } from './weather/keys';
@@ -19,7 +19,7 @@ import { EnvironmentService } from './EnvironmentService';
 import { getErrorMessage } from '../utils/logger';
 import { GpsService } from './GpsService';
 import {
-    saveLargeData,
+    _saveLargeData,
     saveLargeDataImmediate,
     loadLargeData,
     loadLargeDataSync,
@@ -74,6 +74,7 @@ export interface OrchestratorCallbacks {
 
     // Ref getters — orchestrator reads current state without subscribing
     getWeatherData: () => MarineWeatherReport | null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     getSettings: () => any;
     getHistoryCache: () => Record<string, MarineWeatherReport>;
     getLocationMode: () => 'gps' | 'selected';
@@ -122,6 +123,7 @@ export class WeatherOrchestrator {
             }
         } catch (e) {
             log.warn('Version check failed:', e);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             captureException(e, { tags: { operation: 'checkCacheVersion' } } as any);
         } finally {
             this.cb.setVersionChecked(true);
@@ -213,6 +215,7 @@ export class WeatherOrchestrator {
                 level: 'error',
                 data: { error: getErrorMessage(e) },
             });
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             captureException(e, { tags: { operation: 'loadCacheAndInit' } } as any);
             this.cb.setLoading(false);
         } finally {
@@ -613,6 +616,7 @@ export class WeatherOrchestrator {
 
             // Report fetch failures to Sentry
             if (err instanceof Error) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 captureException(err, { tags: { operation: 'fetchWeather', location } } as any);
             }
 
@@ -723,6 +727,7 @@ export class WeatherOrchestrator {
             const current = this.cb.getWeatherData();
             if (!current) return;
 
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const patched = { ...current.current } as any;
             const sources = { ...(patched.sources || {}) };
 

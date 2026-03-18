@@ -290,6 +290,7 @@ export async function generateConsensusMatrix(
             lat: node.lat,
             lon: node.lon,
             hoursFromDep: h,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             distanceNM: Math.round((node as any).distanceNM ?? progress * isoResult.totalDistanceNM),
         });
     }

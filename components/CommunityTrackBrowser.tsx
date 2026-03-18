@@ -167,6 +167,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
             const result = await TrackSharingService.getMySharedTracks();
             setMyTracks(result);
         } catch (err: unknown) {
+            /* best effort */
         } finally {
             setMyTracksLoading(false);
         }

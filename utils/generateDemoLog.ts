@@ -96,7 +96,7 @@ export function generateDemoVoyage(): ShipLogEntry[] {
     const totalHours = 5 * 24 + 10; // 5 days 10 hours
     const startTime = new Date(arrivalTime.getTime() - totalHours * 60 * 60 * 1000);
 
-    const totalDistance = 770; // nautical miles
+    const _totalDistance = 770; // nautical miles
     const intervalMinutes = 15;
     const totalEntries = Math.floor((totalHours * 60) / intervalMinutes);
 
@@ -122,7 +122,7 @@ export function generateDemoVoyage(): ShipLogEntry[] {
         }
 
         // Calculate speed and course
-        const timeDiff = intervalMinutes / 60;
+        const _timeDiff = intervalMinutes / 60;
         const baseSpeed = 6.0 + Math.sin(progress * Math.PI * 4) * 1.5;
 
         // Storm period - slower speed

@@ -388,8 +388,8 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                                 )}
 
                                 <p className="text-[10px] text-gray-600 leading-relaxed">
-                                    Register at aishub.net to get your station IP and port.
-                                    Data is sent only over Wi-Fi to manage costs.
+                                    Register at aishub.net to get your station IP and port. Data is sent only over Wi-Fi
+                                    to manage costs.
                                 </p>
                             </div>
                         )}

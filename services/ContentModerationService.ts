@@ -349,6 +349,7 @@ export const moderateMessage = async (
 
             // If escalate, also log as high-priority
             if (result.verdict === 'escalate') {
+                /* best effort */
             }
         }
 

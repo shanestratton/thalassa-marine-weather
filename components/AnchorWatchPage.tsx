@@ -30,13 +30,23 @@ import { AisStreamService } from '../services/AisStreamService';
 // Nav status → color (same logic as useAisStreamLayer)
 function navStatusColorSimple(code: number): string {
     switch (code) {
-        case 0: return '#22c55e';
-        case 1: return '#f59e0b';
-        case 5: case 6: return '#94a3b8';
-        case 7: return '#06b6d4';
-        case 2: case 3: case 4: return '#f97316';
-        case 14: return '#ef4444';
-        default: return '#38bdf8';
+        case 0:
+            return '#22c55e';
+        case 1:
+            return '#f59e0b';
+        case 5:
+        case 6:
+            return '#94a3b8';
+        case 7:
+            return '#06b6d4';
+        case 2:
+        case 3:
+        case 4:
+            return '#f97316';
+        case 14:
+            return '#ef4444';
+        default:
+            return '#38bdf8';
     }
 }
 
@@ -101,7 +111,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [rodeLength, setRodeLength] = useState(30);
     const [waterDepth, setWaterDepth] = useState(5);
     const [rodeType, setRodeType] = useState<'chain' | 'rope' | 'mixed'>('chain');
-    const [safetyMargin, setSafetyMargin] = useState(10);
+    const [safetyMargin, _setSafetyMargin] = useState(10);
     const [sessionCode, setSessionCode] = useState('');
     const [showShoreModal, setShowShoreModal] = useState(false);
 
@@ -112,13 +122,17 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     // AIS targets on anchor watch radar
     const [aisTargets, setAisTargets] = useState<AisTargetDot[]>([]);
     const [showAisOnRadar, setShowAisOnRadar] = useState(() => {
-        try { return localStorage.getItem('thalassa_anchor_ais') !== 'off'; } catch { return true; }
+        try {
+            return localStorage.getItem('thalassa_anchor_ais') !== 'off';
+        } catch {
+            return true;
+        }
     });
 
     // Canvas ref no longer needed — SwingCircleCanvas manages its own ref
 
     // Track iOS keyboard height via visualViewport so the modal stays above the keyboard
-    const [keyboardOffset, setKeyboardOffset] = useState(0);
+    const [_keyboardOffset, setKeyboardOffset] = useState(0);
     useEffect(() => {
         if (!showShoreModal) {
             setKeyboardOffset(0);
@@ -1413,7 +1427,11 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     onClick={() => {
                         const next = !showAisOnRadar;
                         setShowAisOnRadar(next);
-                        try { localStorage.setItem('thalassa_anchor_ais', next ? 'on' : 'off'); } catch { /* */ }
+                        try {
+                            localStorage.setItem('thalassa_anchor_ais', next ? 'on' : 'off');
+                        } catch {
+                            /* */
+                        }
                         triggerHaptic('light');
                     }}
                     className={`py-3 px-3 border rounded-xl text-sm font-bold transition-all active:scale-[0.97] ${

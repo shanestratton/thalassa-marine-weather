@@ -38,10 +38,12 @@ export interface DepthQueryResponse {
 // ── Helpers ───────────────────────────────────────────────────────
 
 const getSupabaseUrl = (): string =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL) ||
     'https://pcisdplnodrphauixcau.supabase.co';
 
 const getSupabaseKey = (): string =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_KEY) || '';
 
 // ── In-memory cache ──────────────────────────────────────────────

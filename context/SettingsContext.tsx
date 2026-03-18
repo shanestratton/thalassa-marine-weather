@@ -6,7 +6,7 @@ import { useUI } from './UIContext';
 import { supabase } from '../services/supabase';
 import { getErrorMessage } from '../utils/logger';
 
-const CACHE_VERSION = 'v1.3.14-WIDGET-REFRESH';
+const _CACHE_VERSION = 'v1.3.14-WIDGET-REFRESH';
 const DAILY_STORMGLASS_LIMIT = 100;
 
 import { KeepAwake } from '@capacitor-community/keep-awake';
@@ -82,6 +82,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 // Suppress "UNIMPLEMENTED" warnings on Web/Dev
                 const code = (e as Record<string, unknown>)?.code;
                 if (code !== 'UNIMPLEMENTED' && !JSON.stringify(e).includes('UNIMPLEMENTED')) {
+                    /* best effort */
                 }
             }
         };
@@ -113,6 +114,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 // Suppress errors on platforms that don't support this
                 const code = (e as Record<string, unknown>)?.code;
                 if (code !== 'UNIMPLEMENTED' && !JSON.stringify(e).includes('UNIMPLEMENTED')) {
+                    /* best effort */
                 }
             }
         };

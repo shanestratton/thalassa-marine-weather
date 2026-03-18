@@ -225,6 +225,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                 vesselDraft: vessel.draft || 2.5,
                             });
                             const depthEnhanced = await enhanceRouteWithDepth(routeAnalysis, vessel.draft || 2.5);
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             (enhancedPlan as any).__depthSummary = {
                                 minDepth: depthEnhanced.minDepth,
                                 shallowSegments: depthEnhanced.shallowSegments,
@@ -276,6 +277,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                             const modelIds = recommendModels(midpoint.lat, midpoint.lon);
                             const multiModelResult = await queryMultiModel(comparisonPoints, modelIds);
                             if (multiModelResult) {
+                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 (enhancedPlan as any).__multiModelComparison = multiModelResult;
                             }
                         }
@@ -337,6 +339,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     };
 
     const toggleCheck = useCallback((item: string) => setChecklistState((p) => ({ ...p, [item]: !p[item] })), []);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const clearVoyagePlan = useCallback(() => saveVoyagePlan(null as any), [saveVoyagePlan]);
 
     const handleMapSelect = async (lat: number, lon: number, name: string) => {

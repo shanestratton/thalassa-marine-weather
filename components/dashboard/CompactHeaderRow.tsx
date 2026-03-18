@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { _useState } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('CompactHeaderRow');

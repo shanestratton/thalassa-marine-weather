@@ -8,8 +8,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 const store: Record<string, string> = {};
 vi.stubGlobal('localStorage', {
     getItem: (key: string) => store[key] || null,
-    setItem: (key: string, val: string) => { store[key] = val; },
-    removeItem: (key: string) => { delete store[key]; },
+    setItem: (key: string, val: string) => {
+        store[key] = val;
+    },
+    removeItem: (key: string) => {
+        delete store[key];
+    },
 });
 
 // Mock Capacitor as web platform (no native TCP)
@@ -21,7 +25,7 @@ import { AisHubService } from '../services/AisHubService';
 
 beforeEach(() => {
     // Clear localStorage
-    Object.keys(store).forEach(k => delete store[k]);
+    Object.keys(store).forEach((k) => delete store[k]);
     // Reset service state
     AisHubService.destroy();
 });
@@ -103,7 +107,9 @@ describe('AisHubService subscribe', () => {
         AisHubService.setEnabled(true);
 
         let notified = false;
-        const unsub = AisHubService.subscribe(() => { notified = true; });
+        const unsub = AisHubService.subscribe(() => {
+            notified = true;
+        });
 
         // Forward 10 sentences to trigger notification (every 10th)
         for (let i = 0; i < 10; i++) {

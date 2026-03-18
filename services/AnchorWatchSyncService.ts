@@ -323,6 +323,7 @@ class AnchorWatchSyncServiceClass {
 
             if (error) {
             } else {
+                /* best effort */
             }
         } catch (err) {
             // Silently ignored — non-critical failure
@@ -597,6 +598,7 @@ class AnchorWatchSyncServiceClass {
 
             if (error) {
             } else {
+                /* best effort */
             }
         } catch (err) {
             // Silently ignored — non-critical failure

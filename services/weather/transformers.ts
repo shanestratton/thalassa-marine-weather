@@ -69,7 +69,7 @@ export const mapStormGlassToReport = (
     dailyUV?: { time: string[]; uv_index_max: number[] },
     tides: Tide[] = [],
     seaLevels: Partial<StormGlassTideData>[] = [],
-    model: string = 'sg',
+    _model: string = 'sg',
     astro?: AstroEntry[], // Pass astronomy data
     existingLocationType?: 'coastal' | 'offshore' | 'inland',
     timeZone?: string,
@@ -230,6 +230,8 @@ export const mapStormGlassToReport = (
         day: 'Today',
         date: now.toLocaleDateString(),
         feelsLike: calculatedFeels,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         cape: typeof (currentHour as any).cape === 'number' ? (currentHour as any).cape : 0,
         isDay: true,
         isEstimated: false,
@@ -310,6 +312,8 @@ export const mapStormGlassToReport = (
                 windKts * 0.8,
             ),
             dewPoint: getVal(h.dewPointTemperature as MultiSourceField) ?? null,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             cape: typeof (h as any).cape === 'number' ? (h as any).cape : 0,
         };
     });

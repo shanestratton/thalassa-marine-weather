@@ -39,9 +39,9 @@ describe('Voyage Data Utilities', () => {
             const grouped = groupEntriesByDate(entries);
 
             // The function groups by LOCAL date, so we derive the expected local dates
-            const localDate1 = new Date('2026-02-01T00:00:00.000Z').toISOString().split('T')[0];
-            const localDate2 = new Date('2026-02-02T00:00:00.000Z').toISOString().split('T')[0];
-            const localDate3 = new Date('2026-02-03T00:00:00.000Z').toISOString().split('T')[0];
+            const _localDate1 = new Date('2026-02-01T00:00:00.000Z').toISOString().split('T')[0];
+            const _localDate2 = new Date('2026-02-02T00:00:00.000Z').toISOString().split('T')[0];
+            const _localDate3 = new Date('2026-02-03T00:00:00.000Z').toISOString().split('T')[0];
 
             // All 5 entries should produce 2 or 3 groups depending on timezone
             // But we can verify relative properties:

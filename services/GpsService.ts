@@ -21,7 +21,7 @@
 
 import { createLogger } from '../utils/createLogger';
 import { Capacitor } from '@capacitor/core';
-const log = createLogger('GPS');
+const _log = createLogger('GPS');
 
 // ---------- TYPES ----------
 

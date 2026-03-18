@@ -10,7 +10,7 @@
 
 import { createLogger } from '../utils/createLogger';
 import type { IsochroneResult } from './IsochroneRouter';
-const log = createLogger('IsoCache');
+const _log = createLogger('IsoCache');
 
 interface PrecomputedRoute {
     depLat: number;

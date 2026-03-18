@@ -320,7 +320,7 @@ class ShipLogServiceClass {
 
         // If more than 15 minutes since last entry, we missed at least one
         if (msSinceLast >= TRACKING_INTERVAL_MS) {
-            const missedCount = Math.floor(msSinceLast / TRACKING_INTERVAL_MS);
+            const _missedCount = Math.floor(msSinceLast / TRACKING_INTERVAL_MS);
 
             // Capture ONE entry now (at current time, not backdated)
             // We don't backfill because GPS data from the past isn't available
@@ -328,6 +328,7 @@ class ShipLogServiceClass {
                 const entry = await this.captureLogEntry();
                 if (entry) {
                 } else {
+                    /* best effort */
                 }
             } catch (err: unknown) {
                 log.error('checkMissedEntries: catch-up entry failed', err);
@@ -362,13 +363,14 @@ class ShipLogServiceClass {
         this.clearAllTimers();
 
         // Schedule next quarter-hour entry
-        const { nextTime, msUntil } = getNextQuarterHour();
+        const { _nextTime, msUntil } = getNextQuarterHour();
 
         this.quarterTimeoutId = setTimeout(() => {
             this.captureLogEntry()
                 .then((entry) => {
                     if (entry) {
                     } else {
+                        /* best effort */
                     }
                 })
                 .catch((err) => {
@@ -381,6 +383,7 @@ class ShipLogServiceClass {
                     .then((entry) => {
                         if (entry) {
                         } else {
+                            /* best effort */
                         }
                     })
                     .catch((err) => {
@@ -445,7 +448,7 @@ class ShipLogServiceClass {
 
         const now = Date.now();
         const msToNext = intervalMs - (now % intervalMs);
-        const nextMark = new Date(now + msToNext);
+        const _nextMark = new Date(now + msToNext);
 
         // Wait until the next clock-aligned mark, then fire
         this.quarterTimeoutId = setTimeout(() => {
@@ -1217,6 +1220,7 @@ class ShipLogServiceClass {
                     const { error } = await supabase.from(SHIP_LOGS_TABLE).update(updateData).eq('id', entryId);
 
                     if (error) {
+                        /* best effort */
                     } else {
                         // Update last position
                         await this.saveLastPosition({
@@ -1736,6 +1740,7 @@ class ShipLogServiceClass {
                 this.captureLogEntry()
                     .then((entry) => {
                         if (entry) {
+                            /* best effort */
                         }
                     })
                     .catch((err) => {

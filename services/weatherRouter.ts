@@ -132,6 +132,7 @@ export async function fetchWeatherRoute(
         return data;
     } catch (err) {
         if (err instanceof Error && err.name === 'TimeoutError') {
+            /* best effort */
         } else {
             console.error('[WeatherRouter] Error:', err);
         }
@@ -205,6 +206,7 @@ export async function enhanceVoyagePlanWithWeather(
     // over sparse AI waypoints, so routes follow actual waterway geometry
     const centerline: { lat: number; lon: number; depth_m?: number; name?: string }[] = [];
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const routeGeoJSON = (voyagePlan as any).routeGeoJSON;
     if (routeGeoJSON?.geometry?.coordinates?.length >= 2) {
         // Use the detailed graph route coordinates (hundreds of points along waterways)
@@ -343,12 +345,14 @@ export async function enhanceVoyagePlanWithWeather(
         };
 
         const merged = mergeWeatherRoute(voyagePlan, fallbackPayload);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (merged as any).__spatiotemporalPayload = fallbackPayload;
         return merged;
     }
 
     // Store the payload on the plan for the 4D canvas to pick up
     const merged = mergeWeatherRoute(voyagePlan, payload);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (merged as any).__spatiotemporalPayload = payload;
     return merged;
 }
@@ -358,5 +362,6 @@ export async function enhanceVoyagePlanWithWeather(
  * (stashed by enhanceVoyagePlanWithWeather).
  */
 export function getSpatiotemporalPayload(plan: VoyagePlan): SpatiotemporalPayload | null {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (plan as any).__spatiotemporalPayload ?? null;
 }

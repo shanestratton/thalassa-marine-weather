@@ -16,13 +16,19 @@ import { AisGuardZone } from './AisGuardZone';
 const store: Record<string, string> = {};
 vi.stubGlobal('localStorage', {
     getItem: (key: string) => store[key] ?? null,
-    setItem: (key: string, val: string) => { store[key] = val; },
-    removeItem: (key: string) => { delete store[key]; },
+    setItem: (key: string, val: string) => {
+        store[key] = val;
+    },
+    removeItem: (key: string) => {
+        delete store[key];
+    },
 });
 
 // Helper: create a GeoJSON Point feature
 function makeFeature(
-    mmsi: number, lat: number, lon: number,
+    mmsi: number,
+    lat: number,
+    lon: number,
     opts: Partial<{ sog: number; cog: number; name: string; source: string; staleMinutes: number }> = {},
 ): GeoJSON.Feature {
     return {
@@ -40,16 +46,16 @@ function makeFeature(
 }
 
 // Newport Harbour reference point
-const OWN_LAT = -33.7350;
-const OWN_LON = 151.3050;
+const OWN_LAT = -33.735;
+const OWN_LON = 151.305;
 
 // ~0.5 NM north
 const NEAR_LAT = -33.7267;
-const NEAR_LON = 151.3050;
+const NEAR_LON = 151.305;
 
 // ~5 NM north (well outside default 2 NM radius)
 const FAR_LAT = -33.6518;
-const FAR_LON = 151.3050;
+const FAR_LON = 151.305;
 
 describe('AisGuardZone', () => {
     beforeEach(() => {
@@ -73,9 +79,7 @@ describe('AisGuardZone', () => {
         it('clears alerts on disable', () => {
             AisGuardZone.setEnabled(true);
             // Trigger an alert
-            AisGuardZone.checkFeatures(OWN_LAT, OWN_LON, [
-                makeFeature(123456789, NEAR_LAT, NEAR_LON),
-            ]);
+            AisGuardZone.checkFeatures(OWN_LAT, OWN_LON, [makeFeature(123456789, NEAR_LAT, NEAR_LON)]);
             expect(AisGuardZone.getState().alerts.length).toBeGreaterThan(0);
 
             AisGuardZone.setEnabled(false);
@@ -106,17 +110,13 @@ describe('AisGuardZone', () => {
 
     describe('feature checking', () => {
         it('returns empty when disabled', () => {
-            const alerts = AisGuardZone.checkFeatures(OWN_LAT, OWN_LON, [
-                makeFeature(123456789, NEAR_LAT, NEAR_LON),
-            ]);
+            const alerts = AisGuardZone.checkFeatures(OWN_LAT, OWN_LON, [makeFeature(123456789, NEAR_LAT, NEAR_LON)]);
             expect(alerts).toHaveLength(0);
         });
 
         it('detects vessel within radius', () => {
             AisGuardZone.setEnabled(true);
-            const alerts = AisGuardZone.checkFeatures(OWN_LAT, OWN_LON, [
-                makeFeature(123456789, NEAR_LAT, NEAR_LON),
-            ]);
+            const alerts = AisGuardZone.checkFeatures(OWN_LAT, OWN_LON, [makeFeature(123456789, NEAR_LAT, NEAR_LON)]);
             expect(alerts).toHaveLength(1);
             expect(alerts[0].mmsi).toBe(123456789);
             expect(alerts[0].distanceNm).toBeLessThan(1);
@@ -124,9 +124,7 @@ describe('AisGuardZone', () => {
 
         it('ignores vessel outside radius', () => {
             AisGuardZone.setEnabled(true);
-            const alerts = AisGuardZone.checkFeatures(OWN_LAT, OWN_LON, [
-                makeFeature(123456789, FAR_LAT, FAR_LON),
-            ]);
+            const alerts = AisGuardZone.checkFeatures(OWN_LAT, OWN_LON, [makeFeature(123456789, FAR_LAT, FAR_LON)]);
             expect(alerts).toHaveLength(0);
         });
 
@@ -185,9 +183,7 @@ describe('AisGuardZone', () => {
 
             AisGuardZone.setEnabled(true);
             expect(listener).toHaveBeenCalledTimes(1);
-            expect(listener).toHaveBeenCalledWith(
-                expect.objectContaining({ enabled: true }),
-            );
+            expect(listener).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
 
             unsub();
             AisGuardZone.setEnabled(false);

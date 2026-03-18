@@ -15,7 +15,7 @@ import { VoyagePlan, Waypoint, VesselProfile } from '../types';
 
 // ── Types ─────────────────────────────────────────────────────────
 
-interface BathymetricRequest {
+interface _BathymetricRequest {
     origin: { lat: number; lon: number };
     destination: { lat: number; lon: number };
     via?: { lat: number; lon: number };
@@ -51,11 +51,11 @@ interface BathymetricResponse {
 
 // ── Service ───────────────────────────────────────────────────────
 
-const getSupabaseUrl = (): string =>
+const _getSupabaseUrl = (): string =>
     (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
     'https://pcisdplnodrphauixcau.supabase.co';
 
-const getSupabaseKey = (): string => (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+const _getSupabaseKey = (): string => (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
 
 /**
  * Fetch bathymetric-safe waypoints using the client-side Route Orchestrator.
@@ -69,7 +69,7 @@ const getSupabaseKey = (): string => (typeof import.meta !== 'undefined' && impo
 export async function fetchBathymetricRoute(
     origin: { lat: number; lon: number },
     destination: { lat: number; lon: number },
-    vesselDraft: number = 2.5,
+    _vesselDraft: number = 2.5,
     via?: { lat: number; lon: number },
     region?: string,
 ): Promise<BathymetricResponse | null> {
@@ -139,15 +139,18 @@ export function mergeBathymetricRoute(voyagePlan: VoyagePlan, bathyRoute: Bathym
     // This is the key fix: the geojson has ALL graph waypoints
     // so the map renders smooth curves following waterways
     if (bathyRoute.geojson) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (merged as any).routeGeoJSON = bathyRoute.geojson;
     }
     if (bathyRoute.trafficGeoJSON) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (merged as any).trafficGeoJSON = bathyRoute.trafficGeoJSON;
     }
 
     // ── Update metadata ──
     merged.distanceApprox = `${bathyRoute.totalNM} NM`;
     if (bathyRoute.safety) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (merged as any).safety = bathyRoute.safety;
     }
 

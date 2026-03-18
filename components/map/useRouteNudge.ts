@@ -189,8 +189,11 @@ export function useRouteNudge(mapRef: MutableRefObject<mapboxgl.Map | null>, map
                 map.on('mousedown', layerId, handleRouteMouseDown);
                 map.on('mouseup', layerId, cancelRoutePress);
                 map.on('mouseleave', layerId, cancelRoutePress);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 map.on('touchstart', layerId, handleRouteTouchStart as any);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 map.on('touchend', layerId, cancelRoutePress as any);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 map.on('touchmove', layerId, cancelRoutePress as any);
             }
         }
@@ -218,8 +221,11 @@ export function useRouteNudge(mapRef: MutableRefObject<mapboxgl.Map | null>, map
                     map.off('mousedown', layerId, handleRouteMouseDown);
                     map.off('mouseup', layerId, cancelRoutePress);
                     map.off('mouseleave', layerId, cancelRoutePress);
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     map.off('touchstart', layerId, handleRouteTouchStart as any);
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     map.off('touchend', layerId, cancelRoutePress as any);
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     map.off('touchmove', layerId, cancelRoutePress as any);
                 } catch (_) {
                     /* layer removed */

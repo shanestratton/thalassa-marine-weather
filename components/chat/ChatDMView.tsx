@@ -6,9 +6,11 @@ import { getAvatarGradient, timeAgo } from './chatUtils';
 const PinDropCard: React.FC<{ lat: number; lon: number; label: string }> = ({ lat, lon, label }) => {
     const handleTap = useCallback(() => {
         // Dispatch event for map to fly to this location
-        window.dispatchEvent(new CustomEvent('pin-drop-navigate', {
-            detail: { lat, lon, label },
-        }));
+        window.dispatchEvent(
+            new CustomEvent('pin-drop-navigate', {
+                detail: { lat, lon, label },
+            }),
+        );
     }, [lat, lon, label]);
 
     const latStr = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}`;
@@ -24,7 +26,9 @@ const PinDropCard: React.FC<{ lat: number; lon: number; label: string }> = ({ la
                 <span className="text-base">📍</span>
                 <span className="text-xs font-bold text-sky-300">{label}</span>
             </div>
-            <p className="text-[11px] text-white/40 font-mono">{latStr}, {lonStr}</p>
+            <p className="text-[11px] text-white/40 font-mono">
+                {latStr}, {lonStr}
+            </p>
             <p className="text-[10px] text-sky-400/60 mt-1.5 font-semibold">Tap to view on map →</p>
         </button>
     );
@@ -80,7 +84,9 @@ export const ChatDMInbox: React.FC<ChatDMInboxProps> = React.memo(({ conversatio
                         <span className="text-[11px] text-white/15 tabular-nums">{timeAgo(conv.last_at)}</span>
                     </div>
                     <p className="text-[11px] text-white/60 truncate">
-                        {parsePinDrop(conv.last_message) ? `📍 ${parsePinDrop(conv.last_message)!.label}` : conv.last_message}
+                        {parsePinDrop(conv.last_message)
+                            ? `📍 ${parsePinDrop(conv.last_message)!.label}`
+                            : conv.last_message}
                     </p>
                 </div>
                 {conv.unread_count > 0 && (

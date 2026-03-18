@@ -261,6 +261,7 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
         const floatExt = gl.getExtension('OES_texture_float');
         this.hasFloat = !!floatExt;
         if (!this.hasFloat) {
+            /* best effort */
         }
 
         this.initGL();

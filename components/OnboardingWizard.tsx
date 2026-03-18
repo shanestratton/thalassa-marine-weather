@@ -112,7 +112,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     const [prefDist, setPrefDist] = useState<DistanceUnit>(defaults.distance);
     const [prefLength, setPrefLength] = useState<LengthUnit>(defaults.length);
     const [prefWaveHeight, setPrefWaveHeight] = useState<LengthUnit>('m'); // Default to Meters per user request
-    const [preferredModel, setPreferredModel] = useState<WeatherModel>('best_match');
+    const [preferredModel, _setPreferredModel] = useState<WeatherModel>('best_match');
 
     // Display preferences
     const [prefAlwaysOn, setPrefAlwaysOn] = useState(false);

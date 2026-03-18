@@ -49,11 +49,17 @@ class AisStreamServiceClass {
         try {
             // Get Supabase project URL and key for direct fetch
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const supabaseUrl = (supabase as any).supabaseUrl ||
-                (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+            const supabaseUrl =
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (supabase as any).supabaseUrl ||
+                (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
+                '';
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const supabaseKey = (supabase as any).supabaseKey ||
-                (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+            const supabaseKey =
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (supabase as any).supabaseKey ||
+                (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) ||
+                '';
 
             const params = new URLSearchParams({
                 lat: String(query.lat),
@@ -65,8 +71,8 @@ class AisStreamServiceClass {
             const url = `${supabaseUrl}/functions/v1/${EDGE_FN_NAME}?${params}`;
             const resp = await fetch(url, {
                 headers: {
-                    'Authorization': `Bearer ${supabaseKey}`,
-                    'apikey': supabaseKey,
+                    Authorization: `Bearer ${supabaseKey}`,
+                    apikey: supabaseKey,
                 },
             });
 

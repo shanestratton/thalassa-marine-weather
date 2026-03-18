@@ -43,6 +43,7 @@ export const useAppController = () => {
     const [showOnboarding, setShowOnboarding] = useState(false);
 
     // UI Local State
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [sheetData, setSheetData] = useState<any>(null);
     const [sheetOpen, setSheetOpen] = useState(false);
     const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);

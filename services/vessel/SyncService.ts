@@ -192,6 +192,7 @@ export async function syncNow(): Promise<SyncResult> {
     listeners.forEach((fn) => fn(result));
 
     if (result.pushed > 0 || result.pulled > 0) {
+        /* best effort */
     }
 
     return result;

@@ -173,6 +173,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         // ── Load wind velocity layer (deferred to let map init) ──────
         const windTimerId = setTimeout(async () => {
             try {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (window as any).L = L;
                 await import('leaflet-velocity-ts');
 
@@ -220,6 +221,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                 }
 
                 if (windData && Array.isArray(windData) && windData.length > 0 && mapInstanceRef.current) {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const vLayer = (L as any).velocityLayer({
                         displayValues: false,
                         data: windData,
@@ -539,7 +541,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         return Math.max(0, Math.min(maxIdx, Math.round(ratio * maxIdx)));
     }, []);
 
-    const handlePointerDown = useCallback(
+    const _handlePointerDown = useCallback(
         (e: React.PointerEvent) => {
             e.preventDefault();
             e.stopPropagation();
@@ -567,7 +569,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         [positionToIndex, moveVesselTo],
     );
 
-    const handlePointerMove = useCallback(
+    const _handlePointerMove = useCallback(
         (e: React.PointerEvent) => {
             if (!isDraggingRef.current) return;
             e.preventDefault();
@@ -579,7 +581,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         [positionToIndex, moveVesselTo],
     );
 
-    const handlePointerUp = useCallback(
+    const _handlePointerUp = useCallback(
         (e: React.PointerEvent) => {
             if (!isDraggingRef.current) return;
             isDraggingRef.current = false;

@@ -43,6 +43,7 @@ const ONBOARDED_STORAGE = {
 };
 
 test.describe('Dashboard Navigation', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     test.use({ storageState: ONBOARDED_STORAGE as any });
 
     test('dashboard loads with content', async ({ page }) => {

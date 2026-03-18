@@ -29,7 +29,7 @@ const TAB_DURATION = 120;
 // Swipe-back thresholds
 const SWIPE_EDGE_WIDTH = 24;
 const SWIPE_DISMISS_FRACTION = 0.3;
-const SWIPE_VELOCITY_THRESHOLD = 400;
+const _SWIPE_VELOCITY_THRESHOLD = 400;
 
 export const PageTransition: React.FC<PageTransitionProps> = ({
     pageKey,

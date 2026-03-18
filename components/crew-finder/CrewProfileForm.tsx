@@ -89,18 +89,18 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
         editLocationCity,
         editLocationState,
         editLocationCountry,
-        editHasPartner,
-        editPartnerDetails,
+        _editHasPartner,
+        _editPartnerDetails,
         editPhotos,
         uploadingPhotoIdx,
         photoError,
-        pendingPhotoIdx,
+        _pendingPhotoIdx,
         kbHeight,
         saving,
         saved,
         showPreview,
-        showDeleteConfirm,
-        deleting,
+        _showDeleteConfirm,
+        _deleting,
         profile,
     } = state;
 
@@ -125,8 +125,8 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
     const setEditLocationCity = (v: string) => set('SET_EDIT_LOCATION_CITY', v);
     const setEditLocationState = (v: string) => set('SET_EDIT_LOCATION_STATE', v);
     const setEditLocationCountry = (v: string) => set('SET_EDIT_LOCATION_COUNTRY', v);
-    const setEditHasPartner = (v: boolean) => set('SET_EDIT_HAS_PARTNER', v);
-    const setEditPartnerDetails = (v: string) => set('SET_EDIT_PARTNER_DETAILS', v);
+    const _setEditHasPartner = (v: boolean) => set('SET_EDIT_HAS_PARTNER', v);
+    const _setEditPartnerDetails = (v: string) => set('SET_EDIT_PARTNER_DETAILS', v);
     const setShowPreview = (v: boolean) => set('SET_SHOW_PREVIEW', v);
     const setShowDeleteConfirm = (v: boolean) => set('SET_SHOW_DELETE_CONFIRM', v);
     const setPendingPhotoIdx = (v: number) => set('SET_PENDING_PHOTO_IDX', v);
@@ -164,10 +164,12 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
         >
             {/* Scrollable form area */}
             <div
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 ref={myProfileScrollRef as any}
                 className="flex-1 overflow-y-auto overscroll-contain px-5 py-6 space-y-5"
                 style={{
                     paddingBottom: kbHeight > 0 ? `${kbHeight}px` : '1rem',
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     WebkitOverflowScrolling: 'touch' as any,
                 }}
             >
@@ -647,6 +649,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     </div>
                     {photoError && <p className="text-xs text-red-400 mt-2 text-center">❌ {photoError}</p>}
                     <input
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         ref={fileInputRef as any}
                         type="file"
                         accept="image/*"

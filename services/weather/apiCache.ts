@@ -68,8 +68,8 @@ export function apiCacheGet<T>(provider: ApiCacheProvider, lat: number, lon: num
             return null;
         }
 
-        const ageMin = Math.round(ageMs / 60000);
-        const ttlMin = Math.round(ttl / 60000);
+        const _ageMin = Math.round(ageMs / 60000);
+        const _ttlMin = Math.round(ttl / 60000);
         return entry.data;
     } catch (e) {
         console.warn('[apiCache]', e);

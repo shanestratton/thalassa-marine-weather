@@ -9,6 +9,7 @@ interface PDFExportOptions {
 
 // ─── Helper: draw a compass rose watermark ───────────────────────────────────
 function drawCompassRose(pdf: JsPDFType, cx: number, cy: number, r: number, opacity = 0.12): void {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const GState = (pdf as any).GState;
     if (GState) {
         pdf.setGState(new GState({ opacity }));

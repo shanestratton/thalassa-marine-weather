@@ -30,7 +30,7 @@ const getSupabaseUrl = (): string => {
     return '';
 };
 
-const PROXY_URL = `${getSupabaseUrl()}/functions/v1/proxy-gemini`;
+const _PROXY_URL = `${getSupabaseUrl()}/functions/v1/proxy-gemini`;
 
 interface ProxyResponse {
     text: string;
@@ -85,6 +85,7 @@ const withTimeout = <T>(promise: Promise<T>, ms: number, errorMsg: string): Prom
     return Promise.race([promise, new Promise<T>((_, reject) => setTimeout(() => reject(new Error(errorMsg)), ms))]);
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const cleanAndParseJson = <T = any>(text: string): T | null => {
     if (!text) return null;
     try {
@@ -364,6 +365,7 @@ DISAMBIGUATION RULES (CRITICAL):
 
         const text = await callGeminiProxy({ prompt, responseMimeType: 'application/json' });
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let data = cleanAndParseJson<any>(text || '{}');
 
         // Handle generic array response if the model decides to return a list

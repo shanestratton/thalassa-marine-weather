@@ -126,7 +126,7 @@ export const compressImage = (file: File): Promise<Blob> => {
 
 // --- PHOTO MODERATION (Gemini Vision) ---
 
-const PHOTO_MODERATION_PROMPT = `You are moderating profile photos for a sailing community app.
+const _PHOTO_MODERATION_PROMPT = `You are moderating profile photos for a sailing community app.
 
 APPROVE if the image is:
 - A person (any appearance, clothed or beach/boat attire)

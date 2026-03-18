@@ -701,10 +701,15 @@ export function useMapInit(opts: UseMapInitOptions) {
                     'line-color': ['get', 'statusColor'],
                     'line-width': 1.5,
                     'line-opacity': [
-                        'interpolate', ['linear'], ['coalesce', ['get', 'staleMinutes'], 0],
-                        0, 0.5,
-                        60, 0.2,
-                        120, 0.1,
+                        'interpolate',
+                        ['linear'],
+                        ['coalesce', ['get', 'staleMinutes'], 0],
+                        0,
+                        0.5,
+                        60,
+                        0.2,
+                        120,
+                        0.1,
                     ],
                     'line-dasharray': [2, 3],
                 },
@@ -720,10 +725,15 @@ export function useMapInit(opts: UseMapInitOptions) {
                     'circle-radius': 3,
                     'circle-color': ['get', 'statusColor'],
                     'circle-opacity': [
-                        'interpolate', ['linear'], ['coalesce', ['get', 'staleMinutes'], 0],
-                        0, 0.6,
-                        60, 0.2,
-                        120, 0.08,
+                        'interpolate',
+                        ['linear'],
+                        ['coalesce', ['get', 'staleMinutes'], 0],
+                        0,
+                        0.6,
+                        60,
+                        0.2,
+                        120,
+                        0.08,
                     ],
                     'circle-stroke-width': 0.5,
                     'circle-stroke-color': 'rgba(255,255,255,0.15)',
@@ -792,12 +802,19 @@ export function useMapInit(opts: UseMapInitOptions) {
                     // Ghost ship effect: fade vessels by age (staleMinutes)
                     // 0-30 min: fully opaque, 30-120 min: fading, 120+: ghostly
                     'icon-opacity': [
-                        'interpolate', ['linear'], ['coalesce', ['get', 'staleMinutes'], 0],
-                        0, 1,       // Fresh: fully visible
-                        30, 0.8,    // 30 min: slightly faded
-                        60, 0.5,    // 1 hour: half opacity
-                        120, 0.25,  // 2 hours: ghostly
-                        720, 0.15,  // 12 hours: very ghostly
+                        'interpolate',
+                        ['linear'],
+                        ['coalesce', ['get', 'staleMinutes'], 0],
+                        0,
+                        1, // Fresh: fully visible
+                        30,
+                        0.8, // 30 min: slightly faded
+                        60,
+                        0.5, // 1 hour: half opacity
+                        120,
+                        0.25, // 2 hours: ghostly
+                        720,
+                        0.15, // 12 hours: very ghostly
                     ],
                 },
             });

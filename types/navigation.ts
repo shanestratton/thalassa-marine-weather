@@ -170,16 +170,16 @@ export interface SmartPolarBucketGrid {
 
 /** Decoded AIS vessel target from NMEA !AIVDM / !AIVDO sentences */
 export interface AisTarget {
-    mmsi: number;           // 9-digit Maritime Mobile Service Identity
-    name: string;           // Vessel name (from msg 5/24)
-    lat: number;            // Decimal degrees
-    lon: number;            // Decimal degrees
-    cog: number;            // Course over ground (°)
-    sog: number;            // Speed over ground (kts)
-    heading: number;        // True heading (°), 511 = unavailable
-    navStatus: number;      // Navigational status (0-15)
-    shipType: number;       // Ship/cargo type code
-    callSign: string;       // Radio call sign
-    destination: string;    // Reported destination
-    lastUpdated: number;    // Epoch ms
+    mmsi: number; // 9-digit Maritime Mobile Service Identity
+    name: string; // Vessel name (from msg 5/24)
+    lat: number; // Decimal degrees
+    lon: number; // Decimal degrees
+    cog: number; // Course over ground (°)
+    sog: number; // Speed over ground (kts)
+    heading: number; // True heading (°), 511 = unavailable
+    navStatus: number; // Navigational status (0-15)
+    shipType: number; // Ship/cargo type code
+    callSign: string; // Radio call sign
+    destination: string; // Reported destination
+    lastUpdated: number; // Epoch ms
 }

@@ -132,6 +132,7 @@ class TrackSharingServiceClass {
             distanceNM = entries.reduce((sum, e) => sum + (e.distanceNM || 0), 0);
         }
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const trackData: Record<string, any> = {
             user_id: user.id,
             voyage_id: entries[0]?.voyageId || null, // Link back to local voyage

@@ -33,10 +33,10 @@ Deno.serve(async (req: Request) => {
         const limit = parseInt(url.searchParams.get('limit') || '500', 10);
 
         if (isNaN(lat) || isNaN(lon)) {
-            return new Response(
-                JSON.stringify({ error: 'lat and lon are required query parameters' }),
-                { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-            );
+            return new Response(JSON.stringify({ error: 'lat and lon are required query parameters' }), {
+                status: 400,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
         }
 
         // Convert nautical miles to meters (1 NM = 1852 m)
@@ -57,10 +57,10 @@ Deno.serve(async (req: Request) => {
 
         if (error) {
             console.error('vessels_nearby RPC error:', error);
-            return new Response(
-                JSON.stringify({ error: error.message }),
-                { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-            );
+            return new Response(JSON.stringify({ error: error.message }), {
+                status: 500,
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
         }
 
         // Build GeoJSON FeatureCollection
@@ -95,9 +95,9 @@ Deno.serve(async (req: Request) => {
         });
     } catch (e) {
         console.error('Edge function error:', e);
-        return new Response(
-            JSON.stringify({ error: 'Internal server error' }),
-            { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-        );
+        return new Response(JSON.stringify({ error: 'Internal server error' }), {
+            status: 500,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
     }
 });

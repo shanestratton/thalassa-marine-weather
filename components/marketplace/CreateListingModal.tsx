@@ -45,7 +45,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     const [imagePreviews, setImagePreviews] = useState<string[]>([]);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [step, setStep] = useState<'details' | 'photos'>('details');
+    const [_step, setStep] = useState<'details' | 'photos'>('details');
     const [gpsLat, setGpsLat] = useState<number | null>(null);
     const [gpsLon, setGpsLon] = useState<number | null>(null);
     const [locationWarning, setLocationWarning] = useState<string | null>(null);
@@ -291,6 +291,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
             price: parseFloat(price),
             currency,
             category,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             condition: condition as any,
             images: images.length > 0 ? images : undefined,
             latitude: gpsLat || undefined,
@@ -380,6 +381,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                 <div
                     ref={scrollRef}
                     className="flex-1 overflow-y-auto overscroll-contain px-5 py-4 space-y-5"
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     style={{ paddingBottom: scrollPadBottom, WebkitOverflowScrolling: 'touch' as any }}
                 >
                     {/* Error */}

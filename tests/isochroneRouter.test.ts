@@ -240,7 +240,7 @@ describe('computeIsochrones (integration)', () => {
     };
 
     it('returns null for unreachable destination (no wind)', () => {
-        const noWind: WindField = { getWind: () => null };
+        const _noWind: WindField = { getWind: () => null };
         // Short passage, but motoring speed should still arrive
         // Actually with motoringSpeed=5, even no wind should work
         // Let's use an impossible config instead

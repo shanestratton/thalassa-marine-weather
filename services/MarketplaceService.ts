@@ -14,11 +14,11 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 
 // --- CONFIG ---
 const LISTINGS_TABLE = 'marketplace_listings';
-const MESSAGES_TABLE = 'marketplace_messages';
+const _MESSAGES_TABLE = 'marketplace_messages';
 const PROFILES_TABLE = 'chat_profiles';
 const IMAGES_BUCKET = 'marketplace-images';
 const MAX_LISTING_IMAGES = 20;
-const MAX_IMAGE_PX = 1200;
+const _MAX_IMAGE_PX = 1200;
 
 // --- TYPES ---
 

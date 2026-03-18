@@ -851,6 +851,7 @@ class LonelyHeartsServiceClass {
             .from(DATING_PROFILES_TABLE)
             .select('user_id, first_name, dating_first_name, photos, dating_photos')
             .in('user_id', Array.from(mutualIds));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const datingMap = new Map<string, any>();
         if (datingProfiles) {
             for (const dp of datingProfiles) datingMap.set(dp.user_id, dp);
@@ -861,6 +862,7 @@ class LonelyHeartsServiceClass {
             .from(CREW_PROFILES_TABLE)
             .select('user_id, interests, vibe, languages, smoking, drinking, pets, sailing_experience')
             .in('user_id', Array.from(mutualIds));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const crewMap = new Map<string, any>();
         if (crewProfiles) {
             for (const cp of crewProfiles) crewMap.set(cp.user_id, cp);

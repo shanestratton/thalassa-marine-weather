@@ -132,6 +132,7 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
             // Clean up old element
             if (elementRef.current) {
                 elementRef.current.removeEventListener('touchstart', handleTouchStart);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 elementRef.current.removeEventListener('touchmove', handleTouchMove as any);
                 elementRef.current.removeEventListener('touchend', handleTouchEnd);
             }
@@ -142,6 +143,7 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
             if (node) {
                 node.addEventListener('touchstart', handleTouchStart, { passive: true });
                 // ★ passive: false is the critical fix for iOS
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 node.addEventListener('touchmove', handleTouchMove as any, { passive: false });
                 node.addEventListener('touchend', handleTouchEnd, { passive: true });
             }
@@ -154,6 +156,7 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
         return () => {
             if (elementRef.current) {
                 elementRef.current.removeEventListener('touchstart', handleTouchStart);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 elementRef.current.removeEventListener('touchmove', handleTouchMove as any);
                 elementRef.current.removeEventListener('touchend', handleTouchEnd);
             }

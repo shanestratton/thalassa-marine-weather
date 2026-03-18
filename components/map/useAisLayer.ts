@@ -8,7 +8,7 @@
  *
  * Still handles layer visibility toggling.
  */
-import { useEffect, useRef, useCallback, type MutableRefObject } from 'react';
+import { useEffect, useRef, _useCallback, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { AisStore } from '../../services/AisStore';
 
@@ -24,11 +24,7 @@ export function onLocalAisChange(cb: LocalAisChangeCallback): () => void {
     return () => localAisChangeListeners.delete(cb);
 }
 
-export function useAisLayer(
-    mapRef: MutableRefObject<mapboxgl.Map | null>,
-    mapReady: boolean,
-    visible: boolean,
-): void {
+export function useAisLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean, visible: boolean): void {
     const lastUpdateRef = useRef(0);
     const pendingUpdateRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -80,12 +76,7 @@ export function useAisLayer(
         if (!map || !mapReady) return;
 
         const visibility = visible ? 'visible' : 'none';
-        const layerIds = [
-            'ais-targets-glow',
-            'ais-targets-circle',
-            'ais-targets-heading',
-            'ais-targets-label',
-        ];
+        const layerIds = ['ais-targets-glow', 'ais-targets-circle', 'ais-targets-heading', 'ais-targets-label'];
 
         for (const id of layerIds) {
             if (map.getLayer(id)) {

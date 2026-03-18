@@ -18,7 +18,13 @@ interface DepthGaugeProps {
     keelOffset?: number; // Keel depth offset in meters (negative, subtracted from raw depth)
 }
 
-export const DepthGauge: React.FC<DepthGaugeProps> = ({ value, maxDepth = 100, unit = 'm', freshness = 'dead', keelOffset = 0 }) => {
+export const DepthGauge: React.FC<DepthGaugeProps> = ({
+    value,
+    maxDepth = 100,
+    unit = 'm',
+    freshness = 'dead',
+    keelOffset = 0,
+}) => {
     // Apply keel offset: subtract offset from raw depth
     const adjustedValue = value !== null ? Math.max(0, value + keelOffset) : null;
     const hasOffset = keelOffset < 0;

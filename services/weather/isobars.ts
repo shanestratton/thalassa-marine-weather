@@ -49,7 +49,7 @@ interface IsobarResult {
 
 const ISOBAR_INTERVAL = 4; // hPa between contour lines (synoptic standard)
 const GRID_RESOLUTION = 1.0; // degrees (1° ≈ 111km — fast, sufficient for synoptic scale)
-const GRID_RESOLUTION_ZOOMED = 0.5;
+const _GRID_RESOLUTION_ZOOMED = 0.5;
 export const FORECAST_HOURS = 48; // 2-day forecast for timeline scrubber
 
 import { getOpenMeteoKey } from './keys';
@@ -842,8 +842,8 @@ function generatePressureHeatmap(
     ];
 
     // Clamp range to observed data (with padding)
-    const rangeMin = Math.max(960, minP - 4);
-    const rangeMax = Math.min(1050, maxP + 4);
+    const _rangeMin = Math.max(960, minP - 4);
+    const _rangeMax = Math.min(1050, maxP + 4);
 
     for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {

@@ -257,7 +257,7 @@ export function decodeGrib2Pressure(buffer: ArrayBuffer): DecodedPressureGrid {
 
     // GFS data is typically N→S (lat1=90, lat2=-90). We want S→N for contour generation.
     const latStart = f0.south;
-    const latEnd = f0.north;
+    const _latEnd = f0.north;
     for (let i = 0; i < f0.height; i++) {
         lats.push(latStart + i * f0.dy);
     }
