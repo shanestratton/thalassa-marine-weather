@@ -43,7 +43,7 @@ export class ChatErrorBoundary extends React.Component<{ children: React.ReactNo
                         🔄 Try Again
                     </button>
                     {this.state.error && (
-                        <p className="text-[11px] text-white/15 mt-4 max-w-[300px] text-center font-mono truncate">
+                        <p className="text-[11px] text-white/40 mt-4 max-w-[300px] text-center font-mono truncate">
                             {this.state.error.message}
                         </p>
                     )}

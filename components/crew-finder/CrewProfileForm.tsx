@@ -177,7 +177,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     <span className="text-3xl block mb-1">
                         {editListingType === 'seeking_crew' ? '⚓' : editListingType === 'seeking_berth' ? '🧭' : '🌊'}
                     </span>
-                    <p className="text-xs text-white/25">
+                    <p className="text-xs text-white/40">
                         {editListingType === 'seeking_crew'
                             ? 'Your Captain profile — tell crew about your vessel & plans'
                             : editListingType === 'seeking_berth'
@@ -195,7 +195,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                         value={editFirstName}
                         onChange={(e) => setEditFirstName(e.target.value)}
                         placeholder="What should people call you?"
-                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors"
+                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/40 focus:outline-none focus:border-emerald-500/30 transition-colors"
                         maxLength={30}
                     />
                 </div>
@@ -286,11 +286,11 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 ? "Tell crew about your vessel, planned passages, what you're looking for..."
                                 : 'Tell skippers about yourself, your experience, what you can bring to the crew...'
                         }
-                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors resize-none"
+                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/40 focus:outline-none focus:border-emerald-500/30 transition-colors resize-none"
                         rows={4}
                         maxLength={500}
                     />
-                    <p className="text-xs text-white/15 text-right mt-1">{editBio.length}/500</p>
+                    <p className="text-xs text-white/40 text-right mt-1">{editBio.length}/500</p>
                 </div>
 
                 {/* 6. Preferred Sailing Region */}
@@ -308,7 +308,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 ? 'Where will you be sailing? e.g. East Coast, Med...'
                                 : 'Where would you like to sail? e.g. Caribbean, Pacific...'
                         }
-                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors"
+                        className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3.5 text-base text-white placeholder:text-white/40 focus:outline-none focus:border-emerald-500/30 transition-colors"
                         maxLength={80}
                     />
                 </div>
@@ -454,11 +454,11 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             value={editLocationCity}
                             onChange={(e) => setEditLocationCity(e.target.value)}
                             placeholder="City / Town"
-                            className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white placeholder:text-white/20 focus:outline-none focus:border-emerald-500/30 transition-colors"
+                            className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-base text-white placeholder:text-white/40 focus:outline-none focus:border-emerald-500/30 transition-colors"
                             maxLength={60}
                         />
                     </div>
-                    <p className="text-[11px] text-white/25 mt-1.5 ml-1">
+                    <p className="text-[11px] text-white/40 mt-1.5 ml-1">
                         Auto-detected from your GPS — edit if needed
                     </p>
                 </div>
@@ -603,7 +603,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     <label className="text-xs font-bold uppercase tracking-[0.15em] text-white/60 block mb-3">
                         📸 Your Photos ({editPhotos.length}/6)
                     </label>
-                    <p className="text-[11px] text-white/15 mb-3">Add up to 6 photos — moderated by AI for safety</p>
+                    <p className="text-[11px] text-white/40 mb-3">Add up to 6 photos — moderated by AI for safety</p>
                     <div className="grid grid-cols-3 gap-2">
                         {Array.from({ length: 6 }).map((_, idx) => {
                             const url = editPhotos[idx];
@@ -640,7 +640,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                             }}
                                             className="w-full h-full bg-white/[0.02] hover:bg-white/[0.04] flex flex-col items-center justify-center transition-colors"
                                         >
-                                            <span className="text-2xl text-white/20">➕</span>
+                                            <span className="text-2xl text-white/40">➕</span>
                                         </button>
                                     )}
                                 </div>
@@ -658,7 +658,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                     />
                 </div>
 
-                <p className="text-[11px] text-white/15 text-center">
+                <p className="text-[11px] text-white/40 text-center">
                     Your listing is visible to other Crew Talk members who have opted in
                 </p>
 
@@ -714,7 +714,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             <div className="grid grid-cols-2 gap-2">
                                 {(editLocationCity || editLocationState || editLocationCountry) && (
                                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                             Home Port
                                         </p>
                                         <p className="text-sm text-white/70">
@@ -727,7 +727,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 )}
                                 {editRegion && (
                                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                             Region
                                         </p>
                                         <p className="text-sm text-white/70">📍 {editRegion}</p>
@@ -735,7 +735,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 )}
                                 {editExperience && (
                                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                             Experience
                                         </p>
                                         <p className="text-sm text-white/70">🧭 {editExperience}</p>
@@ -743,7 +743,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 )}
                                 {editGender && (
                                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                             Gender
                                         </p>
                                         <p className="text-sm text-white/70">{editGender}</p>
@@ -751,7 +751,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 )}
                                 {editAge && (
                                     <div className="p-3 rounded-xl bg-white/[0.02] border border-white/[0.05]">
-                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-0.5">
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-0.5">
                                             Age
                                         </p>
                                         <p className="text-sm text-white/70">{editAge}</p>
@@ -777,7 +777,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             {/* Skills */}
                             {editSkills.length > 0 && (
                                 <div>
-                                    <p className="text-[11px] font-bold uppercase tracking-wider text-white/25 mb-2">
+                                    <p className="text-[11px] font-bold uppercase tracking-wider text-white/40 mb-2">
                                         Seeking:
                                     </p>
                                     <div className="flex flex-wrap gap-1.5">
@@ -796,7 +796,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             {/* Bio */}
                             {editBio && (
                                 <div>
-                                    <h3 className="text-xs font-bold uppercase tracking-widest text-white/25 mb-2">
+                                    <h3 className="text-xs font-bold uppercase tracking-widest text-white/40 mb-2">
                                         📝 About
                                     </h3>
                                     <p className="text-sm text-white/60 leading-relaxed whitespace-pre-wrap">
@@ -806,7 +806,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                             )}
                         </div>
 
-                        <p className="text-[11px] text-white/20 text-center pt-4 mt-4 border-t border-white/[0.04]">
+                        <p className="text-[11px] text-white/40 text-center pt-4 mt-4 border-t border-white/[0.04]">
                             This is how your listing appears to others
                         </p>
                     </div>
@@ -850,7 +850,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                                 className={`w-full py-4 rounded-2xl text-base font-bold transition-all active:scale-[0.98] shadow-xl ${
                                     isComplete
                                         ? 'bg-gradient-to-r from-emerald-500 to-sky-600 hover:from-emerald-400 hover:to-sky-500 text-white shadow-emerald-500/15'
-                                        : 'bg-white/[0.06] text-white/25 cursor-not-allowed shadow-none'
+                                        : 'bg-white/[0.06] text-white/40 cursor-not-allowed shadow-none'
                                 }`}
                             >
                                 {saved ? '✓ Listing Saved!' : saving ? 'Saving...' : '💾 Save My Listing'}

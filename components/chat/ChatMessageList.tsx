@@ -182,7 +182,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                 </p>
                                 <div className="flex items-center gap-3 mt-5">
                                     <span className="w-8 h-px bg-gradient-to-r from-transparent to-white/10" />
-                                    <span className="text-[11px] text-white/20 uppercase tracking-[0.2em]">
+                                    <span className="text-[11px] text-white/40 uppercase tracking-[0.2em]">
                                         fair winds
                                     </span>
                                     <span className="w-8 h-px bg-gradient-to-l from-transparent to-white/10" />
@@ -221,7 +221,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                             aria-label={getDateLabel(msg.created_at)}
                                         >
                                             <span className="flex-1 h-px bg-gradient-to-r from-transparent to-white/[0.06]" />
-                                            <span className="text-[11px] font-bold text-white/20 uppercase tracking-[0.15em]">
+                                            <span className="text-[11px] font-bold text-white/40 uppercase tracking-[0.15em]">
                                                 {getDateLabel(msg.created_at)}
                                             </span>
                                             <span className="flex-1 h-px bg-gradient-to-l from-transparent to-white/[0.06]" />
@@ -332,7 +332,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
 
                                                 {/* Message body */}
                                                 {isDeleted ? (
-                                                    <p className="text-sm text-white/15 italic py-0.5">
+                                                    <p className="text-sm text-white/40 italic py-0.5">
                                                         [removed by moderator]
                                                     </p>
                                                 ) : (
@@ -389,7 +389,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                             {cleanCaption}
                                                                         </p>
                                                                         <div className="flex items-center justify-between mt-0.5">
-                                                                            <p className="text-sm text-white/25 tabular-nums">
+                                                                            <p className="text-sm text-white/40 tabular-nums">
                                                                                 📍 {Math.abs(pin.lat).toFixed(4)}°
                                                                                 {pin.lat < 0 ? 'S' : 'N'},{' '}
                                                                                 {Math.abs(pin.lng).toFixed(4)}°
@@ -441,7 +441,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                             <p className="text-lg text-sky-300/80 font-semibold truncate">
                                                                                 {track.title}
                                                                             </p>
-                                                                            <p className="text-xs text-white/25 mt-0.5">
+                                                                            <p className="text-xs text-white/40 mt-0.5">
                                                                                 {isImporting
                                                                                     ? 'Importing…'
                                                                                     : 'Tap to import voyage track'}
@@ -494,7 +494,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                         {isMod && (
                                                             <button
                                                                 onClick={() => onToggleModMenu(msg.id)}
-                                                                className="text-[11px] text-white/15 hover:text-red-400/60 transition-colors"
+                                                                className="text-[11px] text-white/40 hover:text-red-400/60 transition-colors"
                                                             >
                                                                 🛡️ Mod
                                                             </button>

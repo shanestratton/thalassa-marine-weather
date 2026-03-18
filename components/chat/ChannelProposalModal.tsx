@@ -152,7 +152,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                     onFocus={scrollInputAboveKeyboard}
                                     placeholder="🏖️"
                                     aria-label="Channel icon"
-                                    className="w-14 bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-3 text-center text-xl min-h-[48px] text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 transition-colors"
+                                    className="w-14 bg-white/[0.04] border border-white/[0.08] rounded-xl px-2 py-3 text-center text-xl min-h-[48px] text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors"
                                     maxLength={2}
                                 />
                             </div>
@@ -165,7 +165,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                     placeholder="e.g. Cruising Tips"
                                     aria-label="Channel name"
                                     autoFocus
-                                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 transition-colors min-h-[48px]"
+                                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors min-h-[48px]"
                                 />
                             </div>
                         </div>
@@ -179,7 +179,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                 onFocus={scrollInputAboveKeyboard}
                                 placeholder="Short description (optional)"
                                 aria-label="Channel description"
-                                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 transition-colors min-h-[48px]"
+                                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors min-h-[48px]"
                             />
                         </div>
 
@@ -322,7 +322,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                             </div>
                         </div>
 
-                        <p className="text-[11px] text-white/25 text-center">
+                        <p className="text-[11px] text-white/40 text-center">
                             {isAdmin
                                 ? 'This channel will be created instantly.'
                                 : "Submitted to admins for approval. You'll moderate it!"}

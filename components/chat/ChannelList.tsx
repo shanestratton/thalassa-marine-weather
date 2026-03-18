@@ -182,7 +182,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                                 </button>
                             )}
                             <div className="w-6 h-6 rounded-full bg-white/[0.03] group-hover:bg-white/[0.06] flex items-center justify-center transition-all group-hover:translate-x-0.5">
-                                <span className="text-white/15 group-hover:text-white/60 text-xs transition-colors">
+                                <span className="text-white/40 group-hover:text-white/60 text-xs transition-colors">
                                     {isPrivateLocked ? '🔒' : '›'}
                                 </span>
                             </div>

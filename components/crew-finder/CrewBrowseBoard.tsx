@@ -258,7 +258,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                     onChange={(e) => setFilterLocationCity(e.target.value)}
                                     onFocus={scrollInputAboveKeyboard}
                                     placeholder="City / Town (optional)"
-                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 transition-colors"
+                                    className="w-full bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors"
                                 />
                             </div>
                         </div>
@@ -282,7 +282,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                             }
                         }}
                         disabled={!hasSearched && (!filterListingType || !filterGender || filterAgeRanges.length === 0)}
-                        className={`w-full py-4 rounded-2xl font-bold text-base transition-all active:scale-[0.97] shadow-2xl ${!hasSearched && (!filterListingType || !filterGender || filterAgeRanges.length === 0) ? 'bg-white/[0.06] text-white/25 cursor-not-allowed' : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-emerald-500/20'}`}
+                        className={`w-full py-4 rounded-2xl font-bold text-base transition-all active:scale-[0.97] shadow-2xl ${!hasSearched && (!filterListingType || !filterGender || filterAgeRanges.length === 0) ? 'bg-white/[0.06] text-white/40 cursor-not-allowed' : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-emerald-500/20'}`}
                     >
                         {hasSearched ? '🔍 New Search' : '🔍 Search'}
                     </button>
@@ -295,7 +295,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                             <div>
                                 <span className="text-5xl block mb-4">🌊</span>
                                 <h3 className="text-xl font-black text-white/60 mb-2">Find Your Sea Mate</h3>
-                                <p className="text-sm text-white/25 max-w-[240px] mx-auto leading-relaxed">
+                                <p className="text-sm text-white/40 max-w-[240px] mx-auto leading-relaxed">
                                     Choose Captain or Crew above to start browsing. Your next adventure is waiting.
                                 </p>
                             </div>
@@ -567,7 +567,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                                     onOpenDM(card.user_id, card.display_name);
                                                 }}
                                                 disabled={messagedUsers.has(card.user_id)}
-                                                className={`flex-1 py-3.5 rounded-2xl font-bold text-sm transition-all active:scale-[0.97] ${messagedUsers.has(card.user_id) ? 'bg-white/[0.04] text-white/25 cursor-not-allowed' : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-xl shadow-emerald-500/15'}`}
+                                                className={`flex-1 py-3.5 rounded-2xl font-bold text-sm transition-all active:scale-[0.97] ${messagedUsers.has(card.user_id) ? 'bg-white/[0.04] text-white/40 cursor-not-allowed' : 'bg-gradient-to-r from-emerald-500 to-sky-600 text-white shadow-xl shadow-emerald-500/15'}`}
                                             >
                                                 {messagedUsers.has(card.user_id) ? '✓ Message Sent' : '💬 Message'}
                                             </button>
@@ -645,7 +645,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                     <button
                                         onClick={goToPrevCard}
                                         disabled={currentCardIndex <= 0}
-                                        className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${currentCardIndex <= 0 ? 'text-white/15 cursor-not-allowed' : 'text-white/50 bg-white/[0.03] border border-white/[0.06] active:scale-95'}`}
+                                        className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${currentCardIndex <= 0 ? 'text-white/40 cursor-not-allowed' : 'text-white/50 bg-white/[0.03] border border-white/[0.06] active:scale-95'}`}
                                     >
                                         ‹ Previous
                                     </button>
@@ -665,7 +665,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                                 );
                                             })}
                                         {currentCardIndex + 4 < listings.length && (
-                                            <span className="text-[11px] text-white/20 ml-0.5">…</span>
+                                            <span className="text-[11px] text-white/40 ml-0.5">…</span>
                                         )}
                                     </div>
                                     <button

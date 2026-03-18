@@ -171,7 +171,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                 onKeyDown={(e) => e.key === 'Enter' && onSend()}
                                 placeholder={isQuestion ? 'Ask the crew anything...' : 'Message...'}
                                 aria-label={isQuestion ? 'Ask the crew a question' : 'Type a message'}
-                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-lg text-white placeholder:text-white/20 focus:outline-none focus:border-sky-500/30 focus:bg-white/[0.06] transition-all duration-200 min-h-[48px]"
+                                className="w-full bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-lg text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 focus:bg-white/[0.06] transition-all duration-200 min-h-[48px]"
                             />
                         </div>
                         <button
@@ -189,7 +189,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                                 strokeWidth="2.5"
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
-                                className={messageText.trim() ? 'text-white' : 'text-white/15'}
+                                className={messageText.trim() ? 'text-white' : 'text-white/40'}
                             >
                                 <path d="M22 2L11 13" />
                                 <path d="M22 2l-7 20-4-9-9-4z" />

@@ -1,184 +1,197 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
-<head>
-  <meta charset="UTF-8" />
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-title" content="Thalassa" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="viewport"
-    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#0f172a" />
-  <!-- Content Security Policy — restrict external sources -->
-  <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self';
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-title" content="Thalassa" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+        />
+        <meta name="theme-color" content="#0f172a" />
+        <!-- Content Security Policy — restrict external sources -->
+        <meta
+            http-equiv="Content-Security-Policy"
+            content="default-src 'self';
       script-src 'self' 'unsafe-inline' 'unsafe-eval' https://esm.sh;
       style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
       font-src 'self' https://fonts.gstatic.com;
       img-src 'self' data: blob: https: http:;
-      connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.open-meteo.com https://customer-api.open-meteo.com https://geocoding-api.open-meteo.com https://api.stormglass.io https://api.mapbox.com https://tiles.openseamap.org https://nominatim.openstreetmap.org https://generativelanguage.googleapis.com https://weatherkit.apple.com https://*.tile.openstreetmap.org https://fonts.googleapis.com https://fonts.gstatic.com https://cdn-icons-png.flaticon.com;
+      connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.open-meteo.com https://customer-api.open-meteo.com https://geocoding-api.open-meteo.com https://api.stormglass.io https://api.mapbox.com https://tiles.openseamap.org https://nominatim.openstreetmap.org https://generativelanguage.googleapis.com https://weatherkit.apple.com https://*.weatherkit.apple.com https://*.sentry.io https://*.tile.openstreetmap.org https://fonts.googleapis.com https://fonts.gstatic.com https://cdn-icons-png.flaticon.com;
       media-src 'self' blob: data:;
-      worker-src 'self' blob:;" />
-  <link rel="manifest" href="/manifest.json" />
-  <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/567/567055.png">
+      worker-src 'self' blob:;
+      frame-src 'none';
+      base-uri 'self';"
+        />
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/567/567055.png" />
 
-  <!-- Performance Optimization: Pre-establish connections to critical domains -->
-  <link rel="preconnect" href="https://images.unsplash.com" />
-  <link rel="preconnect" href="https://api.open-meteo.com" />
-  <link rel="preconnect" href="https://api.stormglass.io" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
-  <link rel="preconnect" href="https://tiles.openseamap.org" />
+        <!-- Performance Optimization: Pre-establish connections to critical domains -->
+        <link rel="preconnect" href="https://images.unsplash.com" />
+        <link rel="preconnect" href="https://api.open-meteo.com" />
+        <link rel="preconnect" href="https://api.stormglass.io" />
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+            rel="stylesheet"
+        />
+        <link rel="preconnect" href="https://tiles.openseamap.org" />
 
-  <title>Thalassa — Marine Weather & Passage Planning</title>
-  <meta name="description" content="Professional marine weather intelligence for sailors. Real-time wind, waves, tides, weather-routed passage planning, GPS tracking, and anchor watch. Built for blue water cruisers." />
-  <meta name="robots" content="index, follow" />
+        <title>Thalassa — Marine Weather & Passage Planning</title>
+        <meta
+            name="description"
+            content="Professional marine weather intelligence for sailors. Real-time wind, waves, tides, weather-routed passage planning, GPS tracking, and anchor watch. Built for blue water cruisers."
+        />
+        <meta name="robots" content="index, follow" />
 
-  <!-- Open Graph -->
-  <meta property="og:title" content="Thalassa — Marine Weather & Passage Planning" />
-  <meta property="og:description" content="Professional marine weather intelligence. Real-time wind, waves, tides, and weather-routed passage planning for sailors." />
-  <meta property="og:type" content="website" />
-  <meta property="og:image" content="https://cdn-icons-png.flaticon.com/512/567/567055.png" />
+        <!-- Open Graph -->
+        <meta property="og:title" content="Thalassa — Marine Weather & Passage Planning" />
+        <meta
+            property="og:description"
+            content="Professional marine weather intelligence. Real-time wind, waves, tides, and weather-routed passage planning for sailors."
+        />
+        <meta property="og:type" content="website" />
+        <meta property="og:image" content="https://cdn-icons-png.flaticon.com/512/567/567055.png" />
 
-  <style>
-    /* Custom scrollbar for glassmorphism feel */
-    ::-webkit-scrollbar {
-      width: 6px;
-      height: 6px;
-    }
+        <style>
+            /* Custom scrollbar for glassmorphism feel */
+            ::-webkit-scrollbar {
+                width: 6px;
+                height: 6px;
+            }
 
-    ::-webkit-scrollbar-track {
-      background: transparent;
-    }
+            ::-webkit-scrollbar-track {
+                background: transparent;
+            }
 
-    ::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.2);
-      border-radius: 10px;
-    }
+            ::-webkit-scrollbar-thumb {
+                background: rgba(255, 255, 255, 0.2);
+                border-radius: 10px;
+            }
 
-    ::-webkit-scrollbar-thumb:hover {
-      background: rgba(255, 255, 255, 0.4);
-    }
+            ::-webkit-scrollbar-thumb:hover {
+                background: rgba(255, 255, 255, 0.4);
+            }
 
-    body {
-      background-color: #0f172a;
-      color: white;
-      overscroll-behavior-y: none;
-      /* Prevents rubber-banding on iOS */
-      -webkit-tap-highlight-color: transparent;
-    }
+            body {
+                background-color: #0f172a;
+                color: white;
+                overscroll-behavior-y: none;
+                /* Prevents rubber-banding on iOS */
+                -webkit-tap-highlight-color: transparent;
+            }
 
-    /* Prevent iOS input zoom */
-    input,
-    select,
-    textarea {
-      font-size: 16px !important;
-    }
+            /* Prevent iOS input zoom */
+            input,
+            select,
+            textarea {
+                font-size: 16px !important;
+            }
 
-    /* Leaflet dark mode overrides */
-    .leaflet-container {
-      background: #0f172a;
-      font-family: inherit;
-    }
+            /* Leaflet dark mode overrides */
+            .leaflet-container {
+                background: #0f172a;
+                font-family: inherit;
+            }
 
-    /* High Contrast Tiles for Visibility */
-    .high-contrast-tiles {
-      filter: contrast(1.3) brightness(0.7) invert(0);
-    }
+            /* High Contrast Tiles for Visibility */
+            .high-contrast-tiles {
+                filter: contrast(1.3) brightness(0.7) invert(0);
+            }
 
-    .leaflet-popup-content-wrapper,
-    .leaflet-popup-tip {
-      background: rgba(15, 23, 42, 0.9);
-      backdrop-filter: blur(10px);
-      color: white;
-      border: 1px solid rgba(255, 255, 255, 0.1);
-    }
+            .leaflet-popup-content-wrapper,
+            .leaflet-popup-tip {
+                background: rgba(15, 23, 42, 0.9);
+                backdrop-filter: blur(10px);
+                color: white;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
 
-    .leaflet-popup-content {
-      margin: 10px;
-    }
+            .leaflet-popup-content {
+                margin: 10px;
+            }
 
-    .leaflet-bar a {
-      background-color: rgba(15, 23, 42, 0.8);
-      color: white;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-    }
+            .leaflet-bar a {
+                background-color: rgba(15, 23, 42, 0.8);
+                color: white;
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            }
 
-    .leaflet-bar a:hover {
-      background-color: rgba(30, 41, 59, 1);
-      color: #38bdf8;
-    }
+            .leaflet-bar a:hover {
+                background-color: rgba(30, 41, 59, 1);
+                color: #38bdf8;
+            }
 
-    /* Pulse animation for the boat */
-    @keyframes pulse-ring {
-      0% {
-        transform: scale(0.8);
-        opacity: 0.5;
-      }
+            /* Pulse animation for the boat */
+            @keyframes pulse-ring {
+                0% {
+                    transform: scale(0.8);
+                    opacity: 0.5;
+                }
 
-      100% {
-        transform: scale(2.5);
-        opacity: 0;
-      }
-    }
+                100% {
+                    transform: scale(2.5);
+                    opacity: 0;
+                }
+            }
 
-    .boat-pulse {
-      position: absolute;
-      width: 20px;
-      height: 20px;
-      background: rgba(56, 189, 248, 0.6);
-      border-radius: 50%;
-      animation: pulse-ring 2s infinite;
-    }
-  </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "react": "https://esm.sh/react@^19.2.3",
-    "@google/genai": "https://esm.sh/@google/genai@^1.33.0",
-    "recharts": "https://esm.sh/recharts@^3.6.0",
-    "vite": "https://esm.sh/vite@^7.3.0",
-    "@dnd-kit/core": "https://esm.sh/@dnd-kit/core@^6.3.1",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "@dnd-kit/sortable": "https://esm.sh/@dnd-kit/sortable@^10.0.0",
-    "@dnd-kit/utilities": "https://esm.sh/@dnd-kit/utilities@^3.2.2",
-    "path": "https://esm.sh/path@^0.12.7",
-    "zod": "https://esm.sh/zod@^3.22.4",
-    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.88.0",
-    "@capacitor/core": "https://esm.sh/@capacitor/core@^8.0.0",
-    "@capacitor/cli": "https://esm.sh/@capacitor/cli@^8.0.0",
-    "@capacitor/haptics": "https://esm.sh/@capacitor/haptics@^8.0.0",
-    "vitest/": "https://esm.sh/vitest@^4.0.16/",
-    "vitest": "https://esm.sh/vitest@^4.0.16",
-    "@testing-library/react": "https://esm.sh/@testing-library/react@^16.3.1",
-    "@testing-library/jest-dom": "https://esm.sh/@testing-library/jest-dom@^6.9.1",
-    "@playwright/test": "https://esm.sh/@playwright/test@^1.57.0",
-    "url": "https://esm.sh/url@^0.11.4"
-  }
-}
-</script>
-  <link rel="stylesheet" href="/index.css">
-</head>
+            .boat-pulse {
+                position: absolute;
+                width: 20px;
+                height: 20px;
+                background: rgba(56, 189, 248, 0.6);
+                border-radius: 50%;
+                animation: pulse-ring 2s infinite;
+            }
+        </style>
+        <script type="importmap">
+            {
+                "imports": {
+                    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+                    "react/": "https://esm.sh/react@^19.2.3/",
+                    "react": "https://esm.sh/react@^19.2.3",
+                    "@google/genai": "https://esm.sh/@google/genai@^1.33.0",
+                    "recharts": "https://esm.sh/recharts@^3.6.0",
+                    "vite": "https://esm.sh/vite@^7.3.0",
+                    "@dnd-kit/core": "https://esm.sh/@dnd-kit/core@^6.3.1",
+                    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
+                    "@dnd-kit/sortable": "https://esm.sh/@dnd-kit/sortable@^10.0.0",
+                    "@dnd-kit/utilities": "https://esm.sh/@dnd-kit/utilities@^3.2.2",
+                    "path": "https://esm.sh/path@^0.12.7",
+                    "zod": "https://esm.sh/zod@^3.22.4",
+                    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.88.0",
+                    "@capacitor/core": "https://esm.sh/@capacitor/core@^8.0.0",
+                    "@capacitor/cli": "https://esm.sh/@capacitor/cli@^8.0.0",
+                    "@capacitor/haptics": "https://esm.sh/@capacitor/haptics@^8.0.0",
+                    "vitest/": "https://esm.sh/vitest@^4.0.16/",
+                    "vitest": "https://esm.sh/vitest@^4.0.16",
+                    "@testing-library/react": "https://esm.sh/@testing-library/react@^16.3.1",
+                    "@testing-library/jest-dom": "https://esm.sh/@testing-library/jest-dom@^6.9.1",
+                    "@playwright/test": "https://esm.sh/@playwright/test@^1.57.0",
+                    "url": "https://esm.sh/url@^0.11.4"
+                }
+            }
+        </script>
+        <link rel="stylesheet" href="/index.css" />
+    </head>
 
-<body>
-  <div id="root"></div>
-  <!-- iOS WKWebView: Suppress harmless "readonly property" TypeError during scroll events.
+    <body>
+        <div id="root"></div>
+        <!-- iOS WKWebView: Suppress harmless "readonly property" TypeError during scroll events.
        React 18's event delegation sets cancelBubble/returnValue on native events, which are
        readonly in WebKit for scroll/touch events. The scroll still works; this just silences
        the console error that fires on every scroll gesture. -->
-  <script>
-    window.addEventListener('error', function(e) {
-      if (e.message && e.message.indexOf('readonly property') !== -1) {
-        e.preventDefault();
-        e.stopPropagation();
-        return true;
-      }
-    });
-  </script>
-  <script type="module" src="/index.tsx"></script>
-</body>
-
+        <script>
+            window.addEventListener('error', function (e) {
+                if (e.message && e.message.indexOf('readonly property') !== -1) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return true;
+                }
+            });
+        </script>
+        <script type="module" src="/index.tsx"></script>
+    </body>
 </html>

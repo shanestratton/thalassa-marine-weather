@@ -93,7 +93,7 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                                 <button
                                     onClick={onReport}
                                     disabled={!reportReason}
-                                    className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${reportReason ? 'bg-red-500/20 text-red-300 border border-red-500/20' : 'bg-white/[0.03] text-white/20 cursor-not-allowed'}`}
+                                    className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${reportReason ? 'bg-red-500/20 text-red-300 border border-red-500/20' : 'bg-white/[0.03] text-white/40 cursor-not-allowed'}`}
                                 >
                                     Submit Report
                                 </button>
@@ -126,7 +126,7 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                                 maxLength={200}
                                 className="w-full bg-white/[0.05] border border-white/10 rounded-xl px-4 py-3 text-sm text-white/70 mb-1 outline-none focus:border-violet-400/30 resize-none h-24"
                             />
-                            <p className="text-[11px] text-white/20 text-right mb-4">{superLikeMessage.length}/200</p>
+                            <p className="text-[11px] text-white/40 text-right mb-4">{superLikeMessage.length}/200</p>
                             <div className="flex gap-3">
                                 <button
                                     onClick={() => setShowSuperLikeModal(null)}

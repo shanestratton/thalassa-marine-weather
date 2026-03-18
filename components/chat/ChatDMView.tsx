@@ -81,7 +81,7 @@ export const ChatDMInbox: React.FC<ChatDMInboxProps> = React.memo(({ conversatio
                 <div className="text-left flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
                         <p className="text-xs font-semibold text-white/85">{conv.display_name}</p>
-                        <span className="text-[11px] text-white/15 tabular-nums">{timeAgo(conv.last_at)}</span>
+                        <span className="text-[11px] text-white/40 tabular-nums">{timeAgo(conv.last_at)}</span>
                     </div>
                     <p className="text-[11px] text-white/60 truncate">
                         {parsePinDrop(conv.last_message)
@@ -138,7 +138,7 @@ export const ChatDMThread: React.FC<ChatDMThreadProps> = React.memo(({ thread, p
                             }`}
                         >
                             {renderMessageContent(dm.message)}
-                            <p className="text-[11px] text-white/15 mt-1 tabular-nums">{timeAgo(dm.created_at)}</p>
+                            <p className="text-[11px] text-white/40 mt-1 tabular-nums">{timeAgo(dm.created_at)}</p>
                         </div>
                     </div>
                 );
@@ -218,7 +218,7 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                         <button
                             onClick={() => setShowBlockConfirm(true)}
                             aria-label="Unblock user"
-                            className="text-xs text-white/25 hover:text-emerald-300/60 transition-colors min-h-[44px] px-2"
+                            className="text-xs text-white/40 hover:text-emerald-300/60 transition-colors min-h-[44px] px-2"
                         >
                             Unblock
                         </button>
@@ -233,7 +233,7 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                                 onKeyDown={(e) => e.key === 'Enter' && onSendDM()}
                                 placeholder={`Message ${partnerName || ''}...`}
                                 aria-label={`Message ${partnerName || 'user'}`}
-                                className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/30 focus:bg-white/[0.06] transition-all duration-200 min-h-[48px]"
+                                className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-purple-500/30 focus:bg-white/[0.06] transition-all duration-200 min-h-[48px]"
                             />
                             <button
                                 onClick={onSendDM}
@@ -250,7 +250,7 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                                     strokeWidth="2.5"
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
-                                    className={dmText.trim() ? 'text-white' : 'text-white/15'}
+                                    className={dmText.trim() ? 'text-white' : 'text-white/40'}
                                 >
                                     <path d="M22 2L11 13" />
                                     <path d="M22 2l-7 20-4-9-9-4z" />
