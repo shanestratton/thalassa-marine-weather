@@ -31,6 +31,7 @@ import { scrapeEquasis } from './scrapers/EquasisScraper';
 import { scrapeItuMars } from './scrapers/ItuMarsScraper';
 
 const MAX_EXTERNAL_PER_RUN = 50;
+const SEED_BATCH_SIZE = 500;
 
 async function run(): Promise<void> {
     const startTime = Date.now();
@@ -47,7 +48,7 @@ async function run(): Promise<void> {
     console.log(`📡 PHASE 1: AIS Self-Seed`);
     console.log(`${'─'.repeat(50)}\n`);
 
-    const staleMmsis = await getStaleOrMissingMmsis(7, 200);
+    const staleMmsis = await getStaleOrMissingMmsis(7, SEED_BATCH_SIZE);
     console.log(`📋 Found ${staleMmsis.length} vessels needing metadata`);
 
     let seeded = 0;
