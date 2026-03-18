@@ -1,18 +1,28 @@
 /**
- * useAisLayer — React hook that renders AIS vessel targets on the Mapbox GL map.
+ * useAisLayer — React hook that manages local AIS data and layer visibility.
  *
- * Creates a GeoJSON source ('ais-targets') and layers for rendering:
- *   - Circle markers colour-coded by navigational status
- *   - Vessel name labels at zoom ≥ 10
- *   - Heading arrows at zoom ≥ 9
+ * Subscribes to AisStore for local NMEA AIS updates and triggers a callback
+ * when local data changes. Does NOT write to the map source directly —
+ * that's handled by useAisStreamLayer which is the sole owner of the
+ * 'ais-targets' GeoJSON source, merging local + internet data.
  *
- * Subscribes to AisStore and updates the map at most once per 2 seconds.
+ * Still handles layer visibility toggling.
  */
-import { useEffect, useRef, type MutableRefObject } from 'react';
+import { useEffect, useRef, useCallback, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { AisStore } from '../../services/AisStore';
 
 const UPDATE_THROTTLE_MS = 2000;
+
+/** Listeners that want to know when local AIS data changes */
+type LocalAisChangeCallback = () => void;
+const localAisChangeListeners = new Set<LocalAisChangeCallback>();
+
+/** Subscribe to local AIS data changes (used by useAisStreamLayer to re-merge) */
+export function onLocalAisChange(cb: LocalAisChangeCallback): () => void {
+    localAisChangeListeners.add(cb);
+    return () => localAisChangeListeners.delete(cb);
+}
 
 export function useAisLayer(
     mapRef: MutableRefObject<mapboxgl.Map | null>,
@@ -22,19 +32,16 @@ export function useAisLayer(
     const lastUpdateRef = useRef(0);
     const pendingUpdateRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    // ── Subscribe to AisStore and push GeoJSON updates to the map ──
+    // ── Subscribe to AisStore and notify listeners when local data changes ──
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
 
-        // Ensure source exists (it's created in useMapInit, but guard anyway)
+        // Ensure source exists
         if (!map.getSource('ais-targets')) return;
 
-        const updateMap = () => {
-            const src = map.getSource('ais-targets') as mapboxgl.GeoJSONSource | undefined;
-            if (!src) return;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            src.setData(AisStore.toGeoJSON() as any);
+        const notifyLocalChange = () => {
+            for (const cb of localAisChangeListeners) cb();
         };
 
         const throttledUpdate = () => {
@@ -43,20 +50,20 @@ export function useAisLayer(
 
             if (elapsed >= UPDATE_THROTTLE_MS) {
                 lastUpdateRef.current = now;
-                updateMap();
+                notifyLocalChange();
             } else if (!pendingUpdateRef.current) {
                 pendingUpdateRef.current = setTimeout(() => {
                     pendingUpdateRef.current = null;
                     lastUpdateRef.current = Date.now();
-                    updateMap();
+                    notifyLocalChange();
                 }, UPDATE_THROTTLE_MS - elapsed);
             }
         };
 
         const unsub = AisStore.subscribe(throttledUpdate);
 
-        // Initial sync
-        updateMap();
+        // Initial notification
+        notifyLocalChange();
 
         return () => {
             unsub();
