@@ -156,8 +156,7 @@ const _fetchWeatherByStrategyImpl = async (
     if (stormGlassReport && report.modelUsed !== 'stormglass') {
         const sg = stormGlassReport.current;
         const current = { ...report.current };
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const sources = (current as any).sources || {};
+        const sources = current.sources || {};
 
         const sgSource = (val: number | string | null) => ({
             value: val,
@@ -190,21 +189,14 @@ const _fetchWeatherByStrategyImpl = async (
             current.currentDirection = sg.currentDirection;
         }
         // Secondary swell (offshore-only marine data)
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ((sg as any).secondarySwellHeight != null) {
-             
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (current as any).secondarySwellHeight = (sg as any).secondarySwellHeight;
+        if (sg.secondarySwellHeight != null) {
+            current.secondarySwellHeight = sg.secondarySwellHeight;
         }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ((sg as any).secondarySwellPeriod != null) {
-             
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (current as any).secondarySwellPeriod = (sg as any).secondarySwellPeriod;
+        if (sg.secondarySwellPeriod != null) {
+            current.secondarySwellPeriod = sg.secondarySwellPeriod;
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (current as any).sources = sources;
+        current.sources = sources;
         report.current = current;
 
         // Merge StormGlass marine data into hourly forecasts
@@ -223,15 +215,12 @@ const _fetchWeatherByStrategyImpl = async (
                     waterTemperature: sgH.waterTemperature ?? h.waterTemperature,
                     currentSpeed: sgH.currentSpeed ?? h.currentSpeed,
                     currentDirection: sgH.currentDirection ?? h.currentDirection,
-                     
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    secondarySwellHeight: (sgH as any).secondarySwellHeight ?? (h as any).secondarySwellHeight,
-                     
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    secondarySwellPeriod: (sgH as any).secondarySwellPeriod ?? (h as any).secondarySwellPeriod,
-                     
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    cape: (sgH as any).cape ?? (h as any).cape,
+
+                    secondarySwellHeight: sgH.secondarySwellHeight ?? h.secondarySwellHeight,
+
+                    secondarySwellPeriod: sgH.secondarySwellPeriod ?? h.secondarySwellPeriod,
+
+                    cape: sgH.cape ?? h.cape,
                 };
             });
         }

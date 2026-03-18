@@ -258,12 +258,9 @@ const HeroSlideComponent = ({
                 waterTemperature: currentSlot.waterTemperature ?? data.waterTemperature,
 
                 // Offshore marine fields
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                cape: currentSlot.cape ?? (data as any).cape,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                secondarySwellHeight: currentSlot.secondarySwellHeight ?? (data as any).secondarySwellHeight,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                secondarySwellPeriod: currentSlot.secondarySwellPeriod ?? (data as any).secondarySwellPeriod,
+                cape: currentSlot.cape ?? data.cape,
+                secondarySwellHeight: currentSlot.secondarySwellHeight ?? data.secondarySwellHeight,
+                secondarySwellPeriod: currentSlot.secondarySwellPeriod ?? data.secondarySwellPeriod,
                 swellPeriod: currentSlot.swellPeriod ?? data.swellPeriod,
                 dewPoint: currentSlot.dewPoint ?? data.dewPoint,
 
@@ -292,12 +289,9 @@ const HeroSlideComponent = ({
             waterTemperature: closestHour?.waterTemperature ?? data.waterTemperature,
             currentSpeed: closestHour?.currentSpeed ?? data.currentSpeed,
             currentDirection: closestHour?.currentDirection ?? data.currentDirection,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            cape: closestHour?.cape ?? (data as any).cape,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            secondarySwellHeight: closestHour?.secondarySwellHeight ?? (data as any).secondarySwellHeight,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            secondarySwellPeriod: closestHour?.secondarySwellPeriod ?? (data as any).secondarySwellPeriod,
+            cape: closestHour?.cape ?? data.cape,
+            secondarySwellHeight: closestHour?.secondarySwellHeight ?? data.secondarySwellHeight,
+            secondarySwellPeriod: closestHour?.secondarySwellPeriod ?? data.secondarySwellPeriod,
             swellPeriod: closestHour?.swellPeriod ?? data.swellPeriod,
             dewPoint: closestHour?.dewPoint ?? data.dewPoint,
         };
@@ -501,8 +495,7 @@ const HeroSlideComponent = ({
                 return convertPrecip(displayData.precipitation, units.length) ?? '0';
             }
             // Forecast: use precipChance from daily match or hourly data
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const chance = (displayData as any).precipChance;
+            const chance = displayData.precipChance;
             return chance !== undefined && chance !== null ? Math.round(chance) : 0;
         })(),
         precipUnit: index === 0 ? (units.temp === 'F' ? 'in' : 'mm') : '%',
@@ -543,13 +536,11 @@ const HeroSlideComponent = ({
             return '--';
         })(),
         secondarySwellHeight: (() => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const v = (displayData as any).secondarySwellHeight;
+            const v = displayData.secondarySwellHeight;
             return v !== undefined && v !== null && !isNaN(v) ? v : '--';
         })(),
         secondarySwellPeriod: (() => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const v = (displayData as any).secondarySwellPeriod;
+            const v = displayData.secondarySwellPeriod;
             return v !== undefined && v !== null && !isNaN(v) ? Math.round(v) : '--';
         })(),
     };
@@ -892,8 +883,7 @@ const HeroSlideComponent = ({
                         if (!isHourly && index === 0) {
                             return convertPrecip(cardData.precipitation, units.length) ?? '0';
                         }
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const chance = (cardData as any).precipChance;
+                        const chance = cardData.precipChance;
                         return chance !== undefined && chance !== null ? Math.round(chance) : 0;
                     })(),
                     precipUnit: !isHourly && index === 0 ? (units.temp === 'F' ? 'in' : 'mm') : '%',
@@ -940,13 +930,11 @@ const HeroSlideComponent = ({
                             ? Math.round(cardData.cape as number)
                             : '--',
                     secondarySwellHeight: (() => {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const v = (cardData as any).secondarySwellHeight;
+                        const v = cardData.secondarySwellHeight;
                         return v !== undefined && v !== null && !isNaN(v) ? v : '--';
                     })(),
                     secondarySwellPeriod: (() => {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const v = (cardData as any).secondarySwellPeriod;
+                        const v = cardData.secondarySwellPeriod;
                         return v !== undefined && v !== null && !isNaN(v) ? Math.round(v) : '--';
                     })(),
                     ...(() => {

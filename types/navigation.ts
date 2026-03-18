@@ -98,6 +98,11 @@ export interface VoyagePlan {
         description: string;
     }[];
     routeReasoning?: string;
+    /** Internal runtime annotations — populated by passage planner, not serialized */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    __depthSummary?: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    __multiModelComparison?: any;
 }
 
 export interface DeepAnalysisReport {

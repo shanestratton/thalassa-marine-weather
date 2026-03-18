@@ -231,8 +231,7 @@ export const mapStormGlassToReport = (
         date: now.toLocaleDateString(),
         feelsLike: calculatedFeels,
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        cape: typeof (currentHour as any).cape === 'number' ? (currentHour as any).cape : 0,
+        cape: typeof currentHour.cape === 'number' ? currentHour.cape : 0,
         isDay: true,
         isEstimated: false,
         sunrise: astro?.[0]?.sunrise
@@ -313,8 +312,7 @@ export const mapStormGlassToReport = (
             ),
             dewPoint: getVal(h.dewPointTemperature as MultiSourceField) ?? null,
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            cape: typeof (h as any).cape === 'number' ? (h as any).cape : 0,
+            cape: typeof h.cape === 'number' ? h.cape : 0,
         };
     });
 

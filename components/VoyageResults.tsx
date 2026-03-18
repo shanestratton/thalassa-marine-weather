@@ -838,15 +838,13 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                         <ResourceCalculator voyagePlan={voyagePlan} vessel={vessel} crewCount={vessel.crewCount || 2} />
                     </AccordionSection>
                     {/* GEBCO DEPTH ANALYSIS */}
-                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                    {(voyagePlan as any).__depthSummary && (
+                    {voyagePlan.__depthSummary && (
                         <AccordionSection
                             title="Depth Analysis"
                             subtitle="GEBCO Bathymetric Safety"
                             icon={<WaveIcon className="w-5 h-5" />}
                             accent={(() => {
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                const d = (voyagePlan as any).__depthSummary;
+                                const d = voyagePlan.__depthSummary;
                                 return d?.segments?.some(
                                     (s: { safety: string }) => s.safety === 'danger' || s.safety === 'land',
                                 )
@@ -855,29 +853,24 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                                       ? 'amber'
                                       : 'emerald';
                             })()}
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            defaultOpen={(voyagePlan as any).__depthSummary?.shallowSegments > 0}
+                            defaultOpen={voyagePlan.__depthSummary?.shallowSegments > 0}
                             badge={(() => {
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                const d = (voyagePlan as any).__depthSummary;
+                                const d = voyagePlan.__depthSummary;
                                 if (!d) return 'Pending';
                                 return d.shallowSegments > 0 ? `${d.shallowSegments} shallow` : 'All Clear';
                             })()}
                         >
-                            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                            <DepthSummaryCard data={(voyagePlan as any).__depthSummary} vesselDraft={vessel.draft} />
+                            <DepthSummaryCard data={voyagePlan.__depthSummary} vesselDraft={vessel.draft} />
                         </AccordionSection>
                     )}
                     {/* MULTI-MODEL WEATHER COMPARISON */}
-                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                    {(voyagePlan as any).__multiModelComparison && (
+                    {voyagePlan.__multiModelComparison && (
                         <AccordionSection
                             title="Model Comparison"
                             subtitle="Multi-Model Weather Ensemble"
                             icon={<WindIcon className="w-5 h-5" />}
                             accent={(() => {
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                const m = (voyagePlan as any).__multiModelComparison as MultiModelResult;
+                                const m = voyagePlan.__multiModelComparison as MultiModelResult;
                                 const confidences = m.waypoints.map(
                                     (wp: { consensus: { confidence: string } }) => wp.consensus.confidence,
                                 );
@@ -888,13 +881,9 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                                       : 'emerald';
                             })()}
                             defaultOpen={true}
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            badge={`${((voyagePlan as any).__multiModelComparison as MultiModelResult).models.length} models`}
+                            badge={`${(voyagePlan.__multiModelComparison as MultiModelResult).models.length} models`}
                         >
-                            <ModelComparisonCard
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                data={(voyagePlan as any).__multiModelComparison as MultiModelResult}
-                            />
+                            <ModelComparisonCard data={voyagePlan.__multiModelComparison as MultiModelResult} />
                         </AccordionSection>
                     )}
                     {/* HAZARD IDENTIFICATION */}
