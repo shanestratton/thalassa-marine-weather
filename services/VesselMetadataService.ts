@@ -158,6 +158,12 @@ class VesselMetadataServiceClass {
                         }
                     }
                 }
+
+                // ── AMSA Register enrichment for Australian vessels ──
+                // For any AU vessel (503xxx) with a name but missing specs,
+                // check amsa_register for LOA, type, home port
+                await this.enrichFromAmsaRegister(results);
+
             } catch (e) {
                 log.warn('Batch lookup error:', e);
             }
@@ -215,6 +221,78 @@ class VesselMetadataServiceClass {
     /** Clear the entire cache */
     clearCache(): void {
         this.cache.clear();
+    }
+
+    /**
+     * Enrich Australian vessels (503xxxxxx) with AMSA register data.
+     * Looks up vessel by name in amsa_register table to fill LOA, type, home port.
+     */
+    private async enrichFromAmsaRegister(
+        results: Map<number, VesselMetadata | null>
+    ): Promise<void> {
+        if (!supabase) return;
+
+        // Find AU vessels that have a name but are missing LOA or type
+        const toEnrich: Array<{ mmsi: number; name: string }> = [];
+        for (const [mmsi, meta] of results.entries()) {
+            const mmsiStr = String(mmsi);
+            if (!mmsiStr.startsWith('503')) continue; // Not Australian
+            if (!meta?.vessel_name) continue; // No name to match
+
+            // Only enrich if missing LOA or vessel type
+            if (!meta.loa || !meta.vessel_type) {
+                toEnrich.push({ mmsi, name: meta.vessel_name });
+            }
+        }
+
+        if (toEnrich.length === 0) return;
+
+        try {
+            // Query AMSA register by uppercase name
+            const names = toEnrich.map((v) => v.name.toUpperCase());
+            const { data, error } = await supabase
+                .from('amsa_register')
+                .select('ship_name_upper, length_m, vessel_type, home_port')
+                .in('ship_name_upper', names);
+
+            if (error || !data) return;
+
+            // Build lookup map
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const amsaMap = new Map<string, any>();
+            for (const row of data) {
+                amsaMap.set(row.ship_name_upper, row);
+            }
+
+            // Merge AMSA data into existing metadata
+            for (const { mmsi, name } of toEnrich) {
+                const amsa = amsaMap.get(name.toUpperCase());
+                if (!amsa) continue;
+
+                const existing = results.get(mmsi);
+                if (!existing) continue;
+
+                // Fill missing fields
+                if (!existing.loa && amsa.length_m) {
+                    existing.loa = amsa.length_m;
+                }
+                if (!existing.vessel_type && amsa.vessel_type) {
+                    existing.vessel_type = amsa.vessel_type;
+                }
+                if (!existing.flag_country) {
+                    existing.flag_country = 'Australia';
+                    existing.flag_emoji = '🇦🇺';
+                }
+                if (!existing.data_source) {
+                    existing.data_source = 'amsa_register';
+                }
+
+                // Update cache with enriched data
+                this.setCache(mmsi, existing);
+            }
+        } catch (e) {
+            log.warn('AMSA register enrichment error:', e);
+        }
     }
 }
 
