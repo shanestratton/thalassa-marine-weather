@@ -626,6 +626,22 @@ class ChatServiceClass {
         return data as DirectMessage;
     }
 
+    // ─── PIN DROPS ────────────────────────────
+
+    /**
+     * Send a pin drop location to a DM recipient.
+     * Encoded as: 📍PIN|lat|lon|label
+     */
+    async sendPinDrop(
+        recipientId: string,
+        lat: number,
+        lon: number,
+        label: string = 'Dropped Pin',
+    ): Promise<DirectMessage | null | 'blocked'> {
+        const encoded = `${PIN_DROP_PREFIX}${lat.toFixed(6)}|${lon.toFixed(6)}|${label}`;
+        return this.sendDM(recipientId, encoded);
+    }
+
     // ─── DM BLOCKS ────────────────────────────
 
     /** Block a user from DMing you. Directional: A blocks B = B can't DM A. */
@@ -1350,3 +1366,22 @@ class ChatServiceClass {
 
 // Singleton
 export const ChatService = new ChatServiceClass();
+
+// ─── PIN DROP HELPERS (standalone for easy import) ────────────
+
+export const PIN_DROP_PREFIX = '📍PIN|';
+
+/**
+ * Parse a pin drop from a DM message.
+ * Returns null if the message is not a pin drop.
+ */
+export function parsePinDrop(message: string): { lat: number; lon: number; label: string } | null {
+    if (!message.startsWith(PIN_DROP_PREFIX)) return null;
+    const parts = message.slice(PIN_DROP_PREFIX.length).split('|');
+    if (parts.length < 3) return null;
+    const lat = parseFloat(parts[0]);
+    const lon = parseFloat(parts[1]);
+    const label = parts.slice(2).join('|');
+    if (!isFinite(lat) || !isFinite(lon)) return null;
+    return { lat, lon, label };
+}

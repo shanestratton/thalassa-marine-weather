@@ -1,10 +1,43 @@
-/**
- * ChatDMView — DM inbox, thread, and compose bar.
- * Extracted from ChatPage to reduce monolith complexity.
- */
-import React from 'react';
-import { DMConversation, DirectMessage } from '../../services/ChatService';
+import React, { useCallback } from 'react';
+import { DMConversation, DirectMessage, parsePinDrop } from '../../services/ChatService';
 import { getAvatarGradient, timeAgo } from './chatUtils';
+
+// Pin drop card component
+const PinDropCard: React.FC<{ lat: number; lon: number; label: string }> = ({ lat, lon, label }) => {
+    const handleTap = useCallback(() => {
+        // Dispatch event for map to fly to this location
+        window.dispatchEvent(new CustomEvent('pin-drop-navigate', {
+            detail: { lat, lon, label },
+        }));
+    }, [lat, lon, label]);
+
+    const latStr = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}`;
+    const lonStr = `${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}`;
+
+    return (
+        <button
+            onClick={handleTap}
+            className="w-full text-left rounded-xl bg-sky-500/[0.08] border border-sky-500/20 p-3 transition-all active:scale-[0.97] hover:bg-sky-500/[0.12]"
+            aria-label={`View ${label} on map`}
+        >
+            <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-base">📍</span>
+                <span className="text-xs font-bold text-sky-300">{label}</span>
+            </div>
+            <p className="text-[11px] text-white/40 font-mono">{latStr}, {lonStr}</p>
+            <p className="text-[10px] text-sky-400/60 mt-1.5 font-semibold">Tap to view on map →</p>
+        </button>
+    );
+};
+
+// Render message content — detects pin drops
+function renderMessageContent(message: string): React.ReactNode {
+    const pin = parsePinDrop(message);
+    if (pin) {
+        return <PinDropCard lat={pin.lat} lon={pin.lon} label={pin.label} />;
+    }
+    return <p className="text-xs text-white/70 leading-relaxed">{message}</p>;
+}
 
 // --- DM Inbox ---
 export interface ChatDMInboxProps {
@@ -46,7 +79,9 @@ export const ChatDMInbox: React.FC<ChatDMInboxProps> = React.memo(({ conversatio
                         <p className="text-xs font-semibold text-white/85">{conv.display_name}</p>
                         <span className="text-[11px] text-white/15 tabular-nums">{timeAgo(conv.last_at)}</span>
                     </div>
-                    <p className="text-[11px] text-white/60 truncate">{conv.last_message}</p>
+                    <p className="text-[11px] text-white/60 truncate">
+                        {parsePinDrop(conv.last_message) ? `📍 ${parsePinDrop(conv.last_message)!.label}` : conv.last_message}
+                    </p>
                 </div>
                 {conv.unread_count > 0 && (
                     <span className="min-w-[20px] h-5 rounded-full bg-gradient-to-r from-sky-500 to-sky-500 text-[11px] font-bold flex items-center justify-center px-1.5 flex-shrink-0 shadow-lg shadow-sky-500/20">
@@ -96,7 +131,7 @@ export const ChatDMThread: React.FC<ChatDMThreadProps> = React.memo(({ thread, p
                                     : 'bg-white/[0.04] border border-white/[0.04] rounded-bl-lg'
                             }`}
                         >
-                            <p className="text-xs text-white/70 leading-relaxed">{dm.message}</p>
+                            {renderMessageContent(dm.message)}
                             <p className="text-[11px] text-white/15 mt-1 tabular-nums">{timeAgo(dm.created_at)}</p>
                         </div>
                     </div>
