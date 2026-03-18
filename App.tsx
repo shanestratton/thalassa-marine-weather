@@ -426,7 +426,7 @@ const App: React.FC = () => {
                 {/* HEADER */}
                 {showHeader && (
                     <header
-                        className={`px-4 md:px-6 flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? `fixed top-0 left-0 right-0 z-[105] ${isLight ? 'bg-slate-200' : 'bg-black'}` : `${isMobileLandscape ? 'py-1' : 'py-2'}`} ${!isOffline && 'pt-[max(1rem,env(safe-area-inset-top))]'}`}
+                        className={`px-4 md:px-6 flex flex-col justify-between pointer-events-none shrink-0 ${isDashboard ? `fixed top-0 left-0 right-0 z-[105] ${isLight ? 'bg-slate-200' : 'bg-black'}` : `${isMobileLandscape ? 'py-1' : 'py-2'}`} pt-[max(1rem,env(safe-area-inset-top))]`}
                         style={{ paddingBottom: isDashboard ? 0 : undefined, gap: '8px' }}
                     >
                         {/* Logo row — same style on all pages */}
@@ -486,7 +486,7 @@ const App: React.FC = () => {
                                                 value={query}
                                                 readOnly
                                                 placeholder="Select via Map..."
-                                                className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default ${isOffline ? 'bg-white/5 opacity-50' : 'bg-slate-900/60 border border-white/10'}`}
+                                                className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default ${isOffline ? 'bg-white/5 opacity-75 border border-orange-500/30' : 'bg-slate-900/60 border border-white/10'}`}
                                                 onClick={() => {
                                                     mapFromWxRef.current = true;
                                                     setPage('map');

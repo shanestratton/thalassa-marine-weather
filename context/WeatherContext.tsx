@@ -17,7 +17,7 @@ import { getUpdateInterval, alignToNextInterval, LIVE_OVERLAY_INTERVAL } from '.
 import {
     WeatherOrchestrator,
     type OrchestratorCallbacks,
-    type _FetchWeatherOptions,
+    type FetchWeatherOptions as _FetchWeatherOptions,
 } from '../services/WeatherOrchestrator';
 
 // ── Context Type (unchanged — zero consumer impact) ──────────
@@ -209,12 +209,12 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // ── REFRESH / SELECT ────────────────────────────────────
     const refreshData = useCallback(
         (silent = false) => {
-            if (!navigator.onLine) {
-                toast.error('Offline');
-                return;
-            }
             const data = weatherDataRef.current;
             const loc = data?.locationName || settingsRef.current.defaultLocation || '';
+            if (!navigator.onLine) {
+                // Still attempt — SW may serve cached API responses
+                if (!silent) toast.info('Offline — showing cached data');
+            }
             fetchWeather(loc, true, data?.coordinates, false, silent);
         },
         [fetchWeather],

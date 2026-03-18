@@ -514,7 +514,31 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     );
 
     // GUARD: All hooks above, early return here is safe
-    if (!data || !current || !safeActive) return null;
+    if (!data || !current || !safeActive) {
+        return (
+            <div className="h-[100dvh] w-full flex flex-col items-center justify-center bg-black text-white p-8">
+                <div className="text-center max-w-sm">
+                    <div className="text-4xl mb-4 opacity-50">🌊</div>
+                    <h2 className="text-xl font-bold mb-2 text-white/90">
+                        {!navigator.onLine ? "You're Offline" : 'Loading Weather...'}
+                    </h2>
+                    <p className="text-sm text-white/50 mb-6">
+                        {!navigator.onLine
+                            ? 'Weather data will appear when connectivity is restored.'
+                            : 'Fetching marine conditions...'}
+                    </p>
+                    {!navigator.onLine && (
+                        <div className="px-4 py-2 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-300 text-xs font-bold uppercase tracking-widest">
+                            Offline Mode
+                        </div>
+                    )}
+                    {navigator.onLine && (
+                        <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin mx-auto" />
+                    )}
+                </div>
+            </div>
+        );
+    }
 
     return (
         <DashboardWidgetContext.Provider value={contextValue as DashboardWidgetContextType}>
