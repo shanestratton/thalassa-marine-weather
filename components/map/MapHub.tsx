@@ -43,6 +43,7 @@ import { usePassagePlanner } from './usePassagePlanner';
 import { useRouteNudge } from './useRouteNudge';
 import { useAisLayer } from './useAisLayer';
 import { useAisStreamLayer } from './useAisStreamLayer';
+import { AisLegend } from './AisLegend';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { SynopticScrubber } from './SynopticScrubber';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
@@ -701,6 +702,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                         aisVisible={aisVisible}
                         onToggleAis={() => setAisVisible(v => !v)}
                     />
+                )}
+
+                {/* ═══ AIS COLOUR LEGEND ═══ */}
+                {!passage.showPassage && !embedded && !isPinView && (
+                    <AisLegend visible={aisVisible} />
                 )}
 
                 {/* ═══ CONSENSUS MATRIX FAB (during passage mode) ═══ */}

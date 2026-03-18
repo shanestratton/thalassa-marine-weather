@@ -4,9 +4,10 @@
  * Fetches server-side AIS targets from Supabase and merges them
  * with local NMEA AIS data. Local targets always take priority.
  *
- * Triggers re-merge on:
- *   - Map idle (debounced, refetches from server)
- *   - Local AIS data change (immediate re-merge with cached server data)
+ * Includes:
+ *   - CPA/TCPA collision avoidance calculations
+ *   - Ship type decoding (cargo, tanker, fishing, etc.)
+ *   - Premium vessel detail popup with collision warnings
  */
 import { useEffect, useRef, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
@@ -14,6 +15,9 @@ import { AisStreamService } from '../../services/AisStreamService';
 import { AisStore } from '../../services/AisStore';
 import { supabase } from '../../services/supabase';
 import { onLocalAisChange } from './useAisLayer';
+import { LocationStore } from '../../stores/LocationStore';
+import { NmeaStore } from '../../services/NmeaStore';
+import { computeCpa } from '../../utils/cpaCalculation';
 
 const FETCH_DEBOUNCE_MS = 1500;
 const AIS_SOURCE_ID = 'ais-targets';
@@ -30,25 +34,23 @@ function zoomToRadiusNm(zoom: number): number {
 
 /**
  * Map AIS navigational status code to a display colour.
- * Matches the same palette used in AisStore for local targets.
  */
 function navStatusColor(status: number): string {
     switch (status) {
-        case 0: return '#22c55e'; // Under way (engine) — green
-        case 1: return '#f59e0b'; // At anchor — amber
-        case 2: return '#ef4444'; // Not under command — red
-        case 3: return '#f97316'; // Restricted manoeuvrability — orange
-        case 4: return '#f97316'; // Constrained by draught — orange
-        case 5: return '#94a3b8'; // Moored — grey
-        case 6: return '#ef4444'; // Aground — red
-        case 7: return '#06b6d4'; // Fishing — cyan
-        case 8: return '#22c55e'; // Under way (sail) — green
-        case 15: return '#38bdf8'; // Not defined / Class B — sky blue
-        default: return '#38bdf8'; // Unknown — sky blue
+        case 0: return '#22c55e';
+        case 1: return '#f59e0b';
+        case 2: return '#ef4444';
+        case 3: return '#f97316';
+        case 4: return '#f97316';
+        case 5: return '#94a3b8';
+        case 6: return '#ef4444';
+        case 7: return '#06b6d4';
+        case 8: return '#22c55e';
+        case 15: return '#38bdf8';
+        default: return '#38bdf8';
     }
 }
 
-/** Human-readable nav status label */
 function navStatusLabel(status: number): string {
     switch (status) {
         case 0: return 'Under Way (Engine)';
@@ -66,6 +68,53 @@ function navStatusLabel(status: number): string {
     }
 }
 
+// ── Ship type decoder (ITU-R M.1371-5, Table 53) ──────────────
+
+function decodeShipType(code: number): { icon: string; label: string } {
+    if (code >= 20 && code <= 29) return { icon: '🚤', label: 'Wing in Ground' };
+    if (code === 30) return { icon: '🎣', label: 'Fishing Vessel' };
+    if (code === 31) return { icon: '🚢', label: 'Towing' };
+    if (code === 32) return { icon: '🚢', label: 'Towing (Large)' };
+    if (code === 33) return { icon: '⛏️', label: 'Dredger' };
+    if (code === 34) return { icon: '🤿', label: 'Diving Operations' };
+    if (code === 35) return { icon: '⚓', label: 'Military' };
+    if (code === 36) return { icon: '⛵', label: 'Sailing Vessel' };
+    if (code === 37) return { icon: '🚤', label: 'Pleasure Craft' };
+    if (code >= 40 && code <= 49) return { icon: '🚀', label: 'High Speed Craft' };
+    if (code === 50) return { icon: '🧭', label: 'Pilot Vessel' };
+    if (code === 51) return { icon: '🔍', label: 'SAR Vessel' };
+    if (code === 52) return { icon: '🚢', label: 'Tug' };
+    if (code === 53) return { icon: '🚢', label: 'Port Tender' };
+    if (code === 54) return { icon: '🏭', label: 'Anti-Pollution' };
+    if (code === 55) return { icon: '🚔', label: 'Law Enforcement' };
+    if (code === 58) return { icon: '🏥', label: 'Medical Transport' };
+    if (code === 59) return { icon: '🚢', label: 'Non-combatant Ship' };
+    if (code >= 60 && code <= 69) {
+        const label = code === 69 ? 'Cruise Ship' : 'Passenger Ship';
+        return { icon: '🛳️', label };
+    }
+    if (code >= 70 && code <= 79) {
+        const labels: Record<number, string> = {
+            70: 'Cargo Ship', 71: 'Cargo — Hazmat (A)', 72: 'Cargo — Hazmat (B)',
+            73: 'Cargo — Hazmat (C)', 74: 'Cargo — Hazmat (D)',
+            75: 'Car Carrier', 76: 'Bulk Carrier', 77: 'Container Ship',
+            78: 'RoRo Cargo', 79: 'Cargo (Other)',
+        };
+        return { icon: '🚛', label: labels[code] || 'Cargo Ship' };
+    }
+    if (code >= 80 && code <= 89) {
+        const labels: Record<number, string> = {
+            80: 'Tanker', 81: 'Tanker — Hazmat (A)', 82: 'Tanker — Hazmat (B)',
+            83: 'Tanker — Hazmat (C)', 84: 'Tanker — Hazmat (D)',
+            85: 'LNG / LPG Carrier', 86: 'Chemical Tanker',
+            87: 'Oil Tanker', 88: 'Gas Carrier', 89: 'Tanker (Other)',
+        };
+        return { icon: '⛽', label: labels[code] || 'Tanker' };
+    }
+    if (code >= 90 && code <= 99) return { icon: '🚢', label: 'Other Vessel' };
+    return { icon: '🚢', label: 'Unknown Type' };
+}
+
 export function useAisStreamLayer(
     map: mapboxgl.Map | null,
     enabled: boolean,
@@ -73,23 +122,16 @@ export function useAisStreamLayer(
     const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isMounted = useRef(true);
     const popupRef = useRef<mapboxgl.Popup | null>(null);
-    // Cache the last server fetch so local-change re-merges don't need a new fetch
     const cachedServerFeatures = useRef<GeoJSON.Feature[]>([]);
 
-    /**
-     * Merge local AIS + cached internet AIS and write to map source.
-     * Local targets always take priority by MMSI.
-     */
     const mergeAndWrite = useCallback(() => {
         if (!map || !enabled) return;
 
-        // Get local AIS targets
         const localGeoJson = AisStore.toGeoJSON();
         const localMmsis = new Set(
             localGeoJson.features.map((f) => f.properties?.mmsi),
         );
 
-        // Filter internet targets: remove any MMSI already tracked locally
         const internetFeatures = cachedServerFeatures.current
             .filter((f) => !localMmsis.has(f.properties?.mmsi))
             .map((f) => ({
@@ -101,33 +143,25 @@ export function useAisStreamLayer(
                 },
             }));
 
-        // Merge: local targets (tagged 'local') + internet-only targets
         const merged: GeoJSON.FeatureCollection = {
             type: 'FeatureCollection',
             features: [
-                // Local targets (full opacity, fresher data)
                 ...localGeoJson.features.map((f) => ({
                     ...f,
                     properties: { ...f.properties, source: 'local' },
                 })),
-                // Internet targets (slightly transparent)
                 ...internetFeatures,
             ],
         };
 
-        // Write to map source — this is the ONLY place that writes to 'ais-targets'
         const source = map.getSource(AIS_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
         if (source) {
             source.setData(merged);
         }
     }, [map, enabled]);
 
-    /**
-     * Fetch from server, cache the response, then merge with local data.
-     */
     const fetchAndMerge = useCallback(async () => {
         if (!map || !enabled || !supabase) {
-            // No Supabase? Just render local data
             mergeAndWrite();
             return;
         }
@@ -144,58 +178,46 @@ export function useAisStreamLayer(
             });
 
             if (!isMounted.current || !map) return;
-
-            // Cache server features for re-merge on local data changes
             cachedServerFeatures.current = geojson.features || [];
         } catch (e) {
             console.warn('[useAisStreamLayer] Fetch failed:', e);
         }
 
-        // Merge with latest local data
         mergeAndWrite();
     }, [map, enabled, mergeAndWrite]);
 
-    // ── Listen for local AIS data changes → re-merge immediately ──
+    // Listen for local AIS data changes → re-merge
     useEffect(() => {
         if (!map || !enabled) return;
-
-        const unsub = onLocalAisChange(() => {
-            mergeAndWrite();
-        });
-
+        const unsub = onLocalAisChange(() => mergeAndWrite());
         return unsub;
     }, [map, enabled, mergeAndWrite]);
 
-    // ── Debounced fetch on map idle ──
+    // Debounced fetch on map idle
     useEffect(() => {
         if (!map || !enabled) return;
 
         const onIdle = () => {
-            if (debounceTimer.current) {
-                clearTimeout(debounceTimer.current);
-            }
+            if (debounceTimer.current) clearTimeout(debounceTimer.current);
             debounceTimer.current = setTimeout(fetchAndMerge, FETCH_DEBOUNCE_MS);
         };
 
         map.on('idle', onIdle);
-
-        // Initial fetch
         fetchAndMerge();
 
         return () => {
             isMounted.current = false;
             map.off('idle', onIdle);
-            if (debounceTimer.current) {
-                clearTimeout(debounceTimer.current);
-            }
+            if (debounceTimer.current) clearTimeout(debounceTimer.current);
         };
     }, [map, enabled, fetchAndMerge]);
 
-    // ── Vessel detail popup on tap/click ──
+    // ── Premium vessel popup on tap ──
     useEffect(() => {
         if (!map || !enabled) return;
 
-        const handleClick = (e: mapboxgl.MapMouseEvent & { features?: mapboxgl.MapboxGeoJSONFeature[] }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const handleClick = (e: any) => {
             if (!e.features || e.features.length === 0) return;
 
             const f = e.features[0];
@@ -203,23 +225,27 @@ export function useAisStreamLayer(
             if (!p) return;
 
             const coords = (f.geometry as GeoJSON.Point).coordinates.slice() as [number, number];
+            const [targetLon, targetLat] = coords;
 
-            // Close existing popup
-            if (popupRef.current) {
-                popupRef.current.remove();
-            }
+            if (popupRef.current) popupRef.current.remove();
 
+            // ── Identity ──
             const name = p.name || `MMSI ${p.mmsi}`;
             const statusColor = p.statusColor || '#38bdf8';
             const status = navStatusLabel(p.navStatus ?? 15);
-            const sog = p.sog != null ? `${Number(p.sog).toFixed(1)} kn` : '—';
-            const cog = p.cog != null ? `${Number(p.cog).toFixed(0)}°` : '—';
-            const heading = p.heading != null && p.heading !== 511 ? `${p.heading}°` : '—';
+            const sogVal = p.sog != null ? Number(p.sog) : 0;
+            const cogVal = p.cog != null ? Number(p.cog) : 0;
+            const sog = sogVal > 0 ? `${sogVal.toFixed(1)} kn` : 'Stationary';
+            const cogStr = p.cog != null ? `${cogVal.toFixed(0)}°` : '—';
+            const hdg = p.heading != null && p.heading !== 511 ? `${p.heading}°` : '—';
             const callSign = p.callSign || '—';
             const destination = p.destination || '—';
             const source = p.source === 'local' ? '📡 Local NMEA' : '🌐 AISStream';
 
-            // Format "last seen" relative time
+            // ── Ship type ──
+            const { icon: shipIcon, label: shipLabel } = decodeShipType(p.shipType ?? 0);
+
+            // ── Last seen ──
             let lastSeen = '—';
             const ts = p.updatedAt || p.lastUpdated;
             if (ts) {
@@ -235,58 +261,87 @@ export function useAisStreamLayer(
             }
             if (p.source === 'local') lastSeen = 'Live';
 
-            const html = `
-                <div style="
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                    background: rgba(15, 23, 42, 0.95);
-                    backdrop-filter: blur(12px);
-                    border: 1px solid rgba(255,255,255,0.1);
-                    border-radius: 12px;
-                    padding: 14px 16px;
-                    color: #e2e8f0;
-                    min-width: 220px;
-                    max-width: 280px;
-                ">
-                    <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
-                        <div style="
-                            width:10px; height:10px; border-radius:50%;
-                            background:${statusColor};
-                            box-shadow: 0 0 6px ${statusColor};
-                            flex-shrink:0;
-                        "></div>
-                        <div style="font-weight:800; font-size:13px; letter-spacing:0.3px;">
-                            ${name}
+            // ── CPA / TCPA ──
+            const own = LocationStore.getState();
+            const nmea = NmeaStore.getState();
+            const ownSog = nmea.sog.value ?? 0;
+            const ownCog = nmea.cog.value ?? 0;
+            const cpaResult = computeCpa(
+                own.lat, own.lon, ownCog, ownSog,
+                targetLat, targetLon, cogVal, sogVal,
+            );
+
+            let cpaSection = '';
+            if (cpaResult) {
+                const { cpa, tcpa, distance, bearing, risk } = cpaResult;
+                const rc: Record<string, string> = {
+                    DANGER: '#ef4444', CAUTION: '#f59e0b', SAFE: '#22c55e', NONE: '#64748b',
+                };
+                const rl: Record<string, string> = {
+                    DANGER: '⚠️ DANGER — Risk of Collision',
+                    CAUTION: '⚡ CAUTION — Close Approach',
+                    SAFE: '✅ Safe Passage',
+                    NONE: '↔ Diverging',
+                };
+                const riskColor = rc[risk] || '#64748b';
+
+                const banner = (risk === 'DANGER' || risk === 'CAUTION')
+                    ? `<div style="background:${riskColor}18;border:1px solid ${riskColor}40;border-radius:8px;padding:6px 10px;margin-bottom:10px;text-align:center;font-size:11px;font-weight:700;color:${riskColor};letter-spacing:0.3px;">${rl[risk]}</div>`
+                    : '';
+
+                const tcpaStr = tcpa < 0 ? 'Diverging' : tcpa < 60 ? `${tcpa.toFixed(0)} min` : `${(tcpa / 60).toFixed(1)} hrs`;
+
+                cpaSection = `
+                    ${banner}
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;padding:8px;background:rgba(255,255,255,0.03);border-radius:8px;border:1px solid rgba(255,255,255,0.06);">
+                        <div style="text-align:center;">
+                            <div style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Distance</div>
+                            <div style="font-size:14px;font-weight:700;color:#e2e8f0;">${distance.toFixed(1)} NM</div>
+                        </div>
+                        <div style="text-align:center;">
+                            <div style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">Bearing</div>
+                            <div style="font-size:14px;font-weight:700;color:#e2e8f0;">${bearing.toFixed(0)}°</div>
+                        </div>
+                        <div style="text-align:center;">
+                            <div style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">CPA</div>
+                            <div style="font-size:14px;font-weight:700;color:${riskColor};">${cpa.toFixed(2)} NM</div>
+                        </div>
+                        <div style="text-align:center;">
+                            <div style="font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;">TCPA</div>
+                            <div style="font-size:14px;font-weight:700;color:${riskColor};">${tcpaStr}</div>
                         </div>
                     </div>
-                    <div style="
-                        display:grid; grid-template-columns: auto 1fr;
-                        gap: 4px 12px; font-size:11px;
-                    ">
-                        <span style="color:#94a3b8;">Status</span>
-                        <span style="color:${statusColor}; font-weight:600;">${status}</span>
+                `;
+            }
 
-                        <span style="color:#94a3b8;">MMSI</span>
-                        <span>${p.mmsi}</span>
-
-                        <span style="color:#94a3b8;">Call Sign</span>
+            const html = `
+                <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:rgba(15,23,42,0.95);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:14px 16px;color:#e2e8f0;min-width:240px;max-width:300px;">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                        <span style="font-size:20px;">${shipIcon}</span>
+                        <div style="flex:1;min-width:0;">
+                            <div style="font-weight:800;font-size:14px;letter-spacing:0.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${name}</div>
+                            <div style="font-size:10px;color:#94a3b8;">${shipLabel}</div>
+                        </div>
+                        <div style="width:10px;height:10px;border-radius:50%;background:${statusColor};box-shadow:0 0 8px ${statusColor};flex-shrink:0;"></div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;padding:4px 0;">
+                        <span style="color:${statusColor};font-weight:700;font-size:11px;">${status}</span>
+                        <span style="color:#475569;">•</span>
+                        <span style="font-size:11px;color:#94a3b8;">${sog}</span>
+                        <span style="color:#475569;">•</span>
+                        <span style="font-size:10px;color:${lastSeen === 'Live' ? '#22c55e' : '#64748b'};">${lastSeen}</span>
+                    </div>
+                    ${cpaSection}
+                    <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:11px;">
+                        <span style="color:#64748b;">MMSI</span>
+                        <span style="font-family:monospace;font-size:10px;">${p.mmsi}</span>
+                        <span style="color:#64748b;">Call Sign</span>
                         <span>${callSign}</span>
-
-                        <span style="color:#94a3b8;">SOG</span>
-                        <span>${sog}</span>
-
-                        <span style="color:#94a3b8;">COG</span>
-                        <span>${cog}</span>
-
-                        <span style="color:#94a3b8;">Heading</span>
-                        <span>${heading}</span>
-
-                        <span style="color:#94a3b8;">Destination</span>
-                        <span style="font-weight:600;">${destination}</span>
-
-                        <span style="color:#94a3b8;">Last Seen</span>
-                        <span style="color:${lastSeen === 'Live' ? '#22c55e' : '#94a3b8'};">${lastSeen}</span>
-
-                        <span style="color:#94a3b8;">Source</span>
+                        <span style="color:#64748b;">COG / Hdg</span>
+                        <span>${cogStr} / ${hdg}</span>
+                        <span style="color:#64748b;">Destination</span>
+                        <span style="font-weight:600;color:#e2e8f0;">${destination}</span>
+                        <span style="color:#64748b;">Source</span>
                         <span style="font-size:10px;">${source}</span>
                     </div>
                 </div>
@@ -295,22 +350,17 @@ export function useAisStreamLayer(
             popupRef.current = new mapboxgl.Popup({
                 closeButton: true,
                 closeOnClick: true,
-                maxWidth: '300px',
+                maxWidth: '320px',
                 className: 'ais-vessel-popup',
-                offset: 12,
+                offset: 14,
             })
                 .setLngLat(coords)
                 .setHTML(html)
                 .addTo(map);
         };
 
-        // Cursor change on hover
-        const handleMouseEnter = () => {
-            map.getCanvas().style.cursor = 'pointer';
-        };
-        const handleMouseLeave = () => {
-            map.getCanvas().style.cursor = '';
-        };
+        const handleMouseEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
+        const handleMouseLeave = () => { map.getCanvas().style.cursor = ''; };
 
         map.on('click', 'ais-targets-circle', handleClick);
         map.on('mouseenter', 'ais-targets-circle', handleMouseEnter);
@@ -320,18 +370,12 @@ export function useAisStreamLayer(
             map.off('click', 'ais-targets-circle', handleClick);
             map.off('mouseenter', 'ais-targets-circle', handleMouseEnter);
             map.off('mouseleave', 'ais-targets-circle', handleMouseLeave);
-            if (popupRef.current) {
-                popupRef.current.remove();
-                popupRef.current = null;
-            }
+            if (popupRef.current) { popupRef.current.remove(); popupRef.current = null; }
         };
     }, [map, enabled]);
 
-    // Reset mounted flag on mount
     useEffect(() => {
         isMounted.current = true;
-        return () => {
-            isMounted.current = false;
-        };
+        return () => { isMounted.current = false; };
     }, []);
 }

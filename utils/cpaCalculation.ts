@@ -1,0 +1,144 @@
+/**
+ * CPA / TCPA computation — Closest Point of Approach for AIS collision avoidance.
+ *
+ * Standard maritime safety calculation:
+ *   CPA  = minimum distance (NM) between two vessels if they maintain current course & speed
+ *   TCPA = time (minutes) until CPA occurs (negative = vessels are diverging)
+ *
+ * Reference: COLREGS / ITU-R M.1371-5
+ */
+
+const DEG_TO_RAD = Math.PI / 180;
+const NM_PER_DEG_LAT = 60; // 1° latitude ≈ 60 NM
+
+export interface CpaResult {
+    /** Closest Point of Approach in nautical miles */
+    cpa: number;
+    /** Time to CPA in minutes (negative = diverging) */
+    tcpa: number;
+    /** Current distance in nautical miles */
+    distance: number;
+    /** Bearing from own vessel to target (degrees true) */
+    bearing: number;
+    /** Risk level based on CPA + TCPA */
+    risk: 'DANGER' | 'CAUTION' | 'SAFE' | 'NONE';
+}
+
+/**
+ * Compute CPA and TCPA between own vessel and a target.
+ *
+ * All positions in decimal degrees, COG in degrees true, SOG in knots.
+ * Returns null if either vessel has no valid position.
+ */
+export function computeCpa(
+    ownLat: number,
+    ownLon: number,
+    ownCog: number,
+    ownSog: number,
+    targetLat: number,
+    targetLon: number,
+    targetCog: number,
+    targetSog: number,
+): CpaResult | null {
+    if (!isFinite(ownLat) || !isFinite(ownLon)) return null;
+    if (!isFinite(targetLat) || !isFinite(targetLon)) return null;
+
+    // Current distance & bearing
+    const distance = haversineNm(ownLat, ownLon, targetLat, targetLon);
+    const bearing = initialBearing(ownLat, ownLon, targetLat, targetLon);
+
+    // If either vessel is stationary and very close, report distance as CPA
+    if (ownSog < 0.5 && targetSog < 0.5) {
+        return {
+            cpa: distance,
+            tcpa: 0,
+            distance,
+            bearing,
+            risk: riskLevel(distance, 0),
+        };
+    }
+
+    // Convert to local Cartesian (NM) relative to own vessel
+    const cosLat = Math.cos(ownLat * DEG_TO_RAD);
+
+    // Relative position of target (NM)
+    const dx = (targetLon - ownLon) * NM_PER_DEG_LAT * cosLat;
+    const dy = (targetLat - ownLat) * NM_PER_DEG_LAT;
+
+    // Velocity components (NM/hour) — COG is clockwise from north
+    const ownVx = ownSog * Math.sin(ownCog * DEG_TO_RAD);
+    const ownVy = ownSog * Math.cos(ownCog * DEG_TO_RAD);
+    const tgtVx = targetSog * Math.sin(targetCog * DEG_TO_RAD);
+    const tgtVy = targetSog * Math.cos(targetCog * DEG_TO_RAD);
+
+    // Relative velocity
+    const dvx = tgtVx - ownVx;
+    const dvy = tgtVy - ownVy;
+
+    const dvSq = dvx * dvx + dvy * dvy;
+
+    let tcpaHours: number;
+    let cpa: number;
+
+    if (dvSq < 0.001) {
+        // Vessels are on nearly parallel courses at similar speeds
+        tcpaHours = 0;
+        cpa = distance;
+    } else {
+        // TCPA = -(Δr · Δv) / |Δv|²
+        tcpaHours = -(dx * dvx + dy * dvy) / dvSq;
+
+        // Position at TCPA
+        const cpaDx = dx + dvx * tcpaHours;
+        const cpaDy = dy + dvy * tcpaHours;
+        cpa = Math.sqrt(cpaDx * cpaDx + cpaDy * cpaDy);
+    }
+
+    const tcpaMinutes = tcpaHours * 60;
+
+    return {
+        cpa: Math.round(cpa * 100) / 100,
+        tcpa: Math.round(tcpaMinutes * 10) / 10,
+        distance: Math.round(distance * 100) / 100,
+        bearing: Math.round(bearing * 10) / 10,
+        risk: riskLevel(cpa, tcpaMinutes),
+    };
+}
+
+/** Determine collision risk level */
+function riskLevel(cpaNm: number, tcpaMinutes: number): 'DANGER' | 'CAUTION' | 'SAFE' | 'NONE' {
+    // Diverging or already past
+    if (tcpaMinutes < 0) return 'NONE';
+    // More than 60 minutes away
+    if (tcpaMinutes > 60) return 'SAFE';
+    // DANGER: CPA < 0.5 NM within 30 min
+    if (cpaNm < 0.5 && tcpaMinutes < 30) return 'DANGER';
+    // CAUTION: CPA < 1.0 NM within 30 min
+    if (cpaNm < 1.0 && tcpaMinutes < 30) return 'CAUTION';
+    // CAUTION: CPA < 0.5 NM within 60 min
+    if (cpaNm < 0.5 && tcpaMinutes < 60) return 'CAUTION';
+    return 'SAFE';
+}
+
+/** Haversine distance in nautical miles */
+function haversineNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const dLat = (lat2 - lat1) * DEG_TO_RAD;
+    const dLon = (lon2 - lon1) * DEG_TO_RAD;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * DEG_TO_RAD) * Math.cos(lat2 * DEG_TO_RAD) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return c * 3440.065; // Earth radius in NM
+}
+
+/** Initial bearing from point 1 to point 2 (degrees true, 0-360) */
+function initialBearing(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const dLon = (lon2 - lon1) * DEG_TO_RAD;
+    const y = Math.sin(dLon) * Math.cos(lat2 * DEG_TO_RAD);
+    const x =
+        Math.cos(lat1 * DEG_TO_RAD) * Math.sin(lat2 * DEG_TO_RAD) -
+        Math.sin(lat1 * DEG_TO_RAD) * Math.cos(lat2 * DEG_TO_RAD) * Math.cos(dLon);
+    const brng = Math.atan2(y, x) / DEG_TO_RAD;
+    return (brng + 360) % 360;
+}
