@@ -1,6 +1,6 @@
 import React, { Suspense, useState, useEffect, useRef } from 'react';
 import { useWeather } from './context/WeatherContext';
-import { initLocalDatabase, startSyncEngine, stopSyncEngine } from './services/vessel';
+// vessel services loaded dynamically in useEffect below
 import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
 import { useAppController } from './hooks/useAppController';
@@ -14,11 +14,10 @@ import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemStatusButton } from './components/SystemStatusButton';
-import { PushNotificationService } from './services/PushNotificationService';
 import { ToastPortal, toast } from './components/Toast';
 import { PushToast, pushForegroundToast } from './components/PushToast';
 import { PageTransition } from './components/ui/PageTransition';
-import { ChatService } from './services/ChatService';
+// ChatService and PushNotificationService loaded dynamically in useEffects below
 
 // --- LAZY LOAD HEAVY COMPONENTS ---
 // Retry wrapper: if a dynamic import fails (stale Vite module hash after HMR/restart),
@@ -122,13 +121,16 @@ const App: React.FC = () => {
     // Track if map was opened from WX page (auto-return) vs tab bar (stay on map)
     const mapFromWxRef = useRef(false);
     useEffect(() => {
-        const poll = () =>
-            ChatService.getUnreadDMCount()
-                .then((n) => setChatUnread(n))
-                .catch(() => {});
-        poll();
-        const timer = setInterval(poll, 30000);
-        return () => clearInterval(timer);
+        let timer: ReturnType<typeof setInterval> | null = null;
+        import('./services/ChatService').then(({ ChatService }) => {
+            const poll = () =>
+                ChatService.getUnreadDMCount()
+                    .then((n) => setChatUnread(n))
+                    .catch(() => {});
+            poll();
+            timer = setInterval(poll, 30000);
+        });
+        return () => { if (timer) clearInterval(timer); };
     }, []);
     // Clear badge when viewing chat
     useEffect(() => {
@@ -172,48 +174,56 @@ const App: React.FC = () => {
 
     // Initialize local-first database and start background sync engine.
     useEffect(() => {
-        initLocalDatabase()
-            .then(() => startSyncEngine())
-            .catch((e) => console.error('[App] Local DB init failed:', e));
-        return () => stopSyncEngine();
+        let stopSync: (() => void) | null = null;
+        import('./services/vessel').then(({ initLocalDatabase, startSyncEngine, stopSyncEngine }) => {
+            initLocalDatabase()
+                .then(() => startSyncEngine())
+                .catch((e) => console.error('[App] Local DB init failed:', e));
+            stopSync = stopSyncEngine;
+        });
+        return () => { stopSync?.(); };
     }, []);
 
     // Wire Push Notification callbacks for in-app handling + deep navigation
     useEffect(() => {
-        // Rich in-app toast when push arrives while app is in foreground
-        PushNotificationService.onForegroundPush = (notification) => {
-            pushForegroundToast(notification);
-        };
+        import('./services/PushNotificationService').then(({ PushNotificationService }) => {
+            // Rich in-app toast when push arrives while app is in foreground
+            PushNotificationService.onForegroundPush = (notification) => {
+                pushForegroundToast(notification);
+            };
 
-        // Gap 4: Navigate to the correct page when user taps a push notification
-        PushNotificationService.onNotificationTap = (data) => {
-            const type = data.notification_type as string;
-            switch (type) {
-                case 'dm':
-                    setPage('chat');
-                    break;
-                case 'weather_alert':
-                    setPage('dashboard');
-                    break;
-                case 'anchor_alarm':
-                    setPage('map');
-                    break;
-                case 'bolo_alert':
-                case 'suspicious_alert':
-                case 'drag_warning':
-                case 'geofence_alert':
-                case 'hail':
-                    setPage('guardian');
-                    break;
-                default:
-                    setPage('dashboard');
-                    break;
-            }
-        };
+            // Navigate to the correct page when user taps a push notification
+            PushNotificationService.onNotificationTap = (data) => {
+                const type = data.notification_type as string;
+                switch (type) {
+                    case 'dm':
+                        setPage('chat');
+                        break;
+                    case 'weather_alert':
+                        setPage('dashboard');
+                        break;
+                    case 'anchor_alarm':
+                        setPage('map');
+                        break;
+                    case 'bolo_alert':
+                    case 'suspicious_alert':
+                    case 'drag_warning':
+                    case 'geofence_alert':
+                    case 'hail':
+                        setPage('guardian');
+                        break;
+                    default:
+                        setPage('dashboard');
+                        break;
+                }
+            };
+        });
 
         return () => {
-            PushNotificationService.onForegroundPush = null;
-            PushNotificationService.onNotificationTap = null;
+            import('./services/PushNotificationService').then(({ PushNotificationService }) => {
+                PushNotificationService.onForegroundPush = null;
+                PushNotificationService.onNotificationTap = null;
+            });
         };
     }, [setPage]);
 
@@ -224,7 +234,9 @@ const App: React.FC = () => {
             .then(({ App }) => {
                 App.addListener('appStateChange', ({ isActive }) => {
                     if (isActive) {
-                        PushNotificationService.clearBadge();
+                        import('./services/PushNotificationService').then(({ PushNotificationService }) => {
+                            PushNotificationService.clearBadge();
+                        });
                     }
                 }).then((l) => {
                     listener = l;
@@ -235,7 +247,9 @@ const App: React.FC = () => {
             });
 
         // Also clear on initial mount
-        PushNotificationService.clearBadge();
+        import('./services/PushNotificationService').then(({ PushNotificationService }) => {
+            PushNotificationService.clearBadge();
+        });
 
         return () => {
             listener?.remove();

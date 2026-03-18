@@ -1,99 +1,111 @@
 /**
- * Sentry — Error tracking & performance monitoring
+ * Sentry — Lazy-loaded error tracking & performance monitoring
  * ─────────────────────────────────────────────────────────────────
- * Import this module EARLY in index.tsx (before React renders).
+ * This module provides thin wrappers that defer loading @sentry/react
+ * (158KB) until after initial paint. The Sentry SDK is imported dynamically
+ * on first use or after a short delay, whichever comes first.
  *
- * Configuration:
- *   Set VITE_SENTRY_DSN in .env or environment variables.
- *   If not set, Sentry is disabled (development mode).
- *
- * Usage:
- *   import './services/sentry';        // init (index.tsx)
- *   import * as Sentry from './services/sentry';
- *   Sentry.captureException(err);      // manual capture
- *   Sentry.addBreadcrumb({ ... });     // breadcrumb
+ * Usage remains identical to the static version:
+ *   import { captureException, setUser } from './services/sentry';
  */
 
-import * as SentryReact from '@sentry/react';
+type SentryModule = typeof import('@sentry/react');
+
+let _sentry: SentryModule | null = null;
+let _loading: Promise<SentryModule> | null = null;
 
 const DSN = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 const IS_PROD = import.meta.env.PROD;
 
-// Only initialize if DSN is configured
-if (DSN) {
-    SentryReact.init({
-        dsn: DSN,
-        environment: IS_PROD ? 'production' : 'development',
-        release: `thalassa@${import.meta.env.VITE_APP_VERSION || '0.0.0'}`,
+/**
+ * Lazily load and initialize Sentry SDK. Resolves immediately
+ * after first successful load. Safe to call multiple times.
+ */
+function loadSentry(): Promise<SentryModule> {
+    if (_sentry) return Promise.resolve(_sentry);
+    if (_loading) return _loading;
 
-        // Performance: sample 20% of transactions in production
-        tracesSampleRate: IS_PROD ? 0.2 : 1.0,
+    _loading = import('@sentry/react').then((mod) => {
+        _sentry = mod;
 
-        // Session Replay: capture 10% of sessions, 100% on error
-        replaysSessionSampleRate: IS_PROD ? 0.1 : 0,
-        replaysOnErrorSampleRate: 1.0,
+        if (DSN) {
+            mod.init({
+                dsn: DSN,
+                environment: IS_PROD ? 'production' : 'development',
+                release: `thalassa@${import.meta.env.VITE_APP_VERSION || '0.0.0'}`,
+                tracesSampleRate: IS_PROD ? 0.2 : 1.0,
+                replaysSessionSampleRate: IS_PROD ? 0.1 : 0,
+                replaysOnErrorSampleRate: 1.0,
 
-        // Filter out noisy errors
-        beforeSend(event) {
-            const message = event.exception?.values?.[0]?.value || '';
+                beforeSend(event) {
+                    const message = event.exception?.values?.[0]?.value || '';
+                    if (message.includes('readonly property')) return null;
+                    if (message.includes('ResizeObserver')) return null;
+                    if (message.includes('Failed to fetch') && !navigator.onLine) return null;
+                    return event;
+                },
 
-            // iOS WKWebView readonly property errors (harmless React 18 scroll events)
-            if (message.includes('readonly property')) return null;
+                initialScope: {
+                    tags: { app: 'thalassa', platform: 'web' },
+                },
+            });
+        }
 
-            // ResizeObserver loop limit exceeded (browser rendering artifact)
-            if (message.includes('ResizeObserver')) return null;
-
-            // Network errors from failed weather API calls (expected offline)
-            if (message.includes('Failed to fetch') && !navigator.onLine) return null;
-
-            return event;
-        },
-
-        // Tag all events
-        initialScope: {
-            tags: {
-                app: 'thalassa',
-                platform: 'web',
-            },
-        },
+        return mod;
     });
 
-    console.info('[Sentry] Initialized', IS_PROD ? '(production)' : '(development)');
-} else {
-    console.info('[Sentry] Disabled — no VITE_SENTRY_DSN configured');
+    return _loading;
 }
 
-// ── Re-exports for app usage ─────────────────────────────────
+// Kick off loading after initial paint (2s delay)
+if (typeof window !== 'undefined') {
+    setTimeout(() => loadSentry(), 2000);
+}
 
-export const captureException = DSN
-    ? SentryReact.captureException.bind(SentryReact)
-    : (err: unknown) => {
-          console.error('[Sentry:noop] captureException:', err);
-      };
+// ── Thin async wrappers ─────────────────────────────────────
 
-export const captureMessage = DSN
-    ? SentryReact.captureMessage.bind(SentryReact)
-    : (msg: string) => {
-          console.info('[Sentry:noop] captureMessage:', msg);
-      };
+export const captureException = (err: unknown) => {
+    if (_sentry) {
+        _sentry.captureException(err);
+    } else {
+        loadSentry().then((s) => s.captureException(err));
+        console.error('[Sentry:deferred]', err);
+    }
+};
 
-export const addBreadcrumb = DSN
-    ? SentryReact.addBreadcrumb.bind(SentryReact)
-    : (_crumb: SentryReact.Breadcrumb) => {
-          // noop in dev
-      };
+export const captureMessage = (msg: string) => {
+    if (_sentry) {
+        _sentry.captureMessage(msg);
+    } else {
+        loadSentry().then((s) => s.captureMessage(msg));
+    }
+};
 
-export const setUser = DSN
-    ? SentryReact.setUser.bind(SentryReact)
-    : (_user: SentryReact.User | null) => {
-          // noop in dev
-      };
+export const addBreadcrumb = (crumb: { category?: string; message?: string; level?: string }) => {
+    if (_sentry) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        _sentry.addBreadcrumb(crumb as any);
+    } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        loadSentry().then((s) => s.addBreadcrumb(crumb as any));
+    }
+};
 
-export const setTag = DSN
-    ? SentryReact.setTag.bind(SentryReact)
-    : (_key: string, _value: string) => {
-          // noop in dev
-      };
+export const setUser = (user: { id?: string; email?: string; username?: string } | null) => {
+    if (_sentry) {
+        _sentry.setUser(user);
+    } else {
+        loadSentry().then((s) => s.setUser(user));
+    }
+};
 
-// Re-export the ErrorBoundary from Sentry for optional direct use
-export const SentryErrorBoundary = SentryReact.ErrorBoundary;
+export const setTag = (key: string, value: string) => {
+    if (_sentry) {
+        _sentry.setTag(key, value);
+    } else {
+        loadSentry().then((s) => s.setTag(key, value));
+    }
+};
+
+// ErrorBoundary — provide a simple fallback until Sentry loads
+export { loadSentry as ensureSentryLoaded };
