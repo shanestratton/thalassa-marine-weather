@@ -265,7 +265,7 @@ export const ChatPage: React.FC = React.memo(() => {
                 handleResize();
                 // Store cleanup refs on window for the teardown below
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (window as any).__chatKbCleanup = () => {
+                window.__chatKbCleanup = () => {
                     vv.removeEventListener('resize', handleResize);
                     vv.removeEventListener('scroll', handleResize);
                 };
@@ -277,9 +277,9 @@ export const ChatPage: React.FC = React.memo(() => {
                 kbHideHandle?.then((h) => h.remove());
             }
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (window as any).__chatKbCleanup?.();
+            window.__chatKbCleanup?.();
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            delete (window as any).__chatKbCleanup;
+            delete window.__chatKbCleanup;
         };
     }, [view]);
 

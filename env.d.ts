@@ -1,6 +1,6 @@
 /**
- * Global type declarations for environment variables.
- * Eliminates the need for `(process as any).env` casts throughout the codebase.
+ * Global type declarations for environment variables and window extensions.
+ * Eliminates the need for `(process as any).env` and `(window as any).__xyz` casts.
  */
 
 declare namespace NodeJS {
@@ -21,3 +21,45 @@ declare namespace NodeJS {
         VITE_TRANSISTOR_LICENSE_KEY?: string;
     }
 }
+
+// --- WINDOW EXTENSIONS ---
+// Eliminates `(window as any).__thalassaPinView` etc. across the codebase
+
+interface ThalassaWindow {
+    /** Pin drop coordinates shared between ChatMessageList → MapHub */
+    __thalassaPinView?: { lat: number; lng: number };
+    /** MapLibre GL instance (set by map components) */
+    maplibregl?: typeof import('maplibre-gl');
+    mapboxgl?: typeof import('maplibre-gl');
+    /** Leaflet instance (set by TrackMapViewer) */
+    L?: typeof import('leaflet');
+    /** Wind particle debug info */
+    __windDebug?: {
+        particleCount: number;
+        fps: number;
+        dataPoints: number;
+        bounds: { minLat: number; maxLat: number; minLon: number; maxLon: number };
+    };
+    /** Chat keyboard cleanup callback */
+    __chatKbCleanup?: () => void;
+    /** Web Speech API (vendor-prefixed) */
+    SpeechRecognition?: typeof SpeechRecognition;
+    webkitSpeechRecognition?: typeof SpeechRecognition;
+}
+
+// Merge with global Window
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+interface Window extends ThalassaWindow {}
+
+// --- ERROR TYPE UTILITIES ---
+
+/** Type guard for errors with HTTP status codes (Supabase, fetch, etc.) */
+interface HttpError extends Error {
+    status?: number;
+    statusCode?: number;
+    code?: string;
+}
+
+/** Safely extract HTTP status from an unknown error */
+declare function isHttpError(err: unknown): err is HttpError;
+

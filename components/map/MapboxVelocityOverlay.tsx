@@ -632,7 +632,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         const setup = async () => {
             // Ensure Leaflet is on window BEFORE the plugin loads
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (window as any).L = L;
+            window.L = L;
             await import('leaflet-velocity-ts');
 
             if (cancelled) return;
