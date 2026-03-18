@@ -219,6 +219,22 @@ export function useAisStreamLayer(
             const destination = p.destination || '—';
             const source = p.source === 'local' ? '📡 Local NMEA' : '🌐 AISStream';
 
+            // Format "last seen" relative time
+            let lastSeen = '—';
+            const ts = p.updatedAt || p.lastUpdated;
+            if (ts) {
+                const ago = Date.now() - new Date(typeof ts === 'number' ? ts : ts).getTime();
+                const mins = Math.floor(ago / 60000);
+                if (mins < 1) lastSeen = 'Just now';
+                else if (mins < 60) lastSeen = `${mins}m ago`;
+                else {
+                    const hrs = Math.floor(mins / 60);
+                    const rem = mins % 60;
+                    lastSeen = rem > 0 ? `${hrs}h ${rem}m ago` : `${hrs}h ago`;
+                }
+            }
+            if (p.source === 'local') lastSeen = 'Live';
+
             const html = `
                 <div style="
                     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
@@ -266,6 +282,9 @@ export function useAisStreamLayer(
 
                         <span style="color:#94a3b8;">Destination</span>
                         <span style="font-weight:600;">${destination}</span>
+
+                        <span style="color:#94a3b8;">Last Seen</span>
+                        <span style="color:${lastSeen === 'Live' ? '#22c55e' : '#94a3b8'};">${lastSeen}</span>
 
                         <span style="color:#94a3b8;">Source</span>
                         <span style="font-size:10px;">${source}</span>
