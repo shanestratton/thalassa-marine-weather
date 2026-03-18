@@ -76,3 +76,63 @@ export const supabase =
         : null;
 
 export const isSupabaseConfigured = () => !!supabase;
+
+// --- TYPED PROFILE HELPERS ---
+
+export interface UserProfile {
+    id: string;
+    email?: string;
+    display_name?: string;
+    avatar_url?: string;
+    vessel_name?: string;
+    subscription_status?: 'active' | 'trial' | 'expired' | 'free' | null;
+    trial_start_date?: string | null;
+    subscription_expiry?: string | null;
+    created_at?: string;
+    updated_at?: string;
+}
+
+export interface Waypoint {
+    id: string;
+    user_id: string;
+    name: string;
+    latitude: number;
+    longitude: number;
+    notes?: string;
+    created_at?: string;
+}
+
+/**
+ * Fetch a user's profile from the `profiles` table.
+ */
+export async function getUserProfile(userId: string): Promise<UserProfile | null> {
+    if (!supabase) return null;
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    if (error) return null;
+    return data as UserProfile;
+}
+
+/**
+ * Update fields on a user's profile.
+ */
+export async function updateUserProfile(
+    userId: string,
+    updates: Partial<Omit<UserProfile, 'id' | 'created_at'>>,
+): Promise<boolean> {
+    if (!supabase) return false;
+    const { error } = await supabase
+        .from('profiles')
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq('id', userId);
+    return !error;
+}
+
+/**
+ * Sync waypoints to the `waypoints` table (upsert by id).
+ */
+export async function syncWaypoints(userId: string, waypoints: Waypoint[]): Promise<boolean> {
+    if (!supabase || waypoints.length === 0) return true;
+    const rows = waypoints.map((wp) => ({ ...wp, user_id: userId }));
+    const { error } = await supabase.from('waypoints').upsert(rows, { onConflict: 'id' });
+    return !error;
+}
