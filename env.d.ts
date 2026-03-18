@@ -35,10 +35,19 @@ interface ThalassaWindow {
     L?: typeof import('leaflet');
     /** Wind particle debug info */
     __windDebug?: {
-        particleCount: number;
-        fps: number;
-        dataPoints: number;
-        bounds: { minLat: number; maxLat: number; minLon: number; maxLon: number };
+        frame: number;
+        hasWind: boolean;
+        timelineLen: number;
+        dataBounds: { north: number; south: number; east: number; west: number };
+        gridBounds: { north: number; south: number; east: number; west: number };
+        globalMode: boolean;
+        trail0: Array<{ x: number; y: number; spd: number; a: number }>;
+        sample: Array<{ x: number; y: number; age: number }>;
+        wind0: { u: number; v: number };
+        particleCount?: number;
+        fps?: number;
+        dataPoints?: number;
+        bounds?: { minLat: number; maxLat: number; minLon: number; maxLon: number };
     };
     /** Chat keyboard cleanup callback */
     __chatKbCleanup?: () => void;

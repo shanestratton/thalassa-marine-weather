@@ -39,10 +39,12 @@ export type WeatherLayer =
 
 // ── Tile sources ──
 function getOwmKey(): string {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OWM_API_KEY) {
+    try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return import.meta.env.VITE_OWM_API_KEY;
+        const env = (import.meta as any).env;
+        if (env?.VITE_OWM_API_KEY) return env.VITE_OWM_API_KEY as string;
+    } catch {
+        /* SSR / non-Vite context */
     }
     return '';
 }
