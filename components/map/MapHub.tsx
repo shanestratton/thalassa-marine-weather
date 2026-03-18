@@ -72,7 +72,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 }) => {
     // ── Pin View Mode (from chat pin tap) ──
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [isPinView, setIsPinView] = useState(!!(window as any).__thalassaPinView);
+    const [isPinView, setIsPinView] = useState(!!window.__thalassaPinView);
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -102,7 +102,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         if (currentView === 'map') {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const pv = (window as any).__thalassaPinView;
+            const pv = window.__thalassaPinView;
             setIsPinView(!!pv);
         }
     }, [currentView]);
@@ -161,7 +161,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 `;
 
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const mapboxgl = (window as any).mapboxgl || (window as any).maplibregl;
+                const mapboxgl = window.mapboxgl || window.maplibregl;
                 if (mapboxgl?.Marker) {
                     const marker = new mapboxgl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
 
@@ -380,7 +380,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
     useEffect(() => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pv = (window as any).__thalassaPinView as { lat: number; lng: number } | undefined;
+        const pv = window.__thalassaPinView as { lat: number; lng: number } | undefined;
         if (!isPinView || !pv || !mapReady || !mapRef.current) return;
         const map = mapRef.current;
 
@@ -421,7 +421,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     <button
                         onClick={() => {
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            delete (window as any).__thalassaPinView;
+                            delete window.__thalassaPinView;
                             setIsPinView(false);
                             setPage(previousView || 'chat');
                         }}

@@ -433,10 +433,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     try {
                         const supabaseUrl =
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_URL) || '';
+                            (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
                         const supabaseKey =
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_SUPABASE_KEY) || '';
+                            (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
                         if (supabaseUrl) {
                             // Pad generously: 15° south (wavefront goes around continents), 5° other dirs
                             const fetchBounds = {

@@ -174,7 +174,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         const windTimerId = setTimeout(async () => {
             try {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (window as any).L = L;
+                window.L = L;
                 await import('leaflet-velocity-ts');
 
                 // Request full global coverage — no bounds dependency

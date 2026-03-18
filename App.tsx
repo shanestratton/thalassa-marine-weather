@@ -829,7 +829,7 @@ const App: React.FC = () => {
                                 onClick={() => {
                                     // Clear pin-view state when leaving map
                                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                    delete (window as any).__thalassaPinView;
+                                    delete window.__thalassaPinView;
                                     // Go back to wherever we came from
                                     setPage(previousView || 'dashboard');
                                 }}
