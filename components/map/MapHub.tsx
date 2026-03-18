@@ -163,7 +163,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const mapboxgl = window.mapboxgl || window.maplibregl;
                 if (mapboxgl?.Marker) {
-                    const marker = new mapboxgl.Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const marker = new (mapboxgl as any).Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
 
                     // Auto-remove after 10 seconds
                     setTimeout(() => {
