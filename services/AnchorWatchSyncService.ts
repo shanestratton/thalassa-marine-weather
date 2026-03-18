@@ -322,8 +322,7 @@ class AnchorWatchSyncServiceClass {
             });
 
             if (error) {
-            } else {
-                /* best effort */
+                log.warn('sendAlarmPush: insert failed', error);
             }
         } catch (err) {
             // Silently ignored — non-critical failure
@@ -597,8 +596,7 @@ class AnchorWatchSyncServiceClass {
             );
 
             if (error) {
-            } else {
-                /* best effort */
+                log.warn('registerPushToken: upsert failed', error);
             }
         } catch (err) {
             // Silently ignored — non-critical failure
