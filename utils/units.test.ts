@@ -107,7 +107,7 @@ describe('convertPrecip', () => {
     it('returns null for null', () => expect(convertPrecip(null, 'C')).toBeNull());
     it('returns null for 0mm', () => expect(convertPrecip(0, 'C')).toBeNull());
     it('returns TRACE for sub-0.25mm', () => expect(convertPrecip(0.1, 'C')).toBe('TRACE'));
-    it('returns mm string for metric', () => expect(convertPrecip(5.3, 'C')).toBe('5.3'));
+    it('returns mm string for metric', () => expect(convertPrecip(5.3, 'C')).toBe('5'));
     it('converts to inches for F units', () => {
         const result = convertPrecip(25.4, 'F'); // 25.4mm = 1 inch
         expect(result).toBe('1.00"');

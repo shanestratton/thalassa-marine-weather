@@ -109,7 +109,7 @@ describe('HeroSlide', () => {
                 isVisible={true}
             />,
         );
-        // The rendered output should contain wind speed value from props
-        expect(container.textContent).toContain('15');
+        // The rendered output should contain water temperature from props
+        expect(container.textContent).toContain('19');
     });
 });

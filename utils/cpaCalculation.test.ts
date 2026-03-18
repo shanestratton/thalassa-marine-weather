@@ -40,8 +40,8 @@ describe('computeCpa', () => {
         it('computes bearing correctly (target due north)', () => {
             const result = computeCpa(NEWPORT.lat, NEWPORT.lon, 0, 5, NORTH_05.lat, NORTH_05.lon, 180, 5);
             expect(result).not.toBeNull();
-            // Bearing should be roughly 0° (north)
-            expect(result!.bearing).toBeGreaterThan(355);
+            // Bearing should be roughly 0° (north) — either 0 or close to 360
+            expect(result!.bearing >= 355 || result!.bearing <= 5).toBe(true);
         });
 
         it('head-on collision produces small CPA', () => {
