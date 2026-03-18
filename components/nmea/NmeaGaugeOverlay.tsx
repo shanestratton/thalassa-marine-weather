@@ -10,7 +10,7 @@
  *
  * Glassmorphism backdrop with blur, tap-to-dismiss, back chevron.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import type { TimestampedMetric } from '../../services/NmeaStore';
 import { CompassGauge } from './gauges/CompassGauge';
 import { ArcGauge } from './gauges/ArcGauge';
@@ -44,6 +44,24 @@ interface NmeaGaugeOverlayProps {
 
 export const NmeaGaugeOverlay: React.FC<NmeaGaugeOverlayProps> = ({ metricId, metric, onClose }) => {
     const [visible, setVisible] = useState(false);
+
+    // ── Keel offset (persisted in localStorage) ──
+    const OFFSET_KEY = 'thalassa_keel_offset';
+    const [keelOffset, setKeelOffset] = useState<number>(() => {
+        const saved = localStorage.getItem(OFFSET_KEY);
+        return saved ? parseFloat(saved) : 0;
+    });
+
+    const updateOffset = useCallback((delta: number) => {
+        setKeelOffset(prev => {
+            const next = Math.round((prev + delta) * 10) / 10;
+            // Can't go past 0 (no positive offset) and can't exceed current depth
+            const maxOffset = metric.value != null ? -metric.value : 0;
+            const clamped = Math.max(maxOffset, Math.min(0, next));
+            localStorage.setItem(OFFSET_KEY, String(clamped));
+            return clamped;
+        });
+    }, [metric.value]);
 
     // Animate in
     useEffect(() => {
@@ -157,7 +175,7 @@ export const NmeaGaugeOverlay: React.FC<NmeaGaugeOverlayProps> = ({ metricId, me
         },
         depth: {
             title: 'Depth',
-            component: <DepthGauge value={metric.value} unit="m" freshness={metric.freshness} />,
+            component: <DepthGauge value={metric.value} unit="m" freshness={metric.freshness} keelOffset={keelOffset} />,
         },
         waterTemp: {
             title: 'Water Temperature',
@@ -245,6 +263,36 @@ export const NmeaGaugeOverlay: React.FC<NmeaGaugeOverlayProps> = ({ metricId, me
                     }`}
                 >
                     {config.component}
+
+                    {/* Keel Offset Stepper — only for depth gauge */}
+                    {metricId === 'depth' && (
+                        <div className="flex items-center justify-center gap-4 mt-6">
+                            <button
+                                onClick={() => updateOffset(-0.1)}
+                                disabled={metric.value != null && keelOffset <= -metric.value}
+                                className="w-11 h-11 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white text-xl font-bold hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                                aria-label="Decrease keel offset"
+                            >
+                                −
+                            </button>
+                            <div className="flex flex-col items-center min-w-[100px]">
+                                <span className="text-lg font-black text-white tabular-nums font-mono">
+                                    {keelOffset.toFixed(1)}m
+                                </span>
+                                <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-500">
+                                    Keel Offset
+                                </span>
+                            </div>
+                            <button
+                                onClick={() => updateOffset(0.1)}
+                                disabled={keelOffset >= 0}
+                                className="w-11 h-11 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-white text-xl font-bold hover:bg-white/10 active:scale-95 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                                aria-label="Increase keel offset"
+                            >
+                                +
+                            </button>
+                        </div>
+                    )}
                 </div>
             </div>
 
