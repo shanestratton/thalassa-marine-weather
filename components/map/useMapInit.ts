@@ -719,10 +719,15 @@ export function useMapInit(opts: UseMapInitOptions) {
                 },
                 paint: {
                     'icon-color': ['get', 'statusColor'],
+                    // Ghost ship effect: fade vessels by age (staleMinutes)
+                    // 0-30 min: fully opaque, 30-120 min: fading, 120+: ghostly
                     'icon-opacity': [
-                        'case',
-                        ['==', ['get', 'source'], 'aisstream'], 0.8,
-                        1,
+                        'interpolate', ['linear'], ['coalesce', ['get', 'staleMinutes'], 0],
+                        0, 1,       // Fresh: fully visible
+                        30, 0.8,    // 30 min: slightly faded
+                        60, 0.5,    // 1 hour: half opacity
+                        120, 0.25,  // 2 hours: ghostly
+                        720, 0.15,  // 12 hours: very ghostly
                     ],
                 },
             });

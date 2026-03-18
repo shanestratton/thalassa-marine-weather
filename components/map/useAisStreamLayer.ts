@@ -132,23 +132,31 @@ export function useAisStreamLayer(
             localGeoJson.features.map((f) => f.properties?.mmsi),
         );
 
+        const now = Date.now();
+
         const internetFeatures = cachedServerFeatures.current
             .filter((f) => !localMmsis.has(f.properties?.mmsi))
-            .map((f) => ({
-                ...f,
-                properties: {
-                    ...f.properties,
-                    source: 'aisstream',
-                    statusColor: navStatusColor(f.properties?.navStatus ?? f.properties?.nav_status ?? 15),
-                },
-            }));
+            .map((f) => {
+                const updatedAt = f.properties?.updatedAt || f.properties?.updated_at;
+                const ageMs = updatedAt ? now - new Date(updatedAt).getTime() : 0;
+                const staleMinutes = Math.max(0, Math.floor(ageMs / 60000));
+                return {
+                    ...f,
+                    properties: {
+                        ...f.properties,
+                        source: 'aisstream',
+                        statusColor: navStatusColor(f.properties?.navStatus ?? f.properties?.nav_status ?? 15),
+                        staleMinutes,
+                    },
+                };
+            });
 
         const merged: GeoJSON.FeatureCollection = {
             type: 'FeatureCollection',
             features: [
                 ...localGeoJson.features.map((f) => ({
                     ...f,
-                    properties: { ...f.properties, source: 'local' },
+                    properties: { ...f.properties, source: 'local', staleMinutes: 0 },
                 })),
                 ...internetFeatures,
             ],

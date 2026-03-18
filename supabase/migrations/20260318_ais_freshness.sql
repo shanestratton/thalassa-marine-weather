@@ -1,11 +1,11 @@
 -- ============================================================================
--- AIS Freshness — 2-hour vessel expiry
+-- AIS Freshness — Ghost Ship display
 --
--- Adds a 2-hour freshness filter to vessels_nearby so stale AIS targets
--- disappear from the map. Also reduces the sweep default to 2 hours.
+-- Uses a 24-hour query window so stale vessels remain visible as "ghost ships"
+-- (faded on the frontend by age). The sweep function cleans up after 24 hours.
 -- ============================================================================
 
--- Update vessels_nearby to filter out vessels older than 2 hours
+-- Update vessels_nearby — keep 24-hour window, frontend handles ghost opacity
 CREATE OR REPLACE FUNCTION public.vessels_nearby(
     query_lat double precision,
     query_lon double precision,
@@ -49,13 +49,13 @@ AS $$
         ST_SetSRID(ST_MakePoint(query_lon, query_lat), 4326)::geography,
         radius_m
     )
-    AND v.updated_at > NOW() - INTERVAL '2 hours'
+    AND v.updated_at > NOW() - INTERVAL '24 hours'
     ORDER BY v.updated_at DESC
     LIMIT max_results;
 $$;
 
--- Update sweep default to 2 hours
-CREATE OR REPLACE FUNCTION public.sweep_stale_vessels(max_age_hours integer DEFAULT 2)
+-- Sweep still cleans up after 24 hours
+CREATE OR REPLACE FUNCTION public.sweep_stale_vessels(max_age_hours integer DEFAULT 24)
 RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
