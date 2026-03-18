@@ -837,6 +837,9 @@ export function useMapInit(opts: UseMapInitOptions) {
             if (longPressTimer.current) return;
             if (opts.pickerMode || opts.embedded) return;
             if (opts.settingPoint || opts.showPassage) return;
+            // Don't fire weather popup if user tapped an AIS vessel
+            const aisHits = map.queryRenderedFeatures(e.point, { layers: ['ais-targets-circle'] });
+            if (aisHits.length > 0) return;
             opts.onMapTap?.(e.lngLat.lat, e.lngLat.lng);
         });
         map.on('moveend', () => {
