@@ -45,6 +45,7 @@ import { useAisLayer } from './useAisLayer';
 import { useAisStreamLayer } from './useAisStreamLayer';
 import { AisLegend } from './AisLegend';
 import { AisGuardAlert } from './AisGuardAlert';
+import { VesselSearch } from './VesselSearch';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { SynopticScrubber } from './SynopticScrubber';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
@@ -73,6 +74,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Pin View Mode (from chat pin tap) ──
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const [isPinView, setIsPinView] = useState(!!window.__thalassaPinView);
+    const [showVesselSearch, setShowVesselSearch] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -755,6 +757,76 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* ═══ AIS COLOUR LEGEND + GUARD ZONE TOGGLE ═══ */}
                 {!passage.showPassage && !embedded && !isPinView && <AisLegend visible={aisVisible} />}
+
+                {/* ═══ VESSEL SEARCH BUTTON ═══ */}
+                {!passage.showPassage && !embedded && !isPinView && aisVisible && (
+                    <button
+                        onClick={() => {
+                            setShowVesselSearch(true);
+                            triggerHaptic('light');
+                        }}
+                        style={{
+                            position: 'absolute', top: 56, right: 12, zIndex: 500,
+                            width: 40, height: 40, borderRadius: 12,
+                            background: 'rgba(15,23,42,0.9)',
+                            border: '1px solid rgba(255,255,255,0.08)',
+                            color: '#94a3b8', fontSize: 16,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            cursor: 'pointer', boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+                        }}
+                        aria-label="Search vessels"
+                    >
+                        🔍
+                    </button>
+                )}
+
+                {/* ═══ VESSEL SEARCH OVERLAY ═══ */}
+                <VesselSearch
+                    visible={showVesselSearch}
+                    onClose={() => setShowVesselSearch(false)}
+                    onSelect={(lat, lon, mmsi, name) => {
+                        const map = mapRef.current;
+                        if (!map) return;
+
+                        // Fly to vessel location
+                        map.flyTo({
+                            center: [lon, lat],
+                            zoom: 14,
+                            speed: 1.5,
+                            curve: 1.4,
+                            essential: true,
+                        });
+
+                        // Add a temporary pulse marker at the vessel
+                        const el = document.createElement('div');
+                        el.innerHTML = `
+                            <div style="
+                                width:48px;height:48px;border-radius:50%;
+                                background:radial-gradient(circle,rgba(14,165,233,0.3) 0%,transparent 70%);
+                                border:2px solid rgba(14,165,233,0.6);
+                                animation:pulse 1.5s ease-in-out infinite;
+                                display:flex;align-items:center;justify-content:center;
+                                font-size:20px;
+                            ">
+                                🎯
+                            </div>
+                        `;
+
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const mapboxglLib = window.mapboxgl || window.maplibregl;
+                        if (mapboxglLib?.Marker) {
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            const marker = new (mapboxglLib as any).Marker({ element: el })
+                                .setLngLat([lon, lat])
+                                .addTo(map);
+
+                            // Remove after 8 seconds
+                            setTimeout(() => marker.remove(), 8000);
+                        }
+
+                        log.info(`Vessel search: flying to ${name} (${mmsi}) at ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+                    }}
+                />
 
                 {/* ═══ AIS GUARD ZONE ALERT TOAST ═══ */}
                 <AisGuardAlert />
