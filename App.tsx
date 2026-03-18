@@ -207,6 +207,16 @@ const App: React.FC = () => {
         };
     }, [setPage]);
 
+    // Listen for cross-component tab navigation requests (e.g. pin drops in DMs → map)
+    useEffect(() => {
+        const onNavigateTab = (e: Event) => {
+            const { tab } = (e as CustomEvent).detail;
+            if (tab) setPage(tab);
+        };
+        window.addEventListener('thalassa:navigate-tab', onNavigateTab);
+        return () => window.removeEventListener('thalassa:navigate-tab', onNavigateTab);
+    }, [setPage]);
+
     // Global keyboard dismiss — mimics native iOS behaviour.
     // Tapping outside an input/textarea/select blurs the active element,
     // which dismisses the on-screen keyboard.
