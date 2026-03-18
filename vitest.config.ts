@@ -18,8 +18,20 @@ export default defineConfig({
             'hooks/**/*.test.ts',
         ],
         coverage: {
-            reporter: ['text', 'lcov'],
-            include: ['services/**', 'hooks/**', 'components/ui/**'],
+            provider: 'v8',
+            reporter: ['text', 'text-summary', 'lcov'],
+            include: [
+                'services/**/*.ts',
+                'hooks/**/*.ts',
+                'components/**/*.ts',
+                'components/**/*.tsx',
+                'utils/**/*.ts',
+                'context/**/*.ts',
+                'context/**/*.tsx',
+                'modules/**/*.ts',
+                'managers/**/*.ts',
+            ],
+            exclude: ['**/*.test.*', '**/*.spec.*', '**/types.ts', '**/*.d.ts'],
         },
     },
     resolve: {
