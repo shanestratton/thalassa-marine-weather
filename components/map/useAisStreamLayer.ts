@@ -158,16 +158,27 @@ export function useAisStreamLayer(
         const internetFeatures = cachedServerFeatures.current
             .filter((f) => !localMmsis.has(f.properties?.mmsi))
             .map((f) => {
-                const updatedAt = f.properties?.updatedAt || f.properties?.updated_at;
+                const p = f.properties || {};
+                const updatedAt = p.updatedAt || p.updated_at;
                 const ageMs = updatedAt ? now - new Date(updatedAt).getTime() : 0;
                 const staleMinutes = Math.max(0, Math.floor(ageMs / 60000));
+
+                // Normalize snake_case (Supabase) → camelCase (popup expects)
+                const navStatus = p.navStatus ?? p.nav_status ?? 15;
+                const shipType = p.shipType ?? p.ship_type ?? 0;
+
                 return {
                     ...f,
                     properties: {
-                        ...f.properties,
+                        ...p,
                         source: 'aisstream',
-                        statusColor: navStatusColor(f.properties?.navStatus ?? f.properties?.nav_status ?? 15),
+                        statusColor: navStatusColor(navStatus),
                         staleMinutes,
+                        // Ensure camelCase versions are always present
+                        navStatus,
+                        shipType,
+                        callSign: p.callSign || p.call_sign || '',
+                        updatedAt: updatedAt || '',
                     },
                 };
             });
