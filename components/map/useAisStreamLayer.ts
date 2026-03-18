@@ -351,6 +351,7 @@ export function useAisStreamLayer(
             const cpaResult = computeCpa(
                 own.lat, own.lon, ownCog, ownSog,
                 targetLat, targetLon, cogVal, sogVal,
+                p.navStatus ?? p.nav_status ?? 15,
             );
 
             let cpaSection = '';
