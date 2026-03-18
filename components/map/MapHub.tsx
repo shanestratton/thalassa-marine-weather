@@ -134,6 +134,51 @@ export const MapHub: React.FC<MapHubProps> = ({
         };
     }, []);
 
+    // Listen for pin-drop-navigate events from DM chat
+    useEffect(() => {
+        const onPinDrop = (e: Event) => {
+            const { lat, lon, label } = (e as CustomEvent).detail;
+            if (!isFinite(lat) || !isFinite(lon)) return;
+
+            // Request tab switch to map via global event
+            window.dispatchEvent(new CustomEvent('thalassa:navigate-tab', { detail: { tab: 'map' } }));
+
+            // Fly to the pin location (delay gives map tab time to render)
+            setTimeout(() => {
+                const map = mapRef.current;
+                if (!map) return;
+
+                map.flyTo({ center: [lon, lat], zoom: 14, duration: 1500 });
+
+                // Drop a temporary pin marker
+                const el = document.createElement('div');
+                el.className = 'pin-drop-marker';
+                el.innerHTML = `
+                    <div style="display:flex;flex-direction:column;align-items:center;animation:pinDropBounce 0.5s ease-out">
+                        <span style="font-size:28px;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.4))">📍</span>
+                        <span style="font-size:10px;color:#38bdf8;font-weight:700;background:rgba(0,0,0,0.6);padding:2px 8px;border-radius:8px;margin-top:2px;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis">${label}</span>
+                    </div>
+                `;
+
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const mapboxgl = (window as any).mapboxgl || (window as any).maplibregl;
+                if (mapboxgl?.Marker) {
+                    const marker = new mapboxgl.Marker({ element: el })
+                        .setLngLat([lon, lat])
+                        .addTo(map);
+
+                    // Auto-remove after 10 seconds
+                    setTimeout(() => {
+                        try { marker.remove(); } catch { /* already removed */ }
+                    }, 10_000);
+                }
+            }, 500);
+        };
+
+        window.addEventListener('pin-drop-navigate', onPinDrop);
+        return () => window.removeEventListener('pin-drop-navigate', onPinDrop);
+    }, []);
+
     const location = useLocationStore();
     const [mapReady, setMapReady] = useState(false);
     const deviceMode = useDeviceMode();
