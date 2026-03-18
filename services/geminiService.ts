@@ -11,7 +11,7 @@ import {
 } from '../types';
 import { convertLength, convertSpeed } from '../utils';
 import { fetchStormGlassWeather } from './weather/api/stormglass';
-const log = createLogger('Gemini');
+const _log = createLogger('Gemini');
 
 // ── Supabase Edge Proxy ──────────────────────────────────────
 // All Gemini calls go through the proxy-gemini edge function.

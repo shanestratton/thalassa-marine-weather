@@ -14,8 +14,8 @@ interface VesselData {
     units?: UnitPreferences;
 }
 
-const NAVY = '#1a2a3a';
-const GOLD = '#c9a227';
+const _NAVY = '#1a2a3a';
+const _GOLD = '#c9a227';
 const _GRAY = '#6a7a8a';
 const _LIGHT_GRAY = '#e8eef4';
 
@@ -782,15 +782,11 @@ async function generateDeckLogPDF(
     // Reverse geocode start and end locations
     let startLocationName = '';
     let endLocationName = '';
-    let startCoordStr = '';
-    let endCoordStr = '';
 
     if (startRouteEntry) {
-        startCoordStr = `${Math.abs(startRouteEntry.latitude!).toFixed(4)}°${startRouteEntry.latitude! < 0 ? 'S' : 'N'}, ${Math.abs(startRouteEntry.longitude!).toFixed(4)}°${startRouteEntry.longitude! < 0 ? 'W' : 'E'}`;
         startLocationName = await reverseGeocode(startRouteEntry.latitude!, startRouteEntry.longitude!);
     }
     if (endRouteEntry) {
-        endCoordStr = `${Math.abs(endRouteEntry.latitude!).toFixed(4)}°${endRouteEntry.latitude! < 0 ? 'S' : 'N'}, ${Math.abs(endRouteEntry.longitude!).toFixed(4)}°${endRouteEntry.longitude! < 0 ? 'W' : 'E'}`;
         endLocationName = await reverseGeocode(endRouteEntry.latitude!, endRouteEntry.longitude!);
     }
 
@@ -831,6 +827,8 @@ async function generateDeckLogPDF(
     });
 
     let y = 0;
+     
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     let pageNum = 1;
 
     // ===== TITLE PAGE / FIRST PAGE =====
@@ -1435,7 +1433,7 @@ async function generateDeckLogPDF(
 
     // ===== VOYAGE TRACK MAP PAGE =====
     pdf.addPage();
-    pageNum++;
+
 
     // Navy header bar
     pdf.setFillColor(26, 42, 58);
@@ -1656,8 +1654,7 @@ async function generateDeckLogPDF(
 
     // ===== CERTIFICATION PAGE =====
     pdf.addPage();
-    const certPageStart = pdf.getNumberOfPages(); // Track certification page for header skip
-    pageNum++;
+    const certPageStart = pdf.getNumberOfPages();
 
     // Navy header bar
     pdf.setFillColor(26, 42, 58);

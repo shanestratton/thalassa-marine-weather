@@ -427,7 +427,7 @@ export const fetchOpenMeteo = async (
 
     // 1. Determine "Distance to Water" using Marine Grid Snap
     // (Handled by Ring Search above: distToWaterIdx is set to 0 if found)
-    const hasMarineData = waveData !== null;
+    const _hasMarineData = waveData !== null;
 
     // 2. Perform Geocoding Lookup (Context)
     // We need this to determine distance to land (for Offshore rule) AND verify if we are actually on land.

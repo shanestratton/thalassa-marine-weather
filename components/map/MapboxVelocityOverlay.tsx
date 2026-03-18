@@ -89,7 +89,7 @@ const WIND_COLORS = [
 // ── Helper: Create velocity layer ─────────────────────────────
 
 function createVelocityLayer(data: GribRecord[]): L.Layer {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     return (L as unknown as Record<string, (...args: unknown[]) => L.Layer>).velocityLayer({
         displayValues: false, // No mouse readout (overlay has pointer-events: none)
         data,
@@ -127,7 +127,7 @@ function ktsToColor(kts: number): [number, number, number] {
     return [178, 64, 76];
 }
 
-function injectHeatMap(map: mapboxgl.Map, windData: GribRecord[]): void {
+function _injectHeatMap(map: mapboxgl.Map, windData: GribRecord[]): void {
     const uRecord = windData.find(
         (d: GribRecord) => d.header?.parameterNumberName?.includes('U-component') || d.header?.parameterNumber === 2,
     );
@@ -474,7 +474,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     setWindData(result.data);
                     lastFetchZoom.current = mapboxMap.getZoom();
                     const refTime = result.data?.[0]?.header?.refTime ?? null;
-                    const h = result.data?.[0]?.header;
+                    const _h = result.data?.[0]?.header;
                     setDataInfo({ refTime, source: result.source });
                 }
             } catch (err) {

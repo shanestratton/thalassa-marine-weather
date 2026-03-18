@@ -13,7 +13,7 @@ import { createLogger } from '../utils/createLogger';
 import { VoyagePlan, VesselProfile, PolarData, Waypoint } from '../types';
 import { supabase } from './supabase';
 import type { SpatiotemporalPayload } from '../types/spatiotemporal';
-const log = createLogger('WxRouter');
+const _log = createLogger('WxRouter');
 
 // Re-export the type for convenience
 export type { SpatiotemporalPayload };

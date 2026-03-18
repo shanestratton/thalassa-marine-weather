@@ -8,7 +8,7 @@ interface PassageTimelineProps {
     hourlyData?: HourlyForecast[];
 }
 
-export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, vessel, hourlyData }) => {
+export const PassageTimeline: React.FC<PassageTimelineProps> = ({ voyagePlan, _vessel, _hourlyData }) => {
     // Parse duration to hours
     const durationStr = voyagePlan.durationApprox.toLowerCase();
     let durationHours = 0;

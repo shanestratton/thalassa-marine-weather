@@ -53,12 +53,12 @@ const HeroSlideComponent = ({
     units,
     tides,
     settings,
-    updateSettings,
-    addDebugLog,
+    _updateSettings,
+    _addDebugLog,
     timeZone,
-    locationName,
+    _locationName,
     isLandlocked,
-    displaySource,
+    _displaySource,
     vessel,
     customTime,
     hourly,
@@ -66,7 +66,7 @@ const HeroSlideComponent = ({
     guiDetails,
     coordinates,
     locationType,
-    generatedAt,
+    _generatedAt,
     onTimeSelect,
     onHourChange,
     onActiveDataChange,
@@ -307,7 +307,7 @@ const HeroSlideComponent = ({
     const displayData = effectiveData;
 
     // Trend Calculation
-    const trends = useMemo(() => {
+    const _trends = useMemo(() => {
         if (!fullHourly || fullHourly.length < 2) return undefined;
 
         // Find current index based on time
@@ -468,7 +468,7 @@ const HeroSlideComponent = ({
     const hasWind = displayData.windSpeed !== null && displayData.windSpeed !== undefined;
 
     // Calculate Day/Night state
-    const isCardDay = useMemo(() => {
+    const _isCardDay = useMemo(() => {
         if (index > 0) return true;
         if (!displayData.sunrise || !displayData.sunset) return true;
 
@@ -563,7 +563,7 @@ const HeroSlideComponent = ({
 
     // ... (Skipping to renderTideGraph)
 
-    const renderTideGraph = (targetTime?: number, _targetDateStr?: string) => {
+    const _renderTideGraph = (targetTime?: number, _targetDateStr?: string) => {
         // 1. INLAND MODE
         if (locationType === 'inland' || isLandlocked) {
             return (
@@ -659,7 +659,7 @@ const HeroSlideComponent = ({
                         </div>
                         <div className="mt-auto pt-1 text-sm md:text-sm text-purple-300 font-bold opacity-80 text-center">
                             {(() => {
-                                const val = displayValues.currentDirection;
+                                const _val = displayValues.currentDirection;
                                 // Extract degrees from cardinal direction if present
                                 return 'True';
                             })()}
@@ -1170,11 +1170,11 @@ const HeroSlideComponent = ({
                         // Guard against undefined precomputed data (race condition safety)
                         if (!precomputed) return null;
                         const {
-                            sunPhase,
+                            _sunPhase,
                             cardDisplayValues,
                             isCardDay,
                             cardIsLive,
-                            isHourly,
+                            _isHourly,
                             cardData,
                             cardTime,
                             isGolden,

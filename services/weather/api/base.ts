@@ -54,7 +54,7 @@ export const fetchSG = async <T>(
         if (res.status !== 200) {
             if (res.status === 402 || res.status === 429) {
                 // Forward quota info from proxy response
-                const quotaRemaining = res.headers?.['x-quota-remaining'];
+                const _quotaRemaining = res.headers?.['x-quota-remaining'];
                 const _quotaTotal = res.headers?.['x-quota-total'];
                 throw new Error(`SG_QUOTA: ${res.status} - ${JSON.stringify(res.data)}`);
             }

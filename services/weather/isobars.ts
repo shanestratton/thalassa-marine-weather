@@ -140,8 +140,8 @@ async function fetchPressureGridGfs(
         }
 
         const emptyGrid: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
-        const allHourlyWindSpeed: number[][][] = frames.map(() => emptyGrid);
-        const allHourlyWindDir: number[][][] = frames.map(() => emptyGrid);
+        const _allHourlyWindSpeed: number[][][] = frames.map(() => emptyGrid);
+        const _allHourlyWindDir: number[][][] = frames.map(() => emptyGrid);
 
         // ── Interpolate between GRIB frames for butter-smooth animation ──
         // 5 GRIB frames at 3h intervals → 25 sub-frames at 30-min intervals

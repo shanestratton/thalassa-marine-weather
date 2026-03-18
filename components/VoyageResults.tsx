@@ -137,14 +137,14 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
         voyagePlan,
         vessel,
         checklistState,
-        toggleCheck,
+        _toggleCheck,
         deepReport,
         analyzingDeep,
         handleDeepAnalysis,
-        activeChecklistTab,
-        setActiveChecklistTab,
+        _activeChecklistTab,
+        _setActiveChecklistTab,
         setIsMapOpen,
-        isShortTrip,
+        _isShortTrip,
     }) => {
         // Count checked items for badge
         const _totalChecklistItems = CHECKLIST_DATA.reduce((sum, cat) => sum + cat.items.length, 0);
@@ -528,7 +528,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                                                   )
                                                 : 0;
                                         const distNm = distKm * 0.539957;
-                                        const hours = distNm / (vessel.cruisingSpeed || 5);
+                                        const _hours = distNm / (vessel.cruisingSpeed || 5);
 
                                         return (
                                             <tr
@@ -838,7 +838,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                         <ResourceCalculator voyagePlan={voyagePlan} vessel={vessel} crewCount={vessel.crewCount || 2} />
                     </AccordionSection>
                     {/* GEBCO DEPTH ANALYSIS */}
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                     {(voyagePlan as any).__depthSummary && (
                         <AccordionSection
                             title="Depth Analysis"
@@ -864,12 +864,12 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                                 return d.shallowSegments > 0 ? `${d.shallowSegments} shallow` : 'All Clear';
                             })()}
                         >
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                             <DepthSummaryCard data={(voyagePlan as any).__depthSummary} vesselDraft={vessel.draft} />
                         </AccordionSection>
                     )}
                     {/* MULTI-MODEL WEATHER COMPARISON */}
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                     {(voyagePlan as any).__multiModelComparison && (
                         <AccordionSection
                             title="Model Comparison"

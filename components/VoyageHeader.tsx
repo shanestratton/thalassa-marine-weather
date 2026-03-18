@@ -35,7 +35,7 @@ const formatLocationFallback = (entry: ShipLogEntry): string => {
 };
 
 export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(
-    ({ voyageId, entries, isActive, isSelected, isExpanded, onToggle, onSelect, onDelete }) => {
+    ({ _voyageId, entries, isActive, isSelected, isExpanded, onToggle, onSelect, onDelete }) => {
         const [swipeOffset, setSwipeOffset] = useState(0);
         const [isSwiping, setIsSwiping] = useState(false);
         const [startLocationName, setStartLocationName] = useState<string | null>(null);

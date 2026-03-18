@@ -64,7 +64,7 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
     onSaveProfile,
     onPhotoUpload,
     onPhotoRemove,
-    onDeleteProfile,
+    _onDeleteProfile,
     myProfileScrollRef,
     fileInputRef,
 }) => {

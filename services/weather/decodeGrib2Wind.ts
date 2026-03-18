@@ -108,7 +108,7 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Mes
     let binaryScale = 0;
     let decimalScale = 0;
     let bitsPerValue = 0;
-    let numDataPoints = 0;
+    const _numDataPoints = 0;
     let packedData: number[] = [];
 
     const endOfMessage = offset + totalLength;
@@ -137,7 +137,7 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Mes
 
             case 3: {
                 // Grid Definition Section — Template 3.0: Latitude/Longitude grid
-                numDataPoints = view.getUint32(pos + 6, false);
+                _numDataPoints = view.getUint32(pos + 6, false);
                 // Octets 31-34: Ni (columns) and 35-38: Nj (rows)
                 width = view.getUint32(pos + 30, false);
                 height = view.getUint32(pos + 34, false);

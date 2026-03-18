@@ -133,7 +133,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                             ? parsed.heroWidgets
                             : DEFAULT_SETTINGS.heroWidgets;
 
-                    setSettings((prev) => ({
+                    setSettings((_prev) => ({
                         ...DEFAULT_SETTINGS,
                         ...parsed,
                         notifications: { ...DEFAULT_SETTINGS.notifications, ...(parsed.notifications || {}) },

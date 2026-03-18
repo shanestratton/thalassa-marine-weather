@@ -32,13 +32,13 @@ type EssentialFrame = {
 };
 
 export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
-    slideIdx,
+    _slideIdx,
     isGolden,
     isCardDay,
     coordinates,
     windSpeed,
     windDirection,
-    windGust,
+    _windGust,
     condition,
     units,
 }) => {

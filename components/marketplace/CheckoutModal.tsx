@@ -70,7 +70,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     isOpen,
     onClose,
     onCashDeal,
-    onEscrowComplete,
+    _onEscrowComplete,
 }) => {
     const [mode, setMode] = useState<ModalMode>('choose');
     const [holdData, setHoldData] = useState<EscrowHoldData | null>(null);

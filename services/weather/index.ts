@@ -192,13 +192,13 @@ const _fetchWeatherByStrategyImpl = async (
         // Secondary swell (offshore-only marine data)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if ((sg as any).secondarySwellHeight != null) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (current as any).secondarySwellHeight = (sg as any).secondarySwellHeight;
         }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if ((sg as any).secondarySwellPeriod != null) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (current as any).secondarySwellPeriod = (sg as any).secondarySwellPeriod;
         }
@@ -223,13 +223,13 @@ const _fetchWeatherByStrategyImpl = async (
                     waterTemperature: sgH.waterTemperature ?? h.waterTemperature,
                     currentSpeed: sgH.currentSpeed ?? h.currentSpeed,
                     currentDirection: sgH.currentDirection ?? h.currentDirection,
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                     
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     secondarySwellHeight: (sgH as any).secondarySwellHeight ?? (h as any).secondarySwellHeight,
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                     
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     secondarySwellPeriod: (sgH as any).secondarySwellPeriod ?? (h as any).secondarySwellPeriod,
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                     
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     cape: (sgH as any).cape ?? (h as any).cape,
                 };

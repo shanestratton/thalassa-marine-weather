@@ -290,7 +290,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                         <button
                             type="button"
                             onClick={() => {
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                 
                                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
                                 if (!SR) {

@@ -178,7 +178,7 @@ export const mapStormGlassToReport = (
 
     const waveM = getVal(currentHour.waveHeight as MultiSourceField) ?? 0;
     // Relaxed check: waveM could be 0, but isLandlocked usually implies < 0.2m
-    const isLandlocked = waveM < 0.2;
+    const _isLandlocked = waveM < 0.2;
 
     // Weather data sourced from marine models (StormGlass, BOM beacons)
     // METAR/airport data removed in v20.0 - was skewing marine conditions
@@ -230,7 +230,7 @@ export const mapStormGlassToReport = (
         day: 'Today',
         date: now.toLocaleDateString(),
         feelsLike: calculatedFeels,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         cape: typeof (currentHour as any).cape === 'number' ? (currentHour as any).cape : 0,
         isDay: true,
@@ -312,7 +312,7 @@ export const mapStormGlassToReport = (
                 windKts * 0.8,
             ),
             dewPoint: getVal(h.dewPointTemperature as MultiSourceField) ?? null,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             cape: typeof (h as any).cape === 'number' ? (h as any).cape : 0,
         };
@@ -343,9 +343,9 @@ export const mapStormGlassToReport = (
             let currentDirVectorX = 0,
                 currentDirVectorY = 0,
                 currentDirCount = 0;
-            let windDirVectorX = 0,
-                windDirVectorY = 0,
-                windDirCount = 0;
+            const _windDirVectorX = 0,
+                _windDirVectorY = 0,
+                _windDirCount = 0;
             let maxUV = 0;
 
             dayHours.forEach((h) => {

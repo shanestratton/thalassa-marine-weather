@@ -145,8 +145,8 @@ export const SolarArc = ({
         // Support 24h format (e.g. "14:30") or 12h (e.g. "2:30 PM")
         const parts = tStr.split(' ');
         const [time, period] = parts;
-        let h: number, m: number;
-        [h, m] = time.split(':').map(Number);
+        const [h0, m] = time.split(':').map(Number);
+        let h = h0;
         if (isNaN(h) || isNaN(m)) return null;
 
         if (period) {

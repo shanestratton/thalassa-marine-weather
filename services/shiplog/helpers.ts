@@ -101,7 +101,7 @@ export function formatPositionDMS(lat: number, lon: number): string {
 export function getNextQuarterHour(): { nextTime: Date; msUntil: number } {
     const now = new Date();
     const minutes = now.getMinutes();
-    const seconds = now.getSeconds();
+    const _seconds = now.getSeconds();
     const _ms = now.getMilliseconds();
 
     // Calculate next quarter hour

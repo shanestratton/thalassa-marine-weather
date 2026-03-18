@@ -32,7 +32,7 @@ interface OfficeCard {
     accentBg: string;
 }
 
-export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, settings, onSave }) => {
+export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, settings, _onSave }) => {
     // ── Vessel state ──
     const { settings: ctx } = useSettings();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

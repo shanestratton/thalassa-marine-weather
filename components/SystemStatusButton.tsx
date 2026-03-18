@@ -75,7 +75,7 @@ const SystemStatusModal: React.FC<{
     onRefreshRoute: () => void;
     onAcceptChange: () => void;
     onDismissChange: () => void;
-}> = ({ state, onClose, onNavigateAnchor, onStopFollowing, onRefreshRoute, onAcceptChange, onDismissChange }) => {
+}> = ({ state, onClose, onNavigateAnchor, onStopFollowing, _onRefreshRoute, onAcceptChange, _onDismissChange }) => {
     const activeCount = [
         state.gpsTracking.active,
         state.anchorWatch.active,

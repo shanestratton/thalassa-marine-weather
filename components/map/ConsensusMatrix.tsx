@@ -70,7 +70,7 @@ const ConsensusRowView: React.FC<{
     row: ConsensusRow;
     onIntersect?: () => void;
     rowRef?: React.RefObject<HTMLDivElement>;
-}> = ({ row, onIntersect, rowRef }) => {
+}> = ({ row, _onIntersect, rowRef }) => {
     const bgClass = row.exceedsComfort
         ? 'bg-red-500/[0.06] border-red-500/20'
         : row.confidence === 'low'

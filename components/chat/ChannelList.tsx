@@ -54,7 +54,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
     channels,
     onOpenChannel,
     onRequestAccess,
-    isMod,
+    _isMod,
     showProposalForm,
     setShowProposalForm,
     proposalIcon,

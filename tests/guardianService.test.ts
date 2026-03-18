@@ -51,11 +51,11 @@ vi.mock('../stores/LocationStore', () => ({
     },
 }));
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 let GuardianService: any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 let HAIL_MESSAGES: any;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 let WEATHER_TEMPLATES: any;
 
 beforeEach(async () => {
@@ -226,17 +226,17 @@ describe('GuardianService — Report Suspicious', () => {
 describe('GuardianService — Constants', () => {
     it('has preset hail messages', () => {
         expect(HAIL_MESSAGES.length).toBeGreaterThanOrEqual(5);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         expect((HAIL_MESSAGES[0] as any).emoji).toBeDefined();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         expect((HAIL_MESSAGES[0] as any).text).toBeDefined();
     });
 
     it('has preset weather templates', () => {
         expect(WEATHER_TEMPLATES.length).toBeGreaterThanOrEqual(4);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         expect((WEATHER_TEMPLATES[0] as any).emoji).toBeDefined();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+         
         expect((WEATHER_TEMPLATES[0] as any).text).toBeDefined();
     });
 });
