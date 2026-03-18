@@ -5,3 +5,5 @@ builder = "NIXPACKS"
 startCommand = "node --loader ts-node/esm index.ts"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 10
+healthcheckPath = "/health"
+healthcheckTimeout = 10
