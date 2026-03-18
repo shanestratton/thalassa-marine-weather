@@ -18,6 +18,8 @@ import { onLocalAisChange } from './useAisLayer';
 import { LocationStore } from '../../stores/LocationStore';
 import { NmeaStore } from '../../services/NmeaStore';
 import { computeCpa } from '../../utils/cpaCalculation';
+import { AisGuardZone } from '../../services/AisGuardZone';
+import { triggerHaptic } from '../../utils/system';
 
 const FETCH_DEBOUNCE_MS = 1500;
 const AIS_SOURCE_ID = 'ais-targets';
@@ -228,6 +230,15 @@ export function useAisStreamLayer(
         const trackSource = map.getSource(PREDICTED_TRACKS_SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
         if (trackSource) {
             trackSource.setData({ type: 'FeatureCollection', features: trackFeatures });
+        }
+
+        // ── Guard Zone check ──
+        const own = LocationStore.getState();
+        const newAlerts = AisGuardZone.checkFeatures(own.lat, own.lon, merged.features);
+        if (newAlerts.length > 0) {
+            triggerHaptic('heavy');
+            // Dispatch custom event for UI to show alert toast
+            window.dispatchEvent(new CustomEvent('ais-guard-alert', { detail: newAlerts }));
         }
     }, [map, enabled]);
 
