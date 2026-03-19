@@ -197,6 +197,8 @@ export const LayerFABMenu: React.FC<{
     setShowLayerMenu: (v: boolean) => void;
     aisVisible?: boolean;
     onToggleAis?: () => void;
+    chokepointVisible?: boolean;
+    onToggleChokepoint?: () => void;
 }> = ({
     activeLayers,
     showLayerMenu,
@@ -209,6 +211,8 @@ export const LayerFABMenu: React.FC<{
     setShowLayerMenu,
     aisVisible = false,
     onToggleAis,
+    chokepointVisible = false,
+    onToggleChokepoint,
 }) => {
     const activeCount = activeLayers.size;
     const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -331,6 +335,31 @@ export const LayerFABMenu: React.FC<{
                                     <span className="flex items-center gap-1">
                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
                                         <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+                                            Active
+                                        </span>
+                                    </span>
+                                )}
+                            </button>
+                        </>
+                    )}
+
+                    {/* ── Chokepoint Tracker toggle ── */}
+                    {onToggleChokepoint && (
+                        <>
+                            <div className="h-px bg-white/[0.06] mx-3" />
+                            <button
+                                onClick={() => {
+                                    onToggleChokepoint();
+                                    triggerHaptic('light');
+                                }}
+                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${chokepointVisible ? 'bg-red-500/15 text-red-400 border-l-2 border-red-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                            >
+                                <span className="text-xl">🔺</span>
+                                <span className="text-sm font-bold flex-1">Chokepoints</span>
+                                {chokepointVisible && (
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-red-400 shadow-lg shadow-red-400/50" />
+                                        <span className="text-[11px] font-bold text-red-400 uppercase tracking-wider">
                                             Active
                                         </span>
                                     </span>
