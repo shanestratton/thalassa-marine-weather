@@ -331,6 +331,18 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
         }
 
         mergeAndWrite();
+
+        // ── Pre-fetch vessel metadata for visible targets ──
+        // So data is ready before users tap (eliminates MMSI-only popup delay)
+        const mmsis = (cachedServerFeatures.current || [])
+            .map((f) => f.properties?.mmsi)
+            .filter((m): m is number => typeof m === 'number' && m > 0);
+        if (mmsis.length > 0) {
+            const unique = [...new Set(mmsis)].slice(0, 50);
+            VesselMetadataService.batchLookup(unique).catch(() => {
+                /* silent — best-effort pre-fetch */
+            });
+        }
     }, [map, enabled, mergeAndWrite]);
 
     // Listen for local AIS data changes → re-merge
@@ -386,26 +398,30 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             const lookupSpinnerId = `lookup-spinner-${p.mmsi}-${Date.now()}`;
             if (needsOnDemandLookup) {
                 VesselMetadataService.onDemandLookup(p.mmsi).then((result) => {
+                    const spinnerEl = document.getElementById(lookupSpinnerId);
                     if (result && result.vessel_name && popupRef.current) {
-                        // Re-trigger click to refresh popup with enriched data
-                        const spinnerEl = document.getElementById(lookupSpinnerId);
+                        // Update spinner to show success
                         if (spinnerEl) {
                             spinnerEl.innerHTML = `
                                 <div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.15);border-radius:8px;font-size:10px;color:#22c55e;">
-                                    <span>✓ Found: ${result.flag_emoji || ''} ${result.vessel_name}</span>
+                                    <span>\u2713 Found: ${result.flag_emoji || ''} ${result.vessel_name}</span>
                                 </div>
                             `;
-                            // Auto-refresh popup after short delay
-                            setTimeout(() => {
-                                if (popupRef.current) {
-                                    popupRef.current.remove();
-                                    handleClick(e);
-                                }
-                            }, 1200);
+                        }
+                        // Update the name/flag in the existing popup header (in-place, no flash)
+                        const popup = popupRef.current;
+                        if (popup) {
+                            const el = popup.getElement();
+                            if (el) {
+                                const nameEl = el.querySelector('[data-vessel-name]') as HTMLElement;
+                                if (nameEl) nameEl.textContent = result.vessel_name || '';
+                                const flagEl = el.querySelector('[data-vessel-flag]') as HTMLElement;
+                                if (flagEl)
+                                    flagEl.textContent = `${result.flag_emoji || ''} ${result.flag_country || ''}`;
+                            }
                         }
                     } else {
                         // Not found — update spinner to show result
-                        const spinnerEl = document.getElementById(lookupSpinnerId);
                         if (spinnerEl) {
                             spinnerEl.innerHTML = `
                                 <div style="padding:6px 10px;background:rgba(100,116,139,0.08);border:1px solid rgba(100,116,139,0.15);border-radius:8px;font-size:10px;color:#64748b;">
@@ -461,7 +477,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                 if (draft) dims.push(`Draft: ${Number(draft).toFixed(1)}m`);
                 dimensionsHtml = `
                     <div style="display:flex;gap:8px;margin-bottom:10px;padding:6px 8px;background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.15);border-radius:8px;font-size:10px;color:#94a3b8;">
-                        ${dims.map(d => `<span>${d}</span>`).join('<span style="color:#334155;">•</span>')}
+                        ${dims.map((d) => `<span>${d}</span>`).join('<span style="color:#334155;">•</span>')}
                     </div>
                 `;
             }
@@ -562,52 +578,57 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
 
             // ── "View Details" button (premium — opens full modal) ──
             const detailBtnId = `vessel-detail-${p.mmsi}-${Date.now()}`;
-            const viewDetailsBtn = isPremium && intel?.metadata
-                ? `<button id="${detailBtnId}" style="width:100%;margin-top:8px;padding:8px 12px;background:linear-gradient(135deg,rgba(14,165,233,0.15),rgba(139,92,246,0.15));border:1px solid rgba(14,165,233,0.25);border-radius:10px;color:#38bdf8;font-size:11px;font-weight:700;letter-spacing:0.5px;cursor:pointer;text-transform:uppercase;transition:all 0.2s;">
+            const viewDetailsBtn =
+                isPremium && intel?.metadata
+                    ? `<button id="${detailBtnId}" style="width:100%;margin-top:8px;padding:8px 12px;background:linear-gradient(135deg,rgba(14,165,233,0.15),rgba(139,92,246,0.15));border:1px solid rgba(14,165,233,0.25);border-radius:10px;color:#38bdf8;font-size:11px;font-weight:700;letter-spacing:0.5px;cursor:pointer;text-transform:uppercase;transition:all 0.2s;">
                     View Full Details ›
                    </button>`
-                : '';
+                    : '';
 
             // ── Build full modal data for detail button ──
-            const modalData = isPremium && intel?.metadata ? JSON.stringify({
-                mmsi: p.mmsi,
-                name: vesselName || `MMSI ${p.mmsi}`,
-                flag: intel?.flag ?? flagEmoji,
-                flagCountry: flagCountry || 'Unknown',
-                type: typeLabel,
-                callSign,
-                imo: imoNumber,
-                loa,
-                beam,
-                draft,
-                thumbnail: thumbnail || null,
-                destination,
-                sog: sogVal,
-                cog: cogVal,
-                heading: p.heading,
-                status,
-                statusColor,
-                lastSeen,
-                source,
-                dataSource,
-                isVerified,
-                lat: targetLat.toFixed(5),
-                lon: targetLon.toFixed(5),
-            }).replace(/'/g, "\\'") : '';
+            const modalData =
+                isPremium && intel?.metadata
+                    ? JSON.stringify({
+                          mmsi: p.mmsi,
+                          name: vesselName || `MMSI ${p.mmsi}`,
+                          flag: intel?.flag ?? flagEmoji,
+                          flagCountry: flagCountry || 'Unknown',
+                          type: typeLabel,
+                          callSign,
+                          imo: imoNumber,
+                          loa,
+                          beam,
+                          draft,
+                          thumbnail: thumbnail || null,
+                          destination,
+                          sog: sogVal,
+                          cog: cogVal,
+                          heading: p.heading,
+                          status,
+                          statusColor,
+                          lastSeen,
+                          source,
+                          dataSource,
+                          isVerified,
+                          lat: targetLat.toFixed(5),
+                          lon: targetLon.toFixed(5),
+                      }).replace(/'/g, "\\'")
+                    : '';
 
             const html = `
                 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:rgba(15,23,42,0.95);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:14px 16px;color:#e2e8f0;min-width:240px;max-width:300px;">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                        ${thumbnail
-                            ? `<img src="${thumbnail}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;border:1px solid rgba(255,255,255,0.1);flex-shrink:0;" />`
-                            : `<div style="width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,rgba(14,165,233,0.15),rgba(139,92,246,0.15));border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">${shipIcon}</div>`
+                        ${
+                            thumbnail
+                                ? `<img src="${thumbnail}" alt="" style="width:44px;height:44px;border-radius:10px;object-fit:cover;border:1px solid rgba(255,255,255,0.1);flex-shrink:0;" />`
+                                : `<div style="width:44px;height:44px;border-radius:10px;background:linear-gradient(135deg,rgba(14,165,233,0.15),rgba(139,92,246,0.15));border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">${shipIcon}</div>`
                         }
                         <div style="flex:1;min-width:0;">
-                            <div style="font-weight:800;font-size:14px;letter-spacing:0.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${displayName}</div>
+                            <div data-vessel-name style="font-weight:800;font-size:14px;letter-spacing:0.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${displayName}</div>
                             <div style="font-size:10px;color:#94a3b8;display:flex;align-items:center;gap:4px;">
                                 <span>${typeLabel}</span>
                                 ${isVerified ? '<span style="color:#22c55e;font-size:9px;">✓ Verified</span>' : ''}
-                                ${flagCountry ? `<span style="color:#475569;">•</span><span>${flagCountry}</span>` : ''}
+                                ${flagCountry ? `<span style="color:#475569;">•</span><span data-vessel-flag>${flagCountry}</span>` : ''}
                             </div>
                         </div>
                         <div style="width:10px;height:10px;border-radius:50%;background:${statusColor};box-shadow:0 0 8px ${statusColor};flex-shrink:0;"></div>
@@ -620,7 +641,9 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                         <span style="font-size:10px;color:${lastSeen === 'Live' ? '#22c55e' : '#64748b'};">${lastSeen}</span>
                     </div>
                     ${upgradeBanner}
-                    ${needsOnDemandLookup ? `
+                    ${
+                        needsOnDemandLookup
+                            ? `
                         <div id="${lookupSpinnerId}" style="margin-bottom:10px;">
                             <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.15);border-radius:8px;font-size:10px;color:#38bdf8;">
                                 <span style="display:inline-block;width:12px;height:12px;border:2px solid rgba(56,189,248,0.3);border-top-color:#38bdf8;border-radius:50%;animation:spin 0.8s linear infinite;"></span>
@@ -628,7 +651,9 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                             </div>
                         </div>
                         <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-                    ` : ''}
+                    `
+                            : ''
+                    }
                     ${dimensionsHtml}
                     ${cpaSection}
                     <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:11px;">
