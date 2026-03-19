@@ -172,6 +172,8 @@ export function useWeatherLayers(
         if (barbsSrc) barbsSrc.setData(result.barbs);
         if (arrowsSrc) arrowsSrc.setData(result.arrows);
         if (tracksSrc) tracksSrc.setData(result.tracks);
+        const cycloneSrc = map.getSource('cyclone-markers') as mapboxgl.GeoJSONSource;
+        if (cycloneSrc) cycloneSrc.setData(result.cyclones);
 
         if (result.heatmapDataUrl && result.heatmapBounds) {
             const [west, south, east, north] = result.heatmapBounds;
@@ -611,6 +613,8 @@ export function useWeatherLayers(
                 'movement-track-lines',
                 'movement-track-labels',
                 'pressure-heatmap-layer',
+                'cyclone-marker-circle',
+                'cyclone-marker-label',
             ].forEach((id) => {
                 if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
             });
@@ -626,6 +630,8 @@ export function useWeatherLayers(
                 'movement-track-lines',
                 'movement-track-labels',
                 'pressure-heatmap-layer',
+                'cyclone-marker-circle',
+                'cyclone-marker-label',
             ].forEach((id) => {
                 if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
             });
@@ -734,6 +740,39 @@ export function useWeatherLayers(
                         'text-color': ['match', ['get', 'type'], 'H', '#ef4444', 'L', '#3b82f6', '#e2e8f0'],
                         'text-halo-color': '#0f172a',
                         'text-halo-width': 1.5,
+                    },
+                });
+
+                // ── Cyclone Category Markers ──
+                map.addSource('cyclone-markers', {
+                    type: 'geojson',
+                    data: { type: 'FeatureCollection', features: [] },
+                });
+                map.addLayer({
+                    id: 'cyclone-marker-circle',
+                    type: 'circle',
+                    source: 'cyclone-markers',
+                    paint: {
+                        'circle-radius': 22,
+                        'circle-color': 'rgba(220, 38, 38, 0.3)',
+                        'circle-stroke-color': '#dc2626',
+                        'circle-stroke-width': 3,
+                    },
+                });
+                map.addLayer({
+                    id: 'cyclone-marker-label',
+                    type: 'symbol',
+                    source: 'cyclone-markers',
+                    layout: {
+                        'text-field': ['get', 'label'],
+                        'text-size': 20,
+                        'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
+                        'text-allow-overlap': true,
+                    },
+                    paint: {
+                        'text-color': '#ffffff',
+                        'text-halo-color': '#dc2626',
+                        'text-halo-width': 2.5,
                     },
                 });
 
