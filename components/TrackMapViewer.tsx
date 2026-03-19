@@ -21,14 +21,6 @@ import { ShipLogEntry } from '../types';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
-// ── Wind data config ──────────────────────────────────────────────
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY as string;
-const WIND_CACHE_NAME = 'thalassa-wind-cache';
-const EDGE_FN_PATH = '/functions/v1/fetch-wind-velocity';
-
-const WIND_COLORS = ['#3498db', '#2ecc71', '#f1c40f', '#e67e22', '#e74c3c', '#8e44ad'];
-
 interface TrackMapViewerProps {
     isOpen: boolean;
     onClose: () => void;
@@ -76,7 +68,6 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
     const thumbRef = useRef<HTMLDivElement>(null);
     const fillRef = useRef<HTMLDivElement>(null);
     const isDraggingRef = useRef(false);
-    const velocityLayerRef = useRef<L.Layer | null>(null);
 
     // Sorted entries for playback
     const sortedEntriesRef = useRef<ShipLogEntry[]>([]);
@@ -170,92 +161,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         mapInstanceRef.current = map;
         setTimeout(() => map.invalidateSize(), 200);
 
-        // ── Load wind velocity layer (deferred to let map init) ──────
-        const windTimerId = setTimeout(async () => {
-            try {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                window.L = L;
-                await import('leaflet-velocity-ts');
-
-                // Request full global coverage — no bounds dependency
-                const body = JSON.stringify({
-                    north: 90,
-                    south: -90,
-                    west: -180,
-                    east: 180,
-                });
-
-                let windData: unknown[] | null = null;
-                const cacheKey = `${SUPABASE_URL}${EDGE_FN_PATH}?track-global`;
-
-                try {
-                    const res = await fetch(`${SUPABASE_URL}${EDGE_FN_PATH}`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            apikey: SUPABASE_KEY,
-                            Authorization: `Bearer ${SUPABASE_KEY}`,
-                        },
-                        body,
-                    });
-                    if (res.ok) {
-                        windData = await res.json();
-                        try {
-                            const cache = await caches.open(WIND_CACHE_NAME);
-                            await cache.put(cacheKey, new Response(JSON.stringify(windData)));
-                        } catch (_) {
-                            console.warn(`[TrackMapViewer]`, _);
-                        }
-                    } else {
-                        log.warn(' Wind fetch HTTP', res.status);
-                    }
-                } catch (_) {
-                    // Try cache
-                    try {
-                        const cache = await caches.open(WIND_CACHE_NAME);
-                        const cached = await cache.match(cacheKey);
-                        if (cached) windData = await cached.json();
-                    } catch (_e) {
-                        console.warn(`[TrackMapViewer]`, _e);
-                    }
-                }
-
-                if (windData && Array.isArray(windData) && windData.length > 0 && mapInstanceRef.current) {
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const vLayer = (L as any).velocityLayer({
-                        displayValues: false,
-                        data: windData,
-                        maxVelocity: 40,
-                        velocityScale: 0.012,
-                        particleAge: 60,
-                        particleMultiplier: 1 / 200,
-                        frameRate: 15,
-                        lineWidth: 2.5,
-                        colorScale: WIND_COLORS,
-                    });
-                    vLayer.addTo(mapInstanceRef.current);
-                    velocityLayerRef.current = vLayer;
-                    log.info(' Wind velocity layer loaded ✓');
-                } else {
-                    log.warn(' No wind data received');
-                }
-            } catch (err) {
-                log.warn(' Wind layer failed:', err);
-            }
-        }, 1000);
-
         return () => {
-            clearTimeout(windTimerId);
             if (playIntervalRef.current) clearInterval(playIntervalRef.current);
             if (mapInstanceRef.current) {
-                if (velocityLayerRef.current) {
-                    try {
-                        mapInstanceRef.current.removeLayer(velocityLayerRef.current);
-                    } catch (_) {
-                        console.warn(`[TrackMapViewer]`, _);
-                    }
-                    velocityLayerRef.current = null;
-                }
                 mapInstanceRef.current.remove();
                 mapInstanceRef.current = null;
                 layerGroupRef.current = null;
