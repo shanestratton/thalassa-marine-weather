@@ -1,131 +1,231 @@
-# Thalassa Architecture Guide
+# Thalassa Architecture
 
-> Officer on Watch Assistant — Maritime weather, navigation, and voyage planning.
+## System Overview
 
-## Stack
+```mermaid
+graph TB
+    subgraph Client["Client (React + Capacitor)"]
+        UI["React UI<br>67 components"]
+        Hooks["31 Custom Hooks"]
+        Services["65 Services"]
+        Workers["Web Workers<br>AIS, Wind GL"]
+        Context["ThalassaContext<br>WeatherContext"]
+    end
 
-| Layer | Technology |
-|---|---|
-| UI | React 18 + TypeScript + Tailwind CSS |
-| Build | Vite 5 |
-| Mobile | Capacitor 8 (iOS + Android) |
-| Backend | Supabase (Auth, PostgreSQL, Edge Functions, Realtime) |
-| Maps | Mapbox GL JS + MapLibre GL + Leaflet (velocity overlay) |
-| Weather | WeatherKit Primary → NOAA GRIB2 fallback → Open-Meteo tertiary |
-| AI | Google Gemini (passage planning, content moderation) |
-| Monitoring | Sentry (error tracking, performance) |
-| CI | GitHub Actions (lint, typecheck, test, build, bundle size) |
+    subgraph Supabase["Supabase Backend"]
+        Auth["Auth (Magic Link)"]
+        DB["PostgreSQL"]
+        RT["Realtime<br>Chat, AIS, Sync"]
+        Storage["Storage<br>Photos, Logs"]
+        Edge["26 Edge Functions"]
+    end
 
-## Directory Structure
+    subgraph External["External APIs"]
+        WK["WeatherKit"]
+        NOAA["NOAA NOMADS"]
+        OWM["OpenWeatherMap"]
+        OM["OpenMeteo"]
+        RV["RainViewer"]
+        RB["Rainbow.ai"]
+        SG["StormGlass"]
+        MB["Mapbox GL"]
+        OSM["OpenSeaMap"]
+    end
 
-```
-├── App.tsx                 # Root component — layout shell, tab bar, page router
-├── index.tsx              # Entry point — React root, Sentry init, global providers
-├── index.css              # Design system: theme tokens, Tailwind overrides, light/dark/night modes
-│
-├── components/            # UI components (largest directory)
-│   ├── Dashboard.tsx      # Landing page — hero carousel, weather cards
-│   ├── ChatPage.tsx       # Community chat with channels, DMs, crew finder
-│   ├── map/               # MapHub, weather layers, wind particles, passage planner
-│   ├── passage/           # Voyage analysis cards (customs, resources, emergency, model comparison)
-│   ├── vessel/            # Ship's office (inventory, maintenance, equipment, documents, NMEA)
-│   ├── dashboard/         # Hero slides, DnD grid, weather cards
-│   ├── chat/              # Channel list, message list, composer, DM views
-│   ├── crew-finder/       # CrewProfileForm (extracted from LonelyHeartsPage)
-│   ├── ui/                # Shared UI primitives (PageTransition, ConfirmDialog, Skeleton, etc.)
-│   └── settings/          # Aesthetics, vessel, and app settings tabs
-│
-├── context/               # React Context providers
-│   ├── WeatherContext.tsx  # Global weather state — coordinates, forecasts, loading
-│   ├── SettingsContext.tsx # User preferences — units, theme, pro status
-│   ├── UIContext.tsx       # Navigation state — currentView, transitions
-│   └── ThalassaContext.tsx # Vessel profile, onboarding state
-│
-├── hooks/                 # Custom hooks
-│   ├── useAppController.ts    # App lifecycle — onboarding, orientation, display mode
-│   ├── chat/              # Chat-specific hooks (messages, DMs, pin drops, track sharing)
-│   └── useFollowRouteOverlay.ts  # GPS-based follow-route with ETA, deviation alerts
-│
-├── services/              # Business logic and API clients
-│   ├── ChatService.ts         # Supabase-backed chat (channels, DMs, moderation, admin)
-│   ├── WeatherOrchestrator.ts # Multi-source weather aggregation
-│   ├── weather/               # Wind field, OpenMeteo, geocoding, API clients
-│   ├── MarketplaceService.ts  # Buy/sell listings
-│   ├── LonelyHeartsService.ts # Crew finder matchmaking
-│   ├── AnchorWatchService.ts  # GPS-based anchor alarm with drift detection
-│   └── vessel/                # Local-first CRUD (SQLite via Capacitor)
-│
-├── data/                  # Static data modules
-│   └── customsDb.ts       # 28-country customs clearance database (1,165 lines)
-│
-├── utils/                 # Pure utility functions
-│   ├── fetchWithRetry.ts  # Exponential backoff with jitter
-│   ├── createLogger.ts    # Scoped logger (strips logs in production)
-│   └── logExport.ts       # GeoJSON/CSV export for ship's log
-│
-├── pages/                 # Page-level components
-│   └── LogPage.tsx        # Ship's log with GPS tracking and waypoint recording
-│
-├── supabase/              # Backend
-│   └── functions/         # Edge Functions (wind velocity, precipitation, overpass proxy)
-│
-├── tests/                 # Test suites (Vitest)
-├── e2e/                   # E2E tests (Playwright)
-└── .github/workflows/     # CI pipeline
+    UI --> Hooks --> Services
+    Services --> Context
+    Services --> Workers
+    Services --> Edge
+    Edge --> WK & NOAA & OWM & OM & SG & RB
+    Services --> Auth & DB & RT & Storage
+    UI --> MB & OSM
+    Services --> RV
 ```
 
-## Key Architecture Patterns
+## Data Flow: Weather
 
-### 1. Multi-Source Weather Orchestration
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as React UI
+    participant WS as WeatherService
+    participant Edge as Edge Functions
+    participant APIs as Weather APIs
 
-```
-WeatherKit (primary) → NOAA GRIB2 (fallback) → Open-Meteo (tertiary)
-                    ↓
-           WeatherOrchestrator
-                    ↓
-         ConsensusMatrixEngine → confidence scoring per metric
-```
-
-### 2. Isochrone Weather Routing
-
-```
-A* Safe-Water Corridors (coastal) → Isochrone Expansion (offshore)
-                                         ↓
-                                    land avoidance (ETOPO + coastline)
-                                         ↓
-                                    route smoothing + safety scoring
-```
-
-### 3. Dual Theme System
-
-CSS custom property overrides applied at `:root` level:
-- **Offshore** (default): Cool navy/slate
-- **Onshore**: Warm stone/earth tones
-- **Light mode**: Full color inversion via `display-light` class
-- **Night mode**: Red-tinted overlay via `mix-blend-multiply`
-
-### 4. Lazy Loading Strategy
-
-All page-level components use `React.lazy()` with `lazyRetry()` wrapper that handles stale module hash errors by reloading once per session.
-
-### 5. Security Headers (Vercel)
-
-- CSP whitelisting Supabase, Mapbox, OWM, Sentry, Google Fonts
-- HSTS with 2-year max-age and preload
-- Referrer-Policy: strict-origin-when-cross-origin
-- Permissions-Policy: camera, microphone, payment, USB all disabled
-
-## CI Pipeline
-
-```yaml
-Lint (max 200 warnings) → TypeCheck → Unit Tests → Build → Bundle Size (< 5MB) → E2E
+    User->>UI: Open weather page
+    UI->>WS: fetchWeather(lat, lon)
+    WS->>WS: Check cache (5min TTL)
+    alt Cache hit
+        WS-->>UI: Cached data
+    else Cache miss
+        WS->>Edge: fetch-weatherkit
+        Edge->>APIs: WeatherKit (JWT auth)
+        APIs-->>Edge: Forecast JSON
+        Edge-->>WS: Transformed data
+        WS->>WS: Cache result
+        WS-->>UI: Fresh data
+    end
+    UI->>UI: Render dashboard cards
 ```
 
-## ESLint Rules
+## Data Flow: Wind Particles
 
-| Rule | Level | Rationale |
-|---|---|---|
-| `no-explicit-any` | **error** | Zero `:any` policy — all 68 legacy uses eliminated |
-| `exhaustive-deps` | **warn** | Catches stale closures; intentional suppression via inline comment |
-| `no-empty` | warn | Empty catch blocks should have comments |
-| `no-fallthrough` | warn | Switch fallthroughs should be explicit |
+```mermaid
+sequenceDiagram
+    participant Map as MapHub
+    participant WL as useWeatherLayers
+    participant Edge as fetch-wind-grid
+    participant NOAA as NOAA GFS
+    participant GL as WindParticleLayer WebGL
+
+    Map->>WL: Toggle wind layer
+    WL->>Edge: Fetch GFS grid
+    Edge->>NOAA: GRIB data request
+    NOAA-->>Edge: Binary GRIB
+    Edge-->>WL: Decoded UV grid
+    WL->>GL: Initialize WebGL engine
+    GL->>GL: Create particle VAO
+    GL->>GL: Animate particles via rAF
+    GL-->>Map: Rendered on canvas overlay
+```
+
+## Component Hierarchy
+
+```mermaid
+graph TD
+    App["App.tsx"] --> Router
+    Router --> Dashboard["Dashboard"]
+    Router --> MapHub["MapHub"]
+    Router --> Chat["ChatPage"]
+    Router --> Anchor["AnchorWatchPage"]
+    Router --> Guardian["GuardianPage"]
+    Router --> Diary["DiaryPage"]
+    Router --> Settings["SettingsModal"]
+
+    Dashboard --> HeroSlide
+    Dashboard --> TideVessel
+    Dashboard --> ForecastSheet
+
+    MapHub --> MapInit["useMapInit"]
+    MapHub --> WeatherLayers["useWeatherLayers"]
+    MapHub --> PassagePlanner["usePassagePlanner"]
+    MapHub --> LayerFAB["LayerFABMenu"]
+    MapHub --> VesselSearch
+
+    Chat --> ChannelList
+    Chat --> ChatMessages
+    Chat --> ChatDMView
+    Chat --> CrewFinder
+    Chat --> Marketplace
+    Chat --> IntelTicker["MaritimeIntelCard"]
+
+    Anchor --> SwingCircle["SwingCircleCanvas"]
+    Anchor --> AlarmOverlay["AnchorAlarmOverlay"]
+    Anchor --> ScopeRadar
+    Anchor --> ShoreWatch["ShoreWatchModal"]
+
+    Settings --> GeneralTab
+    Settings --> AccountTab
+    Settings --> VesselTab
+    Settings --> AlertsTab
+    Settings --> AestheticsTab
+    Settings --> LocationsTab
+    Settings --> PolarManager["PolarManagerTab"]
+```
+
+## Service Architecture
+
+### Core Services
+
+| Service              | Lines  | Responsibility                                        |
+| -------------------- | ------ | ----------------------------------------------------- |
+| `WeatherService`     | ~400   | Multi-source weather orchestration with caching       |
+| `ChatService`        | ~1,400 | Supabase Realtime messaging, DMs, moderation          |
+| `IsochroneRouter`    | ~1,370 | Offshore weather routing with wind-angle optimization |
+| `ShipLogService`     | ~1,990 | Voyage logging, GPS tracks, export (GPX/KML/CSV)      |
+| `AnchorWatchService` | ~500   | GPS geofencing, swing radius, drag detection          |
+| `GpsService`         | ~400   | Capacitor GPS with external device support (Bad Elf)  |
+| `AisStreamService`   | ~300   | Real-time AIS via Supabase, vessel tracking           |
+| `GuardianService`    | ~300   | Vessel security monitoring, geo-fence alerts          |
+| `AlarmAudioService`  | ~200   | Web Audio API alarm with haptic feedback              |
+
+### Weather Data Pipeline
+
+```
+WeatherKit (primary)
+    -> JWT auth via Edge Function
+    -> Hourly + daily forecasts
+    -> Cached 5min in-memory + localStorage
+
+NOAA NOMADS (fallback)
+    -> GRIB binary data via Edge Functions
+    |-- Wind UV grids -> WebGL particle engine
+    |-- Pressure grids -> isobar contour lines
+    +-- Precipitation grids -> rain overlay
+
+OpenMeteo (free tier)
+    -> Direct client API calls
+    +-- Marine forecasts, wave data
+
+RainViewer (radar) + Rainbow.ai (forecast)
+    -> XYZ tile overlays
+    +-- Unified scrubber timeline (past radar + future forecast)
+
+OpenWeatherMap
+    -> Direct tile API (requires API key)
+    +-- Temperature + cloud overlays
+```
+
+### Routing Engine
+
+The passage planner uses a two-stage approach:
+
+1. **Coastal Corridors (A\*)** — Safe-water pathfinding avoiding land, using GEBCO depth data
+2. **Offshore Isochrone** — Weather-optimized routing using GFS wind forecasts and vessel polar data
+
+## Database Schema (Supabase PostgreSQL)
+
+Key tables:
+
+| Table               | Purpose                             |
+| ------------------- | ----------------------------------- |
+| `profiles`          | User profiles with vessel info      |
+| `channels`          | Chat channels (public, private, DM) |
+| `messages`          | Chat messages with read receipts    |
+| `crew_listings`     | Crew finder profiles                |
+| `marketplace_items` | Items for sale with escrow          |
+| `voyage_logs`       | Ship's log entries                  |
+| `community_tracks`  | Shared GPS voyage tracks            |
+| `ais_positions`     | Recent AIS vessel positions         |
+| `guard_zones`       | Guardian geo-fence definitions      |
+| `weather_alerts`    | Automated severe weather alerts     |
+
+## Security Model
+
+- **API keys** proxied through Supabase Edge Functions (never in client bundle)
+- **Authentication** via Supabase Auth (magic link email)
+- **Row-Level Security (RLS)** on all database tables
+- **Content moderation** via `ContentModerationService`
+- **CSP headers** configured in deployment
+- **No `dangerouslySetInnerHTML`** usage
+- **`.env` in `.gitignore`** — no secrets in source
+
+## Performance Optimizations
+
+- **662 `useMemo`/`useCallback`** calls for render optimization
+- **Lazy loading** via `React.lazy()` for all route-level components
+- **Web Workers** for AIS data ingestion (off-main-thread)
+- **WebGL** particle engine for wind visualization (60fps)
+- **`createLogger`** with `esbuild.drop` removing all `console.*` in production
+- **Virtualized lists** for AIS vessel tables
+- **Static tile caching** via service worker
+
+## Accessibility
+
+- **300+ ARIA attributes** across components
+- **Global focus-visible rings** (sky-400 2px ring on keyboard focus)
+- **Skip-to-content** CSS link
+- **Semantic HTML** with `<nav>`, `<main>`, `<section>` landmarks
+- **Color contrast** WCAG AA compliance on interactive labels
+- **Keyboard navigation** on all interactive elements
+- **Screen reader announcements** via `aria-live` regions
