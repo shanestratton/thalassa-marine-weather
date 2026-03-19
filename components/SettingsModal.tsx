@@ -27,6 +27,7 @@ import { AestheticsTab } from './settings/AestheticsTab';
 import { VesselTab } from './settings/VesselTab';
 import { GeneralTab } from './settings/GeneralTab';
 import { AccountTab } from './settings/AccountTab';
+import { LocationsTab } from './settings/LocationsTab';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 
 interface SettingsViewProps {
@@ -466,41 +467,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                     )}
                     <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-10 pb-32">
                         {activeTab === 'locations' && (
-                            <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
-                                <Section title="Saved Ports & Anchorages">
-                                    <div className="flex flex-col gap-2 p-2">
-                                        {(settings.savedLocations || []).map((loc, i) => (
-                                            <div
-                                                key={i}
-                                                className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-xl group hover:bg-white/10 transition-colors"
-                                            >
-                                                <div
-                                                    className="flex items-center gap-4 flex-1 cursor-pointer"
-                                                    onClick={() => onLocationSelect(loc)}
-                                                >
-                                                    <div className="p-2 rounded-full bg-sky-500/20 text-sky-400">
-                                                        <MapPinIcon className="w-5 h-5" />
-                                                    </div>
-                                                    <span className="font-bold text-white text-sm">{loc}</span>
-                                                </div>
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        onSave({
-                                                            savedLocations: settings.savedLocations.filter(
-                                                                (l) => l !== loc,
-                                                            ),
-                                                        });
-                                                    }}
-                                                    className="p-2 rounded-lg text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                                                >
-                                                    <TrashIcon className="w-5 h-5" />
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </Section>
-                            </div>
+                            <LocationsTab settings={settings} onSave={onSave} onLocationSelect={onLocationSelect} />
                         )}
 
                         {activeTab === 'account' && <AccountTab settings={settings} onSave={onSave} />}
