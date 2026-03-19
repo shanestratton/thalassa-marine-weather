@@ -102,6 +102,50 @@ export function scrollInputAboveKeyboard(
     // Wait for keyboard animation to complete, then scroll into view.
     // Use a small initial delay (50ms) to let iOS register the focus.
     setTimeout(() => {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, KEYBOARD_ANIM_MS);
+}
+
+/**
+ * Global focusin listener — automatically scrolls ANY input/textarea/select
+ * above the keyboard without requiring per-component onFocus wiring.
+ *
+ * Call once from App init. Idempotent — safe to call multiple times.
+ */
+let globalListenerAttached = false;
+
+export function initGlobalKeyboardScroll(): void {
+    if (globalListenerAttached) return;
+    globalListenerAttached = true;
+
+    ensureHideListener();
+
+    document.addEventListener(
+        'focusin',
+        (e: FocusEvent) => {
+            const el = e.target;
+            if (
+                !(el instanceof HTMLInputElement) &&
+                !(el instanceof HTMLTextAreaElement) &&
+                !(el instanceof HTMLSelectElement)
+            ) {
+                return;
+            }
+
+            // Skip inputs that opt out (e.g. search bars that handle their own scroll)
+            if (el.dataset.noKeyboardScroll) return;
+
+            const scrollParent = findScrollParent(el);
+            if (scrollParent) {
+                lastScrollParent = scrollParent;
+            }
+
+            setTimeout(() => {
+                // Re-check that the element is still focused (user may have blurred quickly)
+                if (document.activeElement !== el) return;
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, KEYBOARD_ANIM_MS);
+        },
+        { passive: true },
+    );
 }

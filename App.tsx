@@ -158,6 +158,15 @@ const App: React.FC = () => {
         if (currentView === 'chat') setChatUnread(0);
     }, [currentView]);
 
+    // --- GLOBAL KEYBOARD SCROLL ---
+    // Ensures ALL inputs scroll above the iOS keyboard automatically.
+    // With KeyboardResize.None, the keyboard overlays the webview — we must scroll manually.
+    useEffect(() => {
+        import('./utils/keyboardScroll').then(({ initGlobalKeyboardScroll }) => {
+            initGlobalKeyboardScroll();
+        });
+    }, []);
+
     // --- GLOBAL UNHANDLED REJECTION HANDLER ---
     // Catches unhandled async errors and sends them to Sentry
     useEffect(() => {
