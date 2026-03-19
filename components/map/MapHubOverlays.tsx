@@ -199,6 +199,8 @@ export const LayerFABMenu: React.FC<{
     onToggleAis?: () => void;
     chokepointVisible?: boolean;
     onToggleChokepoint?: () => void;
+    weatherInspectMode?: boolean;
+    onToggleWeatherInspect?: () => void;
 }> = ({
     activeLayers,
     showLayerMenu,
@@ -213,6 +215,8 @@ export const LayerFABMenu: React.FC<{
     onToggleAis,
     chokepointVisible = false,
     onToggleChokepoint,
+    weatherInspectMode = false,
+    onToggleWeatherInspect,
 }) => {
     const activeCount = activeLayers.size;
     const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -290,7 +294,6 @@ export const LayerFABMenu: React.FC<{
                             { key: 'velocity', label: 'Wind', icon: '💨' },
                             { key: 'temperature', label: 'Temp', icon: '🌡️' },
                             { key: 'clouds', label: 'Clouds', icon: '☁️' },
-                            { key: 'pressure', label: 'Synoptic', icon: '🌀' },
                             { key: 'sea', label: 'Sea Marks', icon: '⚓' },
                             { key: 'satellite', label: 'Satellite', icon: '🛰️' },
                         ] as const
