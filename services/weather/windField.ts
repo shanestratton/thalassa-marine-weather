@@ -33,6 +33,8 @@ export interface WindGrid {
     west: number;
     east: number;
     totalHours: number;
+    /** GFS model run reference time (ISO string), if available */
+    refTime?: string;
 }
 
 /**
