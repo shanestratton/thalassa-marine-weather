@@ -25,6 +25,7 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
 import { useLocationStore } from '../../stores/LocationStore';
+import { useWeather } from '../../context/WeatherContext';
 import { WindStore } from '../../stores/WindStore';
 import { ConsensusMatrix } from './ConsensusMatrix';
 import { generateConsensusMatrix, type ConsensusMatrixData } from '../../services/ConsensusMatrixEngine';
@@ -185,6 +186,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, []);
 
     const location = useLocationStore();
+    const { weatherData } = useWeather();
+    const weatherCoords = weatherData?.coordinates;
     const [mapReady, setMapReady] = useState(false);
     const deviceMode = useDeviceMode();
     const [aisVisible, setAisVisible] = useState(false);
@@ -873,7 +876,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                         {/* GRIB Error Tooltip — hidden */}
 
-                        {/* GPS Locate Me */}
+                        {/* GPS Locate Me — fly to device position */}
                         <button
                             onClick={() => {
                                 triggerHaptic('medium');
@@ -883,10 +886,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     const map = mapRef.current;
                                     if (map) {
                                         map.flyTo({ center: [longitude, latitude], zoom: 12, duration: 1200 });
-                                        dropPin(map, latitude, longitude);
                                     }
                                     LocationStore.setFromGPS(latitude, longitude);
-                                    onLocationSelect?.(latitude, longitude);
                                 });
                             }}
                             className="w-12 h-12 bg-slate-900/90 border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
@@ -903,18 +904,19 @@ export const MapHub: React.FC<MapHubProps> = ({
                             </svg>
                         </button>
 
-                        {/* Recenter on last pin */}
+                        {/* Recenter on weather location */}
                         <button
                             onClick={() => {
-                                if (mapRef.current) {
+                                if (mapRef.current && weatherCoords) {
                                     mapRef.current.flyTo({
-                                        center: [location.lon, location.lat],
+                                        center: [weatherCoords.lon, weatherCoords.lat],
                                         zoom: 10,
                                         duration: 1000,
                                     });
                                 }
                                 triggerHaptic('light');
                             }}
+                            disabled={!weatherCoords}
                             className="w-12 h-12 bg-slate-900/90 border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
                         >
                             <svg
