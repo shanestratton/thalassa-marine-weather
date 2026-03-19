@@ -49,7 +49,7 @@ import { AisGuardAlert } from './AisGuardAlert';
 import { VesselSearch } from './VesselSearch';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
-import { LayerFABMenu, LayerLegendStrip } from './MapHubOverlays';
+import { LayerFABMenu } from './MapHubOverlays';
 import { ThalassaHelixControl, type HelixLayer } from './ThalassaHelixControl';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 import { PassageDataPanel } from './PassageDataPanel';
@@ -457,15 +457,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                         windHour={weather.windHour}
                         windGrid={weather.windGridRef?.current ?? undefined}
                         hideBadge={passage.showPassage}
-                    />
-                )}
-
-                {/* ═══ LAYER LEGEND STRIP (temperature / clouds / pressure) ═══ */}
-                {!passage.showPassage && !embedded && !isPinView && (
-                    <LayerLegendStrip
-                        activeLayer={weather.activeLayer}
-                        activeLayers={weather.activeLayers}
-                        windMaxSpeed={0}
                     />
                 )}
 
