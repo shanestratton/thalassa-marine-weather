@@ -381,6 +381,42 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             const flagEmoji = getMmsiFlag(p.mmsi);
             const intel = isPremium ? VesselMetadataService.getVesselIntel(p.mmsi) : null;
 
+            // ── On-demand lookup: if premium user and no vessel name, fire Edge Function ──
+            const needsOnDemandLookup = isPremium && !intel?.name;
+            const lookupSpinnerId = `lookup-spinner-${p.mmsi}-${Date.now()}`;
+            if (needsOnDemandLookup) {
+                VesselMetadataService.onDemandLookup(p.mmsi).then((result) => {
+                    if (result && result.vessel_name && popupRef.current) {
+                        // Re-trigger click to refresh popup with enriched data
+                        const spinnerEl = document.getElementById(lookupSpinnerId);
+                        if (spinnerEl) {
+                            spinnerEl.innerHTML = `
+                                <div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.15);border-radius:8px;font-size:10px;color:#22c55e;">
+                                    <span>✓ Found: ${result.flag_emoji || ''} ${result.vessel_name}</span>
+                                </div>
+                            `;
+                            // Auto-refresh popup after short delay
+                            setTimeout(() => {
+                                if (popupRef.current) {
+                                    popupRef.current.remove();
+                                    handleClick(e);
+                                }
+                            }, 1200);
+                        }
+                    } else {
+                        // Not found — update spinner to show result
+                        const spinnerEl = document.getElementById(lookupSpinnerId);
+                        if (spinnerEl) {
+                            spinnerEl.innerHTML = `
+                                <div style="padding:6px 10px;background:rgba(100,116,139,0.08);border:1px solid rgba(100,116,139,0.15);border-radius:8px;font-size:10px;color:#64748b;">
+                                    No registry data found
+                                </div>
+                            `;
+                        }
+                    }
+                });
+            }
+
             // Enriched name: DB name > AIS name > decoded country vessel > MMSI fallback
             const vesselName = intel?.name ?? p.name ?? null;
             const displayName = vesselName
@@ -584,6 +620,15 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                         <span style="font-size:10px;color:${lastSeen === 'Live' ? '#22c55e' : '#64748b'};">${lastSeen}</span>
                     </div>
                     ${upgradeBanner}
+                    ${needsOnDemandLookup ? `
+                        <div id="${lookupSpinnerId}" style="margin-bottom:10px;">
+                            <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(14,165,233,0.08);border:1px solid rgba(14,165,233,0.15);border-radius:8px;font-size:10px;color:#38bdf8;">
+                                <span style="display:inline-block;width:12px;height:12px;border:2px solid rgba(56,189,248,0.3);border-top-color:#38bdf8;border-radius:50%;animation:spin 0.8s linear infinite;"></span>
+                                <span>Searching registry…</span>
+                            </div>
+                        </div>
+                        <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+                    ` : ''}
                     ${dimensionsHtml}
                     ${cpaSection}
                     <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 12px;font-size:11px;">
