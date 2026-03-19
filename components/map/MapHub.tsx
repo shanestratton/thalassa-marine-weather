@@ -43,6 +43,7 @@ import { usePassagePlanner } from './usePassagePlanner';
 import { useRouteNudge } from './useRouteNudge';
 import { useAisLayer } from './useAisLayer';
 import { useAisStreamLayer } from './useAisStreamLayer';
+import { useChokepointLayer } from './useChokepointLayer';
 import { AisLegend } from './AisLegend';
 import { AisGuardAlert } from './AisGuardAlert';
 import { VesselSearch } from './VesselSearch';
@@ -188,6 +189,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [mapReady, setMapReady] = useState(false);
     const deviceMode = useDeviceMode();
     const [aisVisible, setAisVisible] = useState(true);
+    const [chokepointVisible, setChokepointVisible] = useState(false);
 
     // ── Passage Planner ──
     const passage = usePassagePlanner(mapRef, mapReady);
@@ -379,6 +381,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── AIS Vessel Target Layer ──
     useAisLayer(mapRef, mapReady, aisVisible);
     useAisStreamLayer(mapReady ? mapRef.current : null, aisVisible);
+
+    // ── Chokepoint Tracker ──
+    useChokepointLayer(mapReady ? mapRef.current : null, chokepointVisible);
 
     // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
     useEffect(() => {
@@ -752,6 +757,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                         setShowLayerMenu={weather.setShowLayerMenu}
                         aisVisible={aisVisible}
                         onToggleAis={() => setAisVisible((v) => !v)}
+                        chokepointVisible={chokepointVisible}
+                        onToggleChokepoint={() => setChokepointVisible((v) => !v)}
                     />
                 )}
 
@@ -766,13 +773,22 @@ export const MapHub: React.FC<MapHubProps> = ({
                             triggerHaptic('light');
                         }}
                         style={{
-                            position: 'absolute', top: 56, right: 12, zIndex: 500,
-                            width: 40, height: 40, borderRadius: 12,
+                            position: 'absolute',
+                            top: 56,
+                            right: 12,
+                            zIndex: 500,
+                            width: 40,
+                            height: 40,
+                            borderRadius: 12,
                             background: 'rgba(15,23,42,0.9)',
                             border: '1px solid rgba(255,255,255,0.08)',
-                            color: '#94a3b8', fontSize: 16,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            cursor: 'pointer', boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+                            color: '#94a3b8',
+                            fontSize: 16,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
                         }}
                         aria-label="Search vessels"
                     >

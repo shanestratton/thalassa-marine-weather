@@ -41,6 +41,7 @@ import {
 } from './chat/ChatAttachmentSheets';
 import { SkeletonChannelList, SkeletonMessageList } from './ui/Skeleton';
 import { ChatErrorBoundary } from './chat/ChatErrorBoundary';
+import { MaritimeIntelCard } from './chat/MaritimeIntelCard';
 import { triggerHaptic } from '../utils/system';
 import { TypingIndicator } from './chat/TypingIndicator';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
@@ -699,6 +700,9 @@ export const ChatPage: React.FC = React.memo(() => {
                             onRemovePhoto={handleRemovePhoto}
                         />
                     )}
+
+                    {/* ══════ MARITIME INTEL CARD ══════ */}
+                    {view === 'channels' && !loading && <MaritimeIntelCard />}
 
                     {/* ══════ CHANNEL LIST ══════ */}
                     {view === 'channels' && !loading && (
