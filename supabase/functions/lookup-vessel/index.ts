@@ -39,41 +39,96 @@ interface VesselResult {
 
 // ── MMSI MID → Country/Flag mapping ──
 const MID_MAP: Record<string, [string, string]> = {
-    '201': ['Albania', '🇦🇱'], '205': ['Belgium', '🇧🇪'], '209': ['Cyprus', '🇨🇾'],
-    '210': ['Cyprus', '🇨🇾'], '211': ['Germany', '🇩🇪'], '212': ['Cyprus', '🇨🇾'],
-    '215': ['Malta', '🇲🇹'], '218': ['Germany', '🇩🇪'], '219': ['Denmark', '🇩🇰'],
-    '220': ['Denmark', '🇩🇰'], '224': ['Spain', '🇪🇸'], '225': ['Spain', '🇪🇸'],
-    '226': ['France', '🇫🇷'], '227': ['France', '🇫🇷'], '228': ['France', '🇫🇷'],
-    '229': ['Malta', '🇲🇹'], '230': ['Finland', '🇫🇮'], '231': ['Faroe Islands', '🇫🇴'],
-    '232': ['United Kingdom', '🇬🇧'], '233': ['United Kingdom', '🇬🇧'],
-    '234': ['United Kingdom', '🇬🇧'], '235': ['United Kingdom', '🇬🇧'],
-    '236': ['Gibraltar', '🇬🇮'], '237': ['Greece', '🇬🇷'], '238': ['Croatia', '🇭🇷'],
-    '239': ['Greece', '🇬🇷'], '240': ['Greece', '🇬🇷'], '241': ['Greece', '🇬🇷'],
-    '244': ['Netherlands', '🇳🇱'], '245': ['Netherlands', '🇳🇱'], '246': ['Netherlands', '🇳🇱'],
-    '247': ['Italy', '🇮🇹'], '248': ['Malta', '🇲🇹'], '249': ['Malta', '🇲🇹'],
-    '250': ['Ireland', '🇮🇪'], '251': ['Iceland', '🇮🇸'], '255': ['Portugal', '🇵🇹'],
-    '256': ['Malta', '🇲🇹'], '257': ['Norway', '🇳🇴'], '258': ['Norway', '🇳🇴'],
-    '259': ['Norway', '🇳🇴'], '261': ['Poland', '🇵🇱'], '263': ['Portugal', '🇵🇹'],
-    '264': ['Romania', '🇷🇴'], '265': ['Sweden', '🇸🇪'], '266': ['Sweden', '🇸🇪'],
-    '269': ['Switzerland', '🇨🇭'], '271': ['Turkey', '🇹🇷'], '272': ['Ukraine', '🇺🇦'],
+    '201': ['Albania', '🇦🇱'],
+    '205': ['Belgium', '🇧🇪'],
+    '209': ['Cyprus', '🇨🇾'],
+    '210': ['Cyprus', '🇨🇾'],
+    '211': ['Germany', '🇩🇪'],
+    '212': ['Cyprus', '🇨🇾'],
+    '215': ['Malta', '🇲🇹'],
+    '218': ['Germany', '🇩🇪'],
+    '219': ['Denmark', '🇩🇰'],
+    '220': ['Denmark', '🇩🇰'],
+    '224': ['Spain', '🇪🇸'],
+    '225': ['Spain', '🇪🇸'],
+    '226': ['France', '🇫🇷'],
+    '227': ['France', '🇫🇷'],
+    '228': ['France', '🇫🇷'],
+    '229': ['Malta', '🇲🇹'],
+    '230': ['Finland', '🇫🇮'],
+    '231': ['Faroe Islands', '🇫🇴'],
+    '232': ['United Kingdom', '🇬🇧'],
+    '233': ['United Kingdom', '🇬🇧'],
+    '234': ['United Kingdom', '🇬🇧'],
+    '235': ['United Kingdom', '🇬🇧'],
+    '236': ['Gibraltar', '🇬🇮'],
+    '237': ['Greece', '🇬🇷'],
+    '238': ['Croatia', '🇭🇷'],
+    '239': ['Greece', '🇬🇷'],
+    '240': ['Greece', '🇬🇷'],
+    '241': ['Greece', '🇬🇷'],
+    '244': ['Netherlands', '🇳🇱'],
+    '245': ['Netherlands', '🇳🇱'],
+    '246': ['Netherlands', '🇳🇱'],
+    '247': ['Italy', '🇮🇹'],
+    '248': ['Malta', '🇲🇹'],
+    '249': ['Malta', '🇲🇹'],
+    '250': ['Ireland', '🇮🇪'],
+    '251': ['Iceland', '🇮🇸'],
+    '255': ['Portugal', '🇵🇹'],
+    '256': ['Malta', '🇲🇹'],
+    '257': ['Norway', '🇳🇴'],
+    '258': ['Norway', '🇳🇴'],
+    '259': ['Norway', '🇳🇴'],
+    '261': ['Poland', '🇵🇱'],
+    '263': ['Portugal', '🇵🇹'],
+    '264': ['Romania', '🇷🇴'],
+    '265': ['Sweden', '🇸🇪'],
+    '266': ['Sweden', '🇸🇪'],
+    '269': ['Switzerland', '🇨🇭'],
+    '271': ['Turkey', '🇹🇷'],
+    '272': ['Ukraine', '🇺🇦'],
     '273': ['Russia', '🇷🇺'],
-    '303': ['United States', '🇺🇸'], '338': ['United States', '🇺🇸'],
-    '366': ['United States', '🇺🇸'], '367': ['United States', '🇺🇸'],
-    '368': ['United States', '🇺🇸'], '369': ['United States', '🇺🇸'],
-    '403': ['Saudi Arabia', '🇸🇦'], '405': ['Bangladesh', '🇧🇩'],
-    '408': ['Bahrain', '🇧🇭'], '412': ['China', '🇨🇳'], '413': ['China', '🇨🇳'],
-    '414': ['China', '🇨🇳'], '416': ['Taiwan', '🇹🇼'], '419': ['India', '🇮🇳'],
-    '422': ['Iran', '🇮🇷'], '428': ['Israel', '🇮🇱'], '431': ['Japan', '🇯🇵'],
-    '432': ['Japan', '🇯🇵'], '440': ['South Korea', '🇰🇷'], '441': ['South Korea', '🇰🇷'],
-    '447': ['Kuwait', '🇰🇼'], '450': ['Lebanon', '🇱🇧'], '461': ['Oman', '🇴🇲'],
-    '463': ['Pakistan', '🇵🇰'], '466': ['Qatar', '🇶🇦'], '470': ['UAE', '🇦🇪'],
-    '471': ['UAE', '🇦🇪'], '473': ['Yemen', '🇾🇪'],
-    '501': ['Antarctica', '🇦🇶'], '503': ['Australia', '🇦🇺'],
-    '512': ['New Zealand', '🇳🇿'], '525': ['Indonesia', '🇮🇩'],
-    '533': ['Malaysia', '🇲🇾'], '538': ['Marshall Islands', '🇲🇭'],
-    '548': ['Philippines', '🇵🇭'], '563': ['Singapore', '🇸🇬'],
-    '564': ['Singapore', '🇸🇬'], '565': ['Singapore', '🇸🇬'],
-    '566': ['Singapore', '🇸🇬'], '567': ['Thailand', '🇹🇭'],
+    '303': ['United States', '🇺🇸'],
+    '338': ['United States', '🇺🇸'],
+    '366': ['United States', '🇺🇸'],
+    '367': ['United States', '🇺🇸'],
+    '368': ['United States', '🇺🇸'],
+    '369': ['United States', '🇺🇸'],
+    '403': ['Saudi Arabia', '🇸🇦'],
+    '405': ['Bangladesh', '🇧🇩'],
+    '408': ['Bahrain', '🇧🇭'],
+    '412': ['China', '🇨🇳'],
+    '413': ['China', '🇨🇳'],
+    '414': ['China', '🇨🇳'],
+    '416': ['Taiwan', '🇹🇼'],
+    '419': ['India', '🇮🇳'],
+    '422': ['Iran', '🇮🇷'],
+    '428': ['Israel', '🇮🇱'],
+    '431': ['Japan', '🇯🇵'],
+    '432': ['Japan', '🇯🇵'],
+    '440': ['South Korea', '🇰🇷'],
+    '441': ['South Korea', '🇰🇷'],
+    '447': ['Kuwait', '🇰🇼'],
+    '450': ['Lebanon', '🇱🇧'],
+    '461': ['Oman', '🇴🇲'],
+    '463': ['Pakistan', '🇵🇰'],
+    '466': ['Qatar', '🇶🇦'],
+    '470': ['UAE', '🇦🇪'],
+    '471': ['UAE', '🇦🇪'],
+    '473': ['Yemen', '🇾🇪'],
+    '501': ['Antarctica', '🇦🇶'],
+    '503': ['Australia', '🇦🇺'],
+    '512': ['New Zealand', '🇳🇿'],
+    '525': ['Indonesia', '🇮🇩'],
+    '533': ['Malaysia', '🇲🇾'],
+    '538': ['Marshall Islands', '🇲🇭'],
+    '548': ['Philippines', '🇵🇭'],
+    '563': ['Singapore', '🇸🇬'],
+    '564': ['Singapore', '🇸🇬'],
+    '565': ['Singapore', '🇸🇬'],
+    '566': ['Singapore', '🇸🇬'],
+    '567': ['Thailand', '🇹🇭'],
     '574': ['Vietnam', '🇻🇳'],
 };
 
@@ -90,7 +145,7 @@ async function lookupVesselFinder(mmsi: number): Promise<Partial<VesselResult> |
         const resp = await fetch(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (compatible; ThalassaBot/1.0)',
-                'Accept': 'text/html',
+                Accept: 'text/html',
             },
             signal: AbortSignal.timeout(8000),
         });
@@ -100,8 +155,7 @@ async function lookupVesselFinder(mmsi: number): Promise<Partial<VesselResult> |
 
         // Parse vessel details from HTML
         const getName = (h: string) => {
-            const m = h.match(/<h1[^>]*class="[^"]*title[^"]*"[^>]*>([^<]+)/i)
-                || h.match(/<title>([^-|<]+)/i);
+            const m = h.match(/<h1[^>]*class="[^"]*title[^"]*"[^>]*>([^<]+)/i) || h.match(/<title>([^-|<]+)/i);
             if (m) {
                 let name = m[1].trim();
                 // Remove "Ship" suffix from title
@@ -164,7 +218,7 @@ async function lookupItuMars(mmsi: number): Promise<Partial<VesselResult> | null
         const resp = await fetch(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (compatible; ThalassaBot/1.0)',
-                'Accept': 'text/html',
+                Accept: 'text/html',
             },
             signal: AbortSignal.timeout(8000),
         });
@@ -227,11 +281,7 @@ Deno.serve(async (req: Request) => {
         );
 
         // ── 1. Check vessel_metadata cache ──
-        const { data: cached } = await supabase
-            .from('vessel_metadata')
-            .select('*')
-            .eq('mmsi', mmsi)
-            .maybeSingle();
+        const { data: cached } = await supabase.from('vessel_metadata').select('*').eq('mmsi', mmsi).maybeSingle();
 
         if (cached && cached.vessel_name) {
             console.log(`[CACHE HIT] ${mmsi} = ${cached.vessel_name}`);
@@ -240,14 +290,34 @@ Deno.serve(async (req: Request) => {
             });
         }
 
+        // Check if we previously searched and found nothing — cooldown 24 hours
+        if (cached && cached.data_source === 'not_found') {
+            const scrapedAt = new Date(cached.last_scraped_at).getTime();
+            const hoursSince = (Date.now() - scrapedAt) / 3600000;
+            if (hoursSince < 24) {
+                console.log(`[NEG CACHE] ${mmsi} — searched ${hoursSince.toFixed(1)}h ago, skipping re-lookup`);
+                const [country, emoji] = decodeMmsiFlag(mmsi);
+                return new Response(
+                    JSON.stringify({
+                        mmsi,
+                        vessel_name: null,
+                        flag_country: cached.flag_country || country,
+                        flag_emoji: cached.flag_emoji || emoji,
+                        found: false,
+                        source: 'negative_cache',
+                    }),
+                    {
+                        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+                    },
+                );
+            }
+            console.log(`[NEG CACHE EXPIRED] ${mmsi} — re-trying after ${hoursSince.toFixed(0)}h`);
+        }
+
         // ── 2. Check amsa_register for Australian vessels ──
         if (mmsiStr.startsWith('503')) {
             // Check if we have a name from the vessels table to match against
-            const { data: aisVessel } = await supabase
-                .from('vessels')
-                .select('name')
-                .eq('mmsi', mmsi)
-                .maybeSingle();
+            const { data: aisVessel } = await supabase.from('vessels').select('name').eq('mmsi', mmsi).maybeSingle();
 
             if (aisVessel?.name) {
                 const { data: amsa } = await supabase
@@ -272,17 +342,20 @@ Deno.serve(async (req: Request) => {
                     };
 
                     // Upsert into vessel_metadata
-                    await supabase.from('vessel_metadata').upsert({
-                        mmsi,
-                        vessel_name: result.vessel_name,
-                        vessel_type: result.vessel_type,
-                        flag_country: result.flag_country,
-                        flag_emoji: result.flag_emoji,
-                        imo_number: result.imo_number,
-                        loa: result.loa,
-                        data_source: 'amsa_register',
-                        last_scraped_at: new Date().toISOString(),
-                    }, { onConflict: 'mmsi' });
+                    await supabase.from('vessel_metadata').upsert(
+                        {
+                            mmsi,
+                            vessel_name: result.vessel_name,
+                            vessel_type: result.vessel_type,
+                            flag_country: result.flag_country,
+                            flag_emoji: result.flag_emoji,
+                            imo_number: result.imo_number,
+                            loa: result.loa,
+                            data_source: 'amsa_register',
+                            last_scraped_at: new Date().toISOString(),
+                        },
+                        { onConflict: 'mmsi' },
+                    );
 
                     console.log(`[AMSA] ${mmsi} = ${result.vessel_name}`);
                     return new Response(JSON.stringify({ ...result, found: true, source: 'amsa_register' }), {
@@ -332,21 +405,37 @@ Deno.serve(async (req: Request) => {
             });
         }
 
-        // ── 5. Not found anywhere — return minimal MMSI decode ──
+        // ── 5. Not found anywhere — save negative result to prevent repeat lookups ──
         const [country, emoji] = decodeMmsiFlag(mmsi);
-        console.log(`[NOT FOUND] ${mmsi} — no external match`);
+        console.log(`[NOT FOUND] ${mmsi} — saving negative result to prevent repeat lookups`);
 
-        return new Response(JSON.stringify({
-            mmsi,
-            vessel_name: null,
-            flag_country: country,
-            flag_emoji: emoji,
-            found: false,
-            source: 'mmsi_decode',
-        }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        // Save a "searched but not found" record so other users don't repeat the search
+        // The last_scraped_at timestamp allows re-trying after 24 hours
+        await supabase.from('vessel_metadata').upsert(
+            {
+                mmsi,
+                vessel_name: null,
+                flag_country: country,
+                flag_emoji: emoji,
+                data_source: 'not_found',
+                last_scraped_at: new Date().toISOString(),
+            },
+            { onConflict: 'mmsi' },
+        );
 
+        return new Response(
+            JSON.stringify({
+                mmsi,
+                vessel_name: null,
+                flag_country: country,
+                flag_emoji: emoji,
+                found: false,
+                source: 'mmsi_decode',
+            }),
+            {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            },
+        );
     } catch (e) {
         console.error('lookup-vessel error:', e);
         return new Response(JSON.stringify({ error: 'Internal server error' }), {
