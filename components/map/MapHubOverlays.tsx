@@ -221,7 +221,7 @@ export const LayerFABMenu: React.FC<{
     }, [showLayerMenu, activeCount]); // reset on every toggle (activeCount changes)
 
     return (
-        <div className={`absolute z-[500] flex flex-col gap-2 top-14 right-4`}>
+        <div className={`absolute z-[500] flex flex-col items-end gap-2 top-14 right-4`}>
             <button
                 onClick={() => {
                     setShowLayerMenu(!showLayerMenu);
