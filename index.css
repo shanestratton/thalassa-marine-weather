@@ -36,6 +36,38 @@
     /* Hero numbers, stats (= text-2xl) */
 }
 
+/* ── Accessibility: Focus-Visible Rings ──
+   Visible ring only on keyboard navigation (Tab), not mouse clicks.
+   Provides clear keyboard focus indicator for all interactive elements. */
+*:focus-visible {
+    outline: 2px solid rgba(56, 189, 248, 0.8);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* Remove default focus ring for mouse users */
+*:focus:not(:focus-visible) {
+    outline: none;
+}
+
+/* Skip-to-content link for screen readers */
+.skip-link {
+    position: absolute;
+    top: -40px;
+    left: 0;
+    background: #0ea5e9;
+    color: white;
+    padding: 8px 16px;
+    z-index: 10000;
+    font-weight: bold;
+    font-size: 14px;
+    transition: top 0.2s;
+}
+
+.skip-link:focus {
+    top: 0;
+}
+
 /* ── Onshore: Warm stone/earth palette ── */
 /* Tailwind v3 uses --tw-<color>-opacity internally for colors.
    We override the compiled RGB values that bg-slate-* compiles to. */
@@ -2204,4 +2236,3 @@ body,
         transform: translateX(-50%);
     }
 }
-
