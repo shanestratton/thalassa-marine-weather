@@ -1092,8 +1092,9 @@ export function useWeatherLayers(
                     tileSize: 256,
                     maxzoom: 16,
                 });
-                // Insert as bottom-most layer (below all other layers)
-                const firstLayerId = map.getStyle()?.layers?.[0]?.id;
+                // Insert above base fill/background but below symbol/label layers
+                const styleLayers = map.getStyle()?.layers ?? [];
+                const firstSymbolId = styleLayers.find((l) => l.type === 'symbol')?.id;
                 map.addLayer(
                     {
                         id: SAT_ID,
@@ -1101,7 +1102,7 @@ export function useWeatherLayers(
                         source: SAT_ID,
                         paint: { 'raster-opacity': 0.85 },
                     },
-                    firstLayerId,
+                    firstSymbolId,
                 );
                 log.info('Added permanent Esri satellite base layer');
             } catch (err) {
