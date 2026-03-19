@@ -1118,9 +1118,17 @@ export function useWeatherLayers(
             const tileId = `tiles-${tl}`;
             const tileUrl = getTileUrl(tl);
             if (!tileUrl) continue;
-            // Skip if already added
+            // Skip if layer already exists and is visible
             if (map.getLayer(tileId)) continue;
             try {
+                // Remove stale source if layer was removed but source persists
+                if (map.getSource(tileId)) {
+                    try {
+                        map.removeSource(tileId);
+                    } catch (_) {
+                        /* source cleanup */
+                    }
+                }
                 map.addSource(tileId, {
                     type: 'raster',
                     tiles: [tileUrl],
@@ -1139,8 +1147,9 @@ export function useWeatherLayers(
                     },
                     map.getLayer('route-line-layer') ? 'route-line-layer' : undefined,
                 );
-            } catch (_) {
-                console.warn(`[useWeatherLayers]`, _);
+                log.info(`Added tile layer: ${tileId}`);
+            } catch (err) {
+                log.warn(`Failed to add tile layer ${tileId}:`, err);
             }
         }
 
