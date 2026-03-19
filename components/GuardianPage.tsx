@@ -90,10 +90,21 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
 
     // ── ARM/DISARM handlers ──
     const handleArm = useCallback(async () => {
+        // Check GPS availability first
+        const pos = LocationStore.getState();
+        if (!pos.lat || !pos.lon) {
+            alert('Cannot arm — no GPS position available. Please enable location services.');
+            return;
+        }
         setArming(true);
         triggerHaptic('heavy');
         const ok = await GuardianService.arm();
-        if (ok) setArmed(true);
+        if (ok) {
+            setArmed(true);
+            triggerHaptic('heavy');
+        } else {
+            alert('Failed to arm vessel. Please ensure you have a Guardian profile set up and try again.');
+        }
         setArming(false);
     }, []);
 
@@ -101,7 +112,11 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
         setArming(true);
         triggerHaptic('medium');
         const ok = await GuardianService.disarm();
-        if (ok) setArmed(false);
+        if (ok) {
+            setArmed(false);
+        } else {
+            alert('Failed to disarm. Please try again.');
+        }
         setArming(false);
     }, []);
 
