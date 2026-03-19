@@ -1082,9 +1082,36 @@ export function useWeatherLayers(
             };
         }
 
-        // ── Static tile layers (sea, satellite, temperature, clouds) ──
+        // ── Permanent base layer: Esri satellite imagery ──
+        const SAT_ID = 'tiles-satellite';
+        if (!map.getSource(SAT_ID)) {
+            try {
+                map.addSource(SAT_ID, {
+                    type: 'raster',
+                    tiles: [getTileUrl('satellite')!],
+                    tileSize: 256,
+                    maxzoom: 16,
+                });
+                // Insert as bottom-most layer (below all other layers)
+                const firstLayerId = map.getStyle()?.layers?.[0]?.id;
+                map.addLayer(
+                    {
+                        id: SAT_ID,
+                        type: 'raster',
+                        source: SAT_ID,
+                        paint: { 'raster-opacity': 0.85 },
+                    },
+                    firstLayerId,
+                );
+                log.info('Added permanent Esri satellite base layer');
+            } catch (err) {
+                log.warn('Failed to add satellite base layer:', err);
+            }
+        }
+
+        // ── Static tile layers (sea, temperature, clouds) ──
         // Remove tile layers NOT in active set
-        const TILE_LAYERS: WeatherLayer[] = ['satellite', 'sea', 'temperature', 'clouds'];
+        const TILE_LAYERS: WeatherLayer[] = ['sea', 'temperature', 'clouds'];
         for (const tl of TILE_LAYERS) {
             const tileId = `tiles-${tl}`;
             if (!activeLayers.has(tl)) {
@@ -1133,7 +1160,7 @@ export function useWeatherLayers(
                     type: 'raster',
                     tiles: [tileUrl],
                     tileSize: 256,
-                    maxzoom: tl === 'satellite' ? 16 : 18,
+                    maxzoom: 18,
                 });
                 map.addLayer(
                     {
@@ -1141,7 +1168,7 @@ export function useWeatherLayers(
                         type: 'raster',
                         source: tileId,
                         paint: {
-                            'raster-opacity': tl === 'satellite' ? 0.8 : 1.0,
+                            'raster-opacity': 1.0,
                         },
                     },
                     map.getLayer('route-line-layer') ? 'route-line-layer' : undefined,

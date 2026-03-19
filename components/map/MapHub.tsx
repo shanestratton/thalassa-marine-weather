@@ -64,7 +64,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     homePort,
     onLocationSelect,
     initialZoom = 5,
-    mapStyle = 'mapbox://styles/mapbox/satellite-streets-v12',
+    mapStyle = 'mapbox://styles/mapbox/dark-v11',
     minimalLabels = false,
     embedded = false,
     center,
