@@ -1141,8 +1141,7 @@ export function useWeatherLayers(
                         type: 'raster',
                         source: tileId,
                         paint: {
-                            'raster-opacity':
-                                tl === 'satellite' ? 0.8 : tl === 'temperature' ? 0.65 : tl === 'clouds' ? 0.6 : 1.0,
+                            'raster-opacity': tl === 'satellite' ? 0.8 : 1.0,
                         },
                     },
                     map.getLayer('route-line-layer') ? 'route-line-layer' : undefined,
