@@ -144,18 +144,34 @@ export const MaritimeIntelCard: React.FC = React.memo(() => {
         [articles.length, showDeepDive, resetAutoRotate],
     );
 
-    const openArticle = useCallback(async (url: string) => {
-        triggerHaptic('light');
+    const [isReading, setIsReading] = useState(false);
+
+    const openArticle = useCallback(async (url: string, source?: string) => {
+        triggerHaptic('medium');
+        setIsReading(true);
+
         try {
             const { Browser } = await import('@capacitor/browser');
+
+            // Listen for browser close — user tapped "Done" in SFSafariViewController
+            const finishListener = await Browser.addListener('browserFinished', () => {
+                setIsReading(false);
+                setShowDeepDive(false); // Return to headline carousel
+                finishListener.remove();
+                triggerHaptic('light');
+            });
+
+            // Open in SFSafariViewController (iOS) / Chrome Custom Tabs (Android)
+            // This is IN-APP — it's a modal sheet within Thalassa, not Safari
             await Browser.open({
                 url,
-                presentationStyle: 'popover', // iOS modal overlay
-                toolbarColor: '#0f172a', // Match Thalassa dark theme
-                windowName: '_blank', // Triggers SFSafariViewController
+                presentationStyle: 'fullscreen', // Full modal overlay
+                toolbarColor: '#0f172a', // Thalassa dark slate
+                windowName: '_blank',
             });
         } catch {
-            // Web fallback
+            // Web fallback — opens in new tab
+            setIsReading(false);
             window.open(url, '_blank', 'noopener,noreferrer');
         }
     }, []);
@@ -276,17 +292,27 @@ export const MaritimeIntelCard: React.FC = React.memo(() => {
                                 {article.snippet}
                             </p>
                             <button
-                                onClick={() => openArticle(article.url)}
-                                className="w-full py-2 rounded-xl text-[11px] font-bold text-sky-400 uppercase tracking-wider transition-all active:scale-[0.98]"
+                                onClick={() => openArticle(article.url, article.source)}
+                                disabled={isReading}
+                                className="w-full py-2.5 rounded-xl text-[11px] font-bold text-sky-400 uppercase tracking-wider transition-all active:scale-[0.98] disabled:opacity-50"
                                 style={{
                                     background: 'linear-gradient(135deg, rgba(14,165,233,0.1), rgba(139,92,246,0.08))',
                                     border: '1px solid rgba(14,165,233,0.2)',
                                 }}
                             >
-                                Read Full Article ›
+                                {isReading ? (
+                                    <span className="flex items-center justify-center gap-2">
+                                        <span className="w-3 h-3 border-2 border-sky-400/30 border-t-sky-400 rounded-full animate-spin" />
+                                        Opening…
+                                    </span>
+                                ) : (
+                                    `Read Full Article › ${article.source}`
+                                )}
                             </button>
-                            <div className="text-center mt-1">
+                            <div className="flex items-center justify-center gap-3 mt-1.5">
                                 <span className="text-[9px] text-gray-600">← swipe to close</span>
+                                <span className="text-[9px] text-gray-600">•</span>
+                                <span className="text-[9px] text-gray-600">Opens in-app reader</span>
                             </div>
                         </div>
                     )}
