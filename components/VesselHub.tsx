@@ -46,9 +46,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
     // Load admin role async
     useEffect(() => {
-        ChatService.initialize().then(() => {
-            setIsAdmin(ChatService.isAdmin());
-        });
+        ChatService.initialize()
+            .then(() => {
+                setIsAdmin(ChatService.isAdmin());
+            })
+            .catch(() => {
+                // Non-critical — admin check is best-effort
+            });
     }, []);
 
     useEffect(() => {

@@ -29,12 +29,7 @@ export const MaritimeIntelCard: React.FC = React.memo(() => {
     const containerRef = useRef<HTMLDivElement>(null);
     const autoRotateRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-    // Check session dismiss
-    useEffect(() => {
-        if (sessionStorage.getItem(DISMISS_KEY)) {
-            setIsDismissed(true);
-        }
-    }, []);
+    // (Dismiss feature removed — news card is always visible)
 
     // Fetch articles
     useEffect(() => {
@@ -86,14 +81,8 @@ export const MaritimeIntelCard: React.FC = React.memo(() => {
         setDismissProgress(0);
     }, []);
 
-    const handleTouchMove = useCallback((e: React.TouchEvent) => {
-        if (!touchStart.current) return;
-        const dy = touchStart.current.y - e.touches[0].clientY;
-        // Track upward swipe for dismiss
-        if (dy > 10) {
-            const progress = Math.min(dy / 100, 1);
-            setDismissProgress(progress);
-        }
+    const handleTouchMove = useCallback((_e: React.TouchEvent) => {
+        // Touch move tracked for horizontal swipe detection only
     }, []);
 
     const handleTouchEnd = useCallback(
@@ -107,14 +96,6 @@ export const MaritimeIntelCard: React.FC = React.memo(() => {
 
             touchStart.current = null;
             setDismissProgress(0);
-
-            // Swipe up = dismiss (>60px upward)
-            if (dy > 60) {
-                triggerHaptic('light');
-                setIsDismissed(true);
-                sessionStorage.setItem(DISMISS_KEY, '1');
-                return;
-            }
 
             // Horizontal swipes need minimum 40px
             if (Math.abs(dx) < 40) return;
@@ -227,17 +208,6 @@ export const MaritimeIntelCard: React.FC = React.memo(() => {
                     </div>
                     <div className="flex items-center gap-2">
                         <span className="text-[9px] text-gray-500">{article.source}</span>
-                        <button
-                            onClick={() => {
-                                triggerHaptic('light');
-                                setIsDismissed(true);
-                                sessionStorage.setItem(DISMISS_KEY, '1');
-                            }}
-                            className="w-6 h-6 flex items-center justify-center rounded-lg bg-white/[0.04] text-gray-500 text-[10px] hover:bg-white/[0.08] transition-colors"
-                            aria-label="Dismiss maritime intel"
-                        >
-                            ✕
-                        </button>
                     </div>
                 </div>
 
