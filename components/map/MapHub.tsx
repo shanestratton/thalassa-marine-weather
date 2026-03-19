@@ -876,7 +876,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                         {/* GRIB Error Tooltip — hidden */}
 
-                        {/* GPS Locate Me — fly to device position */}
+                        {/* GPS Locate Me — fly to device position (in picker mode: snap back to WX) */}
                         <button
                             onClick={() => {
                                 triggerHaptic('medium');
@@ -888,6 +888,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         map.flyTo({ center: [longitude, latitude], zoom: 12, duration: 1200 });
                                     }
                                     LocationStore.setFromGPS(latitude, longitude);
+                                    // In picker mode (arrived from WX), select this location and go back
+                                    if (pickerMode) {
+                                        onLocationSelect?.(latitude, longitude);
+                                    }
                                 });
                             }}
                             className="w-12 h-12 bg-slate-900/90 border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
