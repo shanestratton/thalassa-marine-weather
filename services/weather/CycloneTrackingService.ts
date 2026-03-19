@@ -1,48 +1,48 @@
 /**
- * CycloneTrackingService — Global tropical cyclone tracking via NOAA IBTrACS.
+ * CycloneTrackingService — Global tropical cyclone tracking.
  *
- * Data source: NOAA NCEI IBTrACS v04r01 "Active" CSV
- *   - Free, no API key, global coverage (all basins)
- *   - Contains storms active within the last 7 days
- *   - 3-hour interval positions with wind, pressure, category
+ * Primary source: KnackWx ATCF API (real-time, 15-min updates, global)
+ *   → https://api.knackwx.com/atcf/v2
+ *   → Free, CORS-enabled, JSON
+ *
+ * Fallback/track source: NOAA IBTrACS Active CSV (historical track paths)
+ *   → Updates weekly, used for storm track lines only
  *
  * Saffir-Simpson category from max sustained wind (knots):
  *   TD: < 34 kts    TS: 34-63 kts    Cat 1: 64-82 kts
  *   Cat 2: 83-95    Cat 3: 96-113    Cat 4: 114-135    Cat 5: > 135
  */
 
-import { createLogger } from '../../utils/createLogger';
-
-const log = createLogger('CycloneTracking');
-
 // ── Types ──────────────────────────────────────────────────
 
 export interface CyclonePosition {
     lat: number;
     lon: number;
-    time: string; // ISO
+    time: string;
     windKts: number | null;
     pressureMb: number | null;
 }
 
 export interface ActiveCyclone {
-    sid: string; // Storm ID (e.g. "2026076S12157")
-    name: string; // Storm name (e.g. "NARELLE")
-    basin: string; // Basin code (e.g. "SP", "WP", "NA")
+    sid: string;
+    name: string;
+    basin: string;
     category: number; // Saffir-Simpson 0-5 (0 = TS/TD)
     categoryLabel: string; // "TD", "TS", "1", "2", "3", "4", "5"
     currentPosition: CyclonePosition;
-    track: CyclonePosition[]; // All historical positions
+    track: CyclonePosition[];
     maxWindKts: number;
     minPressureMb: number | null;
+    nature: string; // TY, TS, TD, DB, etc.
 }
 
 // ── Constants ──────────────────────────────────────────────
 
+const ATCF_URL = 'https://api.knackwx.com/atcf/v2';
 const IBTRACS_URL =
     'https://www.ncei.noaa.gov/data/international-best-track-archive-for-climate-stewardship-ibtracs/v04r01/access/csv/ibtracs.ACTIVE.list.v04r01.csv';
 
-const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
 
 // ── Cache ──────────────────────────────────────────────────
 
@@ -60,55 +60,52 @@ function windToCategory(kts: number): { category: number; label: string } {
     return { category: -1, label: 'TD' };
 }
 
-// ── CSV Parser ─────────────────────────────────────────────
+// ── ATCF JSON Response Type ───────────────────────────────
 
-function parseIBTrACScsv(csv: string): ActiveCyclone[] {
+interface ATCFStorm {
+    atcf_id: string;
+    long_atcf_id: string;
+    storm_name: string;
+    analysis_time: string;
+    latitude: number;
+    longitude: number;
+    cyclone_nature: string;
+    winds: number;
+    pressure: number;
+    last_updated: string;
+    origin_basin: string;
+}
+
+// ── IBTrACS CSV Parser (for track history) ────────────────
+
+function parseIBTrACStracks(csv: string): Map<string, CyclonePosition[]> {
     const lines = csv.split('\n').filter((l) => l.trim().length > 0);
-    if (lines.length < 3) return []; // Need header + units + data
+    if (lines.length < 3) return new Map();
 
-    // First line is header, second is units — skip both
     const headers = lines[0].split(',').map((h) => h.trim());
-
-    // Column indices
-    const iSID = headers.indexOf('SID');
     const iNAME = headers.indexOf('NAME');
-    const iBASIN = headers.indexOf('BASIN');
     const iTIME = headers.indexOf('ISO_TIME');
     const iLAT = headers.indexOf('LAT');
     const iLON = headers.indexOf('LON');
     const iWIND = headers.indexOf('USA_WIND');
     const iPRES = headers.indexOf('USA_PRES');
-    // BOM fallbacks for southern hemisphere
     const iBOM_WIND = headers.indexOf('BOM_WIND');
     const iBOM_PRES = headers.indexOf('BOM_PRES');
 
-    if (iSID < 0 || iLAT < 0 || iLON < 0) {
-        log.error('IBTrACS CSV missing required columns');
-        return [];
-    }
+    if (iLAT < 0 || iLON < 0) return new Map();
 
-    // Group rows by storm SID
-    const stormMap = new Map<
-        string,
-        {
-            name: string;
-            basin: string;
-            positions: CyclonePosition[];
-            maxWind: number;
-            minPres: number | null;
-        }
-    >();
+    // Group track positions by storm NAME (uppercase)
+    const tracks = new Map<string, CyclonePosition[]>();
 
     for (let i = 2; i < lines.length; i++) {
         const cols = lines[i].split(',').map((c) => c.trim());
-        if (cols.length < Math.max(iSID, iLAT, iLON) + 1) continue;
-
-        const sid = cols[iSID];
         const lat = parseFloat(cols[iLAT]);
         const lon = parseFloat(cols[iLON]);
-        if (!sid || isNaN(lat) || isNaN(lon)) continue;
+        if (isNaN(lat) || isNaN(lon)) continue;
 
-        // Try USA wind/pres first, fallback to BOM
+        const name = (iNAME >= 0 ? cols[iNAME] : '').toUpperCase();
+        if (!name || name === 'UNNAMED') continue;
+
         let windKts: number | null = iWIND >= 0 ? parseFloat(cols[iWIND]) : NaN;
         if (isNaN(windKts as number)) windKts = iBOM_WIND >= 0 ? parseFloat(cols[iBOM_WIND]) : null;
         if (isNaN(windKts as number)) windKts = null;
@@ -117,87 +114,111 @@ function parseIBTrACScsv(csv: string): ActiveCyclone[] {
         if (isNaN(presMb as number)) presMb = iBOM_PRES >= 0 ? parseFloat(cols[iBOM_PRES]) : null;
         if (isNaN(presMb as number)) presMb = null;
 
-        const name = iNAME >= 0 ? cols[iNAME] : 'UNNAMED';
-        const basin = iBASIN >= 0 ? cols[iBASIN] : '??';
         const time = iTIME >= 0 ? cols[iTIME] : '';
 
-        const pos: CyclonePosition = { lat, lon, time, windKts, pressureMb: presMb };
-
-        if (!stormMap.has(sid)) {
-            stormMap.set(sid, { name, basin, positions: [], maxWind: 0, minPres: null });
-        }
-
-        const storm = stormMap.get(sid)!;
-        storm.positions.push(pos);
-        if (windKts !== null && windKts > storm.maxWind) storm.maxWind = windKts;
-        if (presMb !== null && (storm.minPres === null || presMb < storm.minPres)) storm.minPres = presMb;
+        if (!tracks.has(name)) tracks.set(name, []);
+        tracks.get(name)!.push({ lat, lon, time, windKts, pressureMb: presMb });
     }
 
-    // Build ActiveCyclone objects
-    const result: ActiveCyclone[] = [];
-    for (const [sid, storm] of stormMap) {
-        if (storm.positions.length === 0) continue;
+    return tracks;
+}
 
-        // Skip tropical depressions (winds < 34 kts throughout)
-        if (storm.maxWind < 34) continue;
+// ── Primary Fetch: ATCF API (real-time) ──────────────────
 
-        // Latest position = last row for this SID
-        const sorted = storm.positions.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-        const latest = sorted[sorted.length - 1];
-
-        // Category from the LATEST wind reading (current intensity)
-        const latestWind = latest.windKts ?? storm.maxWind;
-        const cat = windToCategory(latestWind);
-
-        result.push({
-            sid,
-            name: storm.name === 'UNNAMED' ? `Storm ${sid.slice(-4)}` : storm.name,
-            basin: storm.basin,
-            category: cat.category,
-            categoryLabel: cat.label,
-            currentPosition: latest,
-            track: sorted,
-            maxWindKts: storm.maxWind,
-            minPressureMb: storm.minPres,
-        });
+async function fetchATCF(): Promise<ATCFStorm[]> {
+    console.info('[CYCLONE] Fetching real-time ATCF data...');
+    const response = await fetch(ATCF_URL);
+    if (!response.ok) {
+        console.error(`[CYCLONE] ATCF fetch failed: HTTP ${response.status}`);
+        return [];
     }
+    const data: ATCFStorm[] = await response.json();
+    console.info(`[CYCLONE] ATCF: ${data.length} systems returned`);
+    return data;
+}
 
-    return result;
+// ── Secondary Fetch: IBTrACS (for track history) ─────────
+
+async function fetchIBTrACStracks(): Promise<Map<string, CyclonePosition[]>> {
+    try {
+        const response = await fetch(IBTRACS_URL);
+        if (!response.ok) return new Map();
+        const csv = await response.text();
+        return parseIBTrACStracks(csv);
+    } catch {
+        console.warn('[CYCLONE] IBTrACS track fetch failed (non-critical)');
+        return new Map();
+    }
 }
 
 // ── Public API ─────────────────────────────────────────────
 
 /**
- * Fetch active tropical cyclones worldwide from NOAA IBTrACS.
- * Results are cached for 30 minutes.
+ * Fetch active tropical cyclones worldwide.
+ * Uses real-time ATCF API for current positions + IBTrACS for track history.
  */
 export async function fetchActiveCyclones(): Promise<ActiveCyclone[]> {
     // Check cache
     if (cachedCyclones && Date.now() - cachedCyclones.fetchedAt < CACHE_TTL) {
+        console.info('[CYCLONE] Using cached data');
         return cachedCyclones.data;
     }
 
     try {
-        console.info('[CYCLONE] Fetching:', IBTRACS_URL);
-        const response = await fetch(IBTRACS_URL);
-        if (!response.ok) {
-            console.error(`[CYCLONE] IBTrACS fetch failed: HTTP ${response.status} ${response.statusText}`);
-            return cachedCyclones?.data ?? [];
-        }
+        // Fetch real-time positions + historical tracks in parallel
+        const [atcfStorms, trackHistory] = await Promise.all([fetchATCF(), fetchIBTrACStracks()]);
 
-        const csv = await response.text();
-        console.info(`[CYCLONE] CSV received: ${csv.length} chars, ${csv.split('\\n').length} lines`);
-        const cyclones = parseIBTrACScsv(csv);
+        const cyclones: ActiveCyclone[] = [];
+
+        for (const s of atcfStorms) {
+            // Skip invests and weak disturbances (< TS strength)
+            if (s.winds < 34 || s.storm_name === 'INVEST') continue;
+
+            const cat = windToCategory(s.winds);
+
+            // Get historical track from IBTrACS if available
+            const name = s.storm_name.toUpperCase();
+            const histTrack = trackHistory.get(name) ?? [];
+
+            // Add current position to track
+            const currentPos: CyclonePosition = {
+                lat: s.latitude,
+                lon: s.longitude,
+                time: s.analysis_time,
+                windKts: s.winds,
+                pressureMb: s.pressure,
+            };
+
+            // Combine historical track + current position
+            const fullTrack = [...histTrack, currentPos].sort(
+                (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime(),
+            );
+
+            cyclones.push({
+                sid: s.long_atcf_id || s.atcf_id,
+                name: s.storm_name,
+                basin: s.origin_basin,
+                category: cat.category,
+                categoryLabel: cat.label,
+                currentPosition: currentPos,
+                track: fullTrack,
+                maxWindKts: s.winds,
+                minPressureMb: s.pressure,
+                nature: s.cyclone_nature,
+            });
+        }
 
         console.info(
             `[CYCLONE] 🌀 ${cyclones.length} active cyclone(s):`,
-            cyclones.map((c) => `${c.name} Cat ${c.categoryLabel} (${c.maxWindKts} kts)`).join(', ') || 'none',
+            cyclones
+                .map((c) => `${c.name} Cat ${c.categoryLabel} (${c.maxWindKts} kts, ${c.minPressureMb} hPa)`)
+                .join(', ') || 'none',
         );
 
         cachedCyclones = { data: cyclones, fetchedAt: Date.now() };
         return cyclones;
     } catch (e) {
-        console.error('[CYCLONE] ❌ IBTrACS fetch error:', e);
+        console.error('[CYCLONE] ❌ Fetch error:', e);
         return cachedCyclones?.data ?? [];
     }
 }
