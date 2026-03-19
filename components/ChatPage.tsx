@@ -350,31 +350,50 @@ export const ChatPage: React.FC = React.memo(() => {
     // --- INIT ---
     useEffect(() => {
         const init = async () => {
-            // FAST PATH: Show channels immediately (from cache or defaults)
-            const chs = await loadChannels();
-
-            // Auto-restore channel if returning from pin-view map
-            const returnChannelId = sessionStorage.getItem('chat_return_to_channel');
-            if (returnChannelId) {
-                sessionStorage.removeItem('chat_return_to_channel');
-                const ch = chs.find((c) => c.id === returnChannelId);
-                if (ch) openChannel(ch);
-            }
-
-            // Auth + profile load — sequential, readable
             try {
-                await ChatService.initialize();
-                // Roles are now loaded — refresh reactive state
-                refreshRoles();
-                loadUnreadCount();
+                // FAST PATH: Show channels immediately (from cache or defaults)
+                const chs = await loadChannels();
 
-                // Refresh channels from network (bypass cache — auth may unlock new channels)
-                const fresh = await ChatService.getChannelsFresh();
-                if (fresh.length > 0) setChannels(fresh);
+                // Auto-restore channel if returning from pin-view map
+                const returnChannelId = sessionStorage.getItem('chat_return_to_channel');
+                if (returnChannelId) {
+                    sessionStorage.removeItem('chat_return_to_channel');
+                    const ch = chs.find((c) => c.id === returnChannelId);
+                    if (ch) openChannel(ch);
+                }
 
-                await loadProfile();
+                // Auth + profile load — with timeout to prevent infinite spinner
+                try {
+                    const initWithTimeout = Promise.race([
+                        ChatService.initialize(),
+                        new Promise<void>((_, reject) =>
+                            setTimeout(() => reject(new Error('Chat init timeout')), 8000),
+                        ),
+                    ]);
+                    await initWithTimeout;
+                    // Roles are now loaded — refresh reactive state
+                    refreshRoles();
+                    loadUnreadCount();
+
+                    // Refresh channels from network (bypass cache — auth may unlock new channels)
+                    const fresh = await ChatService.getChannelsFresh();
+                    if (fresh.length > 0) setChannels(fresh);
+
+                    await loadProfile();
+                } catch (e) {
+                    log.warn('Init auth/profile failed:', e);
+                }
             } catch (e) {
-                log.warn('Init auth/profile failed:', e);
+                // Outer catch — loadChannels() or channel restore failed
+                log.warn('Chat init failed — using defaults:', e);
+                setChannels(
+                    DEFAULT_CHANNELS.map((c, i) => ({
+                        ...c,
+                        id: `default-${i}`,
+                        created_at: new Date().toISOString(),
+                    })),
+                );
+                setLoading(false);
             }
         };
         init();
