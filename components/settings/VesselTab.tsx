@@ -198,8 +198,8 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     return (
         <div
             ref={scrollRef}
-            className="w-full max-w-2xl mx-auto overflow-y-auto animate-in fade-in slide-in-from-right-4 duration-300"
-            style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined }}
+            className="w-full max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300"
+            style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight + 72}px` : 72 }}
         >
             {/* Observer upgrade banner */}
             {isObserver && (
@@ -629,8 +629,15 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 </div>
             </div>
 
-            {/* Save CTA — 8px above menu bar */}
-            <div className="mx-4 mb-2" style={{ paddingBottom: 'calc(8px)' }}>
+            {/* Save CTA — pinned to bottom, always visible */}
+            <div
+                className="sticky z-20"
+                style={{
+                    bottom: 0,
+                    padding: '8px 16px',
+                    background: 'linear-gradient(to top, rgba(2, 6, 23, 0.97) 60%, rgba(2, 6, 23, 0) 100%)',
+                }}
+            >
                 <button
                     onClick={() => {
                         setSaved(true);
