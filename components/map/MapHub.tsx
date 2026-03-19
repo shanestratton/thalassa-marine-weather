@@ -949,7 +949,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 ? 'rain'
                                 : weather.activeLayers.has('temperature')
                                   ? 'temperature'
-                                  : null;
+                                  : weather.activeLayers.has('clouds')
+                                    ? 'clouds'
+                                    : null;
 
                         if (!activeLayerKey) return null;
 
