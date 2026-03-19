@@ -333,6 +333,9 @@ export function decodeGrib2WindMultiHour(buffer: ArrayBuffer): WindGrid {
     let offset = 0;
     const view = new DataView(buffer);
 
+    // Extract reference time from the first GRIB2 Section 1
+    let refTime: string | undefined;
+
     while (offset < buffer.byteLength - 16) {
         // Find next GRIB magic
         if (view.getUint32(offset, false) !== GRIB_MAGIC) {
@@ -340,6 +343,20 @@ export function decodeGrib2WindMultiHour(buffer: ArrayBuffer): WindGrid {
             continue;
         }
         try {
+            // Extract refTime from Section 1 of the first message
+            if (!refTime) {
+                const sec1Start = offset + 16; // Past Section 0
+                const sec1Len = view.getUint32(sec1Start, false);
+                const sec1Num = view.getUint8(sec1Start + 4);
+                if (sec1Num === 1 && sec1Len > 12) {
+                    const year = view.getUint16(sec1Start + 12, false);
+                    const month = view.getUint8(sec1Start + 14);
+                    const day = view.getUint8(sec1Start + 15);
+                    const hour = view.getUint8(sec1Start + 16);
+                    const min = view.getUint8(sec1Start + 17);
+                    refTime = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}:00Z`;
+                }
+            }
             const { msg, nextOffset } = parseGrib2Message(buffer, offset);
             messages.push(msg);
             offset = nextOffset;
@@ -433,6 +450,10 @@ export function decodeGrib2WindMultiHour(buffer: ArrayBuffer): WindGrid {
         `[GRIB2-Wind] Decoded ${numHours} forecast hours, ${w}×${h}, bounds=[${south.toFixed(1)},${north.toFixed(1)}]×[${westDeg.toFixed(1)},${eastDeg.toFixed(1)}]`,
     );
 
+    if (refTime) {
+        console.info(`[GRIB2-Wind] Model run refTime: ${refTime}`);
+    }
+
     return {
         u: uArrays,
         v: vArrays,
@@ -446,5 +467,6 @@ export function decodeGrib2WindMultiHour(buffer: ArrayBuffer): WindGrid {
         east: eastDeg,
         west: westDeg,
         totalHours: numHours,
+        refTime,
     };
 }

@@ -404,6 +404,29 @@ export function useWeatherLayers(
                     windForecastHoursRef.current = GFS_HOURS.slice(0, currentGrid.totalHours);
                     setWindTotalHours(currentGrid.totalHours);
                     setWindReady(true);
+
+                    // ── Default scrubber to "now" ──
+                    // Compute hours since GFS model run, find closest forecast index
+                    if (currentGrid.refTime) {
+                        const ageMs = Date.now() - new Date(currentGrid.refTime).getTime();
+                        const ageHours = ageMs / (60 * 60 * 1000);
+                        const fhrs = windForecastHoursRef.current;
+                        // Find the forecast hour index closest to the model age
+                        let bestIdx = 0;
+                        let bestDiff = Math.abs(fhrs[0] - ageHours);
+                        for (let i = 1; i < fhrs.length; i++) {
+                            const diff = Math.abs(fhrs[i] - ageHours);
+                            if (diff < bestDiff) {
+                                bestDiff = diff;
+                                bestIdx = i;
+                            }
+                        }
+                        setWindHour(bestIdx);
+                        console.info(
+                            `[WindScrubber] Auto-set to "now": refTime=${currentGrid.refTime}, age=${ageHours.toFixed(1)}h, index=${bestIdx} (forecast hour ${fhrs[bestIdx]})`,
+                        );
+                    }
+
                     console.warn(
                         `[WindScrubber] Grid loaded: totalHours=${currentGrid.totalHours}, u.length=${currentGrid.u.length}`,
                     );
