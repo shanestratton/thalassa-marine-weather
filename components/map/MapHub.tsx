@@ -187,7 +187,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const location = useLocationStore();
     const [mapReady, setMapReady] = useState(false);
     const deviceMode = useDeviceMode();
-    const [aisVisible, setAisVisible] = useState(true);
+    const [aisVisible, setAisVisible] = useState(false);
     const [chokepointVisible, setChokepointVisible] = useState(false);
 
     // ── Passage Planner ──
@@ -941,7 +941,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* ═══ THALASSA HELIX CONTROL ═══ */}
                 {!isPinView &&
-                    weather.activeLayers.size === 1 &&
+                    weather.activeLayers.size > 0 &&
                     (() => {
                         // Determine active layer
                         const activeLayerKey: HelixLayer = weather.activeLayers.has('pressure')
