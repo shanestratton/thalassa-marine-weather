@@ -863,7 +863,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* ═══ ACTION FABS ═══ */}
                 {!embedded && !passage.showPassage && !isPinView && (
-                    <div className="absolute bottom-44 right-4 z-[500] flex flex-col gap-2">
+                    <div className="absolute bottom-44 right-4 z-[500] flex flex-row gap-2">
                         {/* Wind Mode Toggle — hidden for clean wind view */}
 
                         {/* GRIB Download — hidden for clean wind view */}
