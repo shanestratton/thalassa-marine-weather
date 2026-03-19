@@ -423,16 +423,23 @@ export function useWeatherLayers(
         if (!map || !mapReady || embedded) return;
 
         const hasWind = activeLayers.has('wind') || activeLayers.has('velocity');
+        const hasPressureLayer = activeLayers.has('pressure');
         const layerCount = activeLayers.size;
 
-        if (hasWind) {
+        if (hasPressureLayer) {
+            // Pressure/synoptic — lock zoom to synoptic range (~3-7)
+            map.setMinZoom(3);
+            map.setMaxZoom(7);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            map.setMaxBounds(undefined as any);
+        } else if (hasWind) {
             // Wind active — constrain min zoom only (overlay handles its own visibility at high zoom)
             map.setMinZoom(1);
             map.setMaxZoom(18);
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             map.setMaxBounds(undefined as any);
         } else {
-            // No wind — full freedom
+            // No weather layers — full freedom
             map.setMinZoom(1);
             map.setMaxZoom(20);
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
