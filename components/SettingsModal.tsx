@@ -21,7 +21,7 @@ import { reverseGeocode } from '../services/weatherService';
 import { useThalassa } from '../context/ThalassaContext';
 import { GpsService } from '../services/GpsService';
 
-import { Section, Row, Toggle } from './settings/SettingsPrimitives';
+import { Section } from './settings/SettingsPrimitives';
 import { AlertsTab } from './settings/AlertsTab';
 import { AestheticsTab } from './settings/AestheticsTab';
 import { VesselTab } from './settings/VesselTab';
@@ -299,62 +299,6 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                 }
                 setDetectingLoc(false);
             });
-        };
-
-        // UPDATED STATUS ROW
-        const StatusRow = ({
-            label,
-            isConnected,
-            status,
-            details,
-            loading,
-            onTest,
-        }: {
-            label: string;
-            isConnected?: boolean;
-            status?: string;
-            details?: string;
-            loading?: boolean;
-            onTest?: () => void;
-        }) => {
-            const isMissing = status === 'MISSING_KEY' || (!isConnected && !status);
-            const isActive = status === 'OK' || isConnected;
-            let indicatorColor = 'bg-red-500 shadow-red-500/20';
-            let textColor = 'text-red-400';
-            let displayText = details || (isActive ? 'ACTIVE' : 'MISSING');
-
-            if (loading) {
-                indicatorColor = 'bg-yellow-500 animate-pulse';
-                textColor = 'text-yellow-400';
-                displayText = 'CHECKING...';
-            } else if (isActive) {
-                indicatorColor = 'bg-emerald-500 shadow-emerald-500/50';
-                textColor = 'text-emerald-400';
-            } else if (isMissing) {
-                indicatorColor = 'bg-sky-500 shadow-sky-500/50';
-                textColor = 'text-sky-300';
-                displayText = 'FREE MODE';
-            }
-
-            return (
-                <div className="flex items-center justify-between p-3 bg-black/20 rounded-lg border border-white/5">
-                    <div className="flex items-center gap-3">
-                        <div className={`w-2.5 h-2.5 rounded-full shadow-lg ${indicatorColor}`}></div>
-                        <span className="text-xs font-bold text-white uppercase tracking-wider">{label}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                        <span className={`text-[11px] font-mono font-medium ${textColor}`}>{displayText}</span>
-                        {onTest && (
-                            <button
-                                onClick={onTest}
-                                className="px-2 py-1 rounded bg-white/5 border border-white/10 text-[11px] font-bold text-white uppercase"
-                            >
-                                Test
-                            </button>
-                        )}
-                    </div>
-                </div>
-            );
         };
 
         return (
