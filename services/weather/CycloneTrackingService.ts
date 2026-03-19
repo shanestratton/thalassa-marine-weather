@@ -178,24 +178,26 @@ export async function fetchActiveCyclones(): Promise<ActiveCyclone[]> {
     }
 
     try {
+        console.info('[CYCLONE] Fetching:', IBTRACS_URL);
         const response = await fetch(IBTRACS_URL);
         if (!response.ok) {
-            log.error(`IBTrACS fetch failed: HTTP ${response.status}`);
+            console.error(`[CYCLONE] IBTrACS fetch failed: HTTP ${response.status} ${response.statusText}`);
             return cachedCyclones?.data ?? [];
         }
 
         const csv = await response.text();
+        console.info(`[CYCLONE] CSV received: ${csv.length} chars, ${csv.split('\\n').length} lines`);
         const cyclones = parseIBTrACScsv(csv);
 
-        log.info(
-            `🌀 ${cyclones.length} active cyclone(s):`,
-            cyclones.map((c) => `${c.name} Cat ${c.categoryLabel} (${c.maxWindKts} kts)`).join(', '),
+        console.info(
+            `[CYCLONE] 🌀 ${cyclones.length} active cyclone(s):`,
+            cyclones.map((c) => `${c.name} Cat ${c.categoryLabel} (${c.maxWindKts} kts)`).join(', ') || 'none',
         );
 
         cachedCyclones = { data: cyclones, fetchedAt: Date.now() };
         return cyclones;
     } catch (e) {
-        log.error('IBTrACS fetch error:', e);
+        console.error('[CYCLONE] ❌ IBTrACS fetch error:', e);
         return cachedCyclones?.data ?? [];
     }
 }
