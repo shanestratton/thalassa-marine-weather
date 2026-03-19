@@ -80,6 +80,17 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
             }
         }
 
+        // — Gust Alert
+        if (notifications.gusts.enabled && notifications.gusts.threshold) {
+            if (current.windGust && current.windGust >= notifications.gusts.threshold) {
+                checkAndNotify(
+                    'gusts',
+                    `💨 Gust Alert: ${Math.round(current.windGust)}kts`,
+                    `Wind gusts at ${weatherData.locationName} have exceeded your ${notifications.gusts.threshold}kts threshold.`,
+                );
+            }
+        }
+
         // — Wave Alert
         if (notifications.waves.enabled && notifications.waves.threshold) {
             if (current.waveHeight && current.waveHeight >= notifications.waves.threshold) {
@@ -87,6 +98,61 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
                     'waves',
                     `🌊 High Surf Advisory: ${current.waveHeight}ft`,
                     `Wave height at ${weatherData.locationName} is above your ${notifications.waves.threshold}ft limit.`,
+                );
+            }
+        }
+
+        // — Swell Period Alert
+        if (notifications.swellPeriod.enabled && notifications.swellPeriod.threshold) {
+            if (current.swellPeriod && current.swellPeriod >= notifications.swellPeriod.threshold) {
+                checkAndNotify(
+                    'swellPeriod',
+                    `🌊 Long Period Swell: ${current.swellPeriod}s`,
+                    `Swell period at ${weatherData.locationName} has exceeded your ${notifications.swellPeriod.threshold}s threshold.`,
+                );
+            }
+        }
+
+        // — Low Visibility Alert
+        if (notifications.visibility.enabled && notifications.visibility.threshold) {
+            if (current.visibility != null && current.visibility <= notifications.visibility.threshold) {
+                checkAndNotify(
+                    'visibility',
+                    `🌫️ Low Visibility: ${current.visibility}NM`,
+                    `Visibility at ${weatherData.locationName} has dropped below your ${notifications.visibility.threshold}NM threshold.`,
+                );
+            }
+        }
+
+        // — UV Index Alert
+        if (notifications.uv.enabled && notifications.uv.threshold) {
+            if (current.uvIndex != null && current.uvIndex >= notifications.uv.threshold) {
+                checkAndNotify(
+                    'uv',
+                    `☀️ High UV: Index ${current.uvIndex}`,
+                    `UV index at ${weatherData.locationName} has reached ${current.uvIndex}, above your ${notifications.uv.threshold} threshold.`,
+                );
+            }
+        }
+
+        // — Temperature High Alert
+        if (notifications.tempHigh.enabled && notifications.tempHigh.threshold) {
+            if (current.airTemperature != null && current.airTemperature >= notifications.tempHigh.threshold) {
+                checkAndNotify(
+                    'tempHigh',
+                    `🌡️ Heat Alert: ${Math.round(current.airTemperature)}°`,
+                    `Temperature at ${weatherData.locationName} has exceeded your ${notifications.tempHigh.threshold}° threshold.`,
+                );
+            }
+        }
+
+        // — Temperature Low Alert
+        if (notifications.tempLow.enabled && notifications.tempLow.threshold) {
+            if (current.airTemperature != null && current.airTemperature <= notifications.tempLow.threshold) {
+                checkAndNotify(
+                    'tempLow',
+                    `🥶 Freeze Alert: ${Math.round(current.airTemperature)}°`,
+                    `Temperature at ${weatherData.locationName} has dropped below your ${notifications.tempLow.threshold}° threshold.`,
                 );
             }
         }
