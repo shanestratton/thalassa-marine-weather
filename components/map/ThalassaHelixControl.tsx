@@ -16,7 +16,7 @@ import React, { useRef, useCallback, useEffect, memo, useState } from 'react';
 import { triggerHaptic } from '../../utils/system';
 
 // ── Layer definitions for the generic legend ──
-export type HelixLayer = 'wind' | 'rain' | 'temperature' | 'pressure' | 'velocity' | 'traffic' | null;
+export type HelixLayer = 'wind' | 'rain' | 'temperature' | 'clouds' | 'pressure' | 'velocity' | 'traffic' | null;
 
 interface LayerConfig {
     icon: string;
@@ -60,6 +60,14 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
         highLabel: 'Hot',
         gradient: 'linear-gradient(to top, #0000cd, #00bfff, #90ee90, #ffff00, #ff8c00, #ff0000)',
         accentColor: '#fbbf24',
+    },
+    clouds: {
+        icon: '☁️',
+        label: 'Clouds',
+        lowLabel: 'Clear',
+        highLabel: 'Thick',
+        gradient: 'linear-gradient(to top, #1e3a5f, #4a7da8, #8bb8d0, #c0d8e8, #e8f0f4, #ffffff)',
+        accentColor: '#94a3b8',
     },
     pressure: {
         icon: '📊',
