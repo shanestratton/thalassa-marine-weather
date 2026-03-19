@@ -73,3 +73,4 @@ scripts/test_results.txt
 vessel-scraper/us_vessels*.csv
 vessel-scraper/us_vessels*.csv
 vessel-scraper/amsa_matched*.csv
+bundle-stats.html

@@ -2,6 +2,7 @@
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { visualizer } from 'rollup-plugin-visualizer';
 import { fileURLToPath } from 'url';
 
 // Define __dirname for ESM context
@@ -42,7 +43,15 @@ export default defineConfig(({ mode }) => {
                 },
             },
         },
-        plugins: [react()],
+        plugins: [
+            react(),
+            mode === 'production' &&
+                visualizer({
+                    filename: 'bundle-stats.html',
+                    gzipSize: true,
+                    brotliSize: true,
+                }),
+        ].filter(Boolean),
         define: {
             // IMPORTANT: Do NOT set 'process.env': {} — this clobbers React's internal
             // process.env.NODE_ENV detection and causes hooks to fail in lazy-loaded chunks.
