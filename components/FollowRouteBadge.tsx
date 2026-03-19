@@ -8,7 +8,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { useFollowRoute } from '../context/FollowRouteContext';
-import { RouteIcon, MapPinIcon } from './Icons';
+import { RouteIcon } from './Icons';
 
 // ── Stop Following Confirmation Dialog ──
 

@@ -89,7 +89,6 @@ const WIND_COLORS = [
 // ── Helper: Create velocity layer ─────────────────────────────
 
 function createVelocityLayer(data: GribRecord[]): L.Layer {
-     
     return (L as unknown as Record<string, (...args: unknown[]) => L.Layer>).velocityLayer({
         displayValues: false, // No mouse readout (overlay has pointer-events: none)
         data,
@@ -631,7 +630,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
 
         const setup = async () => {
             // Ensure Leaflet is on window BEFORE the plugin loads
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
             window.L = L;
             await import('leaflet-velocity-ts');
 

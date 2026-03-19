@@ -1,31 +1,24 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createLogger } from '../utils/createLogger';
-
 const log = createLogger('DiaryPage');
-import { DiaryService, DiaryEntry, DiaryMood, MOOD_CONFIG, DiaryWeatherData } from '../services/DiaryService';
+import { DiaryService, DiaryEntry, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
 import { triggerHaptic } from '../utils/system';
 import { Capacitor } from '@capacitor/core';
-import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { SlideToAction } from './ui/SlideToAction';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { useWeather } from '../context/WeatherContext';
 import { useSettings } from '../context/SettingsContext';
 import { PageHeader } from './ui/PageHeader';
-import { OfflineBadge } from './ui/OfflineBadge';
 import { UndoToast } from './ui/UndoToast';
 import { SwipeableDiaryCard } from './diary/SwipeableDiaryCard';
 import { toast } from './Toast';
-import { AudioWidget } from './diary/AudioWidget';
 import { DiaryEntryView } from './diary/DiaryEntryView';
 import { DiaryComposeForm } from './diary/DiaryComposeForm';
 import { useDiaryState } from '../hooks/useDiaryState';
-
 interface DiaryPageProps {
     onBack: () => void;
 }
-
 // ── Helpers ─────────────────────────────────────────────────────
-
 const formatDate = (iso: string): string => {
     const d = new Date(iso);
     return d.toLocaleDateString('en-AU', {
@@ -35,23 +28,19 @@ const formatDate = (iso: string): string => {
         year: 'numeric',
     });
 };
-
 const _formatTime = (iso: string): string => {
     return new Date(iso).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
 };
-
 const formatCoord = (lat: number, lon: number): string => {
     const latDir = lat >= 0 ? 'N' : 'S';
     const lonDir = lon >= 0 ? 'E' : 'W';
     return `${Math.abs(lat).toFixed(4)}°${latDir}, ${Math.abs(lon).toFixed(4)}°${lonDir}`;
 };
-
 const _formatDuration = (seconds: number): string => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
 };
-
 const groupByDate = (entries: DiaryEntry[]): Map<string, DiaryEntry[]> => {
     const map = new Map<string, DiaryEntry[]>();
     for (const e of entries) {
@@ -62,14 +51,11 @@ const groupByDate = (entries: DiaryEntry[]): Map<string, DiaryEntry[]> => {
     }
     return map;
 };
-
 // ── Component ──────────────────────────────────────────────────
-
 export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // ── Consolidated state (replaces 29 individual useState calls) ──
     // Single useReducer eliminates cascade re-renders (openCompose: 11 → 1)
     const { state, dispatch } = useDiaryState();
-
     // Destructure for JSX backward compatibility
     const {
         entries,
@@ -101,7 +87,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         isPlaying,
         keyboardHeight,
     } = state;
-
     // Setter shims — same API surface, backed by dispatch
     const setEntries = useCallback(
         (v: DiaryEntry[] | ((prev: DiaryEntry[]) => DiaryEntry[])) => {
@@ -131,7 +116,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         },
         [dispatch, state.selectedIds],
     );
-
     // Additional setter shims
     const setKeyboardHeight = useCallback(
         (h: number) => dispatch({ type: 'SET_KEYBOARD_HEIGHT', height: h }),
@@ -211,11 +195,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     );
     const setIsPlaying = useCallback((v: boolean) => dispatch({ type: 'SET_PLAYING', playing: v }), [dispatch]);
     const [polishIntensity, _setPolishIntensity] = useState(30); // 0=clean grammar, 100=shakespearean
-
     // Weather context
     const { weatherData } = useWeather();
     const { settings } = useSettings();
-
     const deletedIdRef = useRef<string | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -223,12 +205,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
     const fileRef = useRef<HTMLInputElement>(null);
-
     // Track iOS keyboard height via Capacitor Keyboard plugin (reliable with KeyboardResize.None)
     // Falls back to visualViewport for web
     useEffect(() => {
         let cleanup: (() => void) | undefined;
-
         if (Capacitor.isNativePlatform()) {
             import('@capacitor/keyboard')
                 .then(({ Keyboard }) => {
@@ -265,21 +245,17 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 cleanup = () => vp.removeEventListener('resize', handleResize);
             }
         }
-
         return () => {
             cleanup?.();
             setKeyboardHeight(0);
         };
     }, []);
-
     // ── Load entries ───────────────────────────────────────────
-
     const refreshEntries = useCallback(() => {
         DiaryService.getEntries(100).then((data) => {
             // Filter out the entry pending soft-delete (undo window still open)
             const pendingId = deletedIdRef.current;
             const fresh = pendingId ? data.filter((e) => e.id !== pendingId) : data;
-
             // MERGE with existing state instead of replacing.
             // Any offline-created entries already in React state are preserved
             // even if getEntries() doesn't return them (e.g. localStorage quota
@@ -295,7 +271,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             });
         });
     }, []);
-
     useEffect(() => {
         DiaryService.getEntries(100).then((data) => {
             setEntries(data);
@@ -307,7 +282,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         }, 8000);
         return () => clearInterval(interval);
     }, [refreshEntries]);
-
     // Cleanup on unmount
     useEffect(() => {
         return () => {
@@ -319,23 +293,18 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             }
         };
     }, []);
-
     // ── GPS helper ─────────────────────────────────────────────
-
     const grabGps = useCallback(async () => {
         setGpsLoading(true);
         const loc = await DiaryService.getCurrentLocation();
         if (loc) {
             setLat(loc.lat);
             setLon(loc.lon);
-
             // Check anchor watch first — if active, use depth info
             const anchorSnap = AnchorWatchService.getSnapshot();
             const isAnchored = anchorSnap.state === 'watching' || anchorSnap.state === 'alarm';
-
             // Reverse geocode for a readable place name
             const placeName = await DiaryService.reverseGeocode(loc.lat, loc.lon);
-
             if (isAnchored) {
                 const depth = anchorSnap.config.waterDepth;
                 const prefix = `Anchored in ${depth}m of water`;
@@ -346,9 +315,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         }
         setGpsLoading(false);
     }, []);
-
     // ── Compose (new) ──────────────────────────────────────────
-
     /** Build a weather snapshot one-liner from current weather data */
     const buildWeatherSnapshot = useCallback((): string => {
         if (!weatherData?.current) return '';
@@ -368,7 +335,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         } else if (c.description) parts.push(c.description);
         return parts.join(' · ');
     }, [weatherData]);
-
     /** Build structured weather data object for pin-drop capture */
     const buildWeatherData = useCallback((): DiaryWeatherData | null => {
         if (!weatherData?.current) return null;
@@ -383,7 +349,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             rain: c.precipitation != null ? Math.round(c.precipitation * 10) / 10 : undefined,
         };
     }, [weatherData]);
-
     const openCompose = useCallback(async () => {
         setEditingId(null);
         setTitle('');
@@ -401,9 +366,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         triggerHaptic('light');
         grabGps();
     }, [grabGps, buildWeatherSnapshot, buildWeatherData, dispatch]);
-
     // ── Edit (existing) ────────────────────────────────────────
-
     const openEdit = useCallback(
         (entry: DiaryEntry) => {
             const locationDisplay =
@@ -414,13 +377,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         },
         [dispatch],
     );
-
     // ── Audio Recording ────────────────────────────────────────
-
     const startRecording = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
             // Determine best supported audio format
             // iOS WKWebView only supports audio/mp4; desktop Chrome/Firefox support audio/webm
             let mimeType = '';
@@ -434,30 +394,23 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 mimeType = 'audio/aac';
             }
             // If none match, let the browser pick the default
-
             const recorderOptions: MediaRecorderOptions = {};
             if (mimeType) recorderOptions.mimeType = mimeType;
-
             const mediaRecorder = new MediaRecorder(stream, recorderOptions);
             const recordedMime = mediaRecorder.mimeType || mimeType || 'audio/mp4';
-
             audioChunksRef.current = [];
             mediaRecorderRef.current = mediaRecorder;
-
             mediaRecorder.ondataavailable = (e) => {
                 if (e.data.size > 0) audioChunksRef.current.push(e.data);
             };
-
             mediaRecorder.onstop = async () => {
                 // Stop all tracks
                 stream.getTracks().forEach((t) => t.stop());
-
                 const blob = new Blob(audioChunksRef.current, { type: recordedMime });
                 if (blob.size > 0) {
                     const url = await DiaryService.uploadAudio(blob);
                     // Store URL for saving with entry (but don't show preview)
                     if (url) setAudioUrl(url);
-
                     // Auto-transcribe voice memo to text silently
                     if (url) {
                         setTranscribing(true);
@@ -470,12 +423,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 }
                 if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
             };
-
             mediaRecorder.start(100); // Collect data every 100ms for snappy response
             setIsRecording(true);
             setRecordingTime(0);
             triggerHaptic('medium');
-
             // Timer
             recordingTimerRef.current = setInterval(() => {
                 setRecordingTime((prev) => prev + 1);
@@ -484,7 +435,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             log.error('[Diary] Mic access denied:', err);
         }
     };
-
     const stopRecording = () => {
         if (mediaRecorderRef.current?.state === 'recording') {
             mediaRecorderRef.current.stop();
@@ -493,14 +443,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
         triggerHaptic('light');
     };
-
     const removeAudio = () => {
         setAudioUrl(null);
         setRecordingTime(0);
     };
-
     // ── Audio Playback ─────────────────────────────────────────
-
     const togglePlayback = (url: string) => {
         if (isPlaying && audioPlayerRef.current) {
             audioPlayerRef.current.pause();
@@ -508,7 +455,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             setIsPlaying(false);
             return;
         }
-
         const audio = new Audio(url);
         audioPlayerRef.current = audio;
         audio.play();
@@ -518,9 +464,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             audioPlayerRef.current = null;
         };
     };
-
     // ── Transcribe ─────────────────────────────────────────────
-
     const handleTranscribe = async (url: string) => {
         if (transcribing) return;
         setTranscribing(true);
@@ -531,9 +475,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         }
         setTranscribing(false);
     };
-
     // ── Photo handling ─────────────────────────────────────────
-
     const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
@@ -543,13 +485,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         setUploading(false);
         if (fileRef.current) fileRef.current.value = '';
     };
-
     const removePhoto = (idx: number) => {
         setPhotos((prev) => prev.filter((_, i) => i !== idx));
     };
-
     // ── Gemini polish ──────────────────────────────────────────
-
     const handlePolish = async () => {
         if (!body.trim() || polishing) return;
         setPolishing(true);
@@ -562,14 +501,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         if (enhanced) setBody(enhanced);
         setPolishing(false);
     };
-
     // ── Save (create or update) ────────────────────────────────
-
     const handleSave = async () => {
         if (!body.trim() && !title.trim() && !audioUrl) return;
         setSaving(true);
         triggerHaptic('medium');
-
         if (editingId) {
             const ok = await DiaryService.updateEntry(editingId, {
                 title: title.trim() || formatDate(new Date().toISOString()),
@@ -619,14 +555,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         // An immediate refreshEntries() can race with the pending queue merge
         // and cause entries to vanish when offline or on slow connections.
     };
-
     // ── Delete (soft-delete with undo) ─────────────────────────
-
     const handleDelete = (id: string) => {
         const item = entries.find((e) => e.id === id);
         if (!item) return;
         triggerHaptic('medium');
-
         // Track pending-delete so refreshEntries won't bring it back
         deletedIdRef.current = id;
         // Remove from UI immediately
@@ -634,7 +567,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         setSelectedEntry(null);
         setDeletedItem(item);
     };
-
     // Called by UndoToast after 5s — performs the actual API delete
     const handleDismissDelete = async () => {
         if (!deletedItem) return;
@@ -663,7 +595,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         // Clear pending-delete ref after successful delete
         deletedIdRef.current = null;
     };
-
     const handleUndoDelete = () => {
         if (deletedItem) {
             setEntries((prev) => [...prev, deletedItem]);
@@ -672,13 +603,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         setDeletedItem(null);
         deletedIdRef.current = null;
     };
-
     // ── Grouped entries ────────────────────────────────────────
-
     const grouped = useMemo(() => groupByDate(entries), [entries]);
-
     // ── PDF Export ───────────────────────────────────────────────
-
     const exportDiaryPdf = useCallback(async (entriesToPrint: DiaryEntry[]) => {
         setExportProgress('Preparing...');
         const { generateDiaryPDF } = await import('../utils/diaryExport');
@@ -699,7 +626,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             settings.firstName || undefined,
         );
     }, []);
-
     const toggleEntrySelection = useCallback(
         (id: string) => {
             // Enter select mode on first selection
@@ -708,18 +634,13 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         },
         [dispatch, state.selectMode],
     );
-
     const _exitSelectMode = useCallback(() => {
         setSelectMode(false);
         setSelectedIds(new Set());
     }, []);
-
     // AudioWidget is now imported from ./diary/AudioWidget
-
     // SwipeableDiaryCard — extracted to components/diary/SwipeableDiaryCard.tsx (React.memo)
-
     // ── Render: Full Entry View ─────────────────────────────────
-
     if (selectedEntry) {
         return (
             <DiaryEntryView
@@ -737,9 +658,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             />
         );
     }
-
     // ── Render: Compose / Edit ───────────────────────────────────
-
     if (showCompose) {
         return (
             <DiaryComposeForm
@@ -782,9 +701,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             />
         );
     }
-
     // ── Render: Timeline ────────────────────────────────────────
-
     return (
         <div className="relative h-full bg-slate-950 overflow-hidden">
             {/* Export progress overlay */}
@@ -908,7 +825,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         ) : undefined
                     }
                 />
-
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto px-4 min-h-0" style={{ paddingBottom: '4px' }}>
                     {loading ? (
@@ -963,7 +879,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                         </span>
                                         <div className="flex-1 h-px bg-white/5" />
                                     </div>
-
                                     <div className="space-y-3">
                                         {dayEntries.map((entry) => (
                                             <SwipeableDiaryCard
@@ -985,7 +900,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         </div>
                     )}
                 </div>
-
                 {/* ── Bottom bar: slide-to-action ── */}
                 <div
                     className="shrink-0 px-4"
@@ -1012,7 +926,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     />
                 </div>
             </div>
-
             {/* Undo toast (timeline view) */}
             <UndoToast
                 isOpen={!!deletedItem}

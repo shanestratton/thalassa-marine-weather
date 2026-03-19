@@ -6,7 +6,7 @@
  *   Zone 2: Ship's Office Grid (8 cards in 4x2) — compact design
  *   Zone 3: App Administration (account, dark mode, terms)
  */
-import React, { Suspense, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { ChatService } from '../services/ChatService';
 import { useSettings } from '../context/SettingsContext';

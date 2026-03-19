@@ -37,7 +37,6 @@ interface GeofenceVessel {
 export function startWatchdog(supabaseUrl: string, supabaseKey: string): ReturnType<typeof setInterval> {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // eslint-disable-next-line no-console
     console.log('[Watchdog] Starting BOLO + Geofence monitor (30s loop)');
 
     const tick = async () => {
@@ -89,7 +88,6 @@ async function checkBolo(supabase: SupabaseClient): Promise<void> {
         if (distanceM === null || distanceM === undefined) continue;
 
         if (distanceM > BOLO_THRESHOLD_M) {
-            // eslint-disable-next-line no-console
             console.log(
                 `[Watchdog] 🚨 BOLO TRIGGERED: ${vessel.vessel_name || 'MMSI ' + vessel.mmsi} ` +
                     `moved ${distanceM.toFixed(0)}m while armed!`,
@@ -121,7 +119,7 @@ async function checkBolo(supabase: SupabaseClient): Promise<void> {
             });
 
             boloAlerted.add(vessel.mmsi);
-            // eslint-disable-next-line no-console
+
             console.log(`[Watchdog] BOLO broadcast to ${notified ?? 0} nearby users`);
         }
     }
@@ -161,7 +159,6 @@ async function checkGeofences(supabase: SupabaseClient): Promise<void> {
         if (distanceM === null || distanceM === undefined) continue;
 
         if (distanceM > vessel.home_radius_m) {
-            // eslint-disable-next-line no-console
             console.log(
                 `[Watchdog] 🏠 GEOFENCE BREACH: ${vessel.vessel_name || 'MMSI ' + vessel.mmsi} ` +
                     `is ${distanceM.toFixed(0)}m from home (limit: ${vessel.home_radius_m}m)`,

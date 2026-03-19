@@ -290,8 +290,6 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                         <button
                             type="button"
                             onClick={() => {
-                                 
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                                 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
                                 if (!SR) {
                                     toast.error('Speech recognition not supported');

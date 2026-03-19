@@ -57,7 +57,7 @@ interface ThalassaWindow {
 }
 
 // Merge with global Window
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+
 interface Window extends ThalassaWindow {}
 
 // --- ERROR TYPE UTILITIES ---
@@ -71,4 +71,3 @@ interface HttpError extends Error {
 
 /** Safely extract HTTP status from an unknown error */
 declare function isHttpError(err: unknown): err is HttpError;
-

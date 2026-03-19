@@ -10,7 +10,7 @@
  */
 
 import { createLogger } from '../utils/createLogger';
-import { MarineWeatherReport, VoyagePlan, VesselProfile, UnitPreferences, VesselDimensionUnits } from '../types';
+import { MarineWeatherReport, VesselProfile, UnitPreferences, VesselDimensionUnits } from '../types';
 import { fetchPrecisionWeather, fetchWeatherByStrategy, parseLocation, reverseGeocode } from './weatherService';
 import { fetchWeatherKitRealtime } from './weather/api/weatherkit';
 import { isStormglassKeyPresent } from './weather/keys';
