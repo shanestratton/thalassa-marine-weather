@@ -4,6 +4,8 @@ import { createLogger } from '../utils/createLogger';
 const log = createLogger('OnboardingWizard');
 import { sanitizeText } from '../utils/inputValidation';
 import { toast } from './Toast';
+import { VesselDetailsStep } from './onboarding/VesselDetailsStep';
+import { UnitPreferencesStep } from './onboarding/UnitPreferencesStep';
 import {
     UserSettings,
     VesselProfile,
@@ -24,13 +26,10 @@ import {
     CheckIcon,
     CompassIcon,
     EyeIcon,
-    GearIcon,
     SearchIcon,
     MapPinIcon,
-    DropletIcon,
     MapIcon,
     XIcon,
-    AnchorIcon,
 } from './Icons';
 import { reverseGeocode, parseLocation } from '../services/weatherService';
 import { fetchWeatherByStrategy } from '../services/weather';
@@ -800,404 +799,66 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                     </div>
                 )}
 
-                {/* STEP 5: VESSEL DETAILS */}
                 {step === 5 && (
-                    <div
-                        className="animate-in fade-in slide-in-from-right-8 duration-500 max-h-[calc(100dvh-10rem)] overflow-y-auto no-scrollbar"
-                        style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined }}
-                    >
-                        {vesselType === 'observer' ? (
-                            <div className="text-center py-10">
-                                <SearchIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                                <h2 className="text-xl font-bold text-white mb-2">Just Watching?</h2>
-                                <p className="text-gray-400 mb-8">
-                                    Observers skip vessel setup. We'll optimize the display for general sea state
-                                    conditions.
-                                </p>
-                                <button
-                                    onClick={handleNext}
-                                    className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
-                                >
-                                    Continue to Preferences
-                                </button>
-                            </div>
-                        ) : (
-                            <>
-                                <h2 className="text-2xl font-bold text-white mb-2 text-center">
-                                    Tell us about your boat
-                                </h2>
-                                <p className="text-sm text-gray-400 text-center mb-6">
-                                    Search our database or enter details manually.
-                                </p>
-
-                                {/* Yacht Database Search */}
-                                <div className="mb-6">
-                                    <YachtDatabaseSearch
-                                        selectedModel={selectedPolar?.model}
-                                        onSelect={handleYachtSelect}
-                                        compact
-                                    />
-                                </div>
-
-                                <div className="space-y-6">
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
-                                            Vessel Name
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={name}
-                                            onChange={(e) => setName(e.target.value)}
-                                            placeholder="e.g. Black Pearl"
-                                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-lg font-medium"
-                                        />
-                                    </div>
-
-                                    {/* Hull Type */}
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
-                                            Hull Type
-                                        </label>
-                                        <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
-                                            {(['monohull', 'catamaran', 'trimaran'] as const).map((ht) => (
-                                                <button
-                                                    key={ht}
-                                                    onClick={() => setHullType(ht)}
-                                                    className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${hullType === ht ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
-                                                >
-                                                    {ht === 'monohull' ? 'Mono' : ht === 'catamaran' ? 'Cat' : 'Tri'}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {/* Keel Type */}
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
-                                            Keel Type
-                                        </label>
-                                        <div className="grid grid-cols-3 bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
-                                            {(['fin', 'full', 'wing', 'skeg', 'centerboard', 'bilge'] as const).map(
-                                                (kt) => (
-                                                    <button
-                                                        key={kt}
-                                                        onClick={() => setKeelType(kt)}
-                                                        className={`py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${keelType === kt ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
-                                                    >
-                                                        {kt === 'centerboard' ? 'C/Board' : kt}
-                                                    </button>
-                                                ),
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {vesselType === 'sail' && (
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
-                                                Rigging Type
-                                            </label>
-                                            <select
-                                                value={riggingType}
-                                                onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                                                    setRiggingType(
-                                                        e.target.value as VesselProfile['riggingType'] & string,
-                                                    )
-                                                }
-                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none appearance-none"
-                                            >
-                                                <option value="Sloop" className="bg-slate-900">
-                                                    Sloop
-                                                </option>
-                                                <option value="Cutter" className="bg-slate-900">
-                                                    Cutter
-                                                </option>
-                                                <option value="Ketch" className="bg-slate-900">
-                                                    Ketch
-                                                </option>
-                                                <option value="Yawl" className="bg-slate-900">
-                                                    Yawl
-                                                </option>
-                                                <option value="Schooner" className="bg-slate-900">
-                                                    Schooner
-                                                </option>
-                                                <option value="Catboat" className="bg-slate-900">
-                                                    Catboat
-                                                </option>
-                                                <option value="Solent" className="bg-slate-900">
-                                                    Solent
-                                                </option>
-                                                <option value="Other" className="bg-slate-900">
-                                                    Other
-                                                </option>
-                                            </select>
-                                        </div>
-                                    )}
-
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
-                                                Length{' '}
-                                                <button
-                                                    onClick={toggleLengthUnit}
-                                                    className="text-sky-400 hover:text-white"
-                                                >
-                                                    {lengthUnit}
-                                                </button>
-                                            </label>
-                                            <input
-                                                type="number"
-                                                value={length}
-                                                onChange={(e) => setLength(e.target.value)}
-                                                placeholder="0"
-                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
-                                                Beam{' '}
-                                                <button
-                                                    onClick={toggleBeamUnit}
-                                                    className="text-sky-400 hover:text-white"
-                                                >
-                                                    {beamUnit}
-                                                </button>
-                                            </label>
-                                            <input
-                                                type="number"
-                                                value={beam}
-                                                onChange={(e) => setBeam(e.target.value)}
-                                                placeholder="Auto"
-                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
-                                                Draft{' '}
-                                                <button
-                                                    onClick={toggleDraftUnit}
-                                                    className="text-sky-400 hover:text-white"
-                                                >
-                                                    {draftUnit}
-                                                </button>
-                                            </label>
-                                            <input
-                                                type="number"
-                                                value={draft}
-                                                onChange={(e) => setDraft(e.target.value)}
-                                                placeholder="Auto"
-                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
-                                                Displacement{' '}
-                                                <button
-                                                    onClick={toggleDispUnit}
-                                                    className="text-sky-400 hover:text-white"
-                                                >
-                                                    {dispUnit}
-                                                </button>
-                                            </label>
-                                            <input
-                                                type="number"
-                                                value={displacement}
-                                                onChange={(e) => setDisplacement(e.target.value)}
-                                                placeholder="Auto"
-                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {/* Air Draft */}
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
-                                            Air Draft{' '}
-                                            <button
-                                                onClick={toggleAirDraftUnit}
-                                                className="text-sky-400 hover:text-white"
-                                            >
-                                                {airDraftUnit}
-                                            </button>
-                                        </label>
-                                        <input
-                                            type="number"
-                                            value={airDraft}
-                                            onChange={(e) => setAirDraft(e.target.value)}
-                                            placeholder="Height above waterline"
-                                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500"
-                                        />
-                                        <p className="text-[11px] text-gray-400 mt-1">
-                                            Used for bridge clearance on routes
-                                        </p>
-                                    </div>
-
-                                    {/* Tankage */}
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
-                                                <span className="flex items-center gap-1">
-                                                    <GearIcon className="w-3 h-3 text-amber-400" /> Fuel
-                                                </span>{' '}
-                                                <button
-                                                    onClick={() => setVolUnit((u) => (u === 'gal' ? 'l' : 'gal'))}
-                                                    className="text-sky-400 hover:text-white uppercase"
-                                                >
-                                                    {volUnit}
-                                                </button>
-                                            </label>
-                                            <input
-                                                type="number"
-                                                value={fuel}
-                                                onChange={(e) => setFuel(e.target.value)}
-                                                placeholder="0"
-                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
-                                                <span className="flex items-center gap-1">
-                                                    <DropletIcon className="w-3 h-3 text-sky-400" /> Water
-                                                </span>{' '}
-                                                <button
-                                                    onClick={() => setVolUnit((u) => (u === 'gal' ? 'l' : 'gal'))}
-                                                    className="text-sky-400 hover:text-white uppercase"
-                                                >
-                                                    {volUnit}
-                                                </button>
-                                            </label>
-                                            <input
-                                                type="number"
-                                                value={water}
-                                                onChange={(e) => setWater(e.target.value)}
-                                                placeholder="0"
-                                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono"
-                                            />
-                                        </div>
-                                    </div>
-
-                                    {/* Crew */}
-                                    <div>
-                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex items-center gap-1">
-                                            <AnchorIcon className="w-3 h-3 text-sky-400" /> Crew Aboard (incl. Captain)
-                                        </label>
-                                        <input
-                                            type="number"
-                                            min="1"
-                                            max="99"
-                                            value={crewCount}
-                                            onChange={(e) => setCrewCount(e.target.value)}
-                                            placeholder="2"
-                                            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono"
-                                        />
-                                        <p className="text-[11px] text-gray-400 mt-1">
-                                            Used for provisioning and watch schedules
-                                        </p>
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={handleNext}
-                                    className="w-full mt-8 bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
-                                >
-                                    Next
-                                </button>
-                            </>
-                        )}
-                    </div>
+                    <VesselDetailsStep
+                        vesselType={vesselType}
+                        name={name}
+                        onNameChange={setName}
+                        hullType={hullType}
+                        onHullTypeChange={setHullType}
+                        keelType={keelType}
+                        onKeelTypeChange={setKeelType}
+                        riggingType={riggingType}
+                        onRiggingTypeChange={setRiggingType}
+                        length={length}
+                        onLengthChange={setLength}
+                        lengthUnit={lengthUnit}
+                        onToggleLengthUnit={toggleLengthUnit}
+                        beam={beam}
+                        onBeamChange={setBeam}
+                        beamUnit={beamUnit}
+                        onToggleBeamUnit={toggleBeamUnit}
+                        draft={draft}
+                        onDraftChange={setDraft}
+                        draftUnit={draftUnit}
+                        onToggleDraftUnit={toggleDraftUnit}
+                        displacement={displacement}
+                        onDisplacementChange={setDisplacement}
+                        dispUnit={dispUnit}
+                        onToggleDispUnit={toggleDispUnit}
+                        airDraft={airDraft}
+                        onAirDraftChange={setAirDraft}
+                        airDraftUnit={airDraftUnit}
+                        onToggleAirDraftUnit={toggleAirDraftUnit}
+                        fuel={fuel}
+                        onFuelChange={setFuel}
+                        water={water}
+                        onWaterChange={setWater}
+                        volUnit={volUnit}
+                        onToggleVolUnit={() => setVolUnit((u) => (u === 'gal' ? 'l' : 'gal'))}
+                        crewCount={crewCount}
+                        onCrewCountChange={setCrewCount}
+                        selectedPolarModel={selectedPolar?.model}
+                        onYachtSelect={handleYachtSelect}
+                        keyboardHeight={keyboardHeight}
+                        onNext={handleNext}
+                    />
                 )}
 
-                {/* STEP 6: PREFERENCES */}
                 {step === 6 && (
-                    <div className="animate-in fade-in slide-in-from-right-8 duration-500">
-                        <h2 className="text-2xl font-bold text-white mb-6 text-center">Unit Preferences</h2>
-
-                        <div className="space-y-4 mb-8">
-                            <div className="bg-white/5 rounded-xl p-4 flex justify-between items-center">
-                                <span className="text-gray-300 font-medium">Wind Speed</span>
-                                <div className="flex bg-black/20 rounded-lg p-1">
-                                    {['kts', 'mph', 'kmh'].map((u) => (
-                                        <button
-                                            key={u}
-                                            onClick={() => setPrefSpeed(u as SpeedUnit)}
-                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefSpeed === u ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
-                                        >
-                                            {u}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Wave Height Preference (Default Meters) */}
-                            <div className="bg-white/5 rounded-xl p-4 flex justify-between items-center">
-                                <span className="text-gray-300 font-medium">Seas (Wave Height)</span>
-                                <div className="flex bg-black/20 rounded-lg p-1">
-                                    {['m', 'ft'].map((u) => (
-                                        <button
-                                            key={u}
-                                            onClick={() => setPrefWaveHeight(u as LengthUnit)}
-                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefWaveHeight === u ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
-                                        >
-                                            {u}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Tide / Generic Height Preference */}
-                            <div className="bg-white/5 rounded-xl p-4 flex justify-between items-center">
-                                <span className="text-gray-300 font-medium">Tide Height / Length</span>
-                                <div className="flex bg-black/20 rounded-lg p-1">
-                                    {['m', 'ft'].map((u) => (
-                                        <button
-                                            key={u}
-                                            onClick={() => setPrefLength(u as LengthUnit)}
-                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefLength === u ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
-                                        >
-                                            {u}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div className="bg-white/5 rounded-xl p-4 flex justify-between items-center">
-                                <span className="text-gray-300 font-medium">Temperature</span>
-                                <div className="flex bg-black/20 rounded-lg p-1">
-                                    {['C', 'F'].map((u) => (
-                                        <button
-                                            key={u}
-                                            onClick={() => setPrefTemp(u as TempUnit)}
-                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefTemp === u ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
-                                        >
-                                            {u}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="bg-white/5 rounded-xl p-4 flex justify-between items-center">
-                                <span className="text-gray-300 font-medium">Distance</span>
-                                <div className="flex bg-black/20 rounded-lg p-1">
-                                    {['nm', 'mi', 'km'].map((u) => (
-                                        <button
-                                            key={u}
-                                            onClick={() => setPrefDist(u as DistanceUnit)}
-                                            className={`px-4 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${prefDist === u ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
-                                        >
-                                            {u}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-
-                        <button
-                            onClick={handleNext}
-                            className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
-                        >
-                            Next
-                        </button>
-                    </div>
+                    <UnitPreferencesStep
+                        prefSpeed={prefSpeed}
+                        onSpeedChange={setPrefSpeed}
+                        prefWaveHeight={prefWaveHeight}
+                        onWaveHeightChange={setPrefWaveHeight}
+                        prefLength={prefLength}
+                        onLengthChange={setPrefLength}
+                        prefTemp={prefTemp}
+                        onTempChange={setPrefTemp}
+                        prefDist={prefDist}
+                        onDistChange={setPrefDist}
+                        onNext={handleNext}
+                    />
                 )}
 
                 {/* STEP 7: DISPLAY PREFERENCES */}
