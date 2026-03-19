@@ -45,6 +45,8 @@ import { useRouteNudge } from './useRouteNudge';
 import { useAisLayer } from './useAisLayer';
 import { useAisStreamLayer } from './useAisStreamLayer';
 import { useChokepointLayer } from './useChokepointLayer';
+import { useCycloneLayer } from './useCycloneLayer';
+import { type ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { AisLegend } from './AisLegend';
 import { AisGuardAlert } from './AisGuardAlert';
 import { VesselSearch } from './VesselSearch';
@@ -192,12 +194,17 @@ export const MapHub: React.FC<MapHubProps> = ({
     const deviceMode = useDeviceMode();
     const [aisVisible, setAisVisible] = useState(false);
     const [chokepointVisible, setChokepointVisible] = useState(false);
+    const [cycloneVisible, setCycloneVisible] = useState(false);
+    const [closestStorm, setClosestStorm] = useState<ActiveCyclone | null>(null);
 
     // ── Passage Planner ──
     const passage = usePassagePlanner(mapRef, mapReady);
 
     // Follow Route overlay — renders the followed planned route on the map
     useFollowRouteMapbox(mapRef, mapReady);
+
+    // ── Cyclone Tracking Layer ──
+    useCycloneLayer(mapRef, mapReady, cycloneVisible, location.lat, location.lon, setClosestStorm);
 
     // Clear isochrone progress when route completes
     useEffect(() => {
@@ -763,6 +770,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setWeatherInspectMode((v) => !v);
                             weather.setShowLayerMenu(false);
                         }}
+                        cycloneVisible={cycloneVisible}
+                        onToggleCyclones={() => setCycloneVisible((v) => !v)}
+                        cycloneStormName={closestStorm?.name ?? null}
                     />
                 )}
 
