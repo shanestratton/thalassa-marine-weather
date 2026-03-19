@@ -34,7 +34,6 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     const [alerts, setAlerts] = useState<GuardianAlert[]>([]);
     const [_hasProfile, setHasProfile] = useState(false);
     const [loading, setLoading] = useState(true);
-    const [showOnboarding, setShowOnboarding] = useState(false);
 
     // Modals
     const [showSetup, setShowSetup] = useState(false);
@@ -47,7 +46,6 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     const [ownerName, setOwnerName] = useState('');
     const [dogName, setDogName] = useState('');
     const [vesselBio, setVesselBio] = useState('');
-    const [mmsiInput, setMmsiInput] = useState('');
 
     // Report form
     const [reportText, setReportText] = useState('');
@@ -62,9 +60,6 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     useEffect(() => {
         const init = async () => {
             setLoading(true);
-            // Check if onboarding was already dismissed
-            const dismissed = localStorage.getItem('guardian-onboarding-dismissed');
-            if (!dismissed) setShowOnboarding(true);
             await GuardianService.initialize();
             const profile = await GuardianService.fetchProfile();
             if (profile) {
@@ -173,21 +168,11 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             dog_name: dogName,
             vessel_bio: vesselBio,
         };
-        if (mmsiInput.trim()) {
-            const mmsi = parseInt(mmsiInput, 10);
-            if (!isNaN(mmsi) && mmsiInput.length === 9) {
-                const result = await GuardianService.claimMMSI(mmsi);
-                if (!result.success) {
-                    alert(result.error || 'Failed to claim MMSI');
-                    return;
-                }
-            }
-        }
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await GuardianService.updateProfile(updates as any);
         setHasProfile(true);
         setShowSetup(false);
-    }, [vesselName, ownerName, dogName, vesselBio, mmsiInput]);
+    }, [vesselName, ownerName, dogName, vesselBio]);
 
     // ── Report suspicious ──
     const handleReport = useCallback(async () => {
@@ -312,98 +297,6 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
 
             {/* ── Scrollable Content ── */}
             <div className="flex-1 overflow-y-auto px-4 space-y-5">
-                {/* ═══ ONBOARDING EXPLAINER CARDS ═══ */}
-                {showOnboarding && (
-                    <div className="space-y-3 animate-in fade-in slide-in-from-top-2 duration-500">
-                        {/* Welcome header */}
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <div className="w-1 h-4 rounded-full bg-emerald-500" />
-                                <span className="text-[11px] font-black text-emerald-400 uppercase tracking-[0.2em]">
-                                    Welcome to Guardian
-                                </span>
-                            </div>
-                            <button
-                                onClick={() => {
-                                    localStorage.setItem('guardian-onboarding-dismissed', 'true');
-                                    setShowOnboarding(false);
-                                    triggerHaptic('light');
-                                }}
-                                className="text-[11px] text-gray-400 font-bold uppercase tracking-wider hover:text-white transition-colors px-2 py-1"
-                            >
-                                Dismiss
-                            </button>
-                        </div>
-
-                        {/* Card 1: ARM */}
-                        <div className="bg-gradient-to-br from-red-500/10 to-amber-500/10 border border-red-500/20 rounded-xl p-4">
-                            <div className="flex items-start gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-red-500/20 flex items-center justify-center shrink-0">
-                                    <span className="text-lg">🛡️</span>
-                                </div>
-                                <div>
-                                    <h3 className="text-sm font-black text-white mb-0.5">Slide to ARM</h3>
-                                    <p className="text-xs text-gray-300 leading-relaxed">
-                                        Locks your GPS position. Nearby boats see you're on watch. You'll get{' '}
-                                        <strong className="text-red-400">critical alerts</strong> if your vessel drifts
-                                        or suspicious activity is reported nearby.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Card 2: Tripwire */}
-                        <div className="bg-gradient-to-br from-purple-500/10 to-fuchsia-500/10 border border-purple-500/20 rounded-xl p-4">
-                            <div className="flex items-start gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
-                                    <span className="text-lg">🏠</span>
-                                </div>
-                                <div>
-                                    <h3 className="text-sm font-black text-white mb-0.5">Digital Tripwire</h3>
-                                    <p className="text-xs text-gray-300 leading-relaxed">
-                                        Sets a 100m geofence around your current position. If your vessel moves outside
-                                        it, you get an <strong className="text-purple-400">instant alert</strong> — even
-                                        at 3 AM.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Card 3: Report */}
-                        <div className="bg-gradient-to-br from-red-500/10 to-orange-500/10 border border-red-500/15 rounded-xl p-4">
-                            <div className="flex items-start gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-red-500/20 flex items-center justify-center shrink-0">
-                                    <span className="text-lg">🚨</span>
-                                </div>
-                                <div>
-                                    <h3 className="text-sm font-black text-white mb-0.5">Report Suspicious</h3>
-                                    <p className="text-xs text-gray-300 leading-relaxed">
-                                        Instantly broadcasts a <strong className="text-amber-400">BOLO alert</strong> to
-                                        all Thalassa users within 5 nautical miles. Look out for each other.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Card 4: Weather */}
-                        <div className="bg-gradient-to-br from-sky-500/10 to-cyan-500/10 border border-sky-500/15 rounded-xl p-4">
-                            <div className="flex items-start gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
-                                    <span className="text-lg">⛈️</span>
-                                </div>
-                                <div>
-                                    <h3 className="text-sm font-black text-white mb-0.5">Weather Broadcast</h3>
-                                    <p className="text-xs text-gray-300 leading-relaxed">
-                                        Spot a squall rolling in? Warn nearby boats with a one-tap{' '}
-                                        <strong className="text-sky-400">weather spike</strong> so everyone can batten
-                                        down the hatches.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
                 {/* ═══ ZONE 1: BAY PRESENCE HERO ═══ */}
                 <div className="relative bg-gradient-to-br from-emerald-500/15 to-sky-500/15 border border-emerald-500/20 rounded-2xl p-5 overflow-hidden">
                     {/* Animated radar pulse */}
@@ -714,7 +607,10 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             {/* ═══ MODAL: PROFILE SETUP ═══ */}
             {showSetup && (
                 <div className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200">
-                    <div className="w-full max-w-lg bg-slate-900 border-t border-white/10 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300 max-h-[85vh] overflow-y-auto">
+                    <div
+                        className="w-full max-w-lg bg-slate-900 border-t border-white/10 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300 max-h-[85vh] overflow-y-auto"
+                        style={{ marginBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                    >
                         <div className="flex items-center justify-between mb-6">
                             <h2 className="text-lg font-black text-white">Guardian Profile</h2>
                             <button
@@ -773,22 +669,6 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                     rows={3}
                                     className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm resize-none"
                                 />
-                            </div>
-                            <div>
-                                <label className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
-                                    MMSI Number <span className="text-gray-500">(9 digits)</span>
-                                </label>
-                                <input
-                                    type="text"
-                                    value={mmsiInput}
-                                    onChange={(e) => setMmsiInput(e.target.value.replace(/\D/g, '').slice(0, 9))}
-                                    placeholder="512345678"
-                                    maxLength={9}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 text-sm font-mono"
-                                />
-                                <p className="text-[10px] text-gray-500 mt-1">
-                                    Links your Thalassa profile to your AIS identity
-                                </p>
                             </div>
                         </div>
 
