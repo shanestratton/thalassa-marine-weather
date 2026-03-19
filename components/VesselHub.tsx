@@ -159,7 +159,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
     return (
         <div
-            className="w-full h-full flex flex-col px-4 pt-4 overflow-hidden animate-in fade-in duration-300 vessel-hub-no-scrollbar"
+            className="w-full h-full flex flex-col px-4 pt-4 overflow-y-auto animate-in fade-in duration-300 vessel-hub-no-scrollbar"
             style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
         >
             {/* ═══════════════════════════════════════════ */}
@@ -414,28 +414,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <ChevronRight />
                     </button>
                 </div>
-
-                {/* Admin Panel — admin-only */}
-                {isAdmin && (
-                    <div className="bg-white/[0.03] border border-amber-500/10 rounded-xl overflow-hidden mt-3">
-                        <button
-                            onClick={() => {
-                                triggerHaptic('medium');
-                                setShowAdminPanel(true);
-                            }}
-                            className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98]"
-                        >
-                            <div className="p-1.5 bg-amber-500/10 rounded-lg">
-                                <span className="text-sm">👑</span>
-                            </div>
-                            <div className="flex-1">
-                                <p className="text-xs font-bold text-amber-400">Admin Panel</p>
-                                <p className="text-[11px] text-gray-400">Manage roles, mute & block users</p>
-                            </div>
-                            <ChevronRight />
-                        </button>
-                    </div>
-                )}
             </div>
 
             {/* Admin Panel Modal */}
