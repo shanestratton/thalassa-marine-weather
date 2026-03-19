@@ -285,7 +285,6 @@ export const LayerFABMenu: React.FC<{
                             { key: 'temperature', label: 'Temp', icon: '🌡️' },
                             { key: 'clouds', label: 'Clouds', icon: '☁️' },
                             { key: 'sea', label: 'Sea Marks', icon: '⚓' },
-                            { key: 'satellite', label: 'Satellite', icon: '🛰️' },
                         ] as const
                     ).map((layer) => {
                         const isActive = layer.key === 'none' ? false : activeLayers.has(layer.key);
