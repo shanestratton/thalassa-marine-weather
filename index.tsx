@@ -1,5 +1,5 @@
 // Sentry must be imported FIRST — before any other app code
-import { captureException, addBreadcrumb } from './services/sentry';
+import { captureException } from './services/sentry';
 
 import React, { ErrorInfo, ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';

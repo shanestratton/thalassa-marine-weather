@@ -9,12 +9,8 @@
  * Typical payload: ~3000–8000 grid points for a continental route.
  */
 
-const getSupabaseUrl = (): string =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-const getSupabaseKey = (): string =>
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+const getSupabaseUrl = (): string => (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+const getSupabaseKey = (): string => (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
 
 import { createLogger } from '../utils/createLogger';
 

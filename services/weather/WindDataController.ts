@@ -136,12 +136,9 @@ export const WindDataController = {
         try {
             // Primary: Supabase GFS GRIB2 edge function (reliable)
             const supabaseUrl =
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
                 'https://pcisdplnodrphauixcau.supabase.co';
-            const supabaseKey =
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+            const supabaseKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
             const edgeUrl = `${supabaseUrl}/functions/v1/fetch-wind-grid`;
 
             const res = await fetch(edgeUrl, {

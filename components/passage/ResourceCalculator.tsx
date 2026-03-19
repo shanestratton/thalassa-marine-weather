@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { VesselProfile, VoyagePlan } from '../../types';
-import { FuelIcon, WaterIcon, FoodIcon, AlertTriangleIcon, GearIcon, WindIcon } from '../Icons';
+import { FuelIcon, WaterIcon, FoodIcon, AlertTriangleIcon, GearIcon } from '../Icons';
 
 /* ───────────────────────────────────────────────────────────
    Provisioning Standards (ISAF / maritime best-practice)

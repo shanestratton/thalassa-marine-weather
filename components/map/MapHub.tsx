@@ -73,7 +73,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     pickerLabel,
 }) => {
     // ── Pin View Mode (from chat pin tap) ──
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const [isPinView, setIsPinView] = useState(!!window.__thalassaPinView);
     const [showVesselSearch, setShowVesselSearch] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -104,7 +104,6 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Re-check pin view when navigating TO the map tab
     useEffect(() => {
         if (currentView === 'map') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const pv = window.__thalassaPinView;
             setIsPinView(!!pv);
         }
@@ -163,7 +162,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                     </div>
                 `;
 
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const mapboxgl = window.mapboxgl || window.maplibregl;
                 if (mapboxgl?.Marker) {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -387,7 +385,6 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
     useEffect(() => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const pv = window.__thalassaPinView as { lat: number; lng: number } | undefined;
         if (!isPinView || !pv || !mapReady || !mapRef.current) return;
         const map = mapRef.current;
@@ -428,7 +425,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {isPinView && (
                     <button
                         onClick={() => {
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             delete window.__thalassaPinView;
                             setIsPinView(false);
                             setPage(previousView || 'chat');
@@ -825,7 +821,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                             </div>
                         `;
 
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         const mapboxglLib = window.mapboxgl || window.maplibregl;
                         if (mapboxglLib?.Marker) {
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -978,11 +973,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                         let dualColor = false;
                         let forecastAccent = '#fbbf24';
 
-                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
                         let onScrub = (_f: number) => {};
                         let onScrubStart: (() => void) | undefined;
                         let onPlayToggle = () => {};
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
                         let applyFrame: ((f: number) => void) | undefined;
 
                         if (activeLayerKey === 'pressure') {

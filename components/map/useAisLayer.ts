@@ -8,7 +8,7 @@
  *
  * Still handles layer visibility toggling.
  */
-import { useEffect, useRef, useCallback, type MutableRefObject } from 'react';
+import { useEffect, useRef, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { AisStore } from '../../services/AisStore';
 

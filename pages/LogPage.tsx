@@ -10,12 +10,11 @@ import { Preferences } from '@capacitor/preferences';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('LogPage');
-import { PlayIcon, StopIcon, CompassIcon, WindIcon, MapPinIcon } from '../components/Icons';
+import { PlayIcon, StopIcon, MapPinIcon } from '../components/Icons';
 import { AddEntryModal } from '../components/AddEntryModal';
 import { useToast } from '../components/Toast';
 import { SlideToAction } from '../components/ui/SlideToAction';
 import { VoyageStatsPanel } from '../components/VoyageStatsPanel';
-import { DateGroupedTimeline } from '../components/DateGroupedTimeline';
 import { EditEntryModal } from '../components/EditEntryModal';
 import { TrackMapViewer } from '../components/TrackMapViewer';
 import { LiveMiniMap } from '../components/LiveMiniMap';
@@ -24,10 +23,8 @@ import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
 import { RegionAutocomplete } from '../components/RegionAutocomplete';
 import { UndoToast } from '../components/ui/UndoToast';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import { groupEntriesByDate } from '../utils/voyageData';
 import { useLogPageState } from '../hooks/useLogPageState';
-import { ShipLogEntry, VoyagePlan } from '../types';
-import { useFollowRoute } from '../context/FollowRouteContext';
+import { ShipLogEntry } from '../types';
 
 import { reverseGeocode } from '../services/weatherService';
 import { reverseGeocodeContext } from '../services/weather/api/geocoding';

@@ -272,7 +272,7 @@ export const ChatPage: React.FC = React.memo(() => {
                 vv.addEventListener('scroll', handleResize);
                 handleResize();
                 // Store cleanup refs on window for the teardown below
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
                 window.__chatKbCleanup = () => {
                     vv.removeEventListener('resize', handleResize);
                     vv.removeEventListener('scroll', handleResize);
@@ -284,9 +284,9 @@ export const ChatPage: React.FC = React.memo(() => {
                 kbShowHandle?.then((h) => h.remove());
                 kbHideHandle?.then((h) => h.remove());
             }
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
             window.__chatKbCleanup?.();
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
             delete window.__chatKbCleanup;
         };
     }, [view]);

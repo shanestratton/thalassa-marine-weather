@@ -64,15 +64,13 @@ const startedAt = Date.now();
 function connect(): void {
     if (isShuttingDown) return;
 
-    // eslint-disable-next-line no-console
     console.log(`[WS] Connecting to AISStream.io...`);
-    // eslint-disable-next-line no-console
+
     console.log(`[WS] Bounding boxes: ${JSON.stringify(BOUNDING_BOXES)}`);
 
     ws = new WebSocket(AISSTREAM_URL);
 
     ws.on('open', () => {
-        // eslint-disable-next-line no-console
         console.log('[WS] Connected! Sending subscription...');
         reconnectAttempts = 0;
 
@@ -84,7 +82,7 @@ function connect(): void {
         };
 
         ws!.send(JSON.stringify(subscription));
-        // eslint-disable-next-line no-console
+
         console.log('[WS] Subscription sent. Listening for AIS messages...');
     });
 
@@ -116,7 +114,7 @@ function scheduleReconnect(): void {
 
     const delay = Math.min(BACKOFF_BASE_MS * Math.pow(2, reconnectAttempts), BACKOFF_MAX_MS);
     reconnectAttempts++;
-    // eslint-disable-next-line no-console
+
     console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts})...`);
 
     reconnectTimer = setTimeout(() => {
@@ -199,7 +197,7 @@ const healthServer = http.createServer((req, res) => {
 function logStats(): void {
     const dbStats = db.getStats();
     const staleSec = Math.round((Date.now() - lastMessageAt) / 1000);
-    // eslint-disable-next-line no-console
+
     console.log(
         `[STATS] Messages: ${messageCount} | ` +
             `Parsed: ${parsedCount} | ` +
@@ -214,7 +212,6 @@ function logStats(): void {
 // ── Graceful shutdown ──
 
 async function shutdown(signal: string): Promise<void> {
-    // eslint-disable-next-line no-console
     console.log(`\n[SHUTDOWN] Received ${signal}. Cleaning up...`);
     isShuttingDown = true;
 
@@ -230,7 +227,7 @@ async function shutdown(signal: string): Promise<void> {
 
     healthServer.close();
     await db.stop(); // Final flush
-    // eslint-disable-next-line no-console
+
     console.log('[SHUTDOWN] Final DB flush complete. Goodbye!');
     process.exit(0);
 }
@@ -240,25 +237,24 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 // ── Main ──
 
-// eslint-disable-next-line no-console
 console.log('═══════════════════════════════════════════════');
-// eslint-disable-next-line no-console
+
 console.log('  Thalassa AIS Ingestion Worker');
-// eslint-disable-next-line no-console
+
 console.log('  AISStream.io → Supabase PostGIS');
-// eslint-disable-next-line no-console
+
 console.log('═══════════════════════════════════════════════');
-// eslint-disable-next-line no-console
+
 console.log(`  Bounding boxes: ${JSON.stringify(BOUNDING_BOXES)}`);
-// eslint-disable-next-line no-console
+
 console.log(`  Flush interval: ${process.env.BATCH_FLUSH_MS || 2000}ms`);
-// eslint-disable-next-line no-console
+
 console.log(`  Batch size: ${process.env.BATCH_MAX_SIZE || 50}`);
-// eslint-disable-next-line no-console
+
 console.log(`  Health check: http://0.0.0.0:${HEALTH_PORT}/health`);
-// eslint-disable-next-line no-console
+
 console.log(`  Stale threshold: ${STALE_THRESHOLD_MS / 1000}s`);
-// eslint-disable-next-line no-console
+
 console.log('═══════════════════════════════════════════════');
 
 db.start();
@@ -271,13 +267,12 @@ const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY;
 if (SUPABASE_URL && SUPABASE_KEY) {
     startWatchdog(SUPABASE_URL, SUPABASE_KEY);
-    // eslint-disable-next-line no-console
+
     console.log('[GUARDIAN] Watchdog started — monitoring armed vessels + geofences');
 } else {
     console.warn('[GUARDIAN] Watchdog disabled — missing SUPABASE_URL or SUPABASE_SERVICE_KEY');
 }
 
 healthServer.listen(HEALTH_PORT, '0.0.0.0', () => {
-    // eslint-disable-next-line no-console
     console.log(`[HEALTH] Listening on port ${HEALTH_PORT}`);
 });

@@ -212,4 +212,22 @@ export default tseslint.config(
             '@typescript-eslint/no-unused-vars': 'off',
         },
     },
+
+    // Services, stores, workers — backend/infra code where console.log is legitimate
+    {
+        files: ['services/**/*.ts', 'stores/**/*.ts', 'workers/**/*.ts', 'context/**/*.ts', 'context/**/*.tsx'],
+        rules: {
+            'no-console': 'off',
+        },
+    },
+
+    // Vessel scraper — standalone CLI tool
+    {
+        files: ['vessel-scraper/**/*.ts'],
+        rules: {
+            'no-console': 'off',
+            '@typescript-eslint/no-explicit-any': 'off',
+            '@typescript-eslint/no-unused-vars': 'off',
+        },
+    },
 );

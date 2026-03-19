@@ -910,7 +910,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
                 sample.push({ x: data[b2], y: data[b2 + 1], age: ages[i] });
             }
             const wind0 = hasWind ? this.sampleWind(data[0], data[1]) : [0, 0];
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
             window.__windDebug = {
                 frame: this._debugFrame,
                 hasWind,
