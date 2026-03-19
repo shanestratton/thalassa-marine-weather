@@ -48,9 +48,9 @@ import { AisLegend } from './AisLegend';
 import { AisGuardAlert } from './AisGuardAlert';
 import { VesselSearch } from './VesselSearch';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
-import { SynopticScrubber } from './SynopticScrubber';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
-import { LayerLegendStrip, LayerFABMenu } from './MapHubOverlays';
+import { LayerFABMenu } from './MapHubOverlays';
+import { ThalassaHelixControl, type HelixLayer } from './ThalassaHelixControl';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 import { PassageDataPanel } from './PassageDataPanel';
 import { WeatherInspectPopup } from './WeatherInspectPopup';
@@ -459,10 +459,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
-                {/* ═══ LAYER LEGEND STRIP ═══ */}
-                {!isPinView && (
-                    <LayerLegendStrip activeLayer={weather.activeLayer} windMaxSpeed={weather.windMaxSpeed} />
-                )}
+                {/* LayerLegendStrip removed — replaced by ThalassaHelixControl */}
 
                 {/* ═══ PRO DATA BAR (Phone / Deck mode during passage) ═══ */}
                 {deviceMode === 'deck' && passage.showPassage && passage.routeAnalysis && !embedded && !isPinView && (
@@ -952,365 +949,109 @@ export const MapHub: React.FC<MapHubProps> = ({
                     </div>
                 )}
 
-                {/* ═══ SYNOPTIC TIMELINE SCRUBBER ═══ */}
-                {!isPinView && weather.activeLayers.has('pressure') && weather.activeLayers.size === 1 && (
-                    <SynopticScrubber
-                        forecastHour={weather.forecastHour}
-                        totalFrames={weather.totalFrames}
-                        framesReady={weather.framesReady}
-                        isPlaying={weather.isPlaying}
-                        onHourChange={(h: number) => {
-                            weather.setForecastHour(h);
-                        }}
-                        onPlayToggle={() => {
-                            weather.setIsPlaying(!weather.isPlaying);
-                            triggerHaptic('light');
-                        }}
-                        onScrubStart={() => {
-                            weather.setIsPlaying(false);
-                        }}
-                        applyFrame={weather.applyFrame}
-                        triggerHaptic={triggerHaptic}
-                    />
-                )}
-
-                {/* ═══ WIND FORECAST SCRUBBER + LEGEND ═══ */}
+                {/* ═══ THALASSA HELIX CONTROL ═══ */}
                 {!isPinView &&
                     weather.activeLayers.size === 1 &&
-                    (weather.activeLayers.has('wind') || weather.activeLayers.has('velocity')) &&
                     (() => {
-                        const fhrs = weather.windForecastHoursRef.current;
-                        const total = weather.windTotalHours;
-                        const curIdx = weather.windHour;
-                        const curPct = total > 1 ? (curIdx / (total - 1)) * 100 : 0;
-                        const actualHour = fhrs[curIdx] ?? curIdx;
-                        const hrLabel = actualHour === 0 ? 'Now' : `+${actualHour}h`;
-                        const showScrubber = weather.windReady && total > 1;
+                        // Determine active layer
+                        const activeLayerKey: HelixLayer = weather.activeLayers.has('pressure')
+                            ? 'pressure'
+                            : weather.activeLayers.has('wind') || weather.activeLayers.has('velocity')
+                              ? 'wind'
+                              : weather.activeLayers.has('rain')
+                                ? 'rain'
+                                : weather.activeLayers.has('temperature')
+                                  ? 'temperature'
+                                  : null;
+
+                        if (!activeLayerKey) return null;
+
+                        // Compute scrubber props based on active layer
+                        let frameIndex = 0;
+                        let totalFrames = 1;
+                        let frameLabel = 'Live';
+                        let sublabel = 'Live';
+                        let isPlaying = false;
+                        let isLoading = false;
+                        let framesReady: number | undefined;
+                        let nowIndex: number | undefined;
+                        let dualColor = false;
+                        let forecastAccent = '#fbbf24';
+
+                        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                        let onScrub = (_f: number) => {};
+                        let onScrubStart: (() => void) | undefined;
+                        let onPlayToggle = () => {};
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        let applyFrame: ((f: number) => void) | undefined;
+
+                        if (activeLayerKey === 'pressure') {
+                            frameIndex = weather.forecastHour;
+                            totalFrames = weather.totalFrames;
+                            framesReady = weather.framesReady;
+                            isPlaying = weather.isPlaying;
+                            const maxF = Math.max(0, totalFrames - 1);
+                            const forecastHrs = maxF > 0 ? (frameIndex / maxF) * 12 : 0;
+                            frameLabel =
+                                frameIndex === 0
+                                    ? 'Now'
+                                    : `+${forecastHrs % 1 === 0 ? forecastHrs : forecastHrs.toFixed(1)}h`;
+                            sublabel = frameIndex === 0 ? 'Current' : 'Forecast';
+                            onScrub = (h: number) => weather.setForecastHour(h);
+                            onPlayToggle = () => weather.setIsPlaying(!weather.isPlaying);
+                            onScrubStart = () => weather.setIsPlaying(false);
+                            applyFrame = weather.applyFrame;
+                        } else if (activeLayerKey === 'wind') {
+                            const fhrs = weather.windForecastHoursRef.current;
+                            frameIndex = weather.windHour;
+                            totalFrames = weather.windTotalHours;
+                            const actualHour = fhrs[frameIndex] ?? frameIndex;
+                            frameLabel = actualHour === 0 ? 'Now' : `+${actualHour}h`;
+                            sublabel = actualHour === 0 ? 'Current' : 'Forecast';
+                            isPlaying = weather.windPlaying;
+                            onScrub = (idx: number) => weather.setWindHour(idx);
+                            onPlayToggle = () => weather.setWindPlaying(!weather.windPlaying);
+                            onScrubStart = () => weather.setWindPlaying(false);
+                        } else if (activeLayerKey === 'rain') {
+                            if (weather.rainLoading) {
+                                isLoading = true;
+                            } else if (weather.rainReady && weather.rainFrameCount > 1) {
+                                frameIndex = weather.rainFrameIndex;
+                                totalFrames = weather.rainFrameCount;
+                                nowIndex = weather.rainNowIdxRef.current;
+                                const curFrame = weather.unifiedFramesRef.current[weather.rainFrameIndex];
+                                const isForecast = curFrame?.type === 'forecast';
+                                frameLabel = curFrame?.label ?? '--';
+                                sublabel = isForecast ? 'Forecast' : 'Radar';
+                                isPlaying = weather.rainPlaying;
+                                dualColor = true;
+                                forecastAccent = '#fbbf24';
+                                onScrub = (idx: number) => weather.setRainFrameIndex(idx);
+                                onPlayToggle = () => weather.setRainPlaying(!weather.rainPlaying);
+                                onScrubStart = () => weather.setRainPlaying(false);
+                            }
+                        }
+                        // temperature: no scrubber, just legend (totalFrames stays 1)
+
                         return (
-                            <div
-                                className="absolute left-4 right-4 z-[500]"
-                                style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}
-                            >
-                                <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-1.5">
-                                    {/* Scrubber row */}
-                                    {showScrubber && (
-                                        <div className="flex items-center gap-3 mb-2">
-                                            <button
-                                                onClick={() => {
-                                                    weather.setWindPlaying(!weather.windPlaying);
-                                                    triggerHaptic('light');
-                                                }}
-                                                className="w-8 h-8 flex items-center justify-center rounded-xl bg-sky-500/20 border border-sky-500/30 shrink-0 active:scale-90 transition-transform"
-                                            >
-                                                <span className="text-sm">{weather.windPlaying ? '⏸' : '▶️'}</span>
-                                            </button>
-
-                                            <div
-                                                className="flex-1 relative h-10 flex items-center cursor-pointer"
-                                                style={{ touchAction: 'none' }}
-                                                onPointerDown={(e) => {
-                                                    e.preventDefault();
-                                                    e.stopPropagation();
-                                                    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-                                                    const rect = e.currentTarget.getBoundingClientRect();
-                                                    const ratio = Math.max(
-                                                        0,
-                                                        Math.min(1, (e.clientX - rect.left) / rect.width),
-                                                    );
-                                                    const idx = Math.round(ratio * (total - 1));
-                                                    weather.setWindPlaying(false);
-                                                    weather.setWindHour(idx);
-                                                    triggerHaptic('light');
-                                                }}
-                                                onPointerMove={(e) => {
-                                                    if (e.buttons === 0) return;
-                                                    const rect = e.currentTarget.getBoundingClientRect();
-                                                    const ratio = Math.max(
-                                                        0,
-                                                        Math.min(1, (e.clientX - rect.left) / rect.width),
-                                                    );
-                                                    const idx = Math.round(ratio * (total - 1));
-                                                    weather.setWindPlaying(false);
-                                                    weather.setWindHour(idx);
-                                                }}
-                                            >
-                                                {/* Track background */}
-                                                <div className="w-full h-1.5 bg-white/10 rounded-full relative overflow-hidden">
-                                                    {/* Progress fill */}
-                                                    <div
-                                                        className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-75"
-                                                        style={{
-                                                            width: `${curPct}%`,
-                                                            background:
-                                                                actualHour === 0
-                                                                    ? 'rgba(56, 189, 248, 0.5)'
-                                                                    : 'linear-gradient(90deg, rgba(56,189,248,0.5), rgba(251,191,36,0.5))',
-                                                        }}
-                                                    />
-                                                </div>
-
-                                                {/* "Now" marker at 0% */}
-                                                {total > 2 && (
-                                                    <div
-                                                        className="absolute top-1/2 pointer-events-none flex flex-col items-center"
-                                                        style={{ left: '0%', transform: 'translate(-50%, -50%)' }}
-                                                    >
-                                                        <div className="w-2.5 h-2.5 bg-white rounded-sm rotate-45 shadow-md shadow-white/20 border border-white/60" />
-                                                    </div>
-                                                )}
-
-                                                {/* Scrubber thumb */}
-                                                <div
-                                                    className="absolute top-1/2 w-5 h-5 rounded-full shadow-lg border-2 border-white/40 pointer-events-none transition-colors duration-200"
-                                                    style={{
-                                                        left: `${curPct}%`,
-                                                        transform: 'translate(-50%, -50%)',
-                                                        background: actualHour === 0 ? '#38bdf8' : '#fbbf24',
-                                                        boxShadow:
-                                                            actualHour === 0
-                                                                ? '0 4px 12px rgba(56,189,248,0.3)'
-                                                                : '0 4px 12px rgba(251,191,36,0.3)',
-                                                    }}
-                                                />
-                                            </div>
-
-                                            {/* Time label */}
-                                            <div className="shrink-0 text-right min-w-[52px]">
-                                                <p className="text-xs font-black text-white leading-tight">{hrLabel}</p>
-                                                <p
-                                                    className={`text-[11px] font-black uppercase tracking-widest leading-tight mt-0.5 ${actualHour === 0 ? 'text-sky-400/70' : 'text-amber-400'}`}
-                                                >
-                                                    {actualHour === 0 ? 'Current' : '⬤ Forecast'}
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Wind speed legend */}
-                                    <div className="flex items-center gap-1.5 px-1">
-                                        <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">
-                                            Calm
-                                        </span>
-                                        <div
-                                            className="flex-1 h-1.5 rounded-full overflow-hidden"
-                                            style={{
-                                                background:
-                                                    'linear-gradient(to right, #8ca5c7, #a8b08c, #d9bf80, #d9a060, #cc6650, #e05a50)',
-                                            }}
-                                        />
-                                        <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">
-                                            Storm
-                                        </span>
-                                    </div>
-                                    <div className="flex justify-between px-1 mt-1">
-                                        {['0', '5', '10', '15', '20', '25', '35+'].map((l) => (
-                                            <span key={l} className="text-[7px] font-semibold text-white/30">
-                                                {l}
-                                            </span>
-                                        ))}
-                                    </div>
-                                    <div className="flex justify-center mt-0.5">
-                                        <span className="text-[8px] font-bold text-white/30 uppercase tracking-widest">
-                                            Wind Speed (kts)
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })()}
-
-                {/* ═══ TEMPERATURE LEGEND ═══ */}
-                {!isPinView && weather.activeLayers.has('temperature') && weather.activeLayers.size === 1 && (
-                    <div
-                        className="absolute left-4 right-4 z-[500]"
-                        style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}
-                    >
-                        <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-2.5">
-                            <div className="flex items-center gap-1.5 px-1">
-                                <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">
-                                    Cold
-                                </span>
-                                <div
-                                    className="flex-1 h-1.5 rounded-full overflow-hidden"
-                                    style={{
-                                        background:
-                                            'linear-gradient(to right, #1a0033, #0000cd, #00bfff, #90ee90, #ffff00, #ff8c00, #ff0000, #4a0000)',
-                                    }}
-                                />
-                                <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">Hot</span>
-                            </div>
-                            <div className="flex justify-between px-1 mt-1">
-                                {['-10°', '0°', '10°', '20°', '30°', '40°'].map((l) => (
-                                    <span key={l} className="text-[7px] font-semibold text-white/30">
-                                        {l}
-                                    </span>
-                                ))}
-                            </div>
-                            <div className="flex justify-center mt-0.5">
-                                <span className="text-[8px] font-bold text-white/30 uppercase tracking-widest">
-                                    Temperature (°C)
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* ═══ RAIN LOADING ═══ */}
-                {!isPinView &&
-                    weather.activeLayers.has('rain') &&
-                    weather.activeLayers.size === 1 &&
-                    weather.rainLoading && (
-                        <div
-                            className="absolute left-4 right-4 z-[500]"
-                            style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}
-                        >
-                            <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-3 flex items-center justify-center gap-3">
-                                <div className="w-4 h-4 border-2 border-emerald-400/60 border-t-transparent rounded-full animate-spin" />
-                                <span className="text-xs font-bold text-emerald-400/80">
-                                    Loading rain radar &amp; forecast…
-                                </span>
-                            </div>
-                        </div>
-                    )}
-
-                {/* ═══ UNIFIED RAIN + FORECAST SCRUBBER ═══ */}
-                {!isPinView &&
-                    weather.activeLayers.has('rain') &&
-                    weather.activeLayers.size === 1 &&
-                    weather.rainReady &&
-                    weather.rainFrameCount > 1 &&
-                    (() => {
-                        const nowIdx = weather.rainNowIdxRef.current;
-                        const total = Math.max(1, weather.rainFrameCount - 1);
-                        const nowPct = (nowIdx / total) * 100;
-                        const curPct = (weather.rainFrameIndex / total) * 100;
-                        const curFrame = weather.unifiedFramesRef.current[weather.rainFrameIndex];
-                        const isForecast = curFrame?.type === 'forecast';
-                        const curLabel = curFrame?.label ?? '--';
-                        return (
-                            <div
-                                className="absolute left-4 right-4 z-[500]"
-                                style={{ bottom: embedded ? 8 : 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}
-                            >
-                                <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
-                                    <button
-                                        onClick={() => {
-                                            weather.setRainPlaying(!weather.rainPlaying);
-                                            triggerHaptic('light');
-                                        }}
-                                        className="w-8 h-8 flex items-center justify-center rounded-xl bg-emerald-500/20 border border-emerald-500/30 shrink-0 active:scale-90 transition-transform"
-                                    >
-                                        <span className="text-sm">{weather.rainPlaying ? '⏸' : '▶️'}</span>
-                                    </button>
-
-                                    <div
-                                        className="flex-1 relative h-10 flex items-center cursor-pointer"
-                                        style={{ touchAction: 'none' }}
-                                        onPointerDown={(e) => {
-                                            e.preventDefault();
-                                            e.stopPropagation();
-                                            (e.target as HTMLElement).setPointerCapture(e.pointerId);
-                                            const rect = e.currentTarget.getBoundingClientRect();
-                                            const ratio = Math.max(
-                                                0,
-                                                Math.min(1, (e.clientX - rect.left) / rect.width),
-                                            );
-                                            const idx = Math.round(ratio * (weather.rainFrameCount - 1));
-                                            weather.setRainPlaying(false);
-                                            weather.setRainFrameIndex(idx);
-                                            triggerHaptic('light');
-                                        }}
-                                        onPointerMove={(e) => {
-                                            if (e.buttons === 0) return;
-                                            const rect = e.currentTarget.getBoundingClientRect();
-                                            const ratio = Math.max(
-                                                0,
-                                                Math.min(1, (e.clientX - rect.left) / rect.width),
-                                            );
-                                            const idx = Math.round(ratio * (weather.rainFrameCount - 1));
-                                            weather.setRainPlaying(false);
-                                            weather.setRainFrameIndex(idx);
-                                        }}
-                                    >
-                                        {/* Dual-colour track: emerald for radar (past), amber for forecast (future) */}
-                                        <div className="w-full h-1.5 bg-white/10 rounded-full relative overflow-hidden">
-                                            {/* Radar progress (emerald) */}
-                                            <div
-                                                className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-75"
-                                                style={{
-                                                    width: `${Math.min(curPct, nowPct)}%`,
-                                                    background: 'rgba(52, 211, 153, 0.5)',
-                                                }}
-                                            />
-                                            {/* Forecast progress (amber) — only shows past Now */}
-                                            {isForecast && (
-                                                <div
-                                                    className="absolute inset-y-0 rounded-full transition-[width] duration-75"
-                                                    style={{
-                                                        left: `${nowPct}%`,
-                                                        width: `${curPct - nowPct}%`,
-                                                        background: 'rgba(251, 191, 36, 0.5)',
-                                                    }}
-                                                />
-                                            )}
-                                        </div>
-
-                                        {/* NOW diamond marker */}
-                                        {nowIdx > 0 && nowIdx < weather.rainFrameCount - 1 && (
-                                            <div
-                                                className="absolute top-1/2 pointer-events-none flex flex-col items-center"
-                                                style={{ left: `${nowPct}%`, transform: 'translate(-50%, -50%)' }}
-                                            >
-                                                <div className="w-2.5 h-2.5 bg-white rounded-sm rotate-45 shadow-md shadow-white/20 border border-white/60" />
-                                            </div>
-                                        )}
-
-                                        {/* Scrubber thumb — colour matches current mode */}
-                                        <div
-                                            className="absolute top-1/2 w-5 h-5 rounded-full shadow-lg border-2 border-white/40 pointer-events-none transition-colors duration-200"
-                                            style={{
-                                                left: `${curPct}%`,
-                                                transform: 'translate(-50%, -50%)',
-                                                background: isForecast ? '#fbbf24' : '#34d399',
-                                                boxShadow: isForecast
-                                                    ? '0 4px 12px rgba(251,191,36,0.3)'
-                                                    : '0 4px 12px rgba(52,211,153,0.3)',
-                                            }}
-                                        />
-                                    </div>
-
-                                    {/* Time label + type badge */}
-                                    <div className="shrink-0 text-right min-w-[58px]">
-                                        <p className="text-xs font-black text-white leading-tight">
-                                            {curLabel === 'Now' ? 'Now' : curLabel}
-                                        </p>
-                                        <p
-                                            className={`text-[11px] font-black uppercase tracking-widest leading-tight mt-0.5 ${
-                                                isForecast ? 'text-amber-400' : 'text-emerald-400/70'
-                                            }`}
-                                        >
-                                            {isForecast ? '⬤ Forecast' : 'Radar'}
-                                        </p>
-                                    </div>
-                                </div>
-
-                                {/* Rain intensity legend */}
-                                <div className="mt-1.5 flex items-center gap-1.5 px-1">
-                                    <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">
-                                        Light
-                                    </span>
-                                    <div
-                                        className="flex-1 h-1.5 rounded-full overflow-hidden"
-                                        style={{
-                                            background:
-                                                'linear-gradient(to right, rgba(0,72,120,0.9), rgba(0,150,210,0.9), rgba(56,190,230,0.9), rgba(130,220,235,0.9), rgba(250,235,0,0.9), rgba(250,180,0,0.9), rgba(200,0,0,0.95), rgba(143,0,0,1))',
-                                        }}
-                                    />
-                                    <span className="text-[8px] font-bold text-white/40 uppercase tracking-wider">
-                                        Heavy
-                                    </span>
-                                </div>
-                            </div>
+                            <ThalassaHelixControl
+                                activeLayer={activeLayerKey}
+                                frameIndex={frameIndex}
+                                totalFrames={totalFrames}
+                                frameLabel={frameLabel}
+                                sublabel={sublabel}
+                                isPlaying={isPlaying}
+                                isLoading={isLoading}
+                                framesReady={framesReady}
+                                embedded={embedded}
+                                onScrub={onScrub}
+                                onScrubStart={onScrubStart}
+                                onPlayToggle={onPlayToggle}
+                                applyFrame={applyFrame}
+                                nowIndex={nowIndex}
+                                dualColor={dualColor}
+                                forecastAccent={forecastAccent}
+                            />
                         );
                     })()}
             </div>
