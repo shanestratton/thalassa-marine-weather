@@ -144,20 +144,20 @@ export const MaritimeIntelCard: React.FC = React.memo(() => {
         [articles.length, showDeepDive, resetAutoRotate],
     );
 
-    const openArticle = useCallback((url: string) => {
+    const openArticle = useCallback(async (url: string) => {
         triggerHaptic('light');
-        // Use InAppBrowser if on Capacitor, otherwise window.open
         try {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const win = window as any;
-            if (win.cordova?.InAppBrowser) {
-                win.cordova.InAppBrowser.open(url, '_blank', 'location=yes');
-                return;
-            }
+            const { Browser } = await import('@capacitor/browser');
+            await Browser.open({
+                url,
+                presentationStyle: 'popover', // iOS modal overlay
+                toolbarColor: '#0f172a', // Match Thalassa dark theme
+                windowName: '_blank', // Triggers SFSafariViewController
+            });
         } catch {
-            /* fallback */
+            // Web fallback
+            window.open(url, '_blank', 'noopener,noreferrer');
         }
-        window.open(url, '_blank', 'noopener,noreferrer');
     }, []);
 
     const timeAgo = (dateStr: string): string => {
