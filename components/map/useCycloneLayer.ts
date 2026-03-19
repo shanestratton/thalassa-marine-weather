@@ -1,10 +1,12 @@
 /**
  * useCycloneLayer — Renders active tropical cyclones on the Mapbox map.
  *
- * Storm markers use DOM-based mapboxgl.Marker so they render ABOVE
- * the wind particle overlay (which is a separate Leaflet div).
+ * ALL elements render as DOM overlays ABOVE the wind particle layer:
+ *   - Storm markers: mapboxgl.Marker (DOM, z-index 500)
+ *   - Track lines: SVG overlay (DOM, z-index 450)
  *
- * Track lines use standard Mapbox GL layers (underneath wind is fine).
+ * The wind particle layer is a Leaflet overlay at z-index 400,
+ * so everything here sits cleanly above it.
  */
 
 import { useEffect, useRef } from 'react';
@@ -34,31 +36,12 @@ function categoryColor(cat: number): string {
     }
 }
 
-// ── GeoJSON builder for track lines ───────────────────────
-
-function buildTrackGeoJSON(cyclones: ActiveCyclone[]): GeoJSON.FeatureCollection {
-    const features: GeoJSON.Feature[] = cyclones.map((c) => ({
-        type: 'Feature',
-        properties: {
-            name: c.name,
-            category: c.category,
-            color: categoryColor(c.category),
-        },
-        geometry: {
-            type: 'LineString',
-            coordinates: c.track.map((p) => [p.lon, p.lat]),
-        },
-    }));
-    return { type: 'FeatureCollection', features };
-}
-
 // ── Create DOM marker for a cyclone ───────────────────────
 
 function createStormMarkerEl(cyclone: ActiveCyclone): HTMLElement {
     const color = categoryColor(cyclone.category);
     const { windKts, pressureMb } = cyclone.currentPosition;
 
-    // Build info string
     const catStr =
         cyclone.category > 0
             ? `Cat ${cyclone.categoryLabel} · ${windKts ?? '?'} kts${pressureMb ? ` · ${pressureMb} hPa` : ''}`
@@ -71,18 +54,24 @@ function createStormMarkerEl(cyclone: ActiveCyclone): HTMLElement {
         flex-direction: column;
         align-items: center;
         pointer-events: none;
-        filter: drop-shadow(0 2px 8px rgba(0,0,0,0.6));
+        z-index: 500;
+        filter: drop-shadow(0 2px 12px rgba(0,0,0,0.8));
     `;
 
     el.innerHTML = `
         <div style="
-            font-size: 13px;
+            font-size: 14px;
             font-weight: 800;
             color: #fff;
-            text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+            text-shadow: 0 1px 6px rgba(0,0,0,1), 0 0 12px rgba(0,0,0,0.8);
             letter-spacing: 0.5px;
             margin-bottom: 4px;
             white-space: nowrap;
+            background: rgba(0,0,0,0.55);
+            padding: 2px 10px;
+            border-radius: 8px;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
         ">${cyclone.name}</div>
         <div style="
             position: relative;
@@ -117,10 +106,16 @@ function createStormMarkerEl(cyclone: ActiveCyclone): HTMLElement {
         </div>
         <div style="
             font-size: 11px;
-            color: rgba(255,255,255,0.8);
-            text-shadow: 0 1px 3px rgba(0,0,0,0.9);
-            margin-top: 3px;
+            font-weight: 600;
+            color: #fff;
+            text-shadow: 0 1px 4px rgba(0,0,0,1);
+            margin-top: 4px;
             white-space: nowrap;
+            background: rgba(0,0,0,0.6);
+            padding: 3px 10px;
+            border-radius: 8px;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
         ">${catStr}</div>
     `;
 
@@ -143,10 +138,83 @@ function injectCycloneCSS() {
     document.head.appendChild(style);
 }
 
-// ── Source & Layer IDs (track lines only) ─────────────────
+// ── SVG Track Line Overlay ────────────────────────────────
 
-const SRC_TRACKS = 'cyclone-tracks';
-const LYR_TRACK_LINE = 'cyclone-track-line';
+/**
+ * Creates and manages an SVG overlay div positioned above the wind particles
+ * (z-index 450) that draws storm track lines.
+ */
+function createTrackOverlay(map: mapboxgl.Map): {
+    update: (cyclones: ActiveCyclone[]) => void;
+    remove: () => void;
+} {
+    const container = map.getContainer();
+
+    // Create SVG overlay div
+    const div = document.createElement('div');
+    div.style.cssText = `
+        position: absolute;
+        inset: 0;
+        z-index: 450;
+        pointer-events: none;
+        overflow: hidden;
+    `;
+    container.appendChild(div);
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.style.cssText = 'width: 100%; height: 100%;';
+    div.appendChild(svg);
+
+    let storedCyclones: ActiveCyclone[] = [];
+
+    const redraw = () => {
+        // Clear SVG
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+        const rect = container.getBoundingClientRect();
+        svg.setAttribute('viewBox', `0 0 ${rect.width} ${rect.height}`);
+
+        for (const c of storedCyclones) {
+            if (c.track.length < 2) continue;
+
+            const color = categoryColor(c.category);
+
+            // Convert geo coords to screen pixels
+            const points = c.track
+                .map((p) => {
+                    const px = map.project([p.lon, p.lat]);
+                    return `${px.x},${px.y}`;
+                })
+                .join(' ');
+
+            const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+            polyline.setAttribute('points', points);
+            polyline.setAttribute('fill', 'none');
+            polyline.setAttribute('stroke', color);
+            polyline.setAttribute('stroke-width', '3');
+            polyline.setAttribute('stroke-dasharray', '10,6');
+            polyline.setAttribute('stroke-opacity', '0.8');
+            polyline.setAttribute('stroke-linecap', 'round');
+            svg.appendChild(polyline);
+        }
+    };
+
+    // Redraw on every map move/zoom
+    map.on('move', redraw);
+    map.on('resize', redraw);
+
+    return {
+        update(cyclones: ActiveCyclone[]) {
+            storedCyclones = cyclones;
+            redraw();
+        },
+        remove() {
+            map.off('move', redraw);
+            map.off('resize', redraw);
+            if (div.parentNode) div.parentNode.removeChild(div);
+        },
+    };
+}
 
 // ── Hook ──────────────────────────────────────────────────
 
@@ -158,10 +226,10 @@ export function useCycloneLayer(
     userLon: number,
     onClosestStorm?: (storm: ActiveCyclone | null) => void,
 ) {
-    const layersCreated = useRef(false);
     const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
     const hasFlown = useRef(false);
     const markersRef = useRef<mapboxgl.Marker[]>([]);
+    const trackOverlayRef = useRef<ReturnType<typeof createTrackOverlay> | null>(null);
     const userLatRef = useRef(userLat);
     const userLonRef = useRef(userLon);
     const onClosestStormRef = useRef(onClosestStorm);
@@ -175,13 +243,12 @@ export function useCycloneLayer(
         if (!map || !mapReady) return;
 
         if (!visible) {
-            // Hide track layer
-            if (map.getLayer(LYR_TRACK_LINE)) {
-                map.setLayoutProperty(LYR_TRACK_LINE, 'visibility', 'none');
-            }
             // Remove DOM markers
             for (const m of markersRef.current) m.remove();
             markersRef.current = [];
+            // Remove track overlay
+            trackOverlayRef.current?.remove();
+            trackOverlayRef.current = null;
             hasFlown.current = false;
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
@@ -193,33 +260,9 @@ export function useCycloneLayer(
         // Inject pulse CSS
         injectCycloneCSS();
 
-        // Create track source/layer once
-        if (!layersCreated.current) {
-            const empty: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
-            if (!map.getSource(SRC_TRACKS)) {
-                map.addSource(SRC_TRACKS, { type: 'geojson', data: empty });
-            }
-            if (!map.getLayer(LYR_TRACK_LINE)) {
-                map.addLayer({
-                    id: LYR_TRACK_LINE,
-                    type: 'line',
-                    source: SRC_TRACKS,
-                    paint: {
-                        'line-color': ['get', 'color'],
-                        'line-width': 2.5,
-                        'line-opacity': 0.7,
-                        'line-dasharray': [3, 2],
-                    },
-                    layout: { visibility: 'visible' },
-                });
-            }
-            layersCreated.current = true;
-            console.info('[CYCLONE] Track layer created');
-        }
-
-        // Show track layer
-        if (map.getLayer(LYR_TRACK_LINE)) {
-            map.setLayoutProperty(LYR_TRACK_LINE, 'visibility', 'visible');
+        // Create track overlay (SVG above wind)
+        if (!trackOverlayRef.current) {
+            trackOverlayRef.current = createTrackOverlay(map);
         }
 
         // Fetch and render
@@ -238,15 +281,14 @@ export function useCycloneLayer(
                     return;
                 }
 
-                // Update track source
-                const trackSrc = map.getSource(SRC_TRACKS) as mapboxgl.GeoJSONSource;
-                if (trackSrc) trackSrc.setData(buildTrackGeoJSON(cyclones));
+                // Update track SVG overlay
+                trackOverlayRef.current?.update(cyclones);
 
                 // Remove old DOM markers
                 for (const m of markersRef.current) m.remove();
                 markersRef.current = [];
 
-                // Create new DOM markers (renders above wind overlay!)
+                // Create new DOM markers (z-index 500, above wind at 400)
                 for (const c of cyclones) {
                     const el = createStormMarkerEl(c);
                     const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
@@ -287,9 +329,11 @@ export function useCycloneLayer(
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
             }
-            // Clean up markers on unmount
+            // Clean up
             for (const m of markersRef.current) m.remove();
             markersRef.current = [];
+            trackOverlayRef.current?.remove();
+            trackOverlayRef.current = null;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visible, mapReady]);
