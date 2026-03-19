@@ -203,57 +203,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         </p>
                     </button>
 
-                    {/* Log Book Card */}
-                    <button
-                        onClick={() => {
-                            triggerHaptic('light');
-                            onNavigate('details');
-                        }}
-                        className="stagger-item bg-gradient-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]"
-                    >
-                        <div className="p-1.5 rounded-lg bg-white/5 inline-block mb-1.5 group-hover:bg-white/10 transition-colors">
-                            <svg
-                                className="w-4 h-4 text-sky-400"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={1.5}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
-                                />
-                            </svg>
-                        </div>
-                        <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Log Book</h4>
-                        <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">
-                            Voyage Entries
-                        </p>
-                    </button>
-
-                    {/* Passage Planning Card */}
-                    <button
-                        onClick={() => {
-                            if (isObserver) return;
-                            triggerHaptic('light');
-                            onNavigate('route');
-                        }}
-                        className={`stagger-item bg-gradient-to-br ${isObserver ? 'from-slate-800/40 to-slate-800/40 border-white/5 opacity-40 cursor-not-allowed' : 'from-emerald-500/15 to-emerald-500/15 border-emerald-500/20 hover:scale-[1.02]'} border rounded-xl p-3 text-left group transition-all active:scale-[0.98]`}
-                    >
-                        <div className="p-1.5 rounded-lg bg-white/5 inline-block mb-1.5 group-hover:bg-white/10 transition-colors">
-                            <div className="text-emerald-400">
-                                <CompassIcon />
-                            </div>
-                        </div>
-                        <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Passages</h4>
-                        <p
-                            className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${isObserver ? 'text-gray-400' : 'text-emerald-400'}`}
-                        >
-                            {isObserver ? 'Vessel Required' : 'Route Plan'}
-                        </p>
-                    </button>
-
                     {/* 🛡️ Guardian Card — Maritime Neighborhood Watch */}
                     <button
                         onClick={() => {
@@ -280,6 +229,57 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Guardian</h4>
                         <p className="text-[11px] text-amber-400 font-bold uppercase tracking-widest mt-0.5">
                             Bay Watch
+                        </p>
+                    </button>
+
+                    {/* Passage Planning Card */}
+                    <button
+                        onClick={() => {
+                            if (isObserver) return;
+                            triggerHaptic('light');
+                            onNavigate('route');
+                        }}
+                        className={`stagger-item bg-gradient-to-br ${isObserver ? 'from-slate-800/40 to-slate-800/40 border-white/5 opacity-40 cursor-not-allowed' : 'from-emerald-500/15 to-emerald-500/15 border-emerald-500/20 hover:scale-[1.02]'} border rounded-xl p-3 text-left group transition-all active:scale-[0.98]`}
+                    >
+                        <div className="p-1.5 rounded-lg bg-white/5 inline-block mb-1.5 group-hover:bg-white/10 transition-colors">
+                            <div className="text-emerald-400">
+                                <CompassIcon />
+                            </div>
+                        </div>
+                        <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Passages</h4>
+                        <p
+                            className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${isObserver ? 'text-gray-400' : 'text-emerald-400'}`}
+                        >
+                            {isObserver ? 'Vessel Required' : 'Route Plan'}
+                        </p>
+                    </button>
+
+                    {/* Log Book Card */}
+                    <button
+                        onClick={() => {
+                            triggerHaptic('light');
+                            onNavigate('details');
+                        }}
+                        className="stagger-item bg-gradient-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]"
+                    >
+                        <div className="p-1.5 rounded-lg bg-white/5 inline-block mb-1.5 group-hover:bg-white/10 transition-colors">
+                            <svg
+                                className="w-4 h-4 text-sky-400"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
+                                />
+                            </svg>
+                        </div>
+                        <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Log Book</h4>
+                        <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">
+                            Voyage Entries
                         </p>
                     </button>
                 </div>

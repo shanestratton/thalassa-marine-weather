@@ -98,6 +98,7 @@ function isCriticalType(type: string): boolean {
         'suspicious_alert', // Suspicious activity reported — safety critical
         'drag_warning', // Neighbor dragging anchor — safety critical
         'geofence_alert', // Vessel left home geofence — safety critical
+        'severe_weather_alert', // 50kt+ wind / extreme conditions — safety critical
     ].includes(type);
 }
 
