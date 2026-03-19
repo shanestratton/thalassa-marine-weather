@@ -22,78 +22,90 @@ import { DisclaimerOverlay } from './modules/DisclaimerOverlay';
 // ChatService and PushNotificationService loaded dynamically in useEffects below
 
 // --- LAZY LOAD HEAVY COMPONENTS ---
-// Retry wrapper: if a dynamic import fails (stale Vite module hash after HMR/restart),
-// reload the page once to fetch fresh module URLs. Prevents "Failed to fetch dynamically
-// imported module" errors from crashing the app.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function lazyRetry<T extends React.ComponentType<any>>(
-    factory: () => Promise<{ default: T }>,
-): React.LazyExoticComponent<T> {
-    return React.lazy(() =>
-        factory().catch((err: Error) => {
-            // Only retry once per session to avoid infinite reload loops
-            const key = 'lazyRetryReloaded';
-            if (!sessionStorage.getItem(key)) {
-                sessionStorage.setItem(key, '1');
-                window.location.reload();
-                // Return a never-resolving promise to stop React rendering during reload
-                return new Promise<{ default: T }>(() => {});
-            }
-            // If we already retried, re-throw so ErrorBoundary catches it
-            sessionStorage.removeItem(key);
-            throw err;
-        }),
-    );
-}
+import { lazyRetry } from './utils/lazyRetry';
 
-const VoyagePlanner = lazyRetry(() =>
-    import('./components/RoutePlanner').then((module) => ({ default: module.RoutePlanner })),
+const VoyagePlanner = lazyRetry(
+    () => import('./components/RoutePlanner').then((module) => ({ default: module.RoutePlanner })),
+    'RoutePlanner',
 );
-const SettingsView = lazyRetry(() =>
-    import('./components/SettingsModal').then((module) => ({ default: module.SettingsView })),
+const SettingsView = lazyRetry(
+    () => import('./components/SettingsModal').then((module) => ({ default: module.SettingsView })),
+    'SettingsView',
 );
-const UpgradeModal = lazyRetry(() =>
-    import('./components/UpgradeModal').then((module) => ({ default: module.UpgradeModal })),
+const UpgradeModal = lazyRetry(
+    () => import('./components/UpgradeModal').then((module) => ({ default: module.UpgradeModal })),
+    'UpgradeModal',
 );
-const VesselHub = lazyRetry(() => import('./components/VesselHub').then((module) => ({ default: module.VesselHub })));
-const InventoryPage = lazyRetry(() =>
-    import('./components/vessel/InventoryList').then((m) => ({ default: m.InventoryList })),
+const VesselHub = lazyRetry(
+    () => import('./components/VesselHub').then((module) => ({ default: module.VesselHub })),
+    'VesselHub',
 );
-const MaintenancePage = lazyRetry(() =>
-    import('./components/vessel/MaintenanceHub').then((m) => ({ default: m.MaintenanceHub })),
+const InventoryPage = lazyRetry(
+    () => import('./components/vessel/InventoryList').then((m) => ({ default: m.InventoryList })),
+    'InventoryList',
 );
-const EquipmentPage = lazyRetry(() =>
-    import('./components/vessel/EquipmentList').then((m) => ({ default: m.EquipmentList })),
+const MaintenancePage = lazyRetry(
+    () => import('./components/vessel/MaintenanceHub').then((m) => ({ default: m.MaintenanceHub })),
+    'MaintenanceHub',
 );
-const DocumentsPage = lazyRetry(() =>
-    import('./components/vessel/DocumentsHub').then((m) => ({ default: m.DocumentsHub })),
+const EquipmentPage = lazyRetry(
+    () => import('./components/vessel/EquipmentList').then((m) => ({ default: m.EquipmentList })),
+    'EquipmentList',
 );
-const NmeaGatewayPage = lazyRetry(() => import('./components/vessel/NmeaPage').then((m) => ({ default: m.NmeaPage })));
-const PolarPage = lazyRetry(() => import('./components/vessel/PolarPage').then((m) => ({ default: m.PolarPage })));
+const DocumentsPage = lazyRetry(
+    () => import('./components/vessel/DocumentsHub').then((m) => ({ default: m.DocumentsHub })),
+    'DocumentsHub',
+);
+const NmeaGatewayPage = lazyRetry(
+    () => import('./components/vessel/NmeaPage').then((m) => ({ default: m.NmeaPage })),
+    'NmeaPage',
+);
+const PolarPage = lazyRetry(
+    () => import('./components/vessel/PolarPage').then((m) => ({ default: m.PolarPage })),
+    'PolarPage',
+);
 
-const MapHub = lazyRetry(() => import('./components/map/MapHub').then((m) => ({ default: m.MapHub })));
-const OnboardingWizard = lazyRetry(() =>
-    import('./components/OnboardingWizard').then((module) => ({ default: module.OnboardingWizard })),
+const MapHub = lazyRetry(() => import('./components/map/MapHub').then((m) => ({ default: m.MapHub })), 'MapHub');
+const OnboardingWizard = lazyRetry(
+    () => import('./components/OnboardingWizard').then((module) => ({ default: module.OnboardingWizard })),
+    'OnboardingWizard',
 );
-const WarningDetails = lazyRetry(() =>
-    import('./components/WarningDetails').then((module) => ({ default: module.WarningDetails })),
+const WarningDetails = lazyRetry(
+    () => import('./components/WarningDetails').then((module) => ({ default: module.WarningDetails })),
+    'WarningDetails',
 );
-const AnchorWatchPage = lazyRetry(() =>
-    import('./components/AnchorWatchPage').then((module) => ({ default: module.AnchorWatchPage })),
+const AnchorWatchPage = lazyRetry(
+    () => import('./components/AnchorWatchPage').then((module) => ({ default: module.AnchorWatchPage })),
+    'AnchorWatchPage',
 );
-const ChatPage = lazyRetry(() => import('./components/ChatPage').then((module) => ({ default: module.ChatPage })));
-const LogPage = lazyRetry(() => import('./pages/LogPage').then((module) => ({ default: module.LogPage })));
-const DiaryPage = lazyRetry(() => import('./components/DiaryPage').then((module) => ({ default: module.DiaryPage })));
-const CrewPage = lazyRetry(() => import('./components/CrewManagement').then((m) => ({ default: m.CrewManagement })));
-const ChecklistsPage = lazyRetry(() =>
-    import('./components/vessel/ChecklistsPage').then((m) => ({ default: m.ChecklistsPage })),
+const ChatPage = lazyRetry(
+    () => import('./components/ChatPage').then((module) => ({ default: module.ChatPage })),
+    'ChatPage',
 );
-const GuardianPage = lazyRetry(() => import('./components/GuardianPage').then((m) => ({ default: m.GuardianPage })));
-const IOSInstallPrompt = React.lazy(() =>
-    import('./components/IOSInstallPrompt').then((m) => ({ default: m.IOSInstallPrompt })),
+const LogPage = lazyRetry(() => import('./pages/LogPage').then((module) => ({ default: module.LogPage })), 'LogPage');
+const DiaryPage = lazyRetry(
+    () => import('./components/DiaryPage').then((module) => ({ default: module.DiaryPage })),
+    'DiaryPage',
 );
-const OnboardingOverlay = React.lazy(() =>
-    import('./components/ui/OnboardingOverlay').then((m) => ({ default: m.OnboardingOverlay })),
+const CrewPage = lazyRetry(
+    () => import('./components/CrewManagement').then((m) => ({ default: m.CrewManagement })),
+    'CrewManagement',
+);
+const ChecklistsPage = lazyRetry(
+    () => import('./components/vessel/ChecklistsPage').then((m) => ({ default: m.ChecklistsPage })),
+    'ChecklistsPage',
+);
+const GuardianPage = lazyRetry(
+    () => import('./components/GuardianPage').then((m) => ({ default: m.GuardianPage })),
+    'GuardianPage',
+);
+const IOSInstallPrompt = lazyRetry(
+    () => import('./components/IOSInstallPrompt').then((m) => ({ default: m.IOSInstallPrompt })),
+    'IOSInstallPrompt',
+);
+const OnboardingOverlay = lazyRetry(
+    () => import('./components/ui/OnboardingOverlay').then((m) => ({ default: m.OnboardingOverlay })),
+    'OnboardingOverlay',
 );
 
 const App: React.FC = () => {
