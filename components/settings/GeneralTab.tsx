@@ -50,7 +50,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4">
                     {/* Speed */}
                     <div>
-                        <label className="text-xs text-gray-400 uppercase font-bold mb-1 block">Wind Speed</label>
+                        <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Wind Speed</label>
                         <select
                             value={settings.units.speed}
                             onChange={(e) => updateUnit('speed', e.target.value)}
@@ -64,7 +64,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     </div>
                     {/* Distance */}
                     <div>
-                        <label className="text-xs text-gray-400 uppercase font-bold mb-1 block">Distance</label>
+                        <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Distance</label>
                         <select
                             value={settings.units.distance}
                             onChange={(e) => updateUnit('distance', e.target.value)}
@@ -77,7 +77,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     </div>
                     {/* Seas (Wave Height) */}
                     <div>
-                        <label className="text-xs text-gray-400 uppercase font-bold mb-1 block">
+                        <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">
                             Seas (Wave Height)
                         </label>
                         <select
@@ -91,7 +91,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     </div>
                     {/* Tides / Length */}
                     <div>
-                        <label className="text-xs text-gray-400 uppercase font-bold mb-1 block">Tides / Length</label>
+                        <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Tides / Length</label>
                         <select
                             value={settings.units.length}
                             onChange={(e) => {
@@ -112,7 +112,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     </div>
                     {/* Temperature */}
                     <div>
-                        <label className="text-xs text-gray-400 uppercase font-bold mb-1 block">Temperature</label>
+                        <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Temperature</label>
                         <select
                             value={settings.units.temp}
                             onChange={(e) => updateUnit('temp', e.target.value)}
@@ -124,7 +124,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     </div>
                     {/* Visibility */}
                     <div>
-                        <label className="text-xs text-gray-400 uppercase font-bold mb-1 block">Visibility</label>
+                        <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Visibility</label>
                         <select
                             value={settings.units.visibility || 'nm'}
                             onChange={(e) => updateUnit('visibility', e.target.value)}
@@ -137,7 +137,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     </div>
                     {/* Volume */}
                     <div>
-                        <label className="text-xs text-gray-400 uppercase font-bold mb-1 block">Liquid Volume</label>
+                        <label className="text-xs text-gray-300 uppercase font-bold mb-1 block">Liquid Volume</label>
                         <select
                             value={settings.units.volume || 'gal'}
                             onChange={(e) => updateUnit('volume', e.target.value)}
@@ -172,7 +172,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                         </div>
                         <div className="flex-1">
                             <p className="text-sm text-white font-bold">Terms of Service & Privacy Policy</p>
-                            <p className="text-xs text-gray-400 mt-0.5">
+                            <p className="text-xs text-gray-300 mt-0.5">
                                 View our terms, conditions, and data practices
                             </p>
                         </div>
