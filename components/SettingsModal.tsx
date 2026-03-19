@@ -480,7 +480,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <p className="text-white font-bold text-sm tracking-wide">{item.label}</p>
-                                            <p className="text-gray-400 text-xs mt-0.5">
+                                            <p className="text-gray-300 text-xs mt-0.5">
                                                 {item.id === 'vessel' && isObserver
                                                     ? 'Observer — tap to configure vessel'
                                                     : item.description}
