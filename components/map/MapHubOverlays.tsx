@@ -279,7 +279,10 @@ export const LayerFABMenu: React.FC<{
             )}
 
             {showLayerMenu && (
-                <div className="bg-slate-900/95 border border-white/[0.08] rounded-2xl overflow-hidden shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
+                <div
+                    className="bg-slate-900/95 border border-white/[0.08] rounded-2xl overflow-hidden overflow-y-auto shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200"
+                    style={{ maxHeight: 'calc(100vh - 240px)' }}
+                >
                     {(
                         [
                             { key: 'none', label: 'Clear All', icon: '🗺️' },

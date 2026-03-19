@@ -772,7 +772,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         style={{
                             position: 'absolute',
                             top: 56,
-                            right: 12,
+                            right: 64,
                             zIndex: 500,
                             width: 40,
                             height: 40,

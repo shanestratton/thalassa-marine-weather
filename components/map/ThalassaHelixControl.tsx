@@ -272,7 +272,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
             <div
                 className="absolute z-[500] flex items-end gap-2"
                 style={{
-                    right: 12,
+                    left: 12,
                     bottom: embedded ? 12 : 'calc(68px + env(safe-area-inset-bottom))',
                     maxWidth: '90vw',
                 }}
