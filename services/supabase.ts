@@ -55,6 +55,11 @@ const getKey = () => {
 const URL = getUrl();
 const KEY = getKey();
 
+/** Supabase project URL — used by services to construct Edge Function URLs */
+export const supabaseUrl = URL;
+/** Supabase anon key — used by services for Edge Function auth */
+export const supabaseAnonKey = KEY;
+
 if (URL && KEY) {
     /* best effort */
 } else {
