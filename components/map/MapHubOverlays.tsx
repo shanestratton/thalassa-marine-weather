@@ -372,6 +372,33 @@ export const LayerFABMenu: React.FC<{
                             </button>
                         </>
                     )}
+
+                    {/* ── Weather Inspect (one-shot weather at tapped point) ── */}
+                    {onToggleWeatherInspect && (
+                        <>
+                            <div className="h-px bg-white/[0.06] mx-3" />
+                            <button
+                                onClick={() => {
+                                    onToggleWeatherInspect();
+                                    triggerHaptic('light');
+                                }}
+                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${weatherInspectMode ? 'bg-amber-500/20 text-amber-400 border-l-2 border-amber-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                            >
+                                <span className="text-xl">🌤️</span>
+                                <span className="text-sm font-bold flex-1">Weather Here</span>
+                                {weatherInspectMode ? (
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-lg shadow-amber-400/50 animate-pulse" />
+                                        <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
+                                            Tap Map
+                                        </span>
+                                    </span>
+                                ) : (
+                                    <span className="text-[11px] text-gray-500">Tap to enable</span>
+                                )}
+                            </button>
+                        </>
+                    )}
                 </div>
             )}
         </div>
