@@ -11,7 +11,7 @@
  * - Premium-gated: full data only for premium users
  */
 
-import { supabase } from './supabase';
+import { supabase, supabaseUrl, supabaseAnonKey } from './supabase';
 import { decodeMmsi, getMmsiFlag, type MmsiDecodedResult } from '../utils/MmsiDecoder';
 import { createLogger } from '../utils/createLogger';
 
@@ -63,11 +63,13 @@ interface CacheEntry {
 }
 
 const CACHE_MAX_SIZE = 500;
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes for found vessels
+const NULL_CACHE_TTL_MS = 60 * 1000; // 60 seconds for not-found (allows on-demand re-lookup)
 
 class VesselMetadataServiceClass {
     private cache = new Map<number, CacheEntry>();
     private pendingBatch = new Set<number>();
+    private pendingOnDemand = new Set<number>(); // Prevent duplicate on-demand lookups
     private batchTimer: ReturnType<typeof setTimeout> | null = null;
     private batchResolvers: Array<() => void> = [];
 
@@ -177,11 +179,78 @@ class VesselMetadataServiceClass {
     private getFromCache(mmsi: number): VesselMetadata | null | undefined {
         const entry = this.cache.get(mmsi);
         if (!entry) return undefined;
-        if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+        // Use shorter TTL for null entries (allows on-demand re-lookup)
+        const ttl = entry.data === null ? NULL_CACHE_TTL_MS : CACHE_TTL_MS;
+        if (Date.now() - entry.timestamp > ttl) {
             this.cache.delete(mmsi);
             return undefined;
         }
         return entry.data;
+    }
+
+    /**
+     * On-demand lookup for a single vessel via the Edge Function.
+     * Called when user taps a vessel not in our database.
+     * The Edge Function queries external APIs and caches the result.
+     */
+    async onDemandLookup(mmsi: number): Promise<VesselMetadata | null> {
+        // Already looking up this MMSI
+        if (this.pendingOnDemand.has(mmsi)) return this.getFromCache(mmsi) ?? null;
+
+        // Already have data cached
+        const cached = this.getFromCache(mmsi);
+        if (cached !== undefined && cached !== null) return cached;
+
+        if (!supabase) return null;
+
+        this.pendingOnDemand.add(mmsi);
+        try {
+            // Direct fetch to Edge Function with query params
+            const fnUrl = `${supabaseUrl}/functions/v1/lookup-vessel?mmsi=${mmsi}`;
+            const resp = await fetch(fnUrl, {
+                headers: {
+                    'Authorization': `Bearer ${supabaseAnonKey}`,
+                    'apikey': supabaseAnonKey,
+                },
+                signal: AbortSignal.timeout(12000),
+            });
+
+            if (!resp.ok) {
+                log.warn(`On-demand lookup failed: HTTP ${resp.status}`);
+                return null;
+            }
+
+            const result = await resp.json();
+
+            if (result.found && result.vessel_name) {
+                const metadata: VesselMetadata = {
+                    mmsi: result.mmsi,
+                    vessel_name: result.vessel_name,
+                    vessel_type: result.vessel_type ?? null,
+                    flag_country: result.flag_country ?? null,
+                    flag_emoji: result.flag_emoji ?? null,
+                    call_sign: result.call_sign ?? null,
+                    imo_number: result.imo_number ?? null,
+                    loa: result.loa ?? null,
+                    beam: result.beam ?? null,
+                    draft: result.draft ?? null,
+                    photo_url: null,
+                    thumbnail_url: null,
+                    data_source: result.data_source ?? result.source ?? 'edge_function',
+                    is_verified: false,
+                    last_scraped_at: new Date().toISOString(),
+                };
+                this.setCache(mmsi, metadata);
+                return metadata;
+            }
+
+            return null;
+        } catch (e) {
+            log.warn('On-demand lookup error:', e);
+            return null;
+        } finally {
+            this.pendingOnDemand.delete(mmsi);
+        }
     }
 
     private setCache(mmsi: number, data: VesselMetadata | null): void {
