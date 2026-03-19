@@ -39,9 +39,9 @@ export const MaritimeIntelCard: React.FC = React.memo(() => {
     const fullTicker = `${tickerText}  │  ${tickerText}`;
 
     // Estimate animation duration: ~60px/sec reading speed
-    const charWidth = 8.5; // approx px per char at 13px font
+    const charWidth = 9; // approx px per char at 14px font
     const totalWidth = fullTicker.length * charWidth;
-    const duration = Math.max(30, totalWidth / 60); // at least 30s
+    const duration = Math.max(25, totalWidth / 66); // ~10% faster (at least 25s)
 
     return (
         <div className="mx-4 mt-2 mb-1">
@@ -86,7 +86,7 @@ export const MaritimeIntelCard: React.FC = React.memo(() => {
                                 willChange: 'transform',
                             }}
                         >
-                            <span className="text-[13px] text-gray-400 font-medium">
+                            <span className="text-[14px] text-gray-400 font-medium">
                                 {tickerItems.map((item, i) => (
                                     <React.Fragment key={i}>
                                         {i > 0 && <span className="text-sky-500/30 mx-3">│</span>}
