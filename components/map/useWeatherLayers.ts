@@ -633,6 +633,34 @@ export function useWeatherLayers(
 
         if (!activeLayers.has('pressure')) hideIsobars();
 
+        // ── Permanent base layer: Esri satellite imagery ──
+        const SAT_ID = 'tiles-satellite';
+        if (!map.getSource(SAT_ID)) {
+            try {
+                map.addSource(SAT_ID, {
+                    type: 'raster',
+                    tiles: [getTileUrl('satellite')!],
+                    tileSize: 256,
+                    maxzoom: 16,
+                });
+                // Insert above base fill/background but below symbol/label layers
+                const styleLayers = map.getStyle()?.layers ?? [];
+                const firstSymbolId = styleLayers.find((l) => l.type === 'symbol')?.id;
+                map.addLayer(
+                    {
+                        id: SAT_ID,
+                        type: 'raster',
+                        source: SAT_ID,
+                        paint: { 'raster-opacity': 0.85 },
+                    },
+                    firstSymbolId,
+                );
+                log.info('Added permanent Esri satellite base layer');
+            } catch (err) {
+                log.warn('Failed to add satellite base layer:', err);
+            }
+        }
+
         if (activeLayers.size === 0) return;
 
         // ── Pressure / Isobars ──
@@ -1080,34 +1108,6 @@ export function useWeatherLayers(
                 setRainFrameCount(0);
                 setRainReady(false);
             };
-        }
-
-        // ── Permanent base layer: Esri satellite imagery ──
-        const SAT_ID = 'tiles-satellite';
-        if (!map.getSource(SAT_ID)) {
-            try {
-                map.addSource(SAT_ID, {
-                    type: 'raster',
-                    tiles: [getTileUrl('satellite')!],
-                    tileSize: 256,
-                    maxzoom: 16,
-                });
-                // Insert above base fill/background but below symbol/label layers
-                const styleLayers = map.getStyle()?.layers ?? [];
-                const firstSymbolId = styleLayers.find((l) => l.type === 'symbol')?.id;
-                map.addLayer(
-                    {
-                        id: SAT_ID,
-                        type: 'raster',
-                        source: SAT_ID,
-                        paint: { 'raster-opacity': 0.85 },
-                    },
-                    firstSymbolId,
-                );
-                log.info('Added permanent Esri satellite base layer');
-            } catch (err) {
-                log.warn('Failed to add satellite base layer:', err);
-            }
         }
 
         // ── Static tile layers (sea, temperature, clouds) ──
