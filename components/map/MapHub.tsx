@@ -1011,11 +1011,29 @@ export const MapHub: React.FC<MapHubProps> = ({
                             applyFrame = weather.applyFrame;
                         } else if (activeLayerKey === 'wind') {
                             const fhrs = weather.windForecastHoursRef.current;
+                            const nowIdx = weather.windNowIdxRef.current;
                             frameIndex = weather.windHour;
                             totalFrames = weather.windTotalHours;
                             const actualHour = fhrs[frameIndex] ?? frameIndex;
-                            frameLabel = actualHour === 0 ? 'Now' : `+${actualHour}h`;
-                            sublabel = actualHour === 0 ? 'Current' : 'Forecast';
+                            const nowHour = fhrs[nowIdx] ?? 0;
+
+                            if (frameIndex === nowIdx) {
+                                frameLabel = 'Now';
+                                sublabel = 'Current';
+                            } else {
+                                // Show relative to "now" so labels make intuitive sense
+                                const relativeH = actualHour - nowHour;
+                                if (relativeH > 0) {
+                                    frameLabel = `+${relativeH}h`;
+                                    sublabel = 'Forecast';
+                                } else if (relativeH < 0) {
+                                    frameLabel = `${relativeH}h`;
+                                    sublabel = 'Past';
+                                } else {
+                                    frameLabel = 'Now';
+                                    sublabel = 'Current';
+                                }
+                            }
                             isPlaying = weather.windPlaying;
                             onScrub = (idx: number) => weather.setWindHour(idx);
                             onPlayToggle = () => weather.setWindPlaying(!weather.windPlaying);

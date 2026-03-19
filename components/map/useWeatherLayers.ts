@@ -139,6 +139,8 @@ export function useWeatherLayers(
     const [windPlaying, setWindPlaying] = useState(false);
     const [windReady, setWindReady] = useState(false);
     const [windMaxSpeed, setWindMaxSpeed] = useState(30);
+    /** The wind scrubber index that corresponds to 'now' (current time) */
+    const windNowIdxRef = useRef(0);
 
     // GRIB download
     const [isGribDownloading, setIsGribDownloading] = useState(false);
@@ -422,6 +424,7 @@ export function useWeatherLayers(
                             }
                         }
                         setWindHour(bestIdx);
+                        windNowIdxRef.current = bestIdx;
                         console.info(
                             `[WindScrubber] Auto-set to "now": refTime=${currentGrid.refTime}, age=${ageHours.toFixed(1)}h, index=${bestIdx} (forecast hour ${fhrs[bestIdx]})`,
                         );
@@ -1269,6 +1272,7 @@ export function useWeatherLayers(
         windMaxSpeed,
         setWindMaxSpeed,
         windForecastHoursRef,
+        windNowIdxRef,
         // Rain (unified radar + forecast)
         unifiedFramesRef,
         rainFrameIndex,
