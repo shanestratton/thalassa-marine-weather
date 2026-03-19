@@ -85,7 +85,7 @@ export const LayerLegendStrip: React.FC<{
     activeLayer: WeatherLayer;
     activeLayers?: Set<WeatherLayer>;
     windMaxSpeed: number;
-}> = ({ activeLayer, activeLayers, windMaxSpeed }) => {
+}> = ({ activeLayer, activeLayers, windMaxSpeed: _windMaxSpeed }) => {
     // Layers that have a legend definition
     const LEGEND_ELIGIBLE: WeatherLayer[] = ['temperature', 'clouds', 'pressure'];
 
@@ -104,66 +104,33 @@ export const LayerLegendStrip: React.FC<{
 
     if (!legendLayer) return null;
 
-    const legends: Record<string, { gradient: string; labels: { text: string; pos: string }[] }> = {
-        rain: {
-            gradient: 'linear-gradient(to bottom, #1a1a2e, #ff00ff, #ff0000, #ff8c00, #ffff00, #00ff00, transparent)',
-            labels: [
-                { text: '50+', pos: '2%' },
-                { text: '25', pos: '18%' },
-                { text: '12', pos: '34%' },
-                { text: '4', pos: '50%' },
-                { text: '1', pos: '66%' },
-                { text: '0.5', pos: '82%' },
-            ],
-        },
-        wind: (() => {
-            const maxKt = Math.max(5, Math.ceil(windMaxSpeed / 5) * 5);
-            const allStops = [
-                { kt: 0, color: '#66b3ff' },
-                { kt: 5, color: '#00d9d9' },
-                { kt: 15, color: '#33e633' },
-                { kt: 25, color: '#ffff00' },
-                { kt: 40, color: '#ff8000' },
-                { kt: 60, color: '#ff0000' },
-            ];
-            const stops = allStops.filter((s) => s.kt <= maxKt);
-            const gradStops = stops.map((s) => `${s.color} ${100 - (s.kt / maxKt) * 100}%`);
-            const labels = stops.map((s) => ({
-                text: s.kt === 0 ? '0' : s.kt === stops[stops.length - 1].kt ? `${s.kt}kt` : `${s.kt}`,
-                pos: `${Math.max(2, Math.min(95, 100 - (s.kt / maxKt) * 100))}%`,
-            }));
-            return { gradient: `linear-gradient(to bottom, ${gradStops.join(', ')})`, labels };
-        })(),
+    const legends: Record<
+        string,
+        { gradient: string; topLabel: string; bottomLabel: string; topArrow: string; bottomArrow: string; icon: string }
+    > = {
         temperature: {
-            gradient:
-                'linear-gradient(to bottom, #4a0000, #ff0000, #ff8c00, #ffff00, #90ee90, #00bfff, #0000cd, #1a0033)',
-            labels: [
-                { text: '40°', pos: '5%' },
-                { text: '30°', pos: '22%' },
-                { text: '20°', pos: '40%' },
-                { text: '10°', pos: '55%' },
-                { text: '0°', pos: '72%' },
-                { text: '-10°', pos: '88%' },
-            ],
+            gradient: 'linear-gradient(to bottom, #ff0000, #ff6600, #ffcc00, #66ff66, #00ccff, #0033cc)',
+            topLabel: 'HOT',
+            bottomLabel: 'COLD',
+            topArrow: '↑',
+            bottomArrow: '↓',
+            icon: '🌡️',
         },
         clouds: {
-            gradient: 'linear-gradient(to bottom, #e0e0e0, #a0a0a0, #606060, #303030, transparent)',
-            labels: [
-                { text: '100%', pos: '5%' },
-                { text: '75%', pos: '28%' },
-                { text: '50%', pos: '52%' },
-                { text: '25%', pos: '76%' },
-            ],
+            gradient: 'linear-gradient(to bottom, #e0e0e0, #a0a0a0, #606060, #303030, #101010)',
+            topLabel: 'THICK',
+            bottomLabel: 'CLEAR',
+            topArrow: '↑',
+            bottomArrow: '↓',
+            icon: '☁️',
         },
         pressure: {
             gradient: 'linear-gradient(to bottom, #ef4444, #f87171, #ffffff, #93c5fd, #3b82f6)',
-            labels: [
-                { text: 'H', pos: '5%' },
-                { text: '1030', pos: '20%' },
-                { text: '1013', pos: '48%' },
-                { text: '996', pos: '76%' },
-                { text: 'L', pos: '92%' },
-            ],
+            topLabel: 'HIGH',
+            bottomLabel: 'LOW',
+            topArrow: '↑',
+            bottomArrow: '↓',
+            icon: '🔵',
         },
     };
 
@@ -171,21 +138,36 @@ export const LayerLegendStrip: React.FC<{
     if (!legend) return null;
 
     return (
-        <div className="absolute left-2 top-1/2 -translate-y-1/2 z-10 flex items-center gap-1 pointer-events-none">
+        <div
+            className="absolute left-3 z-10 flex flex-col items-center pointer-events-none"
+            style={{ top: '50%', transform: 'translateY(-50%)' }}
+        >
             <div
-                className="w-2 rounded-full border border-white/10"
-                style={{ height: '45%', minHeight: 120, background: legend.gradient }}
-            />
-            <div className="relative" style={{ height: '45%', minHeight: 120 }}>
-                {legend.labels.map((l, i) => (
-                    <span
-                        key={i}
-                        className="absolute left-0 text-[7px] font-bold text-white/70 leading-none"
-                        style={{ top: l.pos, textShadow: '0 1px 3px rgba(0,0,0,0.9)' }}
-                    >
-                        {l.text}
-                    </span>
-                ))}
+                className="rounded-2xl px-2.5 py-3 flex flex-col items-center gap-1"
+                style={{
+                    background: 'rgba(15,23,42,0.85)',
+                    backdropFilter: 'blur(12px)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+                }}
+            >
+                {/* Top arrow + label */}
+                <span className="text-red-400 text-[11px] font-black leading-none">{legend.topArrow}</span>
+                <span className="text-[9px] font-black text-white/80 uppercase tracking-[0.15em] leading-none">
+                    {legend.topLabel}
+                </span>
+
+                {/* Gradient bar */}
+                <div
+                    className="w-2.5 rounded-full border border-white/10 my-1"
+                    style={{ height: 100, background: legend.gradient }}
+                />
+
+                {/* Bottom label + arrow */}
+                <span className="text-[9px] font-black text-white/80 uppercase tracking-[0.15em] leading-none">
+                    {legend.bottomLabel}
+                </span>
+                <span className="text-sky-400 text-[11px] font-black leading-none">{legend.bottomArrow}</span>
             </div>
         </div>
     );

@@ -75,6 +75,10 @@ export function useMapInit(opts: UseMapInitOptions) {
 
     const longPressTimer = useRef<NodeJS.Timeout | null>(null);
 
+    // Ref to always hold the latest onMapTap callback — avoids stale closure
+    // in the map click handler which is created once at mount time.
+    const onMapTapRef = useRef(opts.onMapTap);
+
     // ── Pin Drop Logic ──
     const dropPin = useCallback(
         (map: mapboxgl.Map, lat: number, lon: number) => {
@@ -932,7 +936,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             // Don't fire weather popup if user tapped an AIS vessel
             const aisHits = map.queryRenderedFeatures(e.point, { layers: ['ais-targets-circle'] });
             if (aisHits.length > 0) return;
-            opts.onMapTap?.(e.lngLat.lat, e.lngLat.lng);
+            onMapTapRef.current?.(e.lngLat.lat, e.lngLat.lng);
         });
         map.on('moveend', () => {
             wasDragged = false;
@@ -967,6 +971,12 @@ export function useMapInit(opts: UseMapInitOptions) {
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapboxToken, mapStyle, initialZoom, minimalLabels]);
+
+    // Keep onMapTapRef in sync with the latest callback — this runs on every
+    // render so the mount-time click handler always calls the current version.
+    useEffect(() => {
+        onMapTapRef.current = opts.onMapTap;
+    });
 
     return { dropPin };
 }
