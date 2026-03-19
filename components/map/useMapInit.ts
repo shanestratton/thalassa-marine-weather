@@ -40,6 +40,8 @@ interface UseMapInitOptions {
     setSettingPoint: (v: 'departure' | 'arrival' | null) => void;
     /** Called when the user taps a point on the map (for weather inspect popup) */
     onMapTap?: (lat: number, lon: number) => void;
+    /** When true, long-press pin drop is suppressed (Weather Here takes priority) */
+    weatherInspect?: boolean;
 }
 
 /**
@@ -78,6 +80,8 @@ export function useMapInit(opts: UseMapInitOptions) {
     // Ref to always hold the latest onMapTap callback — avoids stale closure
     // in the map click handler which is created once at mount time.
     const onMapTapRef = useRef(opts.onMapTap);
+    // Ref for weather inspect mode — suppresses long-press pin drop
+    const weatherInspectRef = useRef(opts.weatherInspect ?? false);
 
     // ── Pin Drop Logic ──
     const dropPin = useCallback(
@@ -883,9 +887,12 @@ export function useMapInit(opts: UseMapInitOptions) {
         });
 
         // ── Long-Press Handler (pin drop) ──
+        // Suppressed when Weather Here inspect mode is active (single-tap popup takes priority)
         const handleTouchStart = (e: mapboxgl.MapTouchEvent) => {
             if (e.originalEvent.touches.length > 1) return;
             longPressTimer.current = setTimeout(() => {
+                // Skip pin drop if Weather Here is active
+                if (weatherInspectRef.current) return;
                 const { lng, lat } = e.lngLat;
                 dropPin(map, lat, lng);
             }, 500);
@@ -976,6 +983,7 @@ export function useMapInit(opts: UseMapInitOptions) {
     // render so the mount-time click handler always calls the current version.
     useEffect(() => {
         onMapTapRef.current = opts.onMapTap;
+        weatherInspectRef.current = opts.weatherInspect ?? false;
     });
 
     return { dropPin };

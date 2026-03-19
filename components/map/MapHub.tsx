@@ -284,6 +284,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         setDeparture: passage.setDeparture,
         setArrival: passage.setArrival,
         setSettingPoint: passage.setSettingPoint,
+        weatherInspect: weatherInspectMode,
         onMapTap: (lat: number, lon: number) => {
             const map = mapRef.current;
             if (!map) return;
