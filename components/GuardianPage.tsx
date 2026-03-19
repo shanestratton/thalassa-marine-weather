@@ -259,6 +259,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         triggerHaptic('light');
                         onBack();
                     }}
+                    aria-label="Go back"
                     className="p-2 -ml-2 hover:bg-white/5 rounded-xl transition-colors active:scale-95"
                 >
                     <svg
@@ -622,6 +623,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             <h2 className="text-lg font-black text-white">Guardian Profile</h2>
                             <button
                                 onClick={() => setShowSetup(false)}
+                                aria-label="Close profile setup"
                                 className="p-2 hover:bg-white/5 rounded-xl text-gray-400"
                             >
                                 ✕
@@ -700,6 +702,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         <div className="flex items-center gap-3 mb-4">
                             <button
                                 onClick={() => setShowReport(false)}
+                                aria-label="Close report"
                                 className="p-2 -ml-2 hover:bg-white/5 rounded-xl transition-colors active:scale-95"
                             >
                                 <svg
@@ -759,6 +762,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         <div className="flex items-center gap-3 mb-4">
                             <button
                                 onClick={() => setShowWeather(false)}
+                                aria-label="Close weather alert"
                                 className="p-2 -ml-2 hover:bg-white/5 rounded-xl transition-colors active:scale-95"
                             >
                                 <svg
