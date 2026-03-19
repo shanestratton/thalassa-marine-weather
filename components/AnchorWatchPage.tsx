@@ -446,6 +446,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             {onBack && (
                                 <button
                                     onClick={onBack}
+                                    aria-label="Go back"
                                     className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
                                 >
                                     <svg
@@ -911,7 +912,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     <button
                         onClick={handleCreateSession}
                         className="flex-1 py-3 bg-sky-500/[0.08] border border-sky-500/20 rounded-xl text-sm text-sky-400 font-bold transition-all active:scale-[0.97] hover:bg-sky-500/[0.12]"
-                        aria-label="Create Sessi"
+                        aria-label="Create Session"
                     >
                         📱 Shore Share
                     </button>

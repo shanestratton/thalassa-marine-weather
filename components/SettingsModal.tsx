@@ -97,7 +97,6 @@ const _MobileNavTab = React.memo(
 
 // Section, Row — imported from ./settings/SettingsPrimitives
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const MetricInput = ({
     label,
     valInStandard,

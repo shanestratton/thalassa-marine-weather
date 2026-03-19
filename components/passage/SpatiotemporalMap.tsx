@@ -375,7 +375,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
     vesselType = 'sail',
     currentTimeHours = 0,
     seamarkGeoJSON,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
     channelPolygonGeoJSON,
     onMapReady,
 }) => {

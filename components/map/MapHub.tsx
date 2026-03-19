@@ -60,7 +60,7 @@ import { fetchPointWeather, type PointWeatherData } from '../../services/weather
 
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
     homePort,
     onLocationSelect,
     initialZoom = 5,
@@ -69,7 +69,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     embedded = false,
     center,
     pickerMode = false,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
     pickerLabel,
 }) => {
     // ── Pin View Mode (from chat pin tap) ──
