@@ -142,7 +142,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                 <h3 id="confirm-title" className="text-lg font-black text-white text-center mb-2">
                     {title}
                 </h3>
-                <p className="text-sm text-gray-400 text-center mb-6">{message}</p>
+                <p className="text-sm text-gray-300 text-center mb-6">{message}</p>
 
                 <div className="flex gap-3">
                     <button

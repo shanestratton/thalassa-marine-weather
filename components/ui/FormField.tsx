@@ -73,7 +73,7 @@ export const FormField: React.FC<FormFieldProps> = ({
 
     return (
         <div className={isDate ? 'min-w-0 max-w-full overflow-hidden' : undefined}>
-            <label htmlFor={fieldId} className="text-label font-bold text-gray-400 uppercase tracking-widest">
+            <label htmlFor={fieldId} className="text-label font-bold text-gray-300 uppercase tracking-widest">
                 {label}
                 {required ? ' *' : ''}
             </label>
