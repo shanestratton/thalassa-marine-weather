@@ -39,6 +39,8 @@ interface IsobarResult {
     barbs: GeoJSON.FeatureCollection;
     arrows: GeoJSON.FeatureCollection;
     tracks: GeoJSON.FeatureCollection;
+    /** Tropical cyclone markers (low-pressure centers ≤997 hPa) */
+    cyclones: GeoJSON.FeatureCollection;
     /** Canvas-rendered pressure gradient image (data URL) */
     heatmapDataUrl: string | null;
     /** Bounds for the heatmap image [west, south, east, north] */
@@ -51,6 +53,18 @@ const ISOBAR_INTERVAL = 4; // hPa between contour lines (synoptic standard)
 const GRID_RESOLUTION = 1.0; // degrees (1° ≈ 111km — fast, sufficient for synoptic scale)
 const _GRID_RESOLUTION_ZOOMED = 0.5;
 export const FORECAST_HOURS = 48; // 2-day forecast for timeline scrubber
+
+// ── Saffir-Simpson Cyclone Category from Central Pressure ─────
+// Based on established pressure thresholds (Australian BoM / NHC).
+
+function pressureToCategory(hPa: number): { category: string; label: string } | null {
+    if (hPa > 997) return null; // Not a tropical cyclone
+    if (hPa > 980) return { category: '1', label: '1' };
+    if (hPa > 965) return { category: '2', label: '2' };
+    if (hPa > 945) return { category: '3', label: '3' };
+    if (hPa > 920) return { category: '4', label: '4' };
+    return { category: '5', label: '5' };
+}
 
 import { getOpenMeteoKey } from './keys';
 
@@ -818,12 +832,40 @@ export function generateIsobarsFromGrid(grid: PressureGrid, hour: number): Isoba
     // Generate pressure gradient heatmap
     const heatmap = generatePressureHeatmap(hourGrid, minP, maxP);
 
+    // ── Detect tropical cyclones from low-pressure centers ──
+    const cycloneFeatures: GeoJSON.Feature[] = [];
+    for (const c of centers) {
+        if (c.type !== 'L') continue;
+        const cat = pressureToCategory(c.pressure);
+        if (!cat) continue;
+        cycloneFeatures.push({
+            type: 'Feature',
+            properties: {
+                category: cat.category,
+                label: cat.label,
+                pressure: c.pressure,
+            },
+            geometry: {
+                type: 'Point',
+                coordinates: [c.lon, c.lat],
+            },
+        });
+    }
+
+    if (cycloneFeatures.length > 0) {
+        console.info(
+            '[ISOBAR] 🌀 Cyclones detected:',
+            cycloneFeatures.map((f) => `Cat ${f.properties?.category} @ ${f.properties?.pressure} hPa`).join(', '),
+        );
+    }
+
     return {
         contours: { type: 'FeatureCollection', features: contourFeatures },
         centers: { type: 'FeatureCollection', features: centerFeatures },
         barbs: { type: 'FeatureCollection', features: barbFeatures },
         arrows: { type: 'FeatureCollection', features: arrowFeatures },
         tracks: { type: 'FeatureCollection', features: trackFeatures },
+        cyclones: { type: 'FeatureCollection', features: cycloneFeatures },
         heatmapDataUrl: heatmap?.dataUrl ?? null,
         heatmapBounds: heatmap?.bounds ?? null,
     };
