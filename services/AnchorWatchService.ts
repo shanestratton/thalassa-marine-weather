@@ -30,6 +30,22 @@ import { NmeaGpsProvider } from './NmeaGpsProvider';
 
 const log = createLogger('AnchorWatch');
 
+// Guardian auto-arm: lazily imported to avoid circular dependency
+let _guardianArm: (() => Promise<boolean>) | null = null;
+let _guardianDisarm: (() => Promise<boolean>) | null = null;
+
+async function ensureGuardianBridge() {
+    if (!_guardianArm) {
+        try {
+            const { GuardianService } = await import('./GuardianService');
+            _guardianArm = () => GuardianService.arm();
+            _guardianDisarm = () => GuardianService.disarm();
+        } catch {
+            // Guardian module unavailable — non-critical
+        }
+    }
+}
+
 // ------- TYPES -------
 
 export interface AnchorPosition {
@@ -276,8 +292,10 @@ class AnchorWatchServiceClass {
                 log.warn('Web fallback:', e);
             }
 
-            // Start GPS monitoring + geofence
             await this.startGpsMonitoring();
+
+            // Auto-arm Guardian at anchor position (Tier 2 auto-arm)
+            this.autoArmGuardian();
 
             this.notify();
             return true;
@@ -322,6 +340,9 @@ class AnchorWatchServiceClass {
         await BgGeoManager.ensureReady();
         await this.startGpsMonitoring();
 
+        // Auto-arm Guardian at anchor position (Tier 2 auto-arm)
+        this.autoArmGuardian();
+
         this.notify();
         return true;
     }
@@ -365,6 +386,9 @@ class AnchorWatchServiceClass {
 
         // Clear persisted state — user explicitly stopped
         this.clearPersistedWatchState();
+
+        // Auto-disarm Guardian when anchor watch stops
+        this.autoDisarmGuardian();
 
         this.notify();
     }
@@ -762,6 +786,46 @@ class AnchorWatchServiceClass {
                 log.warn('notify: listener error', e);
             }
         });
+    }
+
+    // ── Guardian Auto-Arm Bridge ──
+
+    /**
+     * Auto-arm Guardian when anchor watch starts.
+     * Tier 2: anchor watch users get Guardian protection automatically.
+     */
+    private async autoArmGuardian(): Promise<void> {
+        try {
+            await ensureGuardianBridge();
+            if (_guardianArm) {
+                const armed = await _guardianArm();
+                if (armed) {
+                    log.info('Guardian auto-armed via anchor watch');
+                } else {
+                    log.warn('Guardian auto-arm failed (no profile or GPS)');
+                }
+            }
+        } catch (e) {
+            log.warn('Guardian auto-arm error:', e);
+        }
+    }
+
+    /**
+     * Auto-disarm Guardian when anchor watch stops.
+     * User is weighing anchor — leaving the bay.
+     */
+    private async autoDisarmGuardian(): Promise<void> {
+        try {
+            await ensureGuardianBridge();
+            if (_guardianDisarm) {
+                const disarmed = await _guardianDisarm();
+                if (disarmed) {
+                    log.info('Guardian auto-disarmed — anchor watch stopped');
+                }
+            }
+        } catch (e) {
+            log.warn('Guardian auto-disarm error:', e);
+        }
     }
 }
 
