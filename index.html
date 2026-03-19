@@ -178,7 +178,14 @@
     </head>
 
     <body>
-        <div id="root"></div>
+        <!-- Skip-to-content link for keyboard/screen reader users (WCAG 2.1) -->
+        <a
+            href="#main-content"
+            class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[10000] focus:bg-sky-600 focus:text-white focus:px-4 focus:py-2 focus:rounded-lg focus:text-sm focus:font-bold focus:shadow-xl"
+        >
+            Skip to main content
+        </a>
+        <div id="root" role="main"></div>
         <!-- iOS WKWebView: Suppress harmless "readonly property" TypeError during scroll events.
        React 18's event delegation sets cancelBubble/returnValue on native events, which are
        readonly in WebKit for scroll/touch events. The scroll still works; this just silences
