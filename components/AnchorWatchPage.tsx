@@ -11,7 +11,6 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { createPortal } from 'react-dom';
 import { useWeather } from '../context/WeatherContext';
 import { t } from '../theme';
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll';
@@ -26,6 +25,9 @@ import { AlarmAudioService } from '../services/AlarmAudioService';
 import { triggerHaptic } from '../utils/system';
 import { SwingCircleCanvas, type AisTargetDot } from './anchor-watch/SwingCircleCanvas';
 import { AnchorAlarmOverlay } from './anchor-watch/AnchorAlarmOverlay';
+import { ScopeRadar } from './anchor-watch/ScopeRadar';
+import { SoundCheckModal } from './anchor-watch/SoundCheckModal';
+import { ShoreWatchModal } from './anchor-watch/ShoreWatchModal';
 import { AisStreamService } from '../services/AisStreamService';
 
 import {
@@ -423,27 +425,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     if (snapshot?.state === 'alarm') {
         return <AnchorAlarmOverlay snapshot={snapshot} onAcknowledge={handleAcknowledgeAlarm} />;
     }
-
     // ---- RENDER: SETUP (IDLE) — Instrument-Grade Dashboard ----
 
-    // Derived values for the scope radar (UI only — no new math)
+    // Derived values for the scope quality indicator (used in context strip)
     const scopeRatio = rodeLength / Math.max(waterDepth, 0.1);
-    const swingRadiusPreview =
-        Math.sqrt(Math.max(0, rodeLength * rodeLength - waterDepth * waterDepth)) *
-            (rodeType === 'chain' ? 0.85 : rodeType === 'rope' ? 0.95 : 0.9) +
-        safetyMargin;
     const scopeQuality: 'excellent' | 'adequate' | 'poor' =
         scopeRatio >= 7 ? 'excellent' : scopeRatio >= 5 ? 'adequate' : 'poor';
-    const scopeColor = scopeQuality === 'excellent' ? '#34d399' : scopeQuality === 'adequate' ? '#fbbf24' : '#f87171';
 
     if (viewMode === 'setup') {
-        // Radar ring sizes — normalized to a 200-unit viewbox
-        const maxRode = 100;
-        const radarScale = Math.min(1, rodeLength / (maxRode * 0.6));
-        const outerR = 60 + radarScale * 20; // 60–80 range
-        const safeR = outerR * 0.85;
-        const dangerR = outerR * 1.15;
-
         return (
             <div
                 ref={keyboardScrollRef}
@@ -490,193 +479,12 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 <div className="flex-1 min-h-0 flex flex-col pb-[98px]">
                     {/* ── Hero: Scope Radar ── */}
                     <div className="flex-1 min-h-0 flex items-center justify-center px-4 py-2 relative">
-                        <svg
-                            viewBox="0 0 200 200"
-                            className="w-full h-full max-w-[320px] max-h-[320px]"
-                            style={{ filter: 'drop-shadow(0 0 20px rgba(0,0,0,0.3))' }}
-                        >
-                            {/* Ocean depth background */}
-                            <defs>
-                                <radialGradient id="ocean-bg" cx="50%" cy="50%" r="50%">
-                                    <stop offset="0%" stopColor="rgba(8,47,73,0.3)" />
-                                    <stop offset="70%" stopColor="rgba(7,33,54,0.15)" />
-                                    <stop offset="100%" stopColor="rgba(2,6,23,0.05)" />
-                                </radialGradient>
-                                <radialGradient id="safe-zone" cx="50%" cy="50%" r="50%">
-                                    <stop offset="0%" stopColor={`${scopeColor}06`} />
-                                    <stop offset="70%" stopColor={`${scopeColor}12`} />
-                                    <stop offset="100%" stopColor={`${scopeColor}18`} />
-                                </radialGradient>
-                            </defs>
-
-                            {/* Background fill */}
-                            <circle cx="100" cy="100" r="95" fill="url(#ocean-bg)" />
-
-                            {/* Danger zone halo (red, beyond swing radius) */}
-                            <circle
-                                cx="100"
-                                cy="100"
-                                r={dangerR}
-                                fill="none"
-                                stroke="rgba(239,68,68,0.06)"
-                                strokeWidth={dangerR - outerR}
-                            />
-
-                            {/* Amber caution band (85%–100%) */}
-                            <circle
-                                cx="100"
-                                cy="100"
-                                r={(safeR + outerR) / 2}
-                                fill="none"
-                                stroke="rgba(245,158,11,0.08)"
-                                strokeWidth={outerR - safeR}
-                                style={{ transition: 'all 0.3s ease' }}
-                            />
-
-                            {/* Green/amber/red safe zone fill */}
-                            <circle
-                                cx="100"
-                                cy="100"
-                                r={safeR}
-                                fill="url(#safe-zone)"
-                                style={{ transition: 'r 0.3s ease' }}
-                            />
-
-                            {/* Safe zone border */}
-                            <circle
-                                cx="100"
-                                cy="100"
-                                r={safeR}
-                                fill="none"
-                                stroke={`${scopeColor}33`}
-                                strokeWidth="0.5"
-                                style={{ transition: 'all 0.3s ease' }}
-                            />
-
-                            {/* Swing radius boundary ring */}
-                            <circle
-                                cx="100"
-                                cy="100"
-                                r={outerR}
-                                fill="none"
-                                stroke={`${scopeColor}66`}
-                                strokeWidth="1.5"
-                                style={{ transition: 'all 0.3s ease' }}
-                            />
-
-                            {/* 50% reference ring */}
-                            <circle
-                                cx="100"
-                                cy="100"
-                                r={outerR * 0.5}
-                                fill="none"
-                                stroke="rgba(71,85,105,0.15)"
-                                strokeWidth="0.3"
-                                strokeDasharray="1.5 3"
-                                style={{ transition: 'r 0.3s ease' }}
-                            />
-
-                            {/* Compass tick marks */}
-                            {Array.from({ length: 36 }, (_, i) => {
-                                const angle = ((i * 10 - 90) * Math.PI) / 180;
-                                const isMajor = i % 9 === 0;
-                                const isMinor = i % 3 === 0;
-                                const inner = outerR + (isMajor ? 4 : isMinor ? 6 : 7);
-                                const outer = outerR + 9;
-                                return (
-                                    <line
-                                        key={i}
-                                        x1={100 + Math.cos(angle) * inner}
-                                        y1={100 + Math.sin(angle) * inner}
-                                        x2={100 + Math.cos(angle) * outer}
-                                        y2={100 + Math.sin(angle) * outer}
-                                        stroke={isMajor ? 'rgba(148,163,184,0.5)' : 'rgba(100,116,139,0.15)'}
-                                        strokeWidth={isMajor ? 1 : 0.3}
-                                    />
-                                );
-                            })}
-
-                            {/* Cardinal labels */}
-                            {[
-                                { label: 'N', x: 100, y: 100 - outerR - 14, color: 'rgba(248,113,113,0.8)' },
-                                { label: 'E', x: 100 + outerR + 14, y: 101, color: 'rgba(148,163,184,0.5)' },
-                                { label: 'S', x: 100, y: 100 + outerR + 16, color: 'rgba(148,163,184,0.5)' },
-                                { label: 'W', x: 100 - outerR - 14, y: 101, color: 'rgba(148,163,184,0.5)' },
-                            ].map(({ label, x, y, color }) => (
-                                <text
-                                    key={label}
-                                    x={x}
-                                    y={y}
-                                    textAnchor="middle"
-                                    dominantBaseline="middle"
-                                    fill={color}
-                                    fontSize="7"
-                                    fontWeight="bold"
-                                    fontFamily="system-ui"
-                                >
-                                    {label}
-                                </text>
-                            ))}
-
-                            {/* Anchor icon at center */}
-                            <text
-                                x="100"
-                                y="88"
-                                textAnchor="middle"
-                                dominantBaseline="middle"
-                                fontSize="14"
-                                fill="rgba(245,158,11,0.85)"
-                            >
-                                ⚓
-                            </text>
-
-                            {/* Scope ratio — large bold center text */}
-                            <text
-                                x="100"
-                                y="106"
-                                textAnchor="middle"
-                                dominantBaseline="middle"
-                                fontSize="18"
-                                fontWeight="900"
-                                fontFamily="ui-monospace, monospace"
-                                fill="white"
-                                style={{ textShadow: '0 0 10px rgba(255,255,255,0.15)' }}
-                            >
-                                {scopeRatio.toFixed(1)}:1
-                            </text>
-
-                            {/* Scope quality label below ratio */}
-                            <text
-                                x="100"
-                                y="118"
-                                textAnchor="middle"
-                                dominantBaseline="middle"
-                                fontSize="6"
-                                fontWeight="700"
-                                fontFamily="system-ui"
-                                fill={scopeColor}
-                                letterSpacing="0.1em"
-                            >
-                                {scopeQuality === 'excellent'
-                                    ? 'EXCELLENT'
-                                    : scopeQuality === 'adequate'
-                                      ? 'ADEQUATE'
-                                      : 'POOR'}
-                            </text>
-
-                            {/* Swing radius readout */}
-                            <text
-                                x="100"
-                                y="128"
-                                textAnchor="middle"
-                                dominantBaseline="middle"
-                                fontSize="5"
-                                fill="rgba(148,163,184,0.6)"
-                                fontFamily="system-ui"
-                            >
-                                {formatDistance(swingRadiusPreview)} swing radius
-                            </text>
-                        </svg>
+                        <ScopeRadar
+                            rodeLength={rodeLength}
+                            waterDepth={waterDepth}
+                            rodeType={rodeType}
+                            safetyMargin={safetyMargin}
+                        />
                     </div>
 
                     {/* ── Controls Section ── */}
@@ -882,188 +690,19 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 </div>
 
                 {/* ══ Sound Check Confirmation Modal ══ */}
-                {showSoundCheck &&
-                    createPortal(
-                        <div
-                            className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-6"
-                            onClick={() => setShowSoundCheck(false)}
-                        >
-                            <div
-                                className="w-full max-w-sm bg-slate-900/95 border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                {/* Header */}
-                                <div className="px-5 pt-5 pb-3 text-center">
-                                    <div className="text-4xl mb-3">🔊</div>
-                                    <h2 className="text-lg font-black text-white tracking-tight">Sound Check</h2>
-                                    <p className="text-sm text-slate-400 mt-1 leading-relaxed">
-                                        Before you anchor up, make sure your alarm will wake you.
-                                    </p>
-                                </div>
-
-                                {/* Checklist */}
-                                <div className="px-5 pb-4 space-y-2.5">
-                                    <div className="flex items-start gap-3 bg-emerald-500/[0.06] border border-emerald-500/10 rounded-xl px-3.5 py-2.5">
-                                        <span className="text-lg mt-0.5">✅</span>
-                                        <div>
-                                            <p className="text-sm font-bold text-emerald-400">Mute Switch Override</p>
-                                            <p className="text-xs text-emerald-400/70 leading-snug">
-                                                The drag alarm will bypass your silent switch and play at full volume
-                                                through the speaker.
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-start gap-3 bg-amber-500/[0.06] border border-amber-500/10 rounded-xl px-3.5 py-2.5">
-                                        <span className="text-lg mt-0.5">🔔</span>
-                                        <div>
-                                            <p className="text-sm font-bold text-amber-400">Recommended</p>
-                                            <p className="text-xs text-amber-400/70 leading-snug">
-                                                Turn your volume up and disable Do Not Disturb for maximum safety —
-                                                especially overnight.
-                                            </p>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-start gap-3 bg-sky-500/[0.06] border border-sky-500/10 rounded-xl px-3.5 py-2.5">
-                                        <span className="text-lg mt-0.5">📱</span>
-                                        <div>
-                                            <p className="text-sm font-bold text-sky-400">Keep App Open</p>
-                                            <p className="text-xs text-sky-400/70 leading-snug">
-                                                Leave Thalassa running. Background GPS continues but the speaker alarm
-                                                requires the app in view.
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Actions */}
-                                <div className="px-5 pb-5 flex gap-2.5">
-                                    <button
-                                        onClick={() => setShowSoundCheck(false)}
-                                        className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.06] text-sm font-bold text-slate-400 hover:text-white transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={handleSoundCheckConfirm}
-                                        className="flex-[2] py-3 rounded-xl text-white text-sm font-black transition-all active:scale-[0.98]"
-                                        style={{
-                                            background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
-                                            boxShadow: '0 4px 16px rgba(249,115,22,0.3)',
-                                        }}
-                                    >
-                                        ⚓ Drop Anchor
-                                    </button>
-                                </div>
-                            </div>
-                        </div>,
-                        document.body,
-                    )}
+                {showSoundCheck && (
+                    <SoundCheckModal onConfirm={handleSoundCheckConfirm} onCancel={() => setShowSoundCheck(false)} />
+                )}
 
                 {/* Shore Watch Modal — rendered via portal to bypass PullToRefresh transform */}
-                {showShoreModal &&
-                    createPortal(
-                        <div
-                            className="fixed inset-0 z-[9999] bg-black/70 flex flex-col items-center"
-                            style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 108px)' }}
-                            onClick={() => setShowShoreModal(false)}
-                        >
-                            <div
-                                className="w-[calc(100%-1.5rem)] max-w-md bg-slate-900/95 border border-white/[0.08] rounded-2xl shadow-2xl"
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                {/* Modal Header */}
-                                <div className={t.modal.header}>
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-sky-400 text-lg">📱</span>
-                                        <h2 className="text-base font-black text-white tracking-tight">Shore Watch</h2>
-                                    </div>
-                                    <button onClick={() => setShowShoreModal(false)} className={t.modal.close}>
-                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                strokeWidth={2}
-                                                d="M6 18L18 6M6 6l12 12"
-                                            />
-                                        </svg>
-                                    </button>
-                                </div>
-
-                                {/* Modal Content */}
-                                <div className={t.modal.body}>
-                                    <p className="text-sm text-slate-400 leading-relaxed">
-                                        Monitor your vessel`s anchor from shore. Enter the{' '}
-                                        <span className="text-white font-bold">6-digit session code</span> displayed on
-                                        the vessel device to connect.
-                                    </p>
-
-                                    {/* How it works */}
-                                    <div className="space-y-2">
-                                        <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">
-                                            How it works
-                                        </p>
-                                        <div className="space-y-1.5">
-                                            <div className="flex items-start gap-2">
-                                                <span className="text-emerald-400 text-sm mt-px">1.</span>
-                                                <p className="text-sm text-slate-300">
-                                                    Start Anchor Watch on the vessel device
-                                                </p>
-                                            </div>
-                                            <div className="flex items-start gap-2">
-                                                <span className="text-emerald-400 text-sm mt-px">2.</span>
-                                                <p className="text-sm text-slate-300">
-                                                    Note the 6-digit code shown on screen
-                                                </p>
-                                            </div>
-                                            <div className="flex items-start gap-2">
-                                                <span className="text-emerald-400 text-sm mt-px">3.</span>
-                                                <p className="text-sm text-slate-300">
-                                                    Enter the code below to monitor remotely
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Divider */}
-                                    <div className="border-t border-white/5" />
-
-                                    {/* Code entry */}
-                                    <div>
-                                        <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">
-                                            Session Code
-                                        </p>
-                                        <div className="flex gap-2 items-center">
-                                            <input
-                                                type="text"
-                                                inputMode="numeric"
-                                                maxLength={6}
-                                                placeholder="000000"
-                                                value={sessionCode}
-                                                onChange={(e) =>
-                                                    setSessionCode(e.target.value.replace(/\D/g, '').slice(0, 6))
-                                                }
-                                                className={`flex-1 min-w-0 ${t.input.code} text-lg`}
-                                                autoFocus
-                                            />
-                                            <button
-                                                onClick={() => {
-                                                    handleJoinShore();
-                                                    setShowShoreModal(false);
-                                                }}
-                                                disabled={sessionCode.length !== 6}
-                                                className="shrink-0 px-5 py-2.5 bg-sky-600 hover:bg-sky-500 rounded-lg text-white text-sm font-bold transition-all disabled:opacity-30 active:scale-95"
-                                            >
-                                                Join
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>,
-                        document.body,
-                    )}
+                {showShoreModal && (
+                    <ShoreWatchModal
+                        sessionCode={sessionCode}
+                        onSessionCodeChange={setSessionCode}
+                        onJoin={handleJoinShore}
+                        onClose={() => setShowShoreModal(false)}
+                    />
+                )}
 
                 {/* Shimmer keyframe */}
                 <style>{`
