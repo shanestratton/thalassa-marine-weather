@@ -21,12 +21,15 @@ import {
     WEATHER_TEMPLATES,
 } from '../services/GuardianService';
 import { triggerHaptic } from '../utils/system';
+import { useSettings } from '../context/SettingsContext';
 
 interface GuardianPageProps {
     onBack: () => void;
 }
 
 export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
+    const { settings } = useSettings();
+
     // ── State ──
     const [armed, setArmed] = useState(false);
     const [arming, setArming] = useState(false);
@@ -70,6 +73,10 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                 setDogName(profile.dog_name || '');
                 setVesselBio(profile.vessel_bio || '');
             } else {
+                // Pre-fill vessel name from onboarding profile if available
+                if (settings.vessel?.name) {
+                    setVesselName(settings.vessel.name);
+                }
                 setShowSetup(true);
             }
             await GuardianService.fetchNearbyUsers();
