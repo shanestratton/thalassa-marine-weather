@@ -12,6 +12,7 @@
  *   6. Guardian Profile Setup (if no profile)
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { LocationStore } from '../stores/LocationStore';
 import {
     GuardianService,
     NearbyUser,
@@ -53,6 +54,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     // ARM slider
     const sliderRef = useRef<HTMLDivElement>(null);
     const [sliderX, setSliderX] = useState(0);
+    const sliderXRef = useRef(0);
     const [isDragging, setIsDragging] = useState(false);
 
     // ── Init ──
@@ -116,15 +118,17 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             const handleMove = (ev: TouchEvent | MouseEvent) => {
                 const currentX = 'touches' in ev ? ev.touches[0].clientX : ev.clientX;
                 const dx = Math.max(0, Math.min(currentX - startX, maxX));
+                sliderXRef.current = dx;
                 setSliderX(dx);
             };
 
             const handleEnd = () => {
                 const threshold = maxX * 0.75;
-                if (sliderX >= threshold) {
+                if (sliderXRef.current >= threshold) {
                     if (armed) handleDisarm();
                     else handleArm();
                 }
+                sliderXRef.current = 0;
                 setSliderX(0);
                 setIsDragging(false);
                 document.removeEventListener('touchmove', handleMove);
@@ -137,9 +141,8 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             document.addEventListener('touchend', handleEnd);
             document.addEventListener('mousemove', handleMove);
             document.addEventListener('mouseup', handleEnd);
-             
         },
-        [armed, arming, sliderX],
+        [armed, arming, handleArm, handleDisarm],
     );
 
     // ── Profile save ──
@@ -426,8 +429,18 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                     <button
                         onClick={async () => {
                             triggerHaptic('medium');
-                            const ok = await GuardianService.setHomeCoordinate(0, 0); // Will use LocationStore internally
-                            if (ok) triggerHaptic('medium');
+                            const pos = LocationStore.getState();
+                            if (!pos.lat || !pos.lon) {
+                                alert('No GPS position available — please enable location services.');
+                                return;
+                            }
+                            const ok = await GuardianService.setHomeCoordinate(pos.lat, pos.lon);
+                            if (ok) {
+                                triggerHaptic('heavy');
+                                alert(
+                                    `Home set at ${pos.lat.toFixed(4)}°, ${pos.lon.toFixed(4)}° — you'll be alerted if your vessel moves outside 100m.`,
+                                );
+                            }
                         }}
                         className="bg-gradient-to-br from-purple-500/15 to-purple-500/10 border border-purple-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.97]"
                     >
@@ -657,11 +670,35 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             {/* ═══ MODAL: REPORT SUSPICIOUS ═══ */}
             {showReport && (
                 <div className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200">
-                    <div className="w-full max-w-lg bg-slate-900 border-t border-red-500/20 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300">
-                        <h2 className="text-lg font-black text-red-400 mb-1">🚨 Report Suspicious Activity</h2>
-                        <p className="text-xs text-gray-400 mb-4">
-                            This alert will be broadcast to all Thalassa users within 5 NM
-                        </p>
+                    <div
+                        className="w-full max-w-lg bg-slate-900 border-t border-red-500/20 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300"
+                        style={{ marginBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                    >
+                        {/* Header with back chevron */}
+                        <div className="flex items-center gap-3 mb-4">
+                            <button
+                                onClick={() => setShowReport(false)}
+                                className="p-2 -ml-2 hover:bg-white/5 rounded-xl transition-colors active:scale-95"
+                            >
+                                <svg
+                                    className="w-5 h-5 text-white"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M15.75 19.5L8.25 12l7.5-7.5"
+                                    />
+                                </svg>
+                            </button>
+                            <div className="flex-1">
+                                <h2 className="text-lg font-black text-red-400">🚨 Report Suspicious Activity</h2>
+                                <p className="text-xs text-gray-400">Broadcast to all Thalassa users within 5 NM</p>
+                            </div>
+                        </div>
                         <textarea
                             value={reportText}
                             onChange={(e) => setReportText(e.target.value)}
@@ -692,9 +729,37 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             {/* ═══ MODAL: WEATHER ALERT ═══ */}
             {showWeather && (
                 <div className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200">
-                    <div className="w-full max-w-lg bg-slate-900 border-t border-sky-500/20 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300">
-                        <h2 className="text-lg font-black text-sky-400 mb-1">⛈️ Weather Alert</h2>
-                        <p className="text-xs text-gray-400 mb-4">Broadcast a weather warning to boats within 5 NM</p>
+                    <div
+                        className="w-full max-w-lg bg-slate-900 border-t border-sky-500/20 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300"
+                        style={{ marginBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                    >
+                        {/* Header with back chevron */}
+                        <div className="flex items-center gap-3 mb-4">
+                            <button
+                                onClick={() => setShowWeather(false)}
+                                className="p-2 -ml-2 hover:bg-white/5 rounded-xl transition-colors active:scale-95"
+                            >
+                                <svg
+                                    className="w-5 h-5 text-white"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M15.75 19.5L8.25 12l7.5-7.5"
+                                    />
+                                </svg>
+                            </button>
+                            <div className="flex-1">
+                                <h2 className="text-lg font-black text-sky-400">⛈️ Weather Alert</h2>
+                                <p className="text-xs text-gray-400">
+                                    Broadcast a weather warning to boats within 5 NM
+                                </p>
+                            </div>
+                        </div>
                         <div className="space-y-2">
                             {WEATHER_TEMPLATES.map((t) => (
                                 <button
