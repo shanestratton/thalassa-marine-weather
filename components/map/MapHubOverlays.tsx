@@ -91,8 +91,7 @@ export const LayerLegendStrip: React.FC<{ activeLayer: WeatherLayer; windMaxSpee
         activeLayer === 'sea' ||
         activeLayer === 'satellite' ||
         activeLayer === 'velocity' ||
-        activeLayer === 'wind' ||
-        activeLayer === 'temperature'
+        activeLayer === 'wind'
     )
         return null;
 

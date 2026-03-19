@@ -80,7 +80,7 @@ export const MaritimeIntelCard: React.FC = React.memo(() => {
 
                         <div
                             ref={tickerRef}
-                            className="whitespace-nowrap"
+                            className="whitespace-nowrap inline-block"
                             style={{
                                 animation: `ticker-scroll ${duration}s linear infinite`,
                                 willChange: 'transform',
