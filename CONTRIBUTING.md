@@ -1,153 +1,103 @@
 # Contributing to Thalassa
 
+Thank you for contributing to Thalassa! Follow these guidelines to keep the codebase clean and consistent.
+
 ## Development Setup
 
 ```bash
-git clone <repo-url>
-cd thalassa-marine-weather
-npm install          # Also runs `husky` via prepare script
-cp .env.example .env # Add your API keys
-npm run dev          # Start dev server at localhost:5173
+# Install dependencies
+npm install
+
+# Start dev server
+npm run dev
+
+# Run tests
+npm test
+
+# Type check
+npx tsc --noEmit --skipLibCheck
+
+# Lint
+npx eslint .
 ```
 
-## Code Quality
+## Code Standards
 
-### Pre-commit Hooks
+### Components
 
-Husky + lint-staged runs automatically on every commit:
-
-- **ESLint** checks staged `.ts/.tsx` files (0 errors enforced)
-- **Prettier** checks formatting on staged files
-
-### Running Checks Manually
-
-```bash
-npm run lint         # ESLint (entire project)
-npm run lint:fix     # Auto-fix what's possible
-npm run format       # Reformat all files
-npx tsc --noEmit     # TypeScript check
-npm test             # Vitest (watch mode)
-npx vitest run       # Vitest (CI mode, single run)
-```
-
-## Code Conventions
-
-### File Organization
-
-| Type       | Location      | Naming                                                 |
-| ---------- | ------------- | ------------------------------------------------------ |
-| Components | `components/` | PascalCase (e.g., `AnchorWatchPage.tsx`)               |
-| Hooks      | `hooks/`      | camelCase with `use` prefix (`useKeyboardScroll.ts`)   |
-| Services   | `services/`   | PascalCase (`WeatherScheduler.ts`)                     |
-| Utilities  | `utils/`      | camelCase (`logger.ts`)                                |
-| Tests      | `tests/`      | camelCase matching source (`weatherScheduler.test.ts`) |
-| Types      | `types.ts`    | Centralized — add here, not in component files         |
+- **Max 500 lines** — extract sub-components if growing beyond this
+- Use `React.memo()` on components receiving stable props
+- Use `useCallback` and `useMemo` for expensive computations
+- Place hooks before any early returns (React Rules of Hooks)
 
 ### TypeScript
 
-- **Strict mode** — no `// @ts-ignore` without justification
-- **Avoid `any`** — use `unknown` + type guards, or `Record<string, unknown>`
-- **Prefix unused params** with `_` (e.g., `_event`, `_unused`)
-- **Use `createLogger`** instead of `console.log` in services
+- Avoid `as any` — use proper types or `unknown` with type guards
+- Add return types on all exported functions
+- Use `eslint-disable-next-line` with specific rule names, never bare `eslint-disable`
 
-```typescript
-// ✅ Good
-import { createLogger } from '../utils/logger';
-const log = createLogger('MyService');
-log.info('Operation complete', { id });
+### Styling
 
-// ❌ Bad
-console.log('Operation complete', id);
-```
+- Use Tailwind CSS utility classes
+- Dark theme only — all backgrounds should be slate-900/950
+- Minimum touch target: 44x44px for interactive elements
+- Minimum font size: 11px (`text-[11px]`)
+- Color contrast: `text-gray-300` minimum for body text on dark backgrounds
 
-### React Patterns
+### Accessibility
 
-- **Hooks before early returns** — never call hooks conditionally
-- **Use `useMemo`/`useCallback`** for expensive computations and callback props
-- **Ref-stabilize callbacks** that are passed to memoized children
-- **Extract hooks** when component state logic exceeds ~50 lines
+- All icon-only buttons must have `aria-label`
+- Use semantic HTML (`<nav>`, `<main>`, `<section>`)
+- Provide `role="status"` and `aria-live="polite"` for dynamic content
+- Ensure keyboard navigability on all interactive elements
 
-### CSS
+### Services
 
-- TailwindCSS utility classes for all styling
-- Design tokens in `theme.ts` — use `t.border.subtle`, `t.bg.card`, etc.
-- Minimum touch target: 44×44px on interactive elements
-- Typography floor: 11px minimum font size
+- Use `createLogger('ServiceName')` for debug logging
+- Cache API responses with TTL where appropriate
+- Never expose API keys in client code — use Supabase Edge Functions
 
-## Testing
+### Testing
 
-### Writing Tests
+- Every service should have a corresponding `.test.ts` file
+- Use `describe` / `it` blocks with clear test names
+- Mock external dependencies (Supabase, fetch, GPS)
 
-```bash
-# Create test file matching the source
-# services/WeatherScheduler.ts → tests/weatherScheduler.test.ts
-
-npx vitest run tests/weatherScheduler.test.ts  # Run single file
-```
-
-### Test Structure
-
-```typescript
-import { describe, it, expect, vi } from 'vitest';
-
-describe('ModuleName', () => {
-    describe('functionName()', () => {
-        it('should handle the happy path', () => {
-            // Arrange → Act → Assert
-        });
-
-        it('should handle edge case X', () => {
-            // Test boundary conditions
-        });
-    });
-});
-```
-
-### Mock Patterns
-
-- Mock Supabase at module level with `vi.mock()`
-- Use `vi.hoisted()` for mock variables referenced in `vi.mock()` factories
-- Mock Capacitor plugins (`@capacitor/preferences`, etc.)
-
-## Git Workflow
-
-```bash
-# Feature work
-git checkout -b feature/my-feature
-# ... make changes ...
-git add -p                    # Stage selectively
-git commit -m "feat: description"  # Pre-commit hook runs lint
-git push origin feature/my-feature
-# Open PR → CI runs lint + typecheck + tests + build
-```
-
-### Commit Messages
+## Commit Messages
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/):
 
-- `feat:` — New feature
-- `fix:` — Bug fix
-- `refactor:` — Code change that neither fixes a bug nor adds a feature
-- `test:` — Adding or updating tests
-- `docs:` — Documentation only
-- `chore:` — Build process, CI, dependencies
-
-## Architecture Notes
-
-### Service Layer
-
-Business logic lives in `services/`, never in components. Services are stateless singletons or static classes that can be tested independently.
-
-### Weather Pipeline
-
 ```
-WeatherKit (primary) → StormGlass (fallback) → OpenMeteo (fallback)
-     ↓
-WeatherContext (orchestration, caching, smart polling)
-     ↓
-WeatherScheduler (pure functions: interval selection, storm detection)
+feat: add new weather overlay
+fix: correct tide calculation for southern hemisphere
+docs: update API documentation
+a11y: add aria-labels to navigation buttons
+refactor: extract TideGraph into separate component
+test: add AIS guard zone edge case tests
+devops: add Lighthouse CI configuration
 ```
 
-### Offline Support
+## Pre-commit Hooks
 
-All mutations go through an offline queue (`services/shiplog/OfflineQueue.ts`). When the device comes back online, queued operations sync automatically.
+Husky runs lint-staged on every commit:
+
+- **ESLint** — catches errors and enforces code quality
+- **Prettier** — formats code consistently
+
+If your commit fails, run:
+
+```bash
+npx prettier --write <file>
+npx eslint --fix <file>
+```
+
+## Branch Strategy
+
+1. Branch from `master`
+2. Make changes in a feature branch
+3. Ensure `npm test` and `npx tsc --noEmit` pass
+4. Submit a pull request
+
+## Architecture
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for system diagrams and service documentation.
