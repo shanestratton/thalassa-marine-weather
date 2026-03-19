@@ -137,6 +137,7 @@ const App: React.FC = () => {
     const [chatUnread, setChatUnread] = useState(0);
     // Track if map was opened from WX page (auto-return) vs tab bar (stay on map)
     const mapFromWxRef = useRef(false);
+    const [mapPickerActive, setMapPickerActive] = useState(false);
     useEffect(() => {
         let timer: ReturnType<typeof setInterval> | null = null;
         import('./services/ChatService').then(({ ChatService }) => {
@@ -565,6 +566,7 @@ const App: React.FC = () => {
                                                 className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default ${isOffline ? 'bg-slate-900/40 border border-white/5 opacity-80' : 'bg-slate-900/60 border border-white/10'}`}
                                                 onClick={() => {
                                                     mapFromWxRef.current = true;
+                                                    setMapPickerActive(true);
                                                     setPage('map');
                                                 }}
                                             />
@@ -590,6 +592,7 @@ const App: React.FC = () => {
                                                     type="button"
                                                     onClick={() => {
                                                         mapFromWxRef.current = true;
+                                                        setMapPickerActive(true);
                                                         setPage('map');
                                                     }}
                                                     className="p-1.5 hover:bg-white/10 rounded-full text-gray-300 hover:text-emerald-400 transition-colors"
@@ -674,6 +677,7 @@ const App: React.FC = () => {
                                                             <Dashboard
                                                                 onOpenMap={() => {
                                                                     mapFromWxRef.current = true;
+                                                                    setMapPickerActive(true);
                                                                     setPage('map');
                                                                 }}
                                                                 onTriggerUpgrade={() => setIsUpgradeOpen(true)}
@@ -833,9 +837,11 @@ const App: React.FC = () => {
                                 <MapHub
                                     mapboxToken={settings.mapboxToken}
                                     homePort={settings.defaultLocation}
+                                    pickerMode={mapPickerActive}
                                     onLocationSelect={(lat: number, lon: number, name?: string) => {
                                         if (mapFromWxRef.current) {
                                             mapFromWxRef.current = false;
+                                            setMapPickerActive(false);
                                             handleMapTargetSelect(lat, lon, name);
                                         } else {
                                             handleMapStaySelect(lat, lon, name);
