@@ -504,111 +504,135 @@ function chaikinSmooth(points: number[][], iterations: number): number[][] {
     return pts;
 }
 
-// ── H/L Pressure Center Detection ─────────────────────────────
-
 function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 'H' | 'L'; pressure: number }[] {
     const { values, lats, lons, rows, cols } = grid;
 
     if (rows < 3 || cols < 3) return [];
 
-    // Grid spacing
+    // Grid spacing for parabolic refinement
     const dLat = lats.length > 1 ? Math.abs(lats[1] - lats[0]) : 1;
     const dLon = lons.length > 1 ? Math.abs(lons[1] - lons[0]) : 1;
 
-    // 1. Collect ALL grid points with their pressure (skip 1-cell edge margin)
-    const points: { r: number; c: number; pressure: number }[] = [];
-    for (let r = 1; r < rows - 1; r++) {
-        for (let c = 1; c < cols - 1; c++) {
-            points.push({ r, c, pressure: values[r][c] });
-        }
-    }
-
-    // 2. Sort by pressure — ascending for L candidates, descending for H
-    const sortedAsc = [...points].sort((a, b) => a.pressure - b.pressure);
-    const sortedDesc = [...points].sort((a, b) => b.pressure - a.pressure);
-
-    // 3. Pick L centers: take the lowest-pressure points, dedup by distance
     const MIN_SEP = 8; // degrees — minimum separation between same-type centers
     const MAX_CENTERS = 8; // max centers of each type
+    const GRADIENT_THRESHOLD = 2; // hPa — minimum difference from neighbour mean to qualify
 
     type Center = { lat: number; lon: number; type: 'H' | 'L'; pressure: number };
     const lows: Center[] = [];
     const highs: Center[] = [];
 
-    // Regional mean for significance threshold
-    let totalP = 0;
-    for (const p of points) totalP += p.pressure;
-    const meanP = points.length > 0 ? totalP / points.length : 1013.25;
+    // 8-neighbour offsets: N, NE, E, SE, S, SW, W, NW
+    const NB = [
+        [-1, 0],
+        [-1, 1],
+        [0, 1],
+        [1, 1],
+        [1, 0],
+        [1, -1],
+        [0, -1],
+        [-1, -1],
+    ];
 
-    // Find L centers (lowest pressure points, well separated)
-    for (const pt of sortedAsc) {
-        if (lows.length >= MAX_CENTERS) break;
-        const lat = lats[pt.r];
-        const lon = lons[pt.c];
+    // ── Pass 1: Find strict local extrema (all 8 neighbours confirm) ──
+    type Candidate = { r: number; c: number; pressure: number; neighbourMean: number };
+    const lowCandidates: Candidate[] = [];
+    const highCandidates: Candidate[] = [];
 
-        // Must be lower than regional mean
-        if (pt.pressure >= meanP) break;
+    for (let r = 1; r < rows - 1; r++) {
+        for (let c = 1; c < cols - 1; c++) {
+            const val = values[r][c];
+            let lowerCount = 0; // neighbours with lower pressure (makes this a max)
+            let higherCount = 0; // neighbours with higher pressure (makes this a min)
+            let neighbourSum = 0;
 
-        // Check distance from already-selected L centers
-        const tooClose = lows.some((l) => Math.abs(l.lat - lat) < MIN_SEP && Math.abs(l.lon - lon) < MIN_SEP);
-        if (tooClose) continue;
+            for (const [dr, dc] of NB) {
+                const nv = values[r + dr][c + dc];
+                neighbourSum += nv;
+                if (nv < val) lowerCount++;
+                if (nv > val) higherCount++;
+            }
 
-        // Sub-grid parabolic interpolation for precise position
-        let refinedLat = lat;
-        let refinedLon = lon;
-        const { r, c } = pt;
-        const val = pt.pressure;
-        const vN = values[r - 1][c],
-            vS = values[r + 1][c];
-        const denomLat = 2 * (vN - 2 * val + vS);
-        if (Math.abs(denomLat) > 0.001) {
-            const shift = -(vS - vN) / denomLat;
-            refinedLat += Math.max(-0.5, Math.min(0.5, shift)) * dLat;
+            const neighbourMean = neighbourSum / 8;
+
+            // Strict local maximum (H): all 8 neighbours have lower pressure
+            if (lowerCount === 8 && val - neighbourMean >= GRADIENT_THRESHOLD) {
+                highCandidates.push({ r, c, pressure: val, neighbourMean });
+            }
+            // Strict local minimum (L): all 8 neighbours have higher pressure
+            if (higherCount === 8 && neighbourMean - val >= GRADIENT_THRESHOLD) {
+                lowCandidates.push({ r, c, pressure: val, neighbourMean });
+            }
         }
-        const vW = values[r][c - 1],
-            vE = values[r][c + 1];
-        const denomLon = 2 * (vW - 2 * val + vE);
-        if (Math.abs(denomLon) > 0.001) {
-            const shift = -(vE - vW) / denomLon;
-            refinedLon += Math.max(-0.5, Math.min(0.5, shift)) * dLon;
-        }
-
-        lows.push({ lat: refinedLat, lon: refinedLon, type: 'L', pressure: Math.round(val) });
     }
 
-    // Find H centers (highest pressure points, well separated)
-    for (const pt of sortedDesc) {
-        if (highs.length >= MAX_CENTERS) break;
-        const lat = lats[pt.r];
-        const lon = lons[pt.c];
+    // ── Pass 2: If no strict extrema found, relax to 6-of-8 ──
+    if (lowCandidates.length === 0 || highCandidates.length === 0) {
+        for (let r = 1; r < rows - 1; r++) {
+            for (let c = 1; c < cols - 1; c++) {
+                const val = values[r][c];
+                let lowerCount = 0;
+                let higherCount = 0;
+                let neighbourSum = 0;
 
-        // Must be higher than regional mean
-        if (pt.pressure <= meanP) break;
+                for (const [dr, dc] of NB) {
+                    const nv = values[r + dr][c + dc];
+                    neighbourSum += nv;
+                    if (nv < val) lowerCount++;
+                    if (nv > val) higherCount++;
+                }
 
-        const tooClose = highs.some((h) => Math.abs(h.lat - lat) < MIN_SEP && Math.abs(h.lon - lon) < MIN_SEP);
-        if (tooClose) continue;
+                const neighbourMean = neighbourSum / 8;
 
-        let refinedLat = lat;
-        let refinedLon = lon;
-        const { r, c } = pt;
-        const val = pt.pressure;
-        const vN = values[r - 1][c],
-            vS = values[r + 1][c];
-        const denomLat = 2 * (vN - 2 * val + vS);
-        if (Math.abs(denomLat) > 0.001) {
-            const shift = -(vS - vN) / denomLat;
-            refinedLat += Math.max(-0.5, Math.min(0.5, shift)) * dLat;
+                if (highCandidates.length === 0 && lowerCount >= 6 && val - neighbourMean >= GRADIENT_THRESHOLD) {
+                    highCandidates.push({ r, c, pressure: val, neighbourMean });
+                }
+                if (lowCandidates.length === 0 && higherCount >= 6 && neighbourMean - val >= GRADIENT_THRESHOLD) {
+                    lowCandidates.push({ r, c, pressure: val, neighbourMean });
+                }
+            }
         }
-        const vW = values[r][c - 1],
-            vE = values[r][c + 1];
-        const denomLon = 2 * (vW - 2 * val + vE);
-        if (Math.abs(denomLon) > 0.001) {
-            const shift = -(vE - vW) / denomLon;
-            refinedLon += Math.max(-0.5, Math.min(0.5, shift)) * dLon;
-        }
-
-        highs.push({ lat: refinedLat, lon: refinedLon, type: 'H', pressure: Math.round(val) });
     }
+
+    // Sort by gradient strength (how much the center differs from neighbours)
+    lowCandidates.sort((a, b) => b.neighbourMean - b.pressure - (a.neighbourMean - a.pressure));
+    highCandidates.sort((a, b) => b.pressure - b.neighbourMean - (a.pressure - a.neighbourMean));
+
+    // ── Deduplicate by distance, refine position ──
+    const refineAndAdd = (candidates: Candidate[], type: 'H' | 'L', output: Center[]) => {
+        for (const pt of candidates) {
+            if (output.length >= MAX_CENTERS) break;
+            const lat = lats[pt.r];
+            const lon = lons[pt.c];
+
+            // Check distance from already-selected centers of same type
+            const tooClose = output.some((c) => Math.abs(c.lat - lat) < MIN_SEP && Math.abs(c.lon - lon) < MIN_SEP);
+            if (tooClose) continue;
+
+            // Sub-grid parabolic interpolation for precise position
+            let refinedLat = lat;
+            let refinedLon = lon;
+            const { r, c, pressure: val } = pt;
+            const vN = values[r - 1][c],
+                vS = values[r + 1][c];
+            const denomLat = 2 * (vN - 2 * val + vS);
+            if (Math.abs(denomLat) > 0.001) {
+                const shift = -(vS - vN) / denomLat;
+                refinedLat += Math.max(-0.5, Math.min(0.5, shift)) * dLat;
+            }
+            const vW = values[r][c - 1],
+                vE = values[r][c + 1];
+            const denomLon = 2 * (vW - 2 * val + vE);
+            if (Math.abs(denomLon) > 0.001) {
+                const shift = -(vE - vW) / denomLon;
+                refinedLon += Math.max(-0.5, Math.min(0.5, shift)) * dLon;
+            }
+
+            output.push({ lat: refinedLat, lon: refinedLon, type, pressure: Math.round(val) });
+        }
+    };
+
+    refineAndAdd(lowCandidates, 'L', lows);
+    refineAndAdd(highCandidates, 'H', highs);
 
     const all = [...lows, ...highs];
     console.info(
