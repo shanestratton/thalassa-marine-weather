@@ -913,6 +913,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         zoom: 10,
                                         duration: 1000,
                                     });
+                                    dropPin(mapRef.current, weatherCoords.lat, weatherCoords.lon);
                                 }
                                 triggerHaptic('light');
                             }}
