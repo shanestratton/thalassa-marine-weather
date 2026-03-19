@@ -1,4 +1,5 @@
 import React, { Suspense } from 'react';
+import { lazyRetry } from '../../utils/lazyRetry';
 import { Card } from './shared/Card';
 import {
     GaugeIcon,
@@ -30,7 +31,7 @@ import { useThalassa } from '../../context/ThalassaContext';
 
 // ── Lazy-loaded DnD wrapper ─────────────────────────────────────
 // @dnd-kit is 185KB — only load it when the component mounts, not at app startup.
-const DndSortableGrid = React.lazy(() => import('./DndSortableGrid'));
+const DndSortableGrid = lazyRetry(() => import('./DndSortableGrid'), 'DndSortableGrid');
 
 /** Fallback: plain grid while DnD chunk loads (or on older devices) */
 const PlainGrid: React.FC<{ ids: string[]; children: (id: string) => React.ReactNode }> = ({ ids, children }) => (

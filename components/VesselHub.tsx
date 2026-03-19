@@ -13,7 +13,11 @@ import { useSettings } from '../context/SettingsContext';
 import { triggerHaptic } from '../utils/system';
 import { supabase } from '../services/supabase';
 import { getPendingInviteCount } from '../services/CrewService';
-const AdminPanel = React.lazy(() => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })));
+import { lazyRetry } from '../utils/lazyRetry';
+const AdminPanel = lazyRetry(
+    () => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })),
+    'AdminPanel_Vessel',
+);
 
 interface VesselHubProps {
     onNavigate: (page: string) => void;

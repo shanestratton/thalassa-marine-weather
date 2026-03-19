@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createLogger } from '../utils/createLogger';
+import { lazyRetry } from '../utils/lazyRetry';
 
 const log = createLogger('Dashboard');
 import { t } from '../theme';
@@ -10,7 +11,7 @@ import { CompactHeaderRow } from './dashboard/CompactHeaderRow';
 import { StatusBadges } from './dashboard/StatusBadges';
 import { getMoonPhase } from './dashboard/WeatherHelpers';
 
-const LogPage = React.lazy(() => import('../pages/LogPage').then((m) => ({ default: m.LogPage })));
+const LogPage = lazyRetry(() => import('../pages/LogPage').then((m) => ({ default: m.LogPage })), 'LogPage_Dash');
 import { HeroHeader } from './dashboard/HeroHeader';
 import { HeroWidgets } from './dashboard/HeroWidgets';
 import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';

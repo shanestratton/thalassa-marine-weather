@@ -1,9 +1,19 @@
 import React, { Suspense } from 'react';
+import { lazyRetry } from '../utils/lazyRetry';
 import { AdviceWidget } from './dashboard/Advice';
 
-const HourlyWidget = React.lazy(() => import('./dashboard/WeatherCharts').then((m) => ({ default: m.HourlyWidget })));
-const DailyWidget = React.lazy(() => import('./dashboard/WeatherCharts').then((m) => ({ default: m.DailyWidget })));
-const MapWidget = React.lazy(() => import('./dashboard/WeatherCharts').then((m) => ({ default: m.MapWidget })));
+const HourlyWidget = lazyRetry(
+    () => import('./dashboard/WeatherCharts').then((m) => ({ default: m.HourlyWidget })),
+    'HourlyWidget',
+);
+const DailyWidget = lazyRetry(
+    () => import('./dashboard/WeatherCharts').then((m) => ({ default: m.DailyWidget })),
+    'DailyWidget',
+);
+const MapWidget = lazyRetry(
+    () => import('./dashboard/WeatherCharts').then((m) => ({ default: m.MapWidget })),
+    'MapWidget',
+);
 import { BeaufortWidget, DetailedMetricsWidget } from './dashboard/WeatherGrid';
 import { TideWidget, SunMoonWidget, VesselWidget, VesselStatusWidget } from './dashboard/TideAndVessel';
 import {
