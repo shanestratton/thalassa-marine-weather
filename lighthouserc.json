@@ -1,0 +1,24 @@
+{
+    "ci": {
+        "collect": {
+            "url": ["http://localhost:4173/"],
+            "startServerCommand": "npm run preview",
+            "startServerReadyPattern": "Local.*http",
+            "numberOfRuns": 3
+        },
+        "assert": {
+            "assertions": {
+                "categories:performance": ["warn", { "minScore": 0.7 }],
+                "categories:accessibility": ["error", { "minScore": 0.8 }],
+                "categories:best-practices": ["warn", { "minScore": 0.8 }],
+                "categories:seo": ["warn", { "minScore": 0.8 }],
+                "first-contentful-paint": ["warn", { "maxNumericValue": 3000 }],
+                "interactive": ["warn", { "maxNumericValue": 5000 }],
+                "total-byte-weight": ["warn", { "maxNumericValue": 5242880 }]
+            }
+        },
+        "upload": {
+            "target": "temporary-public-storage"
+        }
+    }
+}
