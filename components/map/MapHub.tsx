@@ -49,7 +49,7 @@ import { AisGuardAlert } from './AisGuardAlert';
 import { VesselSearch } from './VesselSearch';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
-import { LayerFABMenu } from './MapHubOverlays';
+import { LayerFABMenu, LayerLegendStrip } from './MapHubOverlays';
 import { ThalassaHelixControl, type HelixLayer } from './ThalassaHelixControl';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 import { PassageDataPanel } from './PassageDataPanel';
@@ -291,8 +291,8 @@ export const MapHub: React.FC<MapHubProps> = ({
             // Only show weather popup if the user explicitly enabled inspect mode
             if (!weatherInspectMode) return;
 
-            // One-shot: auto-disable inspect mode after use
-            setWeatherInspectMode(false);
+            // Weather inspect — stay active so user can tap multiple locations
+            // They disable via the layer FAB menu
 
             // Close any existing inspect popup
             if (inspectPopupRef.current) {
@@ -459,7 +459,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
-                {/* LayerLegendStrip removed — replaced by ThalassaHelixControl */}
+                {/* ═══ LAYER LEGEND STRIP (temperature / clouds / pressure) ═══ */}
+                {!passage.showPassage && !embedded && !isPinView && (
+                    <LayerLegendStrip
+                        activeLayer={weather.activeLayer}
+                        activeLayers={weather.activeLayers}
+                        windMaxSpeed={0}
+                    />
+                )}
 
                 {/* ═══ PRO DATA BAR (Phone / Deck mode during passage) ═══ */}
                 {deviceMode === 'deck' && passage.showPassage && passage.routeAnalysis && !embedded && !isPinView && (

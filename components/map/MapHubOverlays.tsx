@@ -81,19 +81,28 @@ export const WindSpeedLegend: React.FC = () => (
 );
 
 // ── Layer Legend Strip ──
-export const LayerLegendStrip: React.FC<{ activeLayer: WeatherLayer; windMaxSpeed: number }> = ({
-    activeLayer,
-    windMaxSpeed,
-}) => {
-    if (
-        activeLayer === 'none' ||
-        activeLayer === 'rain' ||
-        activeLayer === 'sea' ||
-        activeLayer === 'satellite' ||
-        activeLayer === 'velocity' ||
-        activeLayer === 'wind'
-    )
-        return null;
+export const LayerLegendStrip: React.FC<{
+    activeLayer: WeatherLayer;
+    activeLayers?: Set<WeatherLayer>;
+    windMaxSpeed: number;
+}> = ({ activeLayer, activeLayers, windMaxSpeed }) => {
+    // Layers that have a legend definition
+    const LEGEND_ELIGIBLE: WeatherLayer[] = ['temperature', 'clouds', 'pressure'];
+
+    // Determine which legend to show: prefer activeLayers Set, fallback to single activeLayer
+    let legendLayer: WeatherLayer | null = null;
+    if (activeLayers && activeLayers.size > 0) {
+        for (const l of LEGEND_ELIGIBLE) {
+            if (activeLayers.has(l)) {
+                legendLayer = l;
+                break;
+            }
+        }
+    } else if (LEGEND_ELIGIBLE.includes(activeLayer)) {
+        legendLayer = activeLayer;
+    }
+
+    if (!legendLayer) return null;
 
     const legends: Record<string, { gradient: string; labels: { text: string; pos: string }[] }> = {
         rain: {
@@ -158,7 +167,7 @@ export const LayerLegendStrip: React.FC<{ activeLayer: WeatherLayer; windMaxSpee
         },
     };
 
-    const legend = legends[activeLayer];
+    const legend = legends[legendLayer];
     if (!legend) return null;
 
     return (

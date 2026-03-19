@@ -51,7 +51,7 @@ function getOwmKey(): string {
 
 export const STATIC_TILES: Record<string, string> = {
     sea: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
-    satellite: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
+    satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
 };
 
 /** Get tile URL for a layer — includes dynamic OWM-keyed layers */
