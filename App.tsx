@@ -893,8 +893,9 @@ const App: React.FC = () => {
                 </Suspense>
 
                 {!isMobileLandscape && (
-                    <div
+                    <nav
                         className={`fixed bottom-0 left-0 right-0 z-[900] border-t pb-[env(safe-area-inset-bottom)] ${isLight ? 'bg-slate-200/95 border-slate-300' : 'bg-slate-900 border-white/10'}`}
+                        aria-label="Main"
                     >
                         <div
                             className="flex justify-around items-center h-16 mx-auto px-4 relative"
@@ -930,7 +931,7 @@ const App: React.FC = () => {
                                 onClick={() => setPage('vessel')}
                             />
                         </div>
-                    </div>
+                    </nav>
                 )}
             </div>
 
