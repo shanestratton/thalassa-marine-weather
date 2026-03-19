@@ -76,6 +76,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     const [isPinView, setIsPinView] = useState(!!window.__thalassaPinView);
     const [showVesselSearch, setShowVesselSearch] = useState(false);
+    const [weatherInspectMode, setWeatherInspectMode] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -287,8 +288,11 @@ export const MapHub: React.FC<MapHubProps> = ({
             const map = mapRef.current;
             if (!map) return;
 
-            // Drop a pin at the tapped location so user can navigate to WX
-            dropPin(map, lat, lon);
+            // Only show weather popup if the user explicitly enabled inspect mode
+            if (!weatherInspectMode) return;
+
+            // One-shot: auto-disable inspect mode after use
+            setWeatherInspectMode(false);
 
             // Close any existing inspect popup
             if (inspectPopupRef.current) {
@@ -752,6 +756,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onToggleAis={() => setAisVisible((v) => !v)}
                         chokepointVisible={chokepointVisible}
                         onToggleChokepoint={() => setChokepointVisible((v) => !v)}
+                        weatherInspectMode={weatherInspectMode}
+                        onToggleWeatherInspect={() => {
+                            setWeatherInspectMode((v) => !v);
+                            weather.setShowLayerMenu(false);
+                        }}
                     />
                 )}
 
@@ -765,24 +774,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setShowVesselSearch(true);
                             triggerHaptic('light');
                         }}
-                        style={{
-                            position: 'absolute',
-                            top: 56,
-                            right: 64,
-                            zIndex: 500,
-                            width: 40,
-                            height: 40,
-                            borderRadius: 12,
-                            background: 'rgba(15,23,42,0.9)',
-                            border: '1px solid rgba(255,255,255,0.08)',
-                            color: '#94a3b8',
-                            fontSize: 16,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                            boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-                        }}
+                        className="absolute z-[500] w-10 h-10 rounded-xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 text-slate-400"
+                        style={{ top: 56, left: 16 }}
                         aria-label="Search vessels"
                     >
                         🔍
