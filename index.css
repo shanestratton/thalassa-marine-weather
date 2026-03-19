@@ -2194,3 +2194,14 @@ body,
         transform: translateY(0) scale(1);
     }
 }
+
+/* ── Maritime Intel News Ticker ──────── */
+@keyframes ticker-scroll {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(-50%);
+    }
+}
+
