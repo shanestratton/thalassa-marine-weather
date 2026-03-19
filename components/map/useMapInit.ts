@@ -886,43 +886,9 @@ export function useMapInit(opts: UseMapInitOptions) {
             });
         });
 
-        // ── Long-Press Handler (pin drop) ──
-        // Suppressed when Weather Here inspect mode is active (single-tap popup takes priority)
-        const handleTouchStart = (e: mapboxgl.MapTouchEvent) => {
-            if (e.originalEvent.touches.length > 1) return;
-            longPressTimer.current = setTimeout(() => {
-                // Skip pin drop if Weather Here is active
-                if (weatherInspectRef.current) return;
-                const { lng, lat } = e.lngLat;
-                dropPin(map, lat, lng);
-            }, 500);
-        };
-
-        // Route nudge fires at 400ms — if it fires, suppress the 500ms pin drop
-        const handleSuppressPinDrop = () => {
-            if (longPressTimer.current) {
-                clearTimeout(longPressTimer.current);
-                longPressTimer.current = null;
-            }
-        };
-        window.addEventListener('thalassa:suppress-pin-drop', handleSuppressPinDrop);
-
-        const cancelLongPress = () => {
-            if (longPressTimer.current) {
-                clearTimeout(longPressTimer.current);
-                longPressTimer.current = null;
-            }
-        };
-
-        map.on('touchstart', handleTouchStart);
-        map.on('touchend', cancelLongPress);
-        map.on('touchmove', cancelLongPress);
-        map.on('dragstart', cancelLongPress);
-
-        map.on('contextmenu', (e) => {
-            const { lng, lat } = e.lngLat;
-            dropPin(map, lat, lng);
-        });
+        // ── Pin drops disabled on normal map ──
+        // Location changes only happen via picker mode (location box → map).
+        // The dropPin callback is kept for passage planner (departure/arrival).
 
         // ── Single-tap inspect handler ──
         // Fires onMapTap for weather popup if not in picker/passage/embedded mode.
@@ -970,9 +936,7 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         return () => {
             window.removeEventListener('map-recenter', handleRecenter);
-            window.removeEventListener('thalassa:suppress-pin-drop', handleSuppressPinDrop);
             resizeObserver.disconnect();
-            cancelLongPress();
             map.remove();
             mapRef.current = null;
         };
