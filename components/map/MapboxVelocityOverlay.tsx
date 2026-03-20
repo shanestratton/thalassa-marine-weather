@@ -74,8 +74,6 @@ interface MapboxVelocityOverlayProps {
     windHour?: number;
     windGrid?: WindGrid;
     hideBadge?: boolean;
-    /** Lat/lon offset to snap the GFS vortex to the observed storm position */
-    vortexOffset?: { dLat: number; dLon: number } | null;
 }
 
 // Speed-based wind particle scale — steel blue → amber → coral
@@ -444,7 +442,6 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     windHour = 0,
     windGrid,
     hideBadge = false,
-    vortexOffset,
 }) => {
     const overlayRef = useRef<HTMLDivElement | null>(null);
     const leafletMapRef = useRef<L.Map | null>(null);
@@ -453,8 +450,6 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     const moveRef = useRef<(() => void) | null>(null);
     const resizeRef = useRef<(() => void) | null>(null);
     const zoomEndRef = useRef<(() => void) | null>(null);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const lastShiftedDataRef = useRef<any[] | null>(null);
     const [windData, setWindData] = useState<GribRecord[] | null>(null);
     const [dataInfo, setDataInfo] = useState<{ refTime: string | null; source: 'live' | 'cached' | 'static' | null }>({
         refTime: null,
@@ -509,7 +504,6 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         };
     }, [visible, mapboxMap]);
 
-    // ── Update velocity layer data when windHour changes (scrubber) ──
     useEffect(() => {
         if (!windGrid || !velocityLayerRef.current || !leafletMapRef.current) return;
         const hFloat = Math.min(windHour, windGrid.totalHours - 1);
@@ -532,11 +526,6 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         const dx = windGrid.lons.length > 1 ? Math.abs(windGrid.lons[1] - windGrid.lons[0]) : 1;
         const dy = windGrid.lats.length > 1 ? Math.abs(windGrid.lats[1] - windGrid.lats[0]) : 1;
 
-        // Vortex offset: shift header bounds for sub-degree precision
-        // (data-array shifting rounds to integer grid cells = ~44km error at 1° GFS)
-        const vortLat = vortexOffset ? vortexOffset.dLat : 0;
-        const vortLon = vortexOffset ? vortexOffset.dLon : 0;
-
         // Interpolate U/V between hours, flip rows
         const uFlipped = new Array(nx * ny);
         const vFlipped = new Array(nx * ny);
@@ -556,16 +545,15 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             }
         }
 
-        // Shift bounds by vortex offset — moves wind field to align with ATCF position
         const header = {
             nx,
             ny,
             dx,
             dy,
-            lo1: windGrid.west - vortLon,
-            lo2: windGrid.east - vortLon,
-            la1: windGrid.north - vortLat,
-            la2: windGrid.south - vortLat,
+            lo1: windGrid.west,
+            lo2: windGrid.east,
+            la1: windGrid.north,
+            la2: windGrid.south,
             parameterCategory: 2,
             parameterNumber: 2,
             parameterNumberName: 'U-component_of_wind',
@@ -595,15 +583,12 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 velocityLayerRef.current = layer;
             }
 
-            // Store shifted data so zoom sync can re-apply it
-            lastShiftedDataRef.current = newData;
-
             // Re-sync viewport to ensure wind stays geolocked
             if (syncRef.current) syncRef.current();
         } catch (err) {
             log.error('[VelocityOverlay] Failed to update forecast hour:', err);
         }
-    }, [windHour, windGrid, vortexOffset]);
+    }, [windHour, windGrid]);
 
     // ── Heat map layer DISABLED — clean dark map with particles only ──
     // useEffect(() => {
@@ -704,13 +689,6 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     const z = mapboxMap.getZoom() + 1;
                     leafletMapRef.current.setView([c.lat, c.lng], z, { animate: false });
 
-                    // Re-apply shifted wind data after zoom (velocity lib may reset)
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const vl = velocityLayerRef.current as any;
-                    if (lastShiftedDataRef.current && vl?._windy) {
-                        vl._windy.setData(lastShiftedDataRef.current);
-                    }
-
                     // Measure residual error and correct
                     const mapboxPx = mapboxMap.project([c.lng, c.lat]);
                     const leafletPx = leafletMapRef.current.latLngToContainerPoint([c.lat, c.lng]);
@@ -753,28 +731,14 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             mapboxMap.on('zoom', syncFull);
             mapboxMap.on('resize', onResize);
 
-            // Re-apply shifted data AFTER velocity lib finishes its internal redraw
-            // (the lib redraws asynchronously on zoom/move, overwriting our shifted data)
-            // Re-apply every 200ms for 2 seconds to catch any late redraws
-            let snapInterval: ReturnType<typeof setInterval> | null = null;
+            // Single deferred re-sync after zoom/move ends (replaces heavy 200ms×10 interval)
+            let snapTimer: ReturnType<typeof setTimeout> | null = null;
             const onViewEnd = () => {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const vl = velocityLayerRef.current as any;
-                if (!lastShiftedDataRef.current || !vl?._windy) return;
-
-                // Clear any previous interval
-                if (snapInterval) clearInterval(snapInterval);
-
-                let count = 0;
-                snapInterval = setInterval(() => {
-                    count++;
-                    if (count >= 10 || !lastShiftedDataRef.current || !vl?._windy) {
-                        if (snapInterval) clearInterval(snapInterval);
-                        snapInterval = null;
-                        return;
-                    }
-                    vl._windy.setData(lastShiftedDataRef.current);
-                }, 200);
+                if (snapTimer) clearTimeout(snapTimer);
+                snapTimer = setTimeout(() => {
+                    syncFull();
+                    snapTimer = null;
+                }, 300);
             };
             mapboxMap.on('zoomend', onViewEnd);
             mapboxMap.on('moveend', onViewEnd);

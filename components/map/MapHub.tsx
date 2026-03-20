@@ -16,7 +16,7 @@
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  *   - MapHubOverlays.tsx   (presentational overlay components)
  */
-import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createLogger } from '../../utils/createLogger';
 
@@ -250,23 +250,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Cyclone Tracking Layer ──
     useCycloneLayer(mapRef, mapReady, cycloneVisible, location.lat, location.lon, setClosestStorm);
 
-    // ── Keep cyclone centered on zoom ──
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || !cycloneVisible || !closestStorm) return;
-
-        const { lat, lon } = closestStorm.currentPosition;
-
-        // Lock center to storm on every zoom frame (instant, no animation)
-        const onZoom = () => {
-            map.setCenter([lon, lat]);
-        };
-
-        map.on('zoom', onZoom);
-        return () => {
-            map.off('zoom', onZoom);
-        };
-    }, [cycloneVisible, closestStorm, mapRef]);
+    // Cyclone zoom center-lock removed — users should be free to zoom and pan freely.
+    // The cyclone blob is already visible on the map; no need to force-center.
 
     // Clear isochrone progress when route completes
     useEffect(() => {
@@ -451,78 +436,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
     weatherRef.current = weather;
 
-    // ── Vortex offset: snap GFS wind to ATCF cyclone position ──
-    // Strategy: Find the closest point of maximum rotation to the ATCF eye.
-    // score = vorticity / (1 + distance_to_ATCF) → closest spinning point wins.
-    const vortexOffset = useMemo(() => {
-        const grid = weather.windGridRef?.current;
-        if (!closestStorm || !grid || !cycloneVisible) return null;
-        if (!grid.lats?.length || !grid.lons?.length) return null;
-
-        const stormLat = closestStorm.currentPosition.lat;
-        const stormLon = closestStorm.currentPosition.lon;
-        const h = Math.min(weather.windHour, grid.totalHours - 1);
-        const uArr = grid.u[h];
-        const vArr = grid.v[h];
-        if (!uArr || !vArr) return null;
-
-        const w = grid.width;
-        const hgt = grid.height;
-        const SEARCH = 8; // search ±8° around ATCF
-
-        let bestScore = 0;
-        let bestLat = stormLat;
-        let bestLon = stormLon;
-        let bestVort = 0;
-
-        for (let row = 1; row < hgt - 1; row++) {
-            const lat = grid.lats[row];
-            const dLat = lat - stormLat;
-            if (Math.abs(dLat) > SEARCH) continue;
-
-            for (let col = 1; col < w - 1; col++) {
-                const lon = grid.lons[col];
-                const dLon = lon - stormLon;
-                if (Math.abs(dLon) > SEARCH) continue;
-
-                // Vorticity: ∂v/∂x - ∂u/∂y
-                const dvdx = vArr[row * w + col + 1] - vArr[row * w + col - 1];
-                const dudy = uArr[(row - 1) * w + col] - uArr[(row + 1) * w + col];
-                const vort = Math.abs(dvdx - dudy);
-
-                // Distance from ATCF position (degrees)
-                const dist = Math.sqrt(dLat * dLat + dLon * dLon);
-
-                // Score: high vorticity + close to ATCF = best
-                const score = vort / (1 + dist);
-
-                if (score > bestScore) {
-                    bestScore = score;
-                    bestLat = lat;
-                    bestLon = lon;
-                    bestVort = vort;
-                }
-            }
-        }
-
-        if (bestVort < 3) return null; // No cyclonic rotation found
-
-        // Negate: shifting bounds LEFT makes pattern move RIGHT in the renderer,
-        // so we need GFS→ATCF direction, not ATCF→GFS
-        const offLat = bestLat - stormLat;
-        const offLon = bestLon - stormLon;
-
-        if (Math.abs(offLat) < 0.1 && Math.abs(offLon) < 0.1) return null;
-
-        log.info(
-            `[VORTEX] score=${bestScore.toFixed(1)} vort=${bestVort.toFixed(1)} ` +
-                `GFS=${bestLat.toFixed(2)},${bestLon.toFixed(2)} ` +
-                `ATCF=${stormLat.toFixed(2)},${stormLon.toFixed(2)} ` +
-                `Δlat=${offLat.toFixed(2)} Δlon=${offLon.toFixed(2)}`,
-        );
-        return { dLat: offLat, dLon: offLon };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [closestStorm, cycloneVisible, weather.windHour, weather.windReady]);
+    // vortexOffset removed — spatial shifting of the wind grid made the wind lag
+    // behind the cyclone blob. The correct alignment is temporal (auto-advance
+    // scrubber to "now"), not spatial.
 
     // ── Embedded Rain (also loads as background on full-map velocity mode) ──
     const _embRain = useEmbeddedRain(mapRef, embedded, mapReady, false);
@@ -603,7 +519,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                         windHour={weather.windHour}
                         windGrid={weather.windGridRef?.current ?? undefined}
                         hideBadge={passage.showPassage}
-                        vortexOffset={vortexOffset}
                     />
                 )}
 
