@@ -371,10 +371,14 @@ function createTrackOverlay(map: mapboxgl.Map): {
     };
 }
 
-/** Draw time-marker dots along the track at zoom > 8 */
+/** Draw forecast-style labels along the track at zoom > 8 */
 function drawTrackDots(svg: SVGSVGElement, projected: { px: mapboxgl.Point; point: CyclonePosition }[]) {
-    for (const { px, point } of projected) {
+    const now = Date.now();
+
+    for (let i = 0; i < projected.length; i++) {
+        const { px, point } = projected[i];
         const dotColor = windColor(point.windKts);
+        const cat = point.windKts ? windToSS(point.windKts) : 0;
 
         // Outer glow
         const glow = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
@@ -389,27 +393,99 @@ function drawTrackDots(svg: SVGSVGElement, projected: { px: mapboxgl.Point; poin
         const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         dot.setAttribute('cx', String(px.x));
         dot.setAttribute('cy', String(px.y));
-        dot.setAttribute('r', '3');
+        dot.setAttribute('r', cat >= 1 ? '5' : '3');
         dot.setAttribute('fill', dotColor);
-        dot.setAttribute('stroke', 'rgba(0,0,0,0.6)');
-        dot.setAttribute('stroke-width', '1');
+        dot.setAttribute('stroke', 'rgba(0,0,0,0.7)');
+        dot.setAttribute('stroke-width', '1.5');
         svg.appendChild(dot);
 
-        // Time label at high zoom
-        if (point.time) {
-            const d = new Date(point.time);
-            const label = `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCHours()).padStart(2, '0')}Z`;
-            const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-            text.setAttribute('x', String(px.x + 8));
-            text.setAttribute('y', String(px.y + 3));
-            text.setAttribute('fill', '#e2e8f0');
-            text.setAttribute('font-size', '9');
-            text.setAttribute('font-weight', '600');
-            text.setAttribute('font-family', 'system-ui, sans-serif');
-            text.textContent = label;
-            svg.appendChild(text);
+        // Category number inside larger dots
+        if (cat >= 1) {
+            const catText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            catText.setAttribute('x', String(px.x));
+            catText.setAttribute('y', String(px.y + 3));
+            catText.setAttribute('fill', '#fff');
+            catText.setAttribute('font-size', '7');
+            catText.setAttribute('font-weight', '800');
+            catText.setAttribute('font-family', 'system-ui, sans-serif');
+            catText.setAttribute('text-anchor', 'middle');
+            catText.textContent = String(cat);
+            svg.appendChild(catText);
         }
+
+        // Show labels only every 2nd point to prevent clutter (or every point at very high zoom)
+        if (!point.time) continue;
+
+        const d = new Date(point.time);
+        const ageHrs = (now - d.getTime()) / 3600000;
+        const isNow = Math.abs(ageHrs) < 3; // Within 3 hours = "now"
+
+        // Format relative time label
+        let timeLabel = '';
+        if (isNow) {
+            timeLabel = 'Now';
+        } else {
+            const dayDiff = Math.round(ageHrs / 24);
+            const hourStr =
+                d.getUTCHours() >= 12
+                    ? `${d.getUTCHours() === 12 ? 12 : d.getUTCHours() - 12} PM`
+                    : `${d.getUTCHours() === 0 ? 12 : d.getUTCHours()} AM`;
+
+            if (dayDiff === 0) timeLabel = `Today ${hourStr}`;
+            else if (dayDiff === 1) timeLabel = `Yesterday ${hourStr}`;
+            else if (dayDiff === -1) timeLabel = `Tomorrow ${hourStr}`;
+            else if (dayDiff > 1) timeLabel = `${dayDiff}d ago ${hourStr}`;
+            else timeLabel = `In ${Math.abs(dayDiff)}d ${hourStr}`;
+        }
+
+        // Wind + pressure line
+        const windStr = point.windKts ? `${point.windKts}kt` : '';
+        const presStr = point.pressureMb ? `${point.pressureMb}hPa` : '';
+        const infoStr = [windStr, presStr].filter(Boolean).join(' · ');
+
+        // Alternate label position left/right to prevent overlap
+        const labelRight = i % 2 === 0;
+        const labelX = labelRight ? px.x + 14 : px.x - 14;
+
+        // Dark pill background using SVG foreignObject
+        const fo = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+        const pillW = 100;
+        const pillH = isNow ? 22 : 30;
+        fo.setAttribute('x', String(labelRight ? labelX : labelX - pillW));
+        fo.setAttribute('y', String(px.y - pillH / 2));
+        fo.setAttribute('width', String(pillW));
+        fo.setAttribute('height', String(pillH));
+
+        const pill = document.createElement('div');
+        pill.style.cssText = `
+            background: rgba(0,0,0,0.75);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            border-left: 2px solid ${dotColor};
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-family: system-ui, -apple-system, sans-serif;
+            white-space: nowrap;
+            display: inline-block;
+        `;
+        pill.innerHTML = `
+            <div style="font-size:9px;font-weight:700;color:${isNow ? dotColor : '#e2e8f0'};letter-spacing:0.02em;">${timeLabel}</div>
+            ${infoStr ? `<div style="font-size:8px;color:#94a3b8;font-weight:500;">${infoStr}</div>` : ''}
+        `;
+
+        fo.appendChild(pill);
+        svg.appendChild(fo);
     }
+}
+
+/** Quick Saffir-Simpson category from wind speed */
+function windToSS(kts: number): number {
+    if (kts >= 137) return 5;
+    if (kts >= 113) return 4;
+    if (kts >= 96) return 3;
+    if (kts >= 83) return 2;
+    if (kts >= 64) return 1;
+    return 0;
 }
 
 // ── Hook ──────────────────────────────────────────────────
