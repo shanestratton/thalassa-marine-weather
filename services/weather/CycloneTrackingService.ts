@@ -160,11 +160,14 @@ async function fetchNOAAForecast(): Promise<Map<string, CyclonePosition[]>> {
     try {
         console.info('[CYCLONE] Fetching NOAA NHC forecast positions...');
         const response = await fetch(NOAA_FORECAST_URL);
-        if (!response.ok) return new Map();
+        if (!response.ok) {
+            console.warn(`[CYCLONE] NOAA forecast fetch HTTP ${response.status}`);
+            return new Map();
+        }
         const geojson: { features: NOAAForecastFeature[] } = await response.json();
+        console.info(`[CYCLONE] NOAA raw features: ${geojson.features?.length ?? 0}`);
 
         const forecasts = new Map<string, CyclonePosition[]>();
-        const now = Date.now();
 
         for (const f of geojson.features) {
             const name = f.properties.STORMNAME?.toUpperCase();
@@ -172,19 +175,24 @@ async function fetchNOAAForecast(): Promise<Map<string, CyclonePosition[]>> {
 
             const [lon, lat] = f.geometry.coordinates;
 
-            // Parse the full date label to get a proper timestamp
+            // Parse time — try FLDATELBL first, manually convert AM/PM to 24h
             let time = '';
             if (f.properties.FLDATELBL) {
-                // Format: "2026-03-20 06:00 AM Fri UTC" → extract date part
-                const parts = f.properties.FLDATELBL.match(/(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s+[AP]M)/);
-                if (parts) {
-                    const d = new Date(parts[1] + ' UTC');
+                const match = f.properties.FLDATELBL.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2}):(\d{2})\s+(AM|PM)/i);
+                if (match) {
+                    let h = parseInt(match[4]);
+                    const ampm = match[6].toUpperCase();
+                    if (ampm === 'PM' && h !== 12) h += 12;
+                    if (ampm === 'AM' && h === 12) h = 0;
+                    const iso = `${match[1]}-${match[2]}-${match[3]}T${String(h).padStart(2, '0')}:${match[5]}:00Z`;
+                    const d = new Date(iso);
                     if (!isNaN(d.getTime())) time = d.toISOString();
                 }
             }
-
-            // Only include future positions
-            if (time && new Date(time).getTime() < now - 3600000) continue;
+            // Fallback: use VALIDTIME if available (format: "DD/HHMM")
+            if (!time && f.properties.VALIDTIME) {
+                time = f.properties.VALIDTIME; // Store raw for label use
+            }
 
             const windKts = f.properties.MAXWIND > 0 ? f.properties.MAXWIND : null;
             const pressureMb = f.properties.MSLP > 0 && f.properties.MSLP < 9999 ? f.properties.MSLP : null;
@@ -194,14 +202,14 @@ async function fetchNOAAForecast(): Promise<Map<string, CyclonePosition[]>> {
         }
 
         // Sort each storm's forecast by time
-        for (const [, positions] of forecasts) {
+        for (const [name, positions] of forecasts) {
             positions.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+            console.info(`[CYCLONE] NOAA forecast for ${name}: ${positions.length} positions`);
         }
 
-        console.info(`[CYCLONE] NOAA forecast: ${forecasts.size} storm(s) with forecast data`);
         return forecasts;
-    } catch {
-        console.warn('[CYCLONE] NOAA forecast fetch failed (non-critical)');
+    } catch (err) {
+        console.warn('[CYCLONE] NOAA forecast fetch failed:', err);
         return new Map();
     }
 }
