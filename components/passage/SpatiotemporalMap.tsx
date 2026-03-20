@@ -376,7 +376,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
     currentTimeHours = 0,
     seamarkGeoJSON,
 
-    channelPolygonGeoJSON,
+    channelPolygonGeoJSON: _channelPolygonGeoJSON,
     onMapReady,
 }) => {
     const mapRef = useRef<MapRef>(null);

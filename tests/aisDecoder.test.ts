@@ -4,7 +4,7 @@
  *
  * Test sentences sourced from ITU-R M.1371-5 and gpsd.gitlab.io/gpsd/AIVDM.html
  */
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { processAisSentence, payloadToBits, getUint, getInt, getString, decodePayload } from '../services/AisDecoder';
 
 // ── Primitive helpers ──

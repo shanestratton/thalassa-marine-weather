@@ -37,7 +37,7 @@ import { WeatherMap } from './WeatherMap';
 import { getSystemUnits } from '../utils';
 import { GpsService } from '../services/GpsService';
 import { Capacitor } from '@capacitor/core';
-import { YachtDatabaseSearch } from './settings/YachtDatabaseSearch';
+import { YachtDatabaseSearch as _YachtDatabaseSearch } from './settings/YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../data/polarDatabase';
 
 interface OnboardingWizardProps {

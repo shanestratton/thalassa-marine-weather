@@ -1,27 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { createLogger } from '../utils/createLogger';
 
-const log = createLogger('SettingsModal');
+const _log = createLogger('SettingsModal');
 import { UserSettings } from '../types';
-import {
-    CompassIcon,
-    BellIcon,
-    ArrowRightIcon,
-    BoatIcon,
-    StarIcon,
-    GearIcon,
-    MapIcon,
-    ServerIcon,
-    TrashIcon,
-    MapPinIcon,
-    LockIcon,
-    CloudIcon,
-} from './Icons';
+import { BellIcon, ArrowRightIcon, BoatIcon, StarIcon, GearIcon, ServerIcon, MapPinIcon } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
 import { useThalassa } from '../context/ThalassaContext';
 import { GpsService } from '../services/GpsService';
 
-import { Section } from './settings/SettingsPrimitives';
 import { AlertsTab } from './settings/AlertsTab';
 import { AestheticsTab } from './settings/AestheticsTab';
 import { VesselTab } from './settings/VesselTab';
@@ -97,6 +83,7 @@ const _MobileNavTab = React.memo(
 
 // Section, Row — imported from ./settings/SettingsPrimitives
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const MetricInput = ({
     label,
     valInStandard,
@@ -265,7 +252,7 @@ const MENU_ITEMS: {
 
 export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     ({ settings, onSave, onLocationSelect, onBack }) => {
-        const { user, logout, resetSettings } = useThalassa();
+        const { resetSettings } = useThalassa();
         const [activeTab, setActiveTab] = useState<SettingsTab | null>(() => {
             // Desktop (md breakpoint): default to 'general' so content area isn't empty
             // Mobile: default to null to show the vertical menu screen
@@ -278,8 +265,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         const [showFactoryReset, setShowFactoryReset] = useState(false);
         const isObserver = settings?.vessel?.type === 'observer';
 
-        // Safe update helper - only sends 'units' delta
-        const updateUnit = (type: keyof typeof settings.units, value: string) => {
+        const _updateUnit = (type: keyof typeof settings.units, value: string) => {
             onSave({ units: { ...settings.units, [type]: value } });
         };
 

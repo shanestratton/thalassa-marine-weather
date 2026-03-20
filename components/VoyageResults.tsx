@@ -1,6 +1,5 @@
 import React from 'react';
 import { useSettings } from '../context/SettingsContext';
-import { convertLength } from '../utils';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('VoyageResults');

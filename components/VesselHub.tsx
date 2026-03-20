@@ -46,7 +46,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
     const [anchorRadius, setAnchorRadius] = useState(0);
     const [showAdminPanel, setShowAdminPanel] = useState(false);
-    const [isAdmin, setIsAdmin] = useState(false);
+    const [_isAdmin, setIsAdmin] = useState(false);
 
     // Load admin role async
     useEffect(() => {
