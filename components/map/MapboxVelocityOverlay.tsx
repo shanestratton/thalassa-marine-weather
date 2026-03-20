@@ -787,6 +787,13 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             // Initial sync, then fade in
             lMap.invalidateSize();
             syncFull();
+
+            // Delayed re-sync — container may not have final dimensions on first mount
+            setTimeout(() => {
+                lMap.invalidateSize();
+                syncFull();
+            }, 500);
+
             // Fade in after velocity canvas has rendered its first frame
             requestAnimationFrame(() => {
                 requestAnimationFrame(() => {

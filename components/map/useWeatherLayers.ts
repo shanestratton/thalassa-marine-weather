@@ -1362,35 +1362,29 @@ export function useEmbeddedRain(
     useEffect(() => {
         if (!enabled || !mapReady || !mapRef.current) return;
         const mapForCleanup = mapRef.current;
-        const delayTimer = setTimeout(
-            () => {
-                (async () => {
-                    try {
-                        const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
-                        const data = await res.json();
-                        const past = (data?.radar?.past ?? []).map((f: { path: string; time: number }) => ({
-                            path: f.path,
-                            time: f.time,
-                        }));
-                        const forecast = (data?.radar?.nowcast ?? []).map((f: { path: string; time: number }) => ({
-                            path: f.path,
-                            time: f.time,
-                        }));
-                        const allFrames = [...past, ...forecast];
-                        embeddedRainFrames.current = allFrames;
-                        setEmbRainCount(allFrames.length);
-                        const nowIdx = Math.max(0, past.length - 1);
-                        embRainNowIdx.current = nowIdx;
-                        setEmbRainIdx(nowIdx);
-                    } catch (err) {
-                        log.warn('[useWeatherLayers]', err);
-                    }
-                })();
-            },
-            embedded ? 1200 : 800,
-        );
+        (async () => {
+            try {
+                const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+                const data = await res.json();
+                const past = (data?.radar?.past ?? []).map((f: { path: string; time: number }) => ({
+                    path: f.path,
+                    time: f.time,
+                }));
+                const forecast = (data?.radar?.nowcast ?? []).map((f: { path: string; time: number }) => ({
+                    path: f.path,
+                    time: f.time,
+                }));
+                const allFrames = [...past, ...forecast];
+                embeddedRainFrames.current = allFrames;
+                setEmbRainCount(allFrames.length);
+                const nowIdx = Math.max(0, past.length - 1);
+                embRainNowIdx.current = nowIdx;
+                setEmbRainIdx(nowIdx);
+            } catch (err) {
+                log.warn('[useWeatherLayers]', err);
+            }
+        })();
         return () => {
-            clearTimeout(delayTimer);
             try {
                 const mx = mapForCleanup;
                 if (mx?.getLayer('embedded-rain')) mx.removeLayer('embedded-rain');
