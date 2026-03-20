@@ -452,6 +452,8 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     const syncRef = useRef<(() => void) | null>(null);
     const moveRef = useRef<(() => void) | null>(null);
     const resizeRef = useRef<(() => void) | null>(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const lastShiftedDataRef = useRef<any[] | null>(null);
     const [windData, setWindData] = useState<GribRecord[] | null>(null);
     const [dataInfo, setDataInfo] = useState<{ refTime: string | null; source: 'live' | 'cached' | 'static' | null }>({
         refTime: null,
@@ -592,10 +594,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const vl = velocityLayerRef.current as any;
             if (vl._windy) {
-                // Directly update the internal Windy grid — particles keep their positions
-                // and tails, but their movement direction shifts to match new wind data
                 vl._windy.setData(newData);
-                // Don't call clearAndRestart — that's what causes the "dots" reset
             } else if (typeof vl.setData === 'function') {
                 vl.setData(newData);
             } else {
@@ -607,6 +606,9 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                 layer.addTo(leafletMapRef.current);
                 velocityLayerRef.current = layer;
             }
+
+            // Store shifted data so zoom sync can re-apply it
+            lastShiftedDataRef.current = newData;
 
             // Re-sync viewport to ensure wind stays geolocked
             if (syncRef.current) syncRef.current();
@@ -713,6 +715,13 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     const c = mapboxMap.getCenter();
                     const z = mapboxMap.getZoom() + 1;
                     leafletMapRef.current.setView([c.lat, c.lng], z, { animate: false });
+
+                    // Re-apply shifted wind data after zoom (velocity lib may reset)
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const vl = velocityLayerRef.current as any;
+                    if (lastShiftedDataRef.current && vl?._windy) {
+                        vl._windy.setData(lastShiftedDataRef.current);
+                    }
 
                     // Measure residual error and correct
                     const mapboxPx = mapboxMap.project([c.lng, c.lat]);
