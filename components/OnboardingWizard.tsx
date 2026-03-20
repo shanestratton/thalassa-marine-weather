@@ -478,6 +478,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                         {/* Overlay Controls */}
                         <div className="absolute top-4 right-4 z-[160]">
                             <button
+                                aria-label="Show Map"
                                 onClick={() => setShowMap(false)}
                                 className="p-3 bg-slate-900/90 text-white rounded-full shadow-xl border border-white/20 hover:bg-slate-800 transition-colors"
                             >
@@ -489,6 +490,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                         <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-[160] w-full max-w-sm px-4">
                             {tempLocation ? (
                                 <button
+                                    aria-label="Map Selection"
                                     onClick={confirmMapSelection}
                                     className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-3 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 animate-in slide-in-from-bottom-4 transition-all hover:scale-105"
                                 >
@@ -511,6 +513,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                 {/* BACK BUTTON */}
                 {step > 1 && (
                     <button
+                        aria-label="Go back"
                         onClick={handleBack}
                         className="absolute -top-12 left-0 p-2 text-gray-400 hover:text-white transition-colors flex items-center gap-2 group z-20"
                     >
@@ -541,6 +544,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                         </p>
 
                         <button
+                            aria-label="Next"
                             onClick={handleNext}
                             className="group bg-white text-slate-950 font-bold py-4 px-12 rounded-2xl hover:bg-sky-50 transition-all transform hover:scale-105 hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] flex items-center gap-3 mx-auto relative overflow-hidden"
                         >
@@ -636,6 +640,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                         </div>
 
                         <button
+                            aria-label="Next"
                             onClick={handleNext}
                             className="group bg-white text-slate-950 font-bold py-4 px-12 rounded-2xl hover:bg-sky-50 transition-all transform hover:scale-105 hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] flex items-center gap-3 mx-auto relative overflow-hidden"
                         >
@@ -702,6 +707,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
 
                             <div className="grid grid-cols-2 gap-3">
                                 <button
+                                    aria-label="Locate"
                                     onClick={handleLocate}
                                     className="bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-300 font-bold py-4 rounded-xl transition-all flex flex-col items-center justify-center gap-2 group"
                                 >
@@ -718,6 +724,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                                     )}
                                 </button>
                                 <button
+                                    aria-label="Show Map"
                                     onClick={() => setShowMap(true)}
                                     className="bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300 font-bold py-4 rounded-xl transition-all flex flex-col items-center justify-center gap-2 group"
                                 >
@@ -728,6 +735,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                         </div>
 
                         <button
+                            aria-label="Next"
                             onClick={handleNext}
                             disabled={!homePort}
                             className={`w-full mt-8 font-bold py-4 rounded-xl transition-all ${homePort ? 'bg-sky-500 hover:bg-sky-400 text-white shadow-lg' : 'bg-white/5 text-gray-400 cursor-not-allowed'}`}
@@ -745,6 +753,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                         </h2>
                         <div className="grid grid-cols-1 gap-4 mb-8">
                             <button
+                                aria-label="Vessel Type"
                                 onClick={() => setVesselType('sail')}
                                 className={`p-6 rounded-2xl border transition-all flex items-center gap-4 group ${vesselType === 'sail' ? 'bg-sky-500/20 border-sky-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
                             >
@@ -760,6 +769,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                                 {vesselType === 'sail' && <CheckIcon className="w-6 h-6 text-sky-500 ml-auto" />}
                             </button>
                             <button
+                                aria-label="Vessel Type"
                                 onClick={() => setVesselType('power')}
                                 className={`p-6 rounded-2xl border transition-all flex items-center gap-4 group ${vesselType === 'power' ? 'bg-sky-500/20 border-sky-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
                             >
@@ -775,6 +785,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                                 {vesselType === 'power' && <CheckIcon className="w-6 h-6 text-sky-500 ml-auto" />}
                             </button>
                             <button
+                                aria-label="Vessel Type"
                                 onClick={() => setVesselType('observer')}
                                 className={`p-6 rounded-2xl border transition-all flex items-center gap-4 group ${vesselType === 'observer' ? 'bg-sky-500/20 border-sky-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
                             >
@@ -791,6 +802,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                             </button>
                         </div>
                         <button
+                            aria-label="Next"
                             onClick={handleNext}
                             className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
                         >
@@ -877,6 +889,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                                         </p>
                                     </div>
                                     <button
+                                        aria-label="Pref Always On"
                                         onClick={() => setPrefAlwaysOn(!prefAlwaysOn)}
                                         className={`relative w-12 h-7 rounded-full transition-all duration-300 shrink-0 ml-4 ${
                                             prefAlwaysOn ? 'bg-sky-500' : 'bg-white/15'
@@ -917,6 +930,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                                         const isActive = prefOrientation === opt.value;
                                         return (
                                             <button
+                                                aria-label="Pref Orientation"
                                                 key={opt.value}
                                                 onClick={() => setPrefOrientation(opt.value)}
                                                 className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-300 active:scale-95 ${
@@ -952,6 +966,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                         </div>
 
                         <button
+                            aria-label="Finish"
                             onClick={handleFinish}
                             className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20"
                         >

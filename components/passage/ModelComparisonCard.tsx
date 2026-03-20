@@ -230,6 +230,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                         const isActive = idx === activeWp;
                         return (
                             <button
+                                aria-label="Active Wp"
                                 key={idx}
                                 onClick={() => setActiveWp(idx)}
                                 className={`shrink-0 px-3 py-2 rounded-xl text-xs font-bold uppercase tracking-wider transition-all border ${

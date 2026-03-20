@@ -449,6 +449,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                         {!minimal && !hideLayerControls && (
                             <div className="pointer-events-auto bg-slate-900/80 border border-white/10 rounded-full p-1 flex shadow-xl self-start">
                                 <button
+                                    aria-label="Active Layer"
                                     onClick={() => {
                                         setActiveLayer('wind');
                                         setPendingSelection(null);
@@ -458,6 +459,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                                     Wind
                                 </button>
                                 <button
+                                    aria-label="Active Layer"
                                     onClick={() => {
                                         setActiveLayer('rain');
                                         setPendingSelection(null);
@@ -467,6 +469,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                                     Rain
                                 </button>
                                 <button
+                                    aria-label="Active Layer"
                                     onClick={() => {
                                         setActiveLayer('global-wind');
                                         setPendingSelection(null);
@@ -476,12 +479,14 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                                     <CompassIcon rotation={0} className="w-3 h-3" /> Global
                                 </button>
                                 <button
+                                    aria-label="Active Layer"
                                     onClick={() => setActiveLayer('buoys')}
                                     className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'buoys' ? 'bg-amber-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                                 >
                                     <RadioTowerIcon className="w-3 h-3" /> Stations
                                 </button>
                                 <button
+                                    aria-label="Active Layer"
                                     onClick={() => {
                                         setActiveLayer('velocity');
                                         setPendingSelection(null);
@@ -491,6 +496,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                                     <WindIcon className="w-3 h-3" /> Velocity
                                 </button>
                                 <button
+                                    aria-label="Show Nav Mesh"
                                     onClick={() => setShowNavMesh((v) => !v)}
                                     className={`px-3 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all ${showNavMesh ? 'bg-purple-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                                     title="Toggle Nav Mesh X-Ray"
@@ -610,6 +616,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                                 <>
                                     {/* GPS Snap Button */}
                                     <button
+                                        aria-label="Gps Service"
                                         onClick={() => {
                                             GpsService.getCurrentPosition({
                                                 staleLimitMs: 30_000,
@@ -645,6 +652,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
 
                                     {/* Reset Center Button */}
                                     <button
+                                        aria-label="Instance"
                                         onClick={() => {
                                             if (mapInstance.current) {
                                                 mapInstance.current.setView([centerLat, centerLon], 10, {
@@ -665,6 +673,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                         {isConfirmMode && activeLayer === 'buoys' && (
                             <div className="w-full max-w-sm mx-auto pointer-events-auto flex justify-center">
                                 <button
+                                    aria-label="Confirm"
                                     onClick={handleConfirm}
                                     disabled={!pendingSelection}
                                     className={`w-full font-bold py-4 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 border transition-all ${pendingSelection ? 'bg-sky-500 hover:bg-sky-400 text-white border-transparent scale-105' : 'bg-slate-800/90 text-gray-400 border-white/10 cursor-not-allowed'}`}

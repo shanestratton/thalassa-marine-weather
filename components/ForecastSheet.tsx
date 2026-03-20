@@ -129,6 +129,7 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
 
                             {/* Close Button */}
                             <button
+                                aria-label="Is Visible"
                                 onClick={() => {
                                     setIsVisible(false);
                                     setTimeout(onClose, 300);

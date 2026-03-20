@@ -627,6 +627,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                     <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
                                     <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                                         <button
+                                            aria-label="Download"
                                             onClick={handleBatchDownload}
                                             disabled={selectedIds.size === 0}
                                             className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
@@ -648,6 +649,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                         </button>
                                         <div className="border-t border-white/5" />
                                         <button
+                                            aria-label="Share"
                                             onClick={handleBatchShare}
                                             disabled={selectedIds.size === 0}
                                             className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
@@ -671,6 +673,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                             <>
                                                 <div className="border-t border-white/5" />
                                                 <button
+                                                    aria-label="Selected Ids"
                                                     onClick={() => {
                                                         setSelectedIds(new Set());
                                                         setHeaderMenuOpen(false);
@@ -829,6 +832,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             <div className="grid grid-cols-3 gap-1.5">
                                 {CATEGORIES.map((cat) => (
                                     <button
+                                        aria-label="Form Category"
                                         key={cat.id}
                                         onClick={() => setFormCategory(cat.id)}
                                         className={`py-1.5 rounded-full text-label font-bold transition-all text-center ${formCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
@@ -922,6 +926,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                 </div>
                             ) : (
                                 <button
+                                    aria-label="Input Ref"
                                     type="button"
                                     onClick={() => fileInputRef.current?.click()}
                                     className="w-full flex items-center justify-center gap-2 bg-white/5 border border-dashed border-white/[0.15] rounded-xl px-3 py-3 text-sm text-gray-400 hover:text-white hover:border-sky-500/30 hover:bg-white/[0.06] transition-all active:scale-[0.98]"
@@ -960,6 +965,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                             <p className="text-micro text-amber-400/80 text-center mt-2">Document name is required</p>
                         )}
                         <button
+                            aria-label="Save"
                             onClick={handleSave}
                             disabled={!formName.trim()}
                             className={`w-full py-3 mt-1 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 ${

@@ -125,6 +125,7 @@ const _CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle
         >
             {/* Tappable Header — always visible */}
             <button
+                aria-label="Toggle"
                 onClick={onToggle}
                 style={{
                     display: 'flex',
@@ -801,7 +802,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
 
                 {/* Telemetry temporarily hidden
                 <div style={{ marginBottom: 6 }}>
-                    <button
+                    <button aria-label="Collapse"
                         onClick={() => setHudCollapsed(c => !c)}
                         aria-label={hudCollapsed ? 'Show telemetry panel' : 'Hide telemetry panel'}
                         aria-expanded={!hudCollapsed}

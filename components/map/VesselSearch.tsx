@@ -246,6 +246,7 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                 {!loading &&
                     results.map((r) => (
                         <button
+                            aria-label="Select"
                             key={r.mmsi}
                             onClick={() => handleSelect(r)}
                             style={{

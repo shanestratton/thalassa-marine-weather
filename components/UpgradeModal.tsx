@@ -102,6 +102,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                     </div>
 
                     <button
+                        aria-label="Upgrade"
                         onClick={() => {
                             onUpgrade();
                             onClose();

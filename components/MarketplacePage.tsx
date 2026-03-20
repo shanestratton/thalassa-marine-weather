@@ -159,6 +159,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                         <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
                                             {listing.images.map((_, i) => (
                                                 <button
+                                                    aria-label="Propagation"
                                                     key={i}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -324,6 +325,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                                         ))}
                                                         {!expanded && b.features.length > 6 && (
                                                             <button
+                                                                aria-label="Expand"
                                                                 onClick={() => setExpanded(true)}
                                                                 className="text-[11px] text-sky-400 font-medium"
                                                             >
@@ -338,7 +340,11 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
 
                                 {/* Description (expandable) */}
                                 {listing.description && (
-                                    <button onClick={() => setExpanded(!expanded)} className="text-left mt-1.5">
+                                    <button
+                                        aria-label="Expand"
+                                        onClick={() => setExpanded(!expanded)}
+                                        className="text-left mt-1.5"
+                                    >
                                         <p
                                             className={`text-xs text-white/60 leading-relaxed ${expanded ? '' : 'line-clamp-2'}`}
                                         >
@@ -370,6 +376,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                 {/* Report suspicious location — buyer only */}
                                 {!isOwn && listing.location_name && onFlagLocation && (
                                     <button
+                                        aria-label="Flag Location"
                                         onClick={() => onFlagLocation(listing)}
                                         className="mt-1.5 text-[11px] text-amber-400/50 hover:text-amber-400 transition-colors flex items-center gap-1"
                                     >
@@ -424,6 +431,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                         <div className="flex items-center gap-2">
                                             {listing.status === 'available' && (
                                                 <button
+                                                    aria-label="Mark Sold"
                                                     onClick={() => onMarkSold(listing.id)}
                                                     className="px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[11px] font-bold text-emerald-400 uppercase tracking-wider active:scale-95 transition-transform"
                                                 >
@@ -431,6 +439,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                                 </button>
                                             )}
                                             <button
+                                                aria-label="Show Actions"
                                                 onClick={() => setShowActions(!showActions)}
                                                 className="w-8 h-8 flex items-center justify-center rounded-xl bg-white/[0.06] text-white/60"
                                             >
@@ -441,6 +450,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                         <div className="flex flex-col gap-2">
                                             <div className="flex items-center gap-2">
                                                 <button
+                                                    aria-label="Message Seller"
                                                     onClick={() => onMessageSeller(listing)}
                                                     className="px-3 py-1.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-[11px] font-bold text-sky-300 uppercase tracking-wider active:scale-95 transition-all hover:bg-sky-500/30"
                                                 >
@@ -448,6 +458,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                                 </button>
                                                 {listing.status === 'available' && (
                                                     <button
+                                                        aria-label="Show Offer Input"
                                                         onClick={() => setShowOfferInput(!showOfferInput)}
                                                         className={`px-3 py-1.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider active:scale-95 transition-all ${
                                                             showOfferInput
@@ -488,6 +499,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                                         />
                                                     </div>
                                                     <button
+                                                        aria-label="Price"
                                                         onClick={() => {
                                                             if (!offerPrice || parseFloat(offerPrice) <= 0) return;
                                                             const sellerFirst = (listing.seller_name || 'Seller').split(
@@ -522,6 +534,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                 {showActions && isOwn && (
                                     <div className="mt-2 flex gap-2">
                                         <button
+                                            aria-label="Delete"
                                             onClick={() => {
                                                 onDelete(listing.id);
                                                 setShowActions(false);
@@ -536,6 +549,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                 {/* Rate Seller — buyer only, sold listings only */}
                                 {!isOwn && listing.status === 'sold' && !hasRated && (
                                     <button
+                                        aria-label="Show Rate Modal"
                                         onClick={() => setShowRateModal(true)}
                                         className="mt-2 w-full py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] font-bold text-amber-400 uppercase tracking-wider active:scale-95 transition-transform"
                                     >
@@ -557,6 +571,7 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                         <div className="flex justify-center gap-1">
                                             {[1, 2, 3, 4, 5].map((s) => (
                                                 <button
+                                                    aria-label="Rate Stars"
                                                     key={s}
                                                     onClick={() => setRateStars(s)}
                                                     className={`text-2xl transition-transform active:scale-90 ${s <= rateStars ? 'text-amber-400' : 'text-white/40'}`}
@@ -575,12 +590,14 @@ const ListingCard: React.FC<ListingCardProps> = React.memo(
                                         />
                                         <div className="flex gap-2">
                                             <button
+                                                aria-label="Show Rate Modal"
                                                 onClick={() => setShowRateModal(false)}
                                                 className="flex-1 py-2 rounded-xl bg-white/[0.04] border border-white/[0.06] text-[11px] font-bold text-white/60 uppercase tracking-wider active:scale-95"
                                             >
                                                 Cancel
                                             </button>
                                             <button
+                                                aria-label="Submit"
                                                 onClick={handleSubmitRating}
                                                 className="flex-1 py-2 rounded-xl bg-amber-500/20 border border-amber-500/30 text-[11px] font-bold text-amber-400 uppercase tracking-wider active:scale-95"
                                             >
@@ -775,6 +792,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = React.memo(({ onB
                 {/* Category chips */}
                 <div className="px-3 pt-2 pb-2.5 flex flex-wrap gap-2">
                     <button
+                        aria-label="Filter"
                         onClick={() => handleCategoryFilter(null)}
                         className={`whitespace-nowrap px-3 py-1.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all shrink-0 ${
                             !activeCategory
@@ -786,6 +804,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = React.memo(({ onB
                     </button>
                     {LISTING_CATEGORIES.map((cat) => (
                         <button
+                            aria-label="Filter"
                             key={cat}
                             onClick={() => handleCategoryFilter(cat)}
                             className={`whitespace-nowrap px-3 py-1.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all shrink-0 ${

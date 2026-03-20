@@ -777,6 +777,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             GPX
                                         </button>
                                         <button
+                                            aria-label="Use"
                                             onClick={async () => {
                                                 // Use ShipLogService for proper DB format, auth, & offline fallback
                                                 try {
@@ -1037,6 +1038,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                         {/* GPS Locate Me — fly to device position (in picker mode: snap back to WX) */}
                         <button
+                            aria-label="Haptic"
                             onClick={() => {
                                 triggerHaptic('medium');
                                 GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then((pos) => {
@@ -1069,6 +1071,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                         {/* Recenter on weather location */}
                         <button
+                            aria-label="Ref"
                             onClick={() => {
                                 if (mapRef.current && weatherCoords) {
                                     mapRef.current.flyTo({

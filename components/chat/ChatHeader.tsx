@@ -58,6 +58,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                     <div className="flex items-center gap-3">
                         {view !== 'channels' && (
                             <button
+                                aria-label="Go back"
                                 onClick={onGoBack}
                                 className="w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center transition-all active:scale-90"
                             >
@@ -107,6 +108,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                     </button>
                                 )}
                                 <button
+                                    aria-label="Open Profile"
                                     onClick={onOpenProfile}
                                     className="relative w-10 h-10 rounded-xl overflow-hidden border border-white/[0.12] hover:border-white/[0.18] bg-white/[0.08] hover:bg-white/[0.12] transition-all active:scale-95"
                                 >
@@ -124,6 +126,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                     )}
                                 </button>
                                 <button
+                                    aria-label="Open DMInbox"
                                     onClick={onOpenDMInbox}
                                     className="relative w-10 h-10 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.12] flex items-center justify-center transition-all active:scale-95"
                                 >
@@ -141,6 +144,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                 <span className="text-xs text-white/60 tabular-nums">{messageCount} msgs</span>
                                 {activeChannel?.is_private && onLeaveChannel && (
                                     <button
+                                        aria-label="Leave"
                                         onClick={onLeaveChannel}
                                         className="px-2.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-red-500/10 border border-white/[0.06] text-white/50 hover:text-red-400 text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95"
                                     >
@@ -151,6 +155,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                         )}
                         {view === 'dm_thread' && hasDMPartner && (
                             <button
+                                aria-label="Toggle"
                                 onClick={onToggleBlock}
                                 className="px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-red-500/10 border border-white/[0.06] text-white/60 hover:text-red-400 text-xs font-medium transition-all active:scale-95"
                             >

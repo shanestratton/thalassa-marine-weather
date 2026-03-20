@@ -114,6 +114,7 @@ const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mode, onD
                     {/* Edit button (captain only, non-declined) */}
                     {isCaptain && member.status !== 'declined' && onEdit && (
                         <button
+                            aria-label="Edit"
                             onClick={onEdit}
                             className="text-[11px] text-sky-400/60 hover:text-sky-400 font-bold transition-colors px-2 py-1"
                         >
@@ -325,6 +326,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
                 <div className="shrink-0 px-4 pt-4 pb-3 flex items-center gap-2">
                     <button
+                        aria-label="Go back"
                         onClick={onBack}
                         className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
                     >
@@ -356,6 +358,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                         <button
+                            aria-label="Go back"
                             onClick={onBack}
                             className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
                         >
@@ -372,6 +375,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Crew</h1>
                     </div>
                     <button
+                        aria-label="Invite"
                         onClick={() => {
                             setShowInviteModal(true);
                             setInviteError(null);
@@ -396,6 +400,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             <p className="text-sm font-bold text-white mt-0.5">{userEmail}</p>
                         </div>
                         <button
+                            aria-label="Text"
                             onClick={() => {
                                 navigator.clipboard
                                     ?.writeText(userEmail)
@@ -490,12 +495,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                             {/* Actions */}
                                             <div className="flex gap-2">
                                                 <button
+                                                    aria-label="Accept"
                                                     onClick={() => handleAccept(invite)}
                                                     className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors active:scale-95"
                                                 >
                                                     Accept
                                                 </button>
                                                 <button
+                                                    aria-label="Decline"
                                                     onClick={() => handleDecline(invite)}
                                                     className="flex-1 py-2 bg-white/5 hover:bg-white/10 text-gray-400 text-xs font-bold rounded-lg transition-colors active:scale-95"
                                                 >
@@ -658,6 +665,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                         const selected = inviteRegisters.includes(reg);
                                         return (
                                             <button
+                                                aria-label="Register"
                                                 key={reg}
                                                 type="button"
                                                 onClick={() => toggleRegister(reg, inviteRegisters, setInviteRegisters)}
@@ -712,6 +720,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
                             {/* Send button */}
                             <button
+                                aria-label="Invite"
                                 onClick={handleInvite}
                                 disabled={inviteLoading || !inviteEmail.trim() || inviteRegisters.length === 0}
                                 className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${!inviteEmail.trim() || inviteRegisters.length === 0 ? 'opacity-50' : 'hover:bg-gray-100'}`}
@@ -743,6 +752,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 const selected = editRegisters.includes(reg);
                                 return (
                                     <button
+                                        aria-label="Register"
                                         key={reg}
                                         type="button"
                                         onClick={() => toggleRegister(reg, editRegisters, setEditRegisters)}
@@ -786,6 +796,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     </div>
 
                     <button
+                        aria-label="Save"
                         onClick={handleSavePermissions}
                         disabled={editRegisters.length === 0}
                         className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 ${editRegisters.length === 0 ? 'opacity-50' : 'hover:bg-gray-100'}`}

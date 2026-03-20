@@ -85,12 +85,14 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                             </select>
                             <div className="flex gap-3">
                                 <button
+                                    aria-label="Report"
                                     onClick={() => setShowReportModal(null)}
                                     className="flex-1 py-3 rounded-xl bg-white/[0.05] text-sm text-white/40 font-medium"
                                 >
                                     Cancel
                                 </button>
                                 <button
+                                    aria-label="Report"
                                     onClick={onReport}
                                     disabled={!reportReason}
                                     className={`flex-1 py-3 rounded-xl text-sm font-bold transition-all ${reportReason ? 'bg-red-500/20 text-red-300 border border-red-500/20' : 'bg-white/[0.03] text-white/40 cursor-not-allowed'}`}
@@ -129,12 +131,14 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                             <p className="text-[11px] text-white/40 text-right mb-4">{superLikeMessage.length}/200</p>
                             <div className="flex gap-3">
                                 <button
+                                    aria-label="Like"
                                     onClick={() => setShowSuperLikeModal(null)}
                                     className="flex-1 py-3 rounded-xl bg-white/[0.05] text-sm text-white/40 font-medium"
                                 >
                                     Cancel
                                 </button>
                                 <button
+                                    aria-label="Like"
                                     onClick={onSuperLike}
                                     className="flex-1 py-3 rounded-xl bg-gradient-to-r from-violet-500/30 to-pink-500/30 text-sm font-bold text-violet-200 border border-violet-400/20 transition-all active:scale-[0.97]"
                                 >

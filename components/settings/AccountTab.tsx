@@ -88,6 +88,7 @@ const StatusRow = ({
                 <span className={`text-[11px] font-mono font-medium ${textColor}`}>{displayText}</span>
                 {onTest && (
                     <button
+                        aria-label="Test"
                         onClick={onTest}
                         className="px-2 py-1 rounded bg-white/5 border border-white/10 text-[11px] font-bold text-white uppercase"
                     >
@@ -136,6 +137,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                     </div>
                     {!user ? (
                         <button
+                            aria-label="Auth Open"
                             onClick={() => setAuthOpen(true)}
                             className="bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white font-bold py-3 px-8 rounded-xl text-xs uppercase tracking-wider transition-all shadow-lg shadow-sky-500/30 active:scale-95"
                         >
@@ -335,6 +337,7 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                 <Section title="Account">
                     <Row>
                         <button
+                            aria-label="Lock"
                             onClick={logout}
                             className="w-full py-3 bg-red-500/10 text-red-400 rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-2 hover:bg-red-500/20 transition-colors active:scale-95"
                         >

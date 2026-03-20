@@ -131,6 +131,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
             {/* Header */}
             <div className="relative z-10 flex items-center justify-between px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
                 <button
+                    aria-label="Close"
                     onClick={onClose}
                     className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center active:scale-90 transition-transform"
                 >
@@ -170,6 +171,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                         </p>
                     </div>
                     <button
+                        aria-label="Pin"
                         onClick={() => exportPinAsGPX(lat, lng, caption)}
                         className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-500/20 active:scale-95 transition-transform"
                     >

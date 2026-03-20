@@ -516,6 +516,7 @@ export const DailyWidget = ({
                 {!isPro && (
                     <div className="absolute bottom-0 left-0 right-0 h-64 bg-gradient-to-t from-[#0f172a] via-[#0f172a]/90 to-transparent flex items-end justify-center pb-8 z-20">
                         <button
+                            aria-label="Trigger Upgrade"
                             onClick={onTriggerUpgrade}
                             className="bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 px-8 rounded-full shadow-lg hover:scale-105 transition-transform flex items-center gap-2 border border-sky-400/30"
                         >

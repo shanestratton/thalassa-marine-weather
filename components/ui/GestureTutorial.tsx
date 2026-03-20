@@ -159,6 +159,7 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({ onDismiss, onN
 
                     {step === steps.length - 1 && onNeverShow && (
                         <button
+                            aria-label="Never Show"
                             onClick={() => {
                                 onNeverShow();
                                 handleDismiss();

@@ -214,6 +214,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                             <p className="text-[11px] text-white/30 mb-2 px-1">Parent Channel</p>
                             <div className="flex gap-2 flex-wrap">
                                 <button
+                                    aria-label="Proposal Parent Id"
                                     onClick={() => setProposalParentId(null)}
                                     className={`px-3.5 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${
                                         !proposalParentId
@@ -225,6 +226,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                 </button>
                                 {parentOptions.map((p) => (
                                     <button
+                                        aria-label="Proposal Parent Id"
                                         key={p.id}
                                         onClick={() => setProposalParentId(p.id)}
                                         className={`px-3.5 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-95 min-h-[44px] ${
@@ -244,6 +246,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                             <p className="text-[11px] text-white/30 mb-2 px-1">Visibility</p>
                             <div className="flex gap-2">
                                 <button
+                                    aria-label="Proposal Is Private"
                                     onClick={() => setProposalIsPrivate(false)}
                                     className={`flex-1 py-3.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[48px] ${
                                         !proposalIsPrivate
@@ -254,6 +257,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                                     🌊 Public
                                 </button>
                                 <button
+                                    aria-label="Proposal Is Private"
                                     onClick={() => setProposalIsPrivate(true)}
                                     className={`flex-1 py-3.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 min-h-[48px] ${
                                         proposalIsPrivate

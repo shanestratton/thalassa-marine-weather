@@ -67,6 +67,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                 <div className="shrink-0 px-4 pt-4 pb-3">
                     <div className="flex items-center gap-3">
                         <button
+                            aria-label="Go back"
                             onClick={onBack}
                             className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
                         >
@@ -84,6 +85,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                             <h1 className="text-lg font-extrabold text-white truncate">{e.title}</h1>
                         </div>
                         <button
+                            aria-label="Edit"
                             onClick={() => onEdit(e)}
                             className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
                         >

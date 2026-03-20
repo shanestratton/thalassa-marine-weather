@@ -426,6 +426,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                     ← Change email
                                 </button>
                                 <button
+                                    aria-label="Send"
                                     type="button"
                                     onClick={handleResendCode}
                                     disabled={resendCooldown > 0 || loading}

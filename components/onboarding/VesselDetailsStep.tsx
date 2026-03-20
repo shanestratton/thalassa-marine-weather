@@ -63,7 +63,7 @@ const INPUT_CLASS =
     'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500';
 
 const UnitToggle: React.FC<{ value: string; onClick: () => void }> = ({ value, onClick }) => (
-    <button onClick={onClick} className="text-sky-400 hover:text-white uppercase">
+    <button aria-label="Click" onClick={onClick} className="text-sky-400 hover:text-white uppercase">
         {value}
     </button>
 );
@@ -124,6 +124,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                         Observers skip vessel setup. We&apos;ll optimize the display for general sea state conditions.
                     </p>
                     <button
+                        aria-label="Next"
                         onClick={onNext}
                         className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
                     >
@@ -164,6 +165,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                             <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
                                 {(['monohull', 'catamaran', 'trimaran'] as const).map((ht) => (
                                     <button
+                                        aria-label="Hull Type Change"
                                         key={ht}
                                         onClick={() => onHullTypeChange(ht)}
                                         className={`flex-1 py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${hullType === ht ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
@@ -182,6 +184,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                             <div className="grid grid-cols-3 bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
                                 {(['fin', 'full', 'wing', 'skeg', 'centerboard', 'bilge'] as const).map((kt) => (
                                     <button
+                                        aria-label="Keel Type Change"
                                         key={kt}
                                         onClick={() => onKeelTypeChange(kt)}
                                         className={`py-2.5 rounded-lg text-xs font-bold uppercase transition-all ${keelType === kt ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
@@ -336,6 +339,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                         </div>
                     </div>
                     <button
+                        aria-label="Next"
                         onClick={onNext}
                         className="w-full mt-8 bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
                     >

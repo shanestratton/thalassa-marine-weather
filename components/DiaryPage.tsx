@@ -743,6 +743,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                         <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
                                         <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                                             <button
+                                                aria-label="Menu"
                                                 onClick={() => {
                                                     setMenuOpen(false);
                                                     const sel = entries.filter((e) => selectedIds.has(e.id));
@@ -768,6 +769,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                             </button>
                                             <div className="border-t border-white/5" />
                                             <button
+                                                aria-label="Menu"
                                                 onClick={() => {
                                                     setMenuOpen(false);
                                                     const sel = entries.filter((e) => selectedIds.has(e.id));
@@ -795,6 +797,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                                 <>
                                                     <div className="border-t border-white/5" />
                                                     <button
+                                                        aria-label="Selected Ids"
                                                         onClick={() => {
                                                             setSelectedIds(new Set());
                                                             setMenuOpen(false);

@@ -468,6 +468,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         </div>
                         {/* Shore toggle */}
                         <button
+                            aria-label="Show Shore Modal"
                             onClick={() => setShowShoreModal(true)}
                             className="px-3 py-1 rounded-lg text-xs font-bold text-slate-400 bg-slate-800/60 border border-white/[0.06] hover:text-slate-300 transition-colors"
                         >
@@ -494,6 +495,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         <div className="flex gap-1.5">
                             {(['chain', 'rope', 'mixed'] as const).map((type) => (
                                 <button
+                                    aria-label="Rode Type"
                                     key={type}
                                     onClick={() => setRodeType(type)}
                                     className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${
@@ -559,6 +561,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         <div className="flex items-center gap-2 bg-slate-800/30 border border-white/[0.04] rounded-xl px-3 py-2">
                             {/* Weather left */}
                             <button
+                                aria-label="Rode Length"
                                 onClick={() => setRodeLength(wxRecommendation.rode)}
                                 className="flex-1 flex items-center gap-1.5 text-left group"
                                 title={`Tap to set rode to ${wxRecommendation.rode}m (${wxRecommendation.scope}:1)`}
@@ -814,6 +817,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             {/* Shore silence button — only shown during alarm */}
                             {shoreData.isAlarm && shoreAlarmActiveRef.current && (
                                 <button
+                                    aria-label="Arm"
                                     onClick={() => {
                                         AlarmAudioService.stopAlarm();
                                         shoreAlarmActiveRef.current = false;

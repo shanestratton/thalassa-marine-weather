@@ -71,7 +71,11 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
 
     return (
         <div className="w-full bg-red-500 border border-red-400/50 rounded-xl p-3 flex items-center justify-between shadow-lg animate-in fade-in slide-in-from-top-2 mb-2 group relative">
-            <button onClick={() => setPage('warnings')} className="flex items-center gap-2.5 flex-1 cursor-pointer">
+            <button
+                aria-label="Page"
+                onClick={() => setPage('warnings')}
+                className="flex items-center gap-2.5 flex-1 cursor-pointer"
+            >
                 <AlertTriangleIcon className="w-5 h-5 text-white animate-pulse" />
                 <span className="text-white font-bold uppercase tracking-wider text-sm">
                     {activeAlerts.length === 1 ? activeAlerts[0] : `${activeAlerts.length} Warnings Active`}
@@ -80,6 +84,7 @@ export const AlertsBanner = ({ alerts }: { alerts?: string[] }) => {
             <div className="flex items-center gap-2">
                 {dismissableCount > 0 && (
                     <button
+                        aria-label="Dismiss"
                         onClick={handleDismiss}
                         className="bg-white/20 hover:bg-white/30 active:bg-white/40 text-white font-bold text-xs px-2.5 py-1.5 rounded-lg transition-colors uppercase tracking-wider"
                         title="Dismiss non-critical warnings"

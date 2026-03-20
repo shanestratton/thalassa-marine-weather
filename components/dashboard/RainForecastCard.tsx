@@ -144,6 +144,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
     return (
         <>
             <button
+                aria-label="Modal"
                 onClick={openModal}
                 className={`w-full rounded-xl overflow-hidden relative text-left transition-all duration-500 ${className} ${
                     isActive

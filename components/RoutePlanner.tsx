@@ -519,6 +519,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
 
                             {/* AI Suggest Optimal Departure */}
                             <button
+                                aria-label="Suggesting Departure"
                                 type="button"
                                 disabled={!origin || !destination || suggestingDeparture}
                                 onClick={async () => {
@@ -736,6 +737,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                 </div>
                             ) : !isPro ? (
                                 <button
+                                    aria-label="Trigger Upgrade"
                                     type="button"
                                     onClick={onTriggerUpgrade}
                                     className="h-14 w-full rounded-2xl font-bold uppercase tracking-wider text-xs transition-all shadow-lg flex items-center justify-center gap-2 bg-slate-800 text-white hover:bg-slate-700"

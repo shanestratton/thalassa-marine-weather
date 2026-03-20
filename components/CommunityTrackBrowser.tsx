@@ -249,6 +249,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                 {/* Browse / My Tracks tab toggle */}
                 <div className="flex gap-2 mb-3">
                     <button
+                        aria-label="Active Tab"
                         onClick={() => setActiveTab('browse')}
                         className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${
                             activeTab === 'browse'
@@ -259,6 +260,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                         Browse {total > 0 && `(${total})`}
                     </button>
                     <button
+                        aria-label="Active Tab"
                         onClick={() => setActiveTab('mine')}
                         className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${
                             activeTab === 'mine'
@@ -406,6 +408,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                     <div className="flex flex-col items-center justify-center h-48 text-slate-400">
                         <p className="text-sm text-red-400 mb-2">{error}</p>
                         <button
+                            aria-label="Tracks"
                             onClick={() => fetchTracks()}
                             className="px-4 py-2 bg-slate-800/50 hover:bg-slate-700 text-white rounded-lg text-sm font-bold transition-colors"
                         >
@@ -564,6 +567,7 @@ const MyTrackCard: React.FC<{
                 {confirmDelete ? (
                     <div className="flex items-center gap-1.5 shrink-0">
                         <button
+                            aria-label="Delete"
                             onClick={() => {
                                 onDelete();
                                 setConfirmDelete(false);
@@ -578,6 +582,7 @@ const MyTrackCard: React.FC<{
                             )}
                         </button>
                         <button
+                            aria-label="Delete"
                             onClick={() => setConfirmDelete(false)}
                             className="px-2 py-2 rounded-lg text-sm font-bold bg-slate-800/50 text-slate-400 hover:text-white transition-colors"
                         >
@@ -586,6 +591,7 @@ const MyTrackCard: React.FC<{
                     </div>
                 ) : (
                     <button
+                        aria-label="Delete"
                         onClick={() => setConfirmDelete(true)}
                         className="shrink-0 px-3 py-2 rounded-lg text-sm font-bold bg-red-900/30 hover:bg-red-900/50 text-red-400 border border-red-500/20 transition-all active:scale-95 flex items-center gap-1.5"
                     >

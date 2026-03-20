@@ -55,6 +55,7 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
 
                             return (
                                 <button
+                                    aria-label="Open DM"
                                     key={match.user_id}
                                     onClick={() => onOpenDM(match.user_id, match.display_name)}
                                     className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] hover:border-emerald-400/10 transition-all active:scale-[0.98]"

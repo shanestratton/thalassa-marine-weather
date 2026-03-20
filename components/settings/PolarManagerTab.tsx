@@ -264,6 +264,7 @@ export const PolarManagerTab: React.FC<PolarManagerTabProps> = ({ settings, onSa
                             <div className="flex bg-black/40 p-1 rounded-xl border border-white/10 mb-6">
                                 {(['import', 'manual'] as InputTab[]).map((tab) => (
                                     <button
+                                        aria-label="Active Tab"
                                         key={tab}
                                         onClick={() => setActiveTab(tab)}
                                         className={`flex-1 py-2.5 rounded-lg text-sm font-bold uppercase tracking-wider transition-all ${
@@ -405,6 +406,7 @@ const SmartPolarsCard: React.FC<{
                                 <span className="text-amber-400">⚠️ Not connected</span> —{' '}
                                 {onNavigateToNmea ? (
                                     <button
+                                        aria-label="Navigate"
                                         onClick={onNavigateToNmea}
                                         className="text-sky-400 underline underline-offset-2 font-bold"
                                     >
@@ -487,12 +489,14 @@ const SmartPolarsCard: React.FC<{
                     <span className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Routing Uses:</span>
                     <div className="flex-1 flex bg-black/40 p-0.5 rounded-lg">
                         <button
+                            aria-label="Toggle"
                             onClick={() => onToggleSource('factory')}
                             className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${polarSource === 'factory' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
                         >
                             Factory
                         </button>
                         <button
+                            aria-label="Toggle"
                             onClick={() => onToggleSource('smart')}
                             className={`flex-1 py-1.5 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${polarSource === 'smart' ? 'bg-emerald-600 text-white' : 'text-gray-400'}`}
                         >
@@ -711,6 +715,7 @@ const ManualTab: React.FC<{
 
             <div className="flex gap-2 mt-4">
                 <button
+                    aria-label="Change"
                     onClick={() => onChange(createEmptyPolar())}
                     className="text-[11px] font-bold text-gray-400 uppercase tracking-wider px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
                 >
