@@ -445,36 +445,71 @@ function drawTrackDots(svg: SVGSVGElement, projected: { px: mapboxgl.Point; poin
 
         // Alternate label position left/right to prevent overlap
         const labelRight = i % 2 === 0;
-        const labelX = labelRight ? px.x + 14 : px.x - 14;
+        const xOff = labelRight ? 14 : -14;
 
-        // Dark pill background using SVG foreignObject
-        const fo = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
-        const pillW = 100;
-        const pillH = isNow ? 22 : 30;
-        fo.setAttribute('x', String(labelRight ? labelX : labelX - pillW));
-        fo.setAttribute('y', String(px.y - pillH / 2));
-        fo.setAttribute('width', String(pillW));
-        fo.setAttribute('height', String(pillH));
+        // Pure SVG label (no foreignObject — works on iOS WebView)
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
 
-        const pill = document.createElement('div');
-        pill.style.cssText = `
-            background: rgba(0,0,0,0.75);
-            backdrop-filter: blur(4px);
-            -webkit-backdrop-filter: blur(4px);
-            border-left: 2px solid ${dotColor};
-            border-radius: 4px;
-            padding: 2px 6px;
-            font-family: system-ui, -apple-system, sans-serif;
-            white-space: nowrap;
-            display: inline-block;
-        `;
-        pill.innerHTML = `
-            <div style="font-size:9px;font-weight:700;color:${isNow ? dotColor : '#e2e8f0'};letter-spacing:0.02em;">${timeLabel}</div>
-            ${infoStr ? `<div style="font-size:8px;color:#94a3b8;font-weight:500;">${infoStr}</div>` : ''}
-        `;
+        // Connector line from dot to label
+        const connector = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        connector.setAttribute('x1', String(px.x));
+        connector.setAttribute('y1', String(px.y));
+        connector.setAttribute('x2', String(px.x + xOff));
+        connector.setAttribute('y2', String(px.y));
+        connector.setAttribute('stroke', 'rgba(255,255,255,0.2)');
+        connector.setAttribute('stroke-width', '1');
+        g.appendChild(connector);
 
-        fo.appendChild(pill);
-        svg.appendChild(fo);
+        // Background rect
+        const pillW = 88;
+        const pillH = infoStr ? 24 : 14;
+        const rx = px.x + xOff + (labelRight ? 0 : -pillW);
+        const ry = px.y - pillH / 2;
+
+        const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        bg.setAttribute('x', String(rx));
+        bg.setAttribute('y', String(ry));
+        bg.setAttribute('width', String(pillW));
+        bg.setAttribute('height', String(pillH));
+        bg.setAttribute('rx', '3');
+        bg.setAttribute('fill', 'rgba(0,0,0,0.8)');
+        g.appendChild(bg);
+
+        // Color bar on left edge
+        const bar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        bar.setAttribute('x', String(rx));
+        bar.setAttribute('y', String(ry));
+        bar.setAttribute('width', '2');
+        bar.setAttribute('height', String(pillH));
+        bar.setAttribute('rx', '1');
+        bar.setAttribute('fill', dotColor);
+        g.appendChild(bar);
+
+        // Time label text
+        const timeTxt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        timeTxt.setAttribute('x', String(rx + 6));
+        timeTxt.setAttribute('y', String(ry + (infoStr ? 10 : 10)));
+        timeTxt.setAttribute('fill', isNow ? dotColor : '#e2e8f0');
+        timeTxt.setAttribute('font-size', '9');
+        timeTxt.setAttribute('font-weight', '700');
+        timeTxt.setAttribute('font-family', 'system-ui, sans-serif');
+        timeTxt.textContent = timeLabel;
+        g.appendChild(timeTxt);
+
+        // Info text (wind + pressure)
+        if (infoStr) {
+            const infoTxt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            infoTxt.setAttribute('x', String(rx + 6));
+            infoTxt.setAttribute('y', String(ry + 20));
+            infoTxt.setAttribute('fill', '#94a3b8');
+            infoTxt.setAttribute('font-size', '8');
+            infoTxt.setAttribute('font-weight', '500');
+            infoTxt.setAttribute('font-family', 'system-ui, sans-serif');
+            infoTxt.textContent = infoStr;
+            g.appendChild(infoTxt);
+        }
+
+        svg.appendChild(g);
     }
 }
 
