@@ -409,47 +409,36 @@ export const LayerFABMenu: React.FC<{
                         </>
                     )}
 
-                    {/* ── Weather layers ── */}
-                    {(
-                        [
-                            { key: 'none', label: 'Clear All', icon: '🗺️' },
-                            { key: 'rain', label: 'Rain', icon: '🌧️' },
-                            { key: 'velocity', label: 'Wind', icon: '💨' },
-                            { key: 'temperature', label: 'Temp', icon: '🌡️' },
-                            { key: 'clouds', label: 'Clouds', icon: '☁️' },
-                            { key: 'sea', label: 'Sea Marks', icon: '⚓' },
-                        ] as const
-                    ).map((layer) => {
-                        const isActive = layer.key === 'none' ? false : activeLayers.has(layer.key);
-                        return (
+                    {/* ── Weather Here ── */}
+                    {onToggleWeatherInspect && (
+                        <>
                             <button
-                                key={layer.key}
                                 onClick={() => {
-                                    toggleLayer(layer.key);
+                                    onToggleWeatherInspect();
                                     triggerHaptic('light');
-                                    // Close menu only when clearing all layers
-                                    if (layer.key === 'none') setShowLayerMenu(false);
                                 }}
-                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${isActive ? 'bg-sky-500/20 text-sky-400 border-l-2 border-sky-400' : layer.key === 'none' && activeCount > 0 ? 'text-red-400 hover:bg-red-500/10 border-l-2 border-transparent' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${weatherInspectMode ? 'bg-amber-500/20 text-amber-400 border-l-2 border-amber-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
                             >
-                                <span className="text-xl">{layer.icon}</span>
-                                <span className="text-sm font-bold flex-1">{layer.label}</span>
-                                {isActive && (
+                                <span className="text-xl">🌤️</span>
+                                <span className="text-sm font-bold flex-1">Weather Here</span>
+                                {weatherInspectMode ? (
                                     <span className="flex items-center gap-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
-                                        <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
-                                            Active
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-lg shadow-amber-400/50 animate-pulse" />
+                                        <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
+                                            Tap Map
                                         </span>
                                     </span>
+                                ) : (
+                                    <span className="text-[11px] text-gray-500">Tap to enable</span>
                                 )}
                             </button>
-                        );
-                    })}
+                            <div className="h-px bg-white/[0.06] mx-3" />
+                        </>
+                    )}
 
-                    {/* ── AIS Vessel Targets toggle ── */}
+                    {/* ── AIS Vessels ── */}
                     {onToggleAis && (
                         <>
-                            <div className="h-px bg-white/[0.06] mx-3" />
                             <button
                                 onClick={() => {
                                     onToggleAis();
@@ -468,10 +457,45 @@ export const LayerFABMenu: React.FC<{
                                     </span>
                                 )}
                             </button>
+                            <div className="h-px bg-white/[0.06] mx-3" />
                         </>
                     )}
 
-                    {/* ── Chokepoint Tracker toggle ── */}
+                    {/* ── Weather layers: Rain, Wind, Temp, Clouds, Sea Marks ── */}
+                    {(
+                        [
+                            { key: 'rain', label: 'Rain', icon: '🌧️' },
+                            { key: 'velocity', label: 'Wind', icon: '💨' },
+                            { key: 'temperature', label: 'Temp', icon: '🌡️' },
+                            { key: 'clouds', label: 'Clouds', icon: '☁️' },
+                            { key: 'sea', label: 'Sea Marks', icon: '⚓' },
+                        ] as const
+                    ).map((layer) => {
+                        const isActive = activeLayers.has(layer.key);
+                        return (
+                            <button
+                                key={layer.key}
+                                onClick={() => {
+                                    toggleLayer(layer.key);
+                                    triggerHaptic('light');
+                                }}
+                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${isActive ? 'bg-sky-500/20 text-sky-400 border-l-2 border-sky-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                            >
+                                <span className="text-xl">{layer.icon}</span>
+                                <span className="text-sm font-bold flex-1">{layer.label}</span>
+                                {isActive && (
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
+                                        <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+                                            Active
+                                        </span>
+                                    </span>
+                                )}
+                            </button>
+                        );
+                    })}
+
+                    {/* ── Chokepoints (last) ── */}
                     {onToggleChokepoint && (
                         <>
                             <div className="h-px bg-white/[0.06] mx-3" />
@@ -496,29 +520,20 @@ export const LayerFABMenu: React.FC<{
                         </>
                     )}
 
-                    {/* ── Weather Inspect (one-shot weather at tapped point) ── */}
-                    {onToggleWeatherInspect && (
+                    {/* ── Clear All ── */}
+                    {activeCount > 0 && (
                         <>
                             <div className="h-px bg-white/[0.06] mx-3" />
                             <button
                                 onClick={() => {
-                                    onToggleWeatherInspect();
+                                    toggleLayer('none');
                                     triggerHaptic('light');
+                                    setShowLayerMenu(false);
                                 }}
-                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${weatherInspectMode ? 'bg-amber-500/20 text-amber-400 border-l-2 border-amber-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                                className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors text-red-400 hover:bg-red-500/10 border-l-2 border-transparent"
                             >
-                                <span className="text-xl">🌤️</span>
-                                <span className="text-sm font-bold flex-1">Weather Here</span>
-                                {weatherInspectMode ? (
-                                    <span className="flex items-center gap-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shadow-lg shadow-amber-400/50 animate-pulse" />
-                                        <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
-                                            Tap Map
-                                        </span>
-                                    </span>
-                                ) : (
-                                    <span className="text-[11px] text-gray-500">Tap to enable</span>
-                                )}
+                                <span className="text-xl">🗺️</span>
+                                <span className="text-sm font-bold flex-1">Clear All</span>
                             </button>
                         </>
                     )}
