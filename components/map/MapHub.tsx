@@ -436,9 +436,81 @@ export const MapHub: React.FC<MapHubProps> = ({
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
     weatherRef.current = weather;
 
-    // vortexOffset removed — spatial shifting of the wind grid made the wind lag
-    // behind the cyclone blob. The correct alignment is temporal (auto-advance
-    // scrubber to "now"), not spatial.
+    // ── Cyclone-aware temporal snap ──
+    // GFS forecast error means the model's predicted cyclone position diverges
+    // from the actual ATCF position over time. Instead of spatially shifting the
+    // wind grid (old vortexOffset), we find which forecast hour's vortex center
+    // best matches the ATCF position and auto-advance the scrubber there.
+    useEffect(() => {
+        const grid = weather.windGridRef?.current;
+        if (!closestStorm || !grid || !cycloneVisible || !weather.windReady) return;
+        if (!grid.lats?.length || !grid.lons?.length) return;
+
+        const stormLat = closestStorm.currentPosition.lat;
+        const stormLon = closestStorm.currentPosition.lon;
+        const w = grid.width;
+        const hgt = grid.height;
+        const SEARCH = 10; // search ±10° around ATCF
+
+        let bestHourIdx = weather.windNowIdxRef.current; // fallback to time-based "now"
+        let bestDist = Infinity;
+
+        // Scan each forecast hour to find the one whose vortex center is closest to ATCF
+        for (let h = 0; h < grid.totalHours; h++) {
+            const uArr = grid.u[h];
+            const vArr = grid.v[h];
+            if (!uArr || !vArr) continue;
+
+            // Find the point of maximum vorticity near the storm
+            let maxVort = 0;
+            let vortLat = stormLat;
+            let vortLon = stormLon;
+
+            for (let row = 1; row < hgt - 1; row++) {
+                const lat = grid.lats[row];
+                if (Math.abs(lat - stormLat) > SEARCH) continue;
+
+                for (let col = 1; col < w - 1; col++) {
+                    const lon = grid.lons[col];
+                    if (Math.abs(lon - stormLon) > SEARCH) continue;
+
+                    // Vorticity: ∂v/∂x - ∂u/∂y
+                    const dvdx = vArr[row * w + col + 1] - vArr[row * w + col - 1];
+                    const dudy = uArr[(row - 1) * w + col] - uArr[(row + 1) * w + col];
+                    const vort = Math.abs(dvdx - dudy);
+
+                    if (vort > maxVort) {
+                        maxVort = vort;
+                        vortLat = lat;
+                        vortLon = lon;
+                    }
+                }
+            }
+
+            if (maxVort < 3) continue; // No cyclonic rotation found at this hour
+
+            // Distance between this hour's vortex center and the ATCF position
+            const dist = Math.sqrt((vortLat - stormLat) ** 2 + (vortLon - stormLon) ** 2);
+
+            if (dist < bestDist) {
+                bestDist = dist;
+                bestHourIdx = h;
+            }
+        }
+
+        // Only override if we found a better hour than the time-based "now"
+        const currentNow = weather.windNowIdxRef.current;
+        if (bestHourIdx !== currentNow && bestDist < 5) {
+            const fhrs = weather.windForecastHoursRef.current;
+            log.info(
+                `[CycloneSnap] GFS vortex at hour ${fhrs[bestHourIdx] ?? bestHourIdx} ` +
+                    `(idx ${bestHourIdx}) best matches ATCF position ` +
+                    `(dist=${bestDist.toFixed(1)}°, time-based now=idx ${currentNow})`,
+            );
+            weather.setWindHour(bestHourIdx);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [closestStorm, cycloneVisible, weather.windReady]);
 
     // ── Embedded Rain (also loads as background on full-map velocity mode) ──
     const _embRain = useEmbeddedRain(mapRef, embedded, mapReady, false);
