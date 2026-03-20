@@ -2,6 +2,10 @@ import { CapacitorHttp } from '@capacitor/core';
 import { MAJOR_BUOYS, STATE_ABBREVIATIONS } from '../config';
 import { getMapboxKey } from '../keys';
 import { abbreviate } from '../transformers';
+
+import { createLogger } from '../../../utils/createLogger';
+
+const log = createLogger('geocoding');
 // geminiService dynamically imported to avoid bundling @google/generative-ai in main chunk
 
 export interface GeoContext {
@@ -229,7 +233,7 @@ export const parseLocation = async (
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
                 return (data && data.results) || [];
             } catch (e) {
-                console.warn('[geocoding]', e);
+                log.warn('[geocoding]', e);
                 return [];
             }
             // Silently ignored — non-critical failure

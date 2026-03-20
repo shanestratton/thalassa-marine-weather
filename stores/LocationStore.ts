@@ -83,7 +83,7 @@ export const LocationStore = {
                 notify();
             }
         } catch (e) {
-            console.warn('[LocationStore]', e);
+            log.warn('[LocationStore]', e);
             state = { ...state, isReversGeocoding: false };
             notify();
         }
@@ -131,6 +131,10 @@ export const LocationStore = {
 
 import { useState as useReactState, useEffect } from 'react';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('LocationStore');
+
 export function useLocationStore(): LocationState {
     const [s, setS] = useReactState(LocationStore.getState());
     useEffect(() => LocationStore.subscribe(setS), []);
@@ -164,7 +168,7 @@ async function reverseGeocode(lat: number, lon: number): Promise<string | null> 
 
         return parts.length > 0 ? parts.join(', ') : null;
     } catch (e) {
-        console.warn('[LocationStore]', e);
+        log.warn('[LocationStore]', e);
         return null;
     }
 }

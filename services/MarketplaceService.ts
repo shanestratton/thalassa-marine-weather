@@ -12,6 +12,10 @@ import { supabase } from './supabase';
 import { compressImage } from './ProfilePhotoService';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('MarketplaceService');
+
 // --- CONFIG ---
 const LISTINGS_TABLE = 'marketplace_listings';
 const _MESSAGES_TABLE = 'marketplace_messages';
@@ -325,7 +329,7 @@ class MarketplaceServiceClass {
             .single();
 
         if (error || !data) {
-            console.error('[Marketplace] Create failed:', error?.message);
+            log.error('[Marketplace] Create failed:', error?.message);
             return null;
         }
 
@@ -394,7 +398,7 @@ class MarketplaceServiceClass {
             });
 
             if (uploadError) {
-                console.error('[Marketplace] Image upload failed:', uploadError.message);
+                log.error('[Marketplace] Image upload failed:', uploadError.message);
                 return null;
             }
 
@@ -402,7 +406,7 @@ class MarketplaceServiceClass {
 
             return urlData?.publicUrl || null;
         } catch (e) {
-            console.error('[Marketplace] Image upload error:', e);
+            log.error('[Marketplace] Image upload error:', e);
             return null;
         }
     }

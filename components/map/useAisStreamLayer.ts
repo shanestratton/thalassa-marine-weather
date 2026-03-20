@@ -24,6 +24,10 @@ import { VesselMetadataService } from '../../services/VesselMetadataService';
 import { getMmsiFlag } from '../../utils/MmsiDecoder';
 import { isFeatureLockedSync } from '../../managers/FeatureGate';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('useAisStreamLayer');
+
 const FETCH_DEBOUNCE_MS = 1500;
 const AIS_SOURCE_ID = 'ais-targets';
 const PREDICTED_TRACKS_SOURCE_ID = 'ais-predicted-tracks';
@@ -327,7 +331,7 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
             if (!isMounted.current || !map) return;
             cachedServerFeatures.current = geojson.features || [];
         } catch (e) {
-            console.warn('[useAisStreamLayer] Fetch failed:', e);
+            log.warn('[useAisStreamLayer] Fetch failed:', e);
         }
 
         mergeAndWrite();

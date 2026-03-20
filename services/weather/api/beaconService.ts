@@ -2,6 +2,10 @@ import { CapacitorHttp } from '@capacitor/core';
 import { BeaconObservation, BuoyStation } from '../../../types';
 import { MAJOR_BUOYS } from '../config';
 
+import { createLogger } from '../../../utils/createLogger';
+
+const log = createLogger('beaconService');
+
 // --- CONSTANTS ---
 const NDBC_BASE_URL = 'https://www.ndbc.noaa.gov/data/realtime2';
 const QLD_WAVE_API_BASE = 'https://www.data.qld.gov.au/api/3/action/datastore_search';
@@ -81,7 +85,7 @@ interface NDBCRawData {
  * ```typescript
  * const data = await fetchNDBCBuoy("46086");
  * if (data) {
- *   console.info(`Wind: ${data.windSpeed} m/s from ${data.windDirection}°`);
+ *   log.info(`Wind: ${data.windSpeed} m/s from ${data.windDirection}°`);
  * }
  * ```
  */
@@ -517,8 +521,8 @@ async function fetchBuoyData(buoy: BuoyStation): Promise<NDBCRawData | null> {
  * ```typescript
  * const beacon = await findAndFetchNearestBeacon(-27.3, 153.3, 10);
  * if (beacon) {
- *   console.info(`Found ${beacon.name} at ${beacon.distance}nm`);
- *   console.info(`Wave height: ${beacon.waveHeight}m`);
+ *   log.info(`Found ${beacon.name} at ${beacon.distance}nm`);
+ *   log.info(`Wave height: ${beacon.waveHeight}m`);
  * }
  * ```
  */

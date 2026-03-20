@@ -54,6 +54,10 @@ export const FORECAST_HOURS = 48; // 2-day forecast for timeline scrubber
 
 import { getOpenMeteoKey } from './keys';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('isobars');
+
 // ── NOAA GFS Pressure Grid Fetch (via Supabase Edge Function) ─
 // Fetches decoded pressure grid as JSON from our edge function.
 // No client-side GRIB2 parsing needed — server handles it all.
@@ -171,7 +175,7 @@ async function fetchPressureGridGfs(
         const interpTotal = interpPressure.length;
         const emptyGridInterp: number[][] = Array.from({ length: rows }, () => new Array(cols).fill(0));
 
-        console.info('[ISOBAR] GFS lats ordering:', lats[0], '→', lats[lats.length - 1], '(passing through as-is)');
+        log.info('[ISOBAR] GFS lats ordering:', lats[0], '→', lats[lats.length - 1], '(passing through as-is)');
 
         return {
             allHourlyPressure: interpPressure,
@@ -635,7 +639,7 @@ function findPressureCenters(grid: HourGrid): { lat: number; lon: number; type: 
     refineAndAdd(highCandidates, 'H', highs);
 
     const all = [...lows, ...highs];
-    console.info(
+    log.info(
         '[ISOBAR] Centers detected:',
         all.map((c) => `${c.type} ${c.pressure} @ ${c.lat.toFixed(1)},${c.lon.toFixed(1)}`).join(', '),
     );

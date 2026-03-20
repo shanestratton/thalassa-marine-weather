@@ -761,7 +761,7 @@ class AnchorWatchServiceClass {
         // Also re-trigger haptics every 2 seconds
         this.alarmInterval = setInterval(() => {
             Haptics.impact({ style: ImpactStyle.Heavy }).catch((e) => {
-                console.warn(`[AnchorWatchService]`, e);
+                log.warn(`[AnchorWatchService]`, e);
             });
         }, 2000);
     }
@@ -772,7 +772,7 @@ class AnchorWatchServiceClass {
             this.alarmInterval = null;
         }
         AlarmAudioService.stopAlarm().catch((e) => {
-            console.warn(`[AnchorWatchService]`, e);
+            log.warn(`[AnchorWatchService]`, e);
         });
     }
 

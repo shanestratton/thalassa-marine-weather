@@ -1,5 +1,9 @@
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('nativeStorage');
+
 export const DATA_CACHE_KEY = 'thalassa_weather_cache_v9';
 export const VOYAGE_CACHE_KEY = 'thalassa_voyage_cache_v2';
 export const HISTORY_CACHE_KEY = 'thalassa_history_cache_v3';
@@ -34,7 +38,7 @@ export const saveLargeData = async (key: string, data: unknown) => {
                 try {
                     localStorage.setItem(key, jsonString);
                 } catch (e) {
-                    console.warn('[nativeStorage] quota exceeded — ignore:', e);
+                    log.warn('[nativeStorage] quota exceeded — ignore:', e);
                 }
             } finally {
                 delete saveTimers[key];
@@ -101,7 +105,7 @@ export const flushPendingSaves = async (): Promise<void> => {
     // Note: We can't easily retrieve the pending data from the setTimeout closures.
     // Instead, this function is a safety net — the real fix is saveLargeDataImmediate
     // for critical data. This just logs a warning.
-    console.warn(`[nativeStorage] ${pendingKeys.length} pending debounced write(s) on flush:`, pendingKeys);
+    log.warn(`[nativeStorage] ${pendingKeys.length} pending debounced write(s) on flush:`, pendingKeys);
 };
 
 // --- CACHE VERSION: FILESYSTEM-BACKED ---
@@ -208,7 +212,7 @@ export const loadLargeData = async (key: string) => {
 
     // 2. Not Found in Filesystem? Check Legacy Storage...
     // Use warn only if it's NOT just a missing file (which we know it is now)
-    // console.info(`[Filesystem] ${key} not in file. Checking Legacy...`);
+    // log.info(`[Filesystem] ${key} not in file. Checking Legacy...`);
 
     const legacyData = localStorage.getItem(key);
     if (legacyData) {

@@ -2,6 +2,10 @@ import { Tide, StormGlassTideData } from '../../../types';
 import { fetchWorldTides } from './worldtides';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
 
+import { createLogger } from '../../../utils/createLogger';
+
+const log = createLogger('tides');
+
 /** Tide station GUI metadata for source provenance display */
 export interface TideGUIDetails {
     stationName: string;
@@ -48,7 +52,7 @@ export const fetchRealTides = async (
             return result;
         }
     } catch (err) {
-        console.warn(`[tides]`, err);
+        log.warn(`[tides]`, err);
     }
 
     // FALLBACK: Network Failure / No Data

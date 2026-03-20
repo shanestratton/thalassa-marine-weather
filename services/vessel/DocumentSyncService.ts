@@ -86,7 +86,7 @@ class DocumentSyncServiceClass {
             const raw = localStorage.getItem(SYNC_STATUS_KEY);
             this._statusCache = raw ? JSON.parse(raw) : {};
         } catch (e) {
-            console.warn('[DocumentSync]', e);
+            log.warn('[DocumentSync]', e);
             this._statusCache = {};
         }
     }
@@ -95,7 +95,7 @@ class DocumentSyncServiceClass {
         try {
             localStorage.setItem(SYNC_STATUS_KEY, JSON.stringify(this._statusCache));
         } catch (e) {
-            console.warn('[DocumentSync] localStorage full — ignore:', e);
+            log.warn('[DocumentSync] localStorage full — ignore:', e);
         }
     }
 
@@ -166,7 +166,7 @@ class DocumentSyncServiceClass {
                 await supabase.storage.from(STORAGE_BUCKET).remove([match[1]]);
             }
         } catch (e) {
-            console.warn('[DocumentSync] ignore cleanup errors:', e);
+            log.warn('[DocumentSync] ignore cleanup errors:', e);
         }
     }
 

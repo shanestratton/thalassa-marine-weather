@@ -10,6 +10,10 @@ import React, { useState, useCallback } from 'react';
 import { useFollowRoute } from '../context/FollowRouteContext';
 import { RouteIcon } from './Icons';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('FollowRouteBadge');
+
 // ── Stop Following Confirmation Dialog ──
 
 const StopFollowingDialog: React.FC<{
@@ -187,7 +191,7 @@ ${gpxWaypoints.map((wp) => `      <trkpt lat="${wp.lat}" lon="${wp.lon}"><name>$
                 // toast would go here
             }
         } catch (e) {
-            console.warn('GPX export failed', e);
+            log.warn('GPX export failed', e);
         }
     }, [routeCoords, voyagePlan]);
 

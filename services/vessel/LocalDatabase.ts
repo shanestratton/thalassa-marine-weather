@@ -13,6 +13,10 @@
  */
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('LocalDatabase');
+
 // ── Types ──────────────────────────────────────────────────────
 
 export type MutationType = 'INSERT' | 'UPDATE' | 'DELETE';
@@ -82,7 +86,7 @@ async function readJsonFile<T>(filename: string, fallback: T): Promise<T> {
 
         return JSON.parse(contents.data as string) as T;
     } catch (e) {
-        console.warn('[LocalDatabase]', e);
+        log.warn('[LocalDatabase]', e);
         return fallback;
     }
 }
@@ -96,7 +100,7 @@ async function writeJsonFile(filename: string, data: unknown): Promise<void> {
             encoding: Encoding.UTF8,
         });
     } catch (e) {
-        console.error(`[LocalDB] Failed to write ${filename}:`, e);
+        log.error(`[LocalDB] Failed to write ${filename}:`, e);
     }
 }
 

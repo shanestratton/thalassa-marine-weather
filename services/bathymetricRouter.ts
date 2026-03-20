@@ -13,6 +13,10 @@
 
 import { VoyagePlan, Waypoint, VesselProfile } from '../types';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('bathymetricRouter');
+
 // ── Types ─────────────────────────────────────────────────────────
 
 interface _BathymetricRequest {
@@ -74,7 +78,7 @@ export async function fetchBathymetricRoute(
     _region?: string,
 ): Promise<BathymetricResponse | null> {
     // RouteOrchestrator was removed — return null to fall back to AI voyage plan
-    console.info('[BathyRouter] Client-side orchestrator unavailable — skipping bathymetric route');
+    log.info('[BathyRouter] Client-side orchestrator unavailable — skipping bathymetric route');
     return null;
 }
 

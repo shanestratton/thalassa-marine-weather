@@ -14,6 +14,10 @@
 
 import { Capacitor, registerPlugin } from '@capacitor/core';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('AlarmAudioService');
+
 interface AlarmAudioPluginInterface {
     startAlarm(): Promise<{ playing: boolean }>;
     stopAlarm(): Promise<{ stopped: boolean }>;
@@ -41,7 +45,7 @@ class AlarmAudioServiceClass {
                 this.isPlaying = true;
                 return;
             } catch (err) {
-                console.warn(`[AlarmAudioService]`, err);
+                log.warn(`[AlarmAudioService]`, err);
             }
         }
 
@@ -60,7 +64,7 @@ class AlarmAudioServiceClass {
             try {
                 await AlarmAudioPlugin.stopAlarm();
             } catch (e) {
-                console.warn('[AlarmAudio]', e);
+                log.warn('[AlarmAudio]', e);
                 /* best effort */
             }
         }
@@ -113,7 +117,7 @@ class AlarmAudioServiceClass {
             playTone();
             this.webAlarmInterval = setInterval(playTone, 1500);
         } catch (e) {
-            console.warn(`[AlarmAudioService]`, e);
+            log.warn(`[AlarmAudioService]`, e);
         }
     }
 

@@ -20,6 +20,9 @@
 
 // ── Types ───────────────────────────────────────────────────────
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('EnvironmentService');
 export type Environment = 'onshore' | 'offshore';
 export type EnvironmentMode = 'auto' | 'onshore' | 'offshore';
 
@@ -243,7 +246,7 @@ class EnvironmentServiceClass {
             };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
         } catch (e) {
-            console.warn('[Environment]', e);
+            log.warn('[Environment]', e);
             // Non-critical
         }
     }
@@ -275,7 +278,7 @@ class EnvironmentServiceClass {
                 this.state.current = this.state.mode;
             }
         } catch (e) {
-            console.warn('[Environment]', e);
+            log.warn('[Environment]', e);
             // Corrupted data — start fresh
             localStorage.removeItem(STORAGE_KEY);
         }
@@ -288,7 +291,7 @@ class EnvironmentServiceClass {
             try {
                 cb(snapshot);
             } catch (e) {
-                console.warn('[Environment] Isolated listener error:', e);
+                log.warn('[Environment] Isolated listener error:', e);
             }
         });
     }

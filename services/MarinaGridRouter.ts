@@ -15,6 +15,10 @@
 import * as turf from '@turf/turf';
 import type { Feature, Polygon, MultiPolygon, FeatureCollection, Point } from 'geojson';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('MarinaGridRouter');
+
 // ── Types ──────────────────────────────────────────────────────────
 
 interface GridNode {
@@ -118,7 +122,7 @@ export async function routeThroughMarina(
                 try {
                     return turf.buffer(f, OBSTACLE_BUFFER_M, { units: 'meters' }) as Feature<Polygon | MultiPolygon>;
                 } catch (e) {
-                    console.warn('[MarinaGrid]', e);
+                    log.warn('[MarinaGrid]', e);
                     return null;
                 }
             })
@@ -225,7 +229,7 @@ export async function routeThroughMarina(
             smoothCoords = rawCoords;
         }
     } catch (e) {
-        console.warn('[MarinaGrid]', e);
+        log.warn('[MarinaGrid]', e);
         smoothCoords = rawCoords;
     }
 

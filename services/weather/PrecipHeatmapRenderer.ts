@@ -14,6 +14,10 @@
 
 import type { PrecipFrame } from './decodeGrib2Precip';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('PrecipHeatmapRenderer');
+
 export interface PrecipHeatmapResult {
     dataUrl: string;
     coordinates: [[number, number], [number, number], [number, number], [number, number]];
@@ -419,7 +423,7 @@ export function renderPrecipFrame(frame: PrecipFrame): PrecipHeatmapResult {
         [frame.lon1, frame.lat2],
     ];
 
-    console.info(`[PrecipRenderer] ${frame.width}×${frame.height} → ${outW}×${outH} v6 (contour blobs)`);
+    log.info(`[PrecipRenderer] ${frame.width}×${frame.height} → ${outW}×${outH} v6 (contour blobs)`);
 
     return { dataUrl: canvas.toDataURL(), coordinates };
 }

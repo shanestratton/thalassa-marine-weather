@@ -347,7 +347,7 @@ class AnchorWatchSyncServiceClass {
             })
             .then((_status: string) => {})
             .catch((_err) => {
-                console.warn(`[AnchorWatchSyncService]`, _err);
+                log.warn(`[AnchorWatchSyncService]`, _err);
             });
     }
 
@@ -378,7 +378,7 @@ class AnchorWatchSyncServiceClass {
             const ageMs = Date.now() - (persisted.savedAt || 0);
             return ageMs < 24 * 60 * 60 * 1000 && !!persisted.sessionCode;
         } catch (e) {
-            console.warn('[AnchorWatchSync]', e);
+            log.warn('[AnchorWatchSync]', e);
             /* Corrupted localStorage JSON — treat as no session */
             return false;
         }
@@ -393,7 +393,7 @@ class AnchorWatchSyncServiceClass {
             if (!raw) return null;
             return JSON.parse(raw);
         } catch (e) {
-            console.warn('[AnchorWatchSync]', e);
+            log.warn('[AnchorWatchSync]', e);
             /* Corrupted localStorage JSON — treat as no session */
             return null;
         }
@@ -412,7 +412,7 @@ class AnchorWatchSyncServiceClass {
             };
             localStorage.setItem(SYNC_SESSION_KEY, JSON.stringify(data));
         } catch (e) {
-            console.warn('[AnchorWatchSync]', e);
+            log.warn('[AnchorWatchSync]', e);
             // localStorage might fail in some contexts — non-critical
         }
     }
@@ -422,7 +422,7 @@ class AnchorWatchSyncServiceClass {
         try {
             localStorage.removeItem(SYNC_SESSION_KEY);
         } catch (e) {
-            console.warn('[AnchorWatchSync]', e);
+            log.warn('[AnchorWatchSync]', e);
             // Non-critical
         }
     }

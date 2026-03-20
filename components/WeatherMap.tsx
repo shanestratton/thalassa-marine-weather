@@ -18,6 +18,10 @@ import { useNavMeshOverlay } from '../hooks/useNavMeshOverlay';
 import { GpsService } from '../services/GpsService';
 import { useFollowRouteOverlay } from '../hooks/useFollowRouteOverlay';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('WeatherMap');
+
 interface WeatherMapProps {
     lat?: number;
     lon?: number;
@@ -277,7 +281,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                     };
                     if (so && typeof so.lock === 'function') {
                         so.lock('portrait').catch((e) => {
-                            console.warn(`[WeatherMap]`, e);
+                            log.warn(`[WeatherMap]`, e);
                         });
                     }
                 } catch (e) {

@@ -21,6 +21,10 @@ import {
     type CyclonePosition,
 } from '../../services/weather/CycloneTrackingService';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('useCycloneLayer');
+
 // ── Category → Color mapping ──────────────────────────────
 
 /** Category → color palette { core, mid, outer, glow } */
@@ -772,12 +776,12 @@ export function useCycloneLayer(
         let cancelled = false;
 
         const loadCyclones = async () => {
-            console.info('[CYCLONE] 🌀 Fetching active cyclones...');
+            log.info('[CYCLONE] 🌀 Fetching active cyclones...');
             try {
                 const cyclones = await fetchActiveCyclones();
                 if (cancelled) return;
 
-                console.info(`[CYCLONE] Got ${cyclones.length} active cyclone(s)`);
+                log.info(`[CYCLONE] Got ${cyclones.length} active cyclone(s)`);
 
                 if (cyclones.length === 0) {
                     onClosestStormRef.current?.(null);
@@ -811,7 +815,7 @@ export function useCycloneLayer(
                 if (closest && !hasFlown.current) {
                     hasFlown.current = true;
                     const { lat, lon } = closest.currentPosition;
-                    console.info(
+                    log.info(
                         `[CYCLONE] ✈️ Flying to ${closest.name} (Cat ${closest.categoryLabel}) at ${lat.toFixed(1)}, ${lon.toFixed(1)}`,
                     );
                     map.flyTo({
@@ -822,7 +826,7 @@ export function useCycloneLayer(
                     });
                 }
             } catch (e) {
-                console.error('[CYCLONE] ❌ Error loading cyclones:', e);
+                log.error('[CYCLONE] ❌ Error loading cyclones:', e);
             }
         };
 

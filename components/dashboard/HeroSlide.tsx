@@ -46,6 +46,10 @@ import { ShipLogService } from '../../services/ShipLogService';
 import { isGoldenHour } from '../../utils/goldenHour';
 import { EssentialMapSlide } from './hero/EssentialMapSlide';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('HeroSlide');
+
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
 const HeroSlideComponent = ({
     data,
@@ -390,7 +394,7 @@ const HeroSlideComponent = ({
     }, [effectiveData, fullHourly, visualTime]);
 
     // Debug Log for Trends
-    // console.info('[TRENDS DEBUG]', { index, hasFullHourly: !!fullHourly, len: fullHourly?.length, trends });
+    // log.info('[TRENDS DEBUG]', { index, hasFullHourly: !!fullHourly, len: fullHourly?.length, trends });
 
     // Vertical Scroll Reset Logic
     // Horizontal Scroll Reset Logic (Inner Axis is now Horizontal)

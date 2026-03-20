@@ -162,7 +162,7 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
                 triggerHaptic('light');
             })
             .catch((e) => {
-                console.warn(`[EquipmentList]`, e);
+                log.warn(`[EquipmentList]`, e);
             });
     };
 
@@ -526,7 +526,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                 triggerHaptic('light');
             })
             .catch((e) => {
-                console.warn(`[EquipmentList]`, e);
+                log.warn(`[EquipmentList]`, e);
             });
     };
 

@@ -21,6 +21,10 @@
 
 import { getOpenMeteoKey } from './keys';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('MultiModelWeatherService');
+
 // ── Types ─────────────────────────────────────────────────────────
 
 export type WeatherModelId = 'gfs' | 'ecmwf' | 'icon' | 'access_g' | 'gem';
@@ -274,7 +278,7 @@ async function fetchModelForecast(
         ]);
 
         if (!windResp.ok) {
-            console.warn(`[MultiModel] ${model.name} fetch failed: ${windResp.status}`);
+            log.warn(`[MultiModel] ${model.name} fetch failed: ${windResp.status}`);
             return null;
         }
 
@@ -311,7 +315,7 @@ async function fetchModelForecast(
 
         return allPoints;
     } catch (err) {
-        console.warn(`[MultiModel] ${model.name} error:`, err);
+        log.warn(`[MultiModel] ${model.name} error:`, err);
         return null;
     }
 }

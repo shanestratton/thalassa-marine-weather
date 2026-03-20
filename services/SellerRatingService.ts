@@ -10,6 +10,10 @@
 
 import { supabase } from './supabase';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('SellerRatingService');
+
 // --- TYPES ---
 
 export interface SellerRating {
@@ -129,7 +133,7 @@ class SellerRatingServiceClass {
             .single();
 
         if (error) {
-            console.error('[SellerRating] Rate failed:', error.message);
+            log.error('[SellerRating] Rate failed:', error.message);
             return null;
         }
 

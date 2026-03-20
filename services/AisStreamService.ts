@@ -8,6 +8,10 @@
  */
 import { supabase } from './supabase';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('AisStreamService');
+
 const EDGE_FN_NAME = 'vessels-nearby';
 const DEFAULT_RADIUS_NM = 25;
 const MIN_FETCH_INTERVAL_MS = 5000; // Don't fetch more than once per 5s
@@ -48,13 +52,13 @@ class AisStreamServiceClass {
 
         try {
             // Get Supabase project URL and key for direct fetch
-             
+
             const supabaseUrl =
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (supabase as any).supabaseUrl ||
                 (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
                 '';
-             
+
             const supabaseKey =
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 (supabase as any).supabaseKey ||
@@ -87,7 +91,7 @@ class AisStreamServiceClass {
             this.cachedResult = geojson;
             return geojson;
         } catch (e) {
-            console.warn('[AisStream] Fetch error:', e);
+            log.warn('[AisStream] Fetch error:', e);
             return this.cachedResult || { type: 'FeatureCollection', features: [] };
         }
     }

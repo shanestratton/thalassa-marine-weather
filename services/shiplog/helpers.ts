@@ -14,6 +14,10 @@ import { ShipLogEntry } from '../../types';
 import { windToBeaufort, waveToSeaState, getWatchPeriod } from '../../utils/marineFormatters';
 import { loadLargeDataSync, DATA_CACHE_KEY } from '../nativeStorage';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('helpers');
+
 // --- CONSTANTS ---
 const EARTH_RADIUS_NM = 3440.065;
 
@@ -313,7 +317,7 @@ export function determineLoggingZone(): LoggingZone {
 
         return 'nearshore'; // Safe default
     } catch (e) {
-        console.warn('[helpers]', e);
+        log.warn('[helpers]', e);
         return 'nearshore'; // Fail safe
     }
 }

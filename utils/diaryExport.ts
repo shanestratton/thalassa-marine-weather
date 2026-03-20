@@ -7,6 +7,10 @@
 import type { jsPDF as JsPDFType } from 'jspdf';
 import { DiaryEntry, MOOD_CONFIG, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
 
+import { createLogger } from './createLogger';
+
+const log = createLogger('diaryExport');
+
 const NAVY = [26, 42, 58] as const;
 const GOLD = [201, 162, 39] as const;
 const DARK_TEXT = [26, 42, 58] as const;
@@ -147,7 +151,7 @@ async function loadImageAsBase64(url: string): Promise<string | null> {
             reader.readAsDataURL(blob);
         });
     } catch (e) {
-        console.warn('[diaryExport]', e);
+        log.warn('[diaryExport]', e);
         return null;
     }
 }
@@ -433,7 +437,7 @@ export async function generateDiaryPDF(
                                 pdf.setLineWidth(0.2);
                                 pdf.rect(photoX, entryY, photoSize, photoSize, 'S');
                             } catch (e) {
-                                console.warn('[diaryExport]', e);
+                                log.warn('[diaryExport]', e);
                                 // Skip failed images
                             }
                             photoX += photoSize + 3;

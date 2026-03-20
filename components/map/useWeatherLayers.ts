@@ -435,7 +435,7 @@ export function useWeatherLayers(
                         windNowIdxRef.current = bestIdx;
                         const ageMs = Date.now() - new Date(currentGrid.refTime).getTime();
                         const ageHours = ageMs / (60 * 60 * 1000);
-                        console.info(
+                        log.info(
                             `[WindScrubber] Auto-set to "now": refTime=${currentGrid.refTime}, age=${ageHours.toFixed(1)}h, index=${bestIdx} (forecast hour ${fhrs[bestIdx]})`,
                         );
                     }
@@ -467,7 +467,7 @@ export function useWeatherLayers(
                     // Auto-advance scrubber if user is still on the old "now"
                     setWindHour((prev) => {
                         if (prev === oldNowIdx) {
-                            console.info(
+                            log.info(
                                 `[WindScrubber] Advanced "now": ${oldNowIdx} → ${newNowIdx} (forecast hour ${fhrs[newNowIdx]})`,
                             );
                             return newNowIdx;

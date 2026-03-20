@@ -180,7 +180,7 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Mes
                     lon2 = lo2Valid ? lo2Raw : lon1 + (width - 1) * dLon;
                 }
 
-                console.debug(`[GRIB2] Grid ${width}×${height}: La1=${lat1}° Lo1=${lon1}° La2=${lat2}° Lo2=${lon2}°`);
+                log.debug(`[GRIB2] Grid ${width}×${height}: La1=${lat1}° Lo1=${lon1}° La2=${lat2}° Lo2=${lon2}°`);
                 break;
             }
 
@@ -317,6 +317,10 @@ export function decodeGrib2Wind(buffer: ArrayBuffer): DecodedGrib2Wind {
 
 import type { WindGrid } from './windField';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('decodeGrib2Wind');
+
 /**
  * Decode a concatenated GRIB2 buffer containing N forecast hours.
  * Each forecast hour has 2 messages (UGRD, VGRD).
@@ -446,12 +450,12 @@ export function decodeGrib2WindMultiHour(buffer: ArrayBuffer): WindGrid {
     for (let r = 0; r < h; r++) lats.push(south + r * dy);
     for (let c = 0; c < w; c++) lons.push(westDeg + c * dx);
 
-    console.info(
+    log.info(
         `[GRIB2-Wind] Decoded ${numHours} forecast hours, ${w}×${h}, bounds=[${south.toFixed(1)},${north.toFixed(1)}]×[${westDeg.toFixed(1)},${eastDeg.toFixed(1)}]`,
     );
 
     if (refTime) {
-        console.info(`[GRIB2-Wind] Model run refTime: ${refTime}`);
+        log.info(`[GRIB2-Wind] Model run refTime: ${refTime}`);
     }
 
     return {
