@@ -450,6 +450,11 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     const moveRef = useRef<(() => void) | null>(null);
     const resizeRef = useRef<(() => void) | null>(null);
     const zoomEndRef = useRef<(() => void) | null>(null);
+    // Track latest values so the async setup can apply the correct hour
+    const windHourRef = useRef(windHour);
+    const windGridPropRef = useRef(windGrid);
+    windHourRef.current = windHour;
+    windGridPropRef.current = windGrid;
     const [windData, setWindData] = useState<GribRecord[] | null>(null);
     const [dataInfo, setDataInfo] = useState<{ refTime: string | null; source: 'live' | 'cached' | 'static' | null }>({
         refTime: null,
@@ -764,6 +769,76 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     if (overlayRef.current) overlayRef.current.style.opacity = '1';
                 });
             });
+
+            // ── Apply current windHour from grid (fixes race condition) ──
+            // The windHour effect may have already fired (and bailed because
+            // velocityLayerRef was null during async setup). Re-apply now.
+            const curGrid = windGridPropRef.current;
+            const curHour = windHourRef.current;
+            if (curGrid && curHour > 0) {
+                try {
+                    const hFloat = Math.min(curHour, curGrid.totalHours - 1);
+                    const h0 = Math.floor(hFloat);
+                    const h1 = Math.min(h0 + 1, curGrid.totalHours - 1);
+                    const lp = hFloat - h0;
+                    const u0 = curGrid.u[h0];
+                    const v0 = curGrid.v[h0];
+                    const u1 = curGrid.u[h1];
+                    const v1 = curGrid.v[h1];
+                    if (u0 && v0) {
+                        const nx = curGrid.width;
+                        const ny = curGrid.height;
+                        const uF = new Array(nx * ny);
+                        const vF = new Array(nx * ny);
+                        for (let row = 0; row < ny; row++) {
+                            const srcRow = ny - 1 - row;
+                            const dstRow = row * nx;
+                            for (let col = 0; col < nx; col++) {
+                                const di = dstRow + col;
+                                const si = srcRow * nx + col;
+                                if (lp < 0.01 || !u1 || !v1) {
+                                    uF[di] = u0[si];
+                                    vF[di] = v0[si];
+                                } else {
+                                    uF[di] = u0[si] * (1 - lp) + u1[si] * lp;
+                                    vF[di] = v0[si] * (1 - lp) + v1[si] * lp;
+                                }
+                            }
+                        }
+                        const dxG = curGrid.lons.length > 1 ? Math.abs(curGrid.lons[1] - curGrid.lons[0]) : 1;
+                        const dyG = curGrid.lats.length > 1 ? Math.abs(curGrid.lats[1] - curGrid.lats[0]) : 1;
+                        const hdr = {
+                            nx,
+                            ny,
+                            dx: dxG,
+                            dy: dyG,
+                            lo1: curGrid.west,
+                            lo2: curGrid.east,
+                            la1: curGrid.north,
+                            la2: curGrid.south,
+                            parameterCategory: 2,
+                            parameterNumber: 2,
+                            parameterNumberName: 'U-component_of_wind',
+                        };
+                        const initData = [
+                            {
+                                header: { ...hdr, parameterNumber: 2, parameterNumberName: 'U-component_of_wind' },
+                                data: uF,
+                            },
+                            {
+                                header: { ...hdr, parameterNumber: 3, parameterNumberName: 'V-component_of_wind' },
+                                data: vF,
+                            },
+                        ];
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const vlInit = vLayer as any;
+                        if (vlInit._windy) vlInit._windy.setData(initData);
+                        log.info(`[VelocityOverlay] Applied windHour=${curHour} from grid after async setup`);
+                    }
+                } catch (err) {
+                    log.warn('[VelocityOverlay] Failed to apply initial windHour:', err);
+                }
+            }
         };
 
         setup().catch((err) => log.error('[VelocityOverlay] Setup failed:', err));

@@ -88,16 +88,17 @@ function stormClassification(basin: string, windKts: number): string {
         return 'Tropical Depression';
     }
 
-    // Australian & South Pacific → Tropical Cyclone
+    // Australian & South Pacific → Tropical Cyclone (BOM scale)
+    // BOM: Cat 1-2 = Tropical Cyclone, Cat 3-5 = Severe Tropical Cyclone
     if (['P', 'AU', 'SP'].includes(b)) {
-        if (windKts >= 64) return 'Severe Tropical Cyclone';
+        if (windKts >= 86) return 'Severe Tropical Cyclone';
         if (windKts >= 34) return 'Tropical Cyclone';
         return 'Tropical Depression';
     }
 
-    // South Indian Ocean → Tropical Cyclone (same terminology)
+    // South Indian Ocean → same BOM-style classification
     if (['S', 'SI'].includes(b)) {
-        if (windKts >= 64) return 'Severe Tropical Cyclone';
+        if (windKts >= 86) return 'Severe Tropical Cyclone';
         if (windKts >= 34) return 'Tropical Cyclone';
         return 'Tropical Depression';
     }
@@ -111,7 +112,7 @@ function stormClassification(basin: string, windKts: number): string {
     }
 
     // Fallback — use generic terms
-    if (windKts >= 64) return 'Severe Tropical Cyclone';
+    if (windKts >= 86) return 'Severe Tropical Cyclone';
     if (windKts >= 34) return 'Tropical Storm';
     return 'Tropical Depression';
 }
