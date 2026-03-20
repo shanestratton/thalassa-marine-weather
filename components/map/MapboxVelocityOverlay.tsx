@@ -768,17 +768,26 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
 
             // Re-apply shifted data AFTER velocity lib finishes its internal redraw
             // (the lib redraws asynchronously on zoom, overwriting our shifted data)
+            // Re-apply every 200ms for 2 seconds to catch any late redraws
+            let zoomSnapInterval: ReturnType<typeof setInterval> | null = null;
             const onZoomEnd = () => {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const vl = velocityLayerRef.current as any;
                 if (!lastShiftedDataRef.current || !vl?._windy) return;
-                requestAnimationFrame(() => {
-                    requestAnimationFrame(() => {
-                        if (lastShiftedDataRef.current && vl?._windy) {
-                            vl._windy.setData(lastShiftedDataRef.current);
-                        }
-                    });
-                });
+
+                // Clear any previous interval
+                if (zoomSnapInterval) clearInterval(zoomSnapInterval);
+
+                let count = 0;
+                zoomSnapInterval = setInterval(() => {
+                    count++;
+                    if (count >= 10 || !lastShiftedDataRef.current || !vl?._windy) {
+                        if (zoomSnapInterval) clearInterval(zoomSnapInterval);
+                        zoomSnapInterval = null;
+                        return;
+                    }
+                    vl._windy.setData(lastShiftedDataRef.current);
+                }, 200);
             };
             mapboxMap.on('zoomend', onZoomEnd);
 
