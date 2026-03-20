@@ -532,34 +532,20 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         const dx = windGrid.lons.length > 1 ? Math.abs(windGrid.lons[1] - windGrid.lons[0]) : 1;
         const dy = windGrid.lats.length > 1 ? Math.abs(windGrid.lats[1] - windGrid.lats[0]) : 1;
 
-        // Compute data shift in grid cells from vortex offset
-        const colShift = vortexOffset ? Math.round(vortexOffset.dLon / dx) : 0;
-        const rowShift = vortexOffset ? Math.round(vortexOffset.dLat / dy) : 0;
+        // Vortex offset: shift header bounds for sub-degree precision
+        // (data-array shifting rounds to integer grid cells = ~44km error at 1° GFS)
+        const vortLat = vortexOffset ? vortexOffset.dLat : 0;
+        const vortLon = vortexOffset ? vortexOffset.dLon : 0;
 
-        // Interpolate U/V between hours, flip rows, and apply vortex data shift
+        // Interpolate U/V between hours, flip rows
         const uFlipped = new Array(nx * ny);
         const vFlipped = new Array(nx * ny);
         for (let row = 0; row < ny; row++) {
             const srcRow = ny - 1 - row; // flip south→north to north→south
             const dstRow = row * nx;
-
-            // Apply row shift to source (shift data, not bounds)
-            const shiftedSrcRow = srcRow + rowShift;
-
             for (let col = 0; col < nx; col++) {
                 const di = dstRow + col;
-
-                // Apply col shift to source
-                const shiftedCol = col + colShift;
-
-                // Bounds check — if shifted source is outside grid, use zero wind
-                if (shiftedSrcRow < 0 || shiftedSrcRow >= ny || shiftedCol < 0 || shiftedCol >= nx) {
-                    uFlipped[di] = 0;
-                    vFlipped[di] = 0;
-                    continue;
-                }
-
-                const si = shiftedSrcRow * nx + shiftedCol;
+                const si = srcRow * nx + col;
                 if (lerp < 0.01 || !u1 || !v1) {
                     uFlipped[di] = u0[si];
                     vFlipped[di] = v0[si];
@@ -570,15 +556,16 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             }
         }
 
+        // Shift bounds by vortex offset — moves wind field to align with ATCF position
         const header = {
             nx,
             ny,
             dx,
             dy,
-            lo1: windGrid.west,
-            lo2: windGrid.east,
-            la1: windGrid.north,
-            la2: windGrid.south,
+            lo1: windGrid.west - vortLon,
+            lo2: windGrid.east - vortLon,
+            la1: windGrid.north - vortLat,
+            la2: windGrid.south - vortLat,
             parameterCategory: 2,
             parameterNumber: 2,
             parameterNumberName: 'U-component_of_wind',
