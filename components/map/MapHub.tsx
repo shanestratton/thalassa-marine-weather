@@ -1082,12 +1082,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                         } else if (activeLayerKey === 'wind') {
                             const fhrs = weather.windForecastHoursRef.current;
                             const nowIdx = weather.windNowIdxRef.current;
+                            const roundedIdx = Math.round(weather.windHour);
                             frameIndex = weather.windHour;
                             totalFrames = weather.windTotalHours;
-                            const actualHour = fhrs[frameIndex] ?? frameIndex;
+                            const actualHour = fhrs[roundedIdx] ?? roundedIdx;
                             const nowHour = fhrs[nowIdx] ?? 0;
 
-                            if (frameIndex === nowIdx) {
+                            if (roundedIdx === nowIdx) {
                                 frameLabel = 'Now';
                                 sublabel = 'Current';
                             } else {
