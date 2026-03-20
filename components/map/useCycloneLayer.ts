@@ -148,7 +148,7 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
             letter-spacing: 0.5px;
             margin-bottom: 4px;
             text-align: center;
-            background: rgba(0,0,0,0.55);
+            background: rgba(0,0,0,0.35);
             padding: 3px 12px;
             border-radius: 8px;
             backdrop-filter: blur(4px);
@@ -202,7 +202,7 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
             text-shadow: 0 1px 4px rgba(0,0,0,1);
             margin-top: 4px;
             white-space: nowrap;
-            background: rgba(0,0,0,0.6);
+            background: rgba(0,0,0,0.35);
             padding: 3px 10px;
             border-radius: 8px;
             backdrop-filter: blur(4px);
