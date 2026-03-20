@@ -16,7 +16,7 @@
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  *   - MapHubOverlays.tsx   (presentational overlay components)
  */
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createLogger } from '../../utils/createLogger';
 
@@ -384,6 +384,60 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Weather Layers ──
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
 
+    // ── Vortex offset: snap GFS wind pattern to ATCF cyclone position ──
+    const vortexOffset = useMemo(() => {
+        const grid = weather.windGridRef?.current;
+        if (!closestStorm || !grid || !cycloneVisible) return null;
+
+        const stormLat = closestStorm.currentPosition.lat;
+        const stormLon = closestStorm.currentPosition.lon;
+        const h = Math.min(weather.windHour, grid.totalHours - 1);
+        const uData = grid.u[h];
+        const vData = grid.v[h];
+        if (!uData || !vData) return null;
+
+        // Search region: ±5° around ATCF position
+        const SEARCH_DEG = 5;
+        const w = grid.width;
+        const latStep = (grid.north - grid.south) / (grid.height - 1);
+        const lonStep = (grid.east - grid.west) / (w - 1);
+
+        let minSpeed = Infinity;
+        let minLat = stormLat;
+        let minLon = stormLon;
+
+        for (let row = 0; row < grid.height; row++) {
+            const lat = grid.north - row * latStep;
+            if (Math.abs(lat - stormLat) > SEARCH_DEG) continue;
+            for (let col = 0; col < w; col++) {
+                const lon = grid.west + col * lonStep;
+                if (Math.abs(lon - stormLon) > SEARCH_DEG) continue;
+                const idx = row * w + col;
+                const u = uData[idx];
+                const v = vData[idx];
+                const speed = u * u + v * v;
+                if (speed < minSpeed) {
+                    minSpeed = speed;
+                    minLat = lat;
+                    minLon = lon;
+                }
+            }
+        }
+
+        const dLat = stormLat - minLat;
+        const dLon = stormLon - minLon;
+
+        // Only apply if offset is meaningful (> 0.1° but < 5°)
+        if (Math.abs(dLat) < 0.1 && Math.abs(dLon) < 0.1) return null;
+        if (Math.abs(dLat) > 5 || Math.abs(dLon) > 5) return null;
+
+        console.info(
+            `[VORTEX] Snapping wind: GFS eye at ${minLat.toFixed(2)},${minLon.toFixed(2)} → ATCF at ${stormLat.toFixed(2)},${stormLon.toFixed(2)} (Δ${dLat.toFixed(2)}°,${dLon.toFixed(2)}°)`,
+        );
+        return { dLat, dLon };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [closestStorm, cycloneVisible, weather.windHour]);
+
     // ── Embedded Rain (also loads as background on full-map velocity mode) ──
     const _embRain = useEmbeddedRain(mapRef, embedded, mapReady, false);
 
@@ -463,6 +517,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         windHour={weather.windHour}
                         windGrid={weather.windGridRef?.current ?? undefined}
                         hideBadge={passage.showPassage}
+                        vortexOffset={vortexOffset}
                     />
                 )}
 

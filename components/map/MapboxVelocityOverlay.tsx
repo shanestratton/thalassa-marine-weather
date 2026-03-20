@@ -74,6 +74,8 @@ interface MapboxVelocityOverlayProps {
     windHour?: number;
     windGrid?: WindGrid;
     hideBadge?: boolean;
+    /** Lat/lon offset to snap the GFS vortex to the observed storm position */
+    vortexOffset?: { dLat: number; dLon: number } | null;
 }
 
 // Speed-based wind particle scale — steel blue → amber → coral
@@ -442,6 +444,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     windHour = 0,
     windGrid,
     hideBadge = false,
+    vortexOffset,
 }) => {
     const overlayRef = useRef<HTMLDivElement | null>(null);
     const leafletMapRef = useRef<L.Map | null>(null);
@@ -552,10 +555,10 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             ny,
             dx,
             dy,
-            lo1: windGrid.west,
-            lo2: windGrid.east,
-            la1: windGrid.north,
-            la2: windGrid.south,
+            lo1: windGrid.west + (vortexOffset?.dLon ?? 0),
+            lo2: windGrid.east + (vortexOffset?.dLon ?? 0),
+            la1: windGrid.north + (vortexOffset?.dLat ?? 0),
+            la2: windGrid.south + (vortexOffset?.dLat ?? 0),
             parameterCategory: 2,
             parameterNumber: 2,
             parameterNumberName: 'U-component_of_wind',
@@ -593,7 +596,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         } catch (err) {
             log.error('[VelocityOverlay] Failed to update forecast hour:', err);
         }
-    }, [windHour, windGrid]);
+    }, [windHour, windGrid, vortexOffset]);
 
     // ── Heat map layer DISABLED — clean dark map with particles only ──
     // useEffect(() => {
