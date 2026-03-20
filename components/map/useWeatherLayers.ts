@@ -452,32 +452,29 @@ export function useWeatherLayers(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeKey, mapReady]);
 
-    // ── Periodically recompute "now" index (every 3 min) ──
+    // ── Periodically recompute "now" index (every 1 min) ──
     useEffect(() => {
         if (!windReady) return;
-        const interval = setInterval(
-            () => {
-                const refTime = windRefTimeRef.current;
-                const fhrs = windForecastHoursRef.current;
-                if (!refTime || fhrs.length === 0) return;
-                const newNowIdx = computeNowIndex(refTime, fhrs);
-                const oldNowIdx = windNowIdxRef.current;
-                if (newNowIdx !== oldNowIdx) {
-                    windNowIdxRef.current = newNowIdx;
-                    // Auto-advance scrubber if user is still on the old "now"
-                    setWindHour((prev) => {
-                        if (prev === oldNowIdx) {
-                            log.info(
-                                `[WindScrubber] Advanced "now": ${oldNowIdx} → ${newNowIdx} (forecast hour ${fhrs[newNowIdx]})`,
-                            );
-                            return newNowIdx;
-                        }
-                        return prev;
-                    });
-                }
-            },
-            3 * 60 * 1000,
-        ); // Every 3 minutes
+        const interval = setInterval(() => {
+            const refTime = windRefTimeRef.current;
+            const fhrs = windForecastHoursRef.current;
+            if (!refTime || fhrs.length === 0) return;
+            const newNowIdx = computeNowIndex(refTime, fhrs);
+            const oldNowIdx = windNowIdxRef.current;
+            if (newNowIdx !== oldNowIdx) {
+                windNowIdxRef.current = newNowIdx;
+                // Auto-advance scrubber if user is still on the old "now"
+                setWindHour((prev) => {
+                    if (prev === oldNowIdx) {
+                        log.info(
+                            `[WindScrubber] Advanced "now": ${oldNowIdx} → ${newNowIdx} (forecast hour ${fhrs[newNowIdx]})`,
+                        );
+                        return newNowIdx;
+                    }
+                    return prev;
+                });
+            }
+        }, 60 * 1000); // Every 1 minute
         return () => clearInterval(interval);
     }, [windReady, computeNowIndex]);
 
