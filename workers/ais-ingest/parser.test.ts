@@ -5,7 +5,7 @@
  * message types from the AISStream.io WebSocket format.
  */
 import { describe, it, expect } from 'vitest';
-import { parseAisStreamMessage, VesselRecord } from './parser';
+import { parseAisStreamMessage } from './parser';
 
 describe('parseAisStreamMessage — PositionReport', () => {
     it('should parse a valid PositionReport', () => {
