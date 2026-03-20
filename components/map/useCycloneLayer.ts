@@ -144,7 +144,7 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
         flex-direction: column;
         align-items: center;
         pointer-events: none;
-        z-index: 350;
+        z-index: 500;
         filter: drop-shadow(0 4px 20px ${pal.glow}80);
         transition: transform 0.3s ease;
     `;
@@ -297,7 +297,7 @@ function createTrackOverlay(map: mapboxgl.Map): {
     div.style.cssText = `
         position: absolute;
         inset: 0;
-        z-index: 300;
+        z-index: 450;
         pointer-events: none;
         overflow: hidden;
     `;
