@@ -127,13 +127,14 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
     // Semantic zoom: scale marker elements
     const isMacro = zoom < 5;
     const isRegional = zoom >= 5 && zoom <= 8;
-    const showInfoBadge = !isMacro;
+    const showInfoBadge = true; // Always show info badge
 
-    // Heatmap eye sizing scales with category + zoom
+    // Heatmap eye sizing scales continuously with zoom
     const catScale = Math.min(cyclone.category, 5) || 1;
-    const baseEye = isMacro ? 36 : isRegional ? 56 : 68;
-    const eyeSize = baseEye + catScale * 4;
-    const fontSize = isMacro ? 14 : isRegional ? 20 : 24;
+    const zoomFactor = Math.max(0.5, Math.min(3, Math.pow(2, (zoom - 5) / 3)));
+    const baseEye = isMacro ? 28 : 48;
+    const eyeSize = Math.round((baseEye + catScale * 4) * zoomFactor);
+    const fontSize = Math.round((isMacro ? 12 : 18) * Math.min(zoomFactor, 1.5));
 
     const pal = categoryPalette(cyclone.category);
 
@@ -348,9 +349,9 @@ function createTrackOverlay(map: mapboxgl.Map): {
                 svg.appendChild(line);
             }
 
-            // At high zoom, add dots at each track data point
-            if (isMicro) {
-                drawTrackDots(svg, projected);
+            // Show track labels at zoom >= 5
+            if (!isMacro) {
+                drawTrackDots(svg, projected, zoom);
             }
         }
     };
@@ -371,9 +372,11 @@ function createTrackOverlay(map: mapboxgl.Map): {
     };
 }
 
-/** Draw forecast-style labels along the track at zoom > 8 */
-function drawTrackDots(svg: SVGSVGElement, projected: { px: mapboxgl.Point; point: CyclonePosition }[]) {
+/** Draw forecast-style labels along the track */
+function drawTrackDots(svg: SVGSVGElement, projected: { px: mapboxgl.Point; point: CyclonePosition }[], zoom: number) {
     const now = Date.now();
+    const showLabels = zoom >= 7; // Show text labels at zoom 7+
+    const labelEvery = zoom >= 9 ? 1 : 2; // Every point at high zoom, every 2nd otherwise
 
     for (let i = 0; i < projected.length; i++) {
         const { px, point } = projected[i];
@@ -413,7 +416,8 @@ function drawTrackDots(svg: SVGSVGElement, projected: { px: mapboxgl.Point; poin
             svg.appendChild(catText);
         }
 
-        // Show labels only every 2nd point to prevent clutter (or every point at very high zoom)
+        // At lower zoom, show only dots (no labels)
+        if (!showLabels || i % labelEvery !== 0) continue;
         if (!point.time) continue;
 
         const d = new Date(point.time);
@@ -570,7 +574,7 @@ export function useCycloneLayer(
             trackOverlayRef.current = createTrackOverlay(map);
         }
 
-        // ── Semantic zoom: rebuild markers when zoom crosses a threshold ──
+        // ── Rebuild markers on every integer zoom change for smooth scaling ──
         const rebuildMarkers = () => {
             const cyclones = cyclonesRef.current;
             if (cyclones.length === 0) return;
@@ -588,14 +592,12 @@ export function useCycloneLayer(
             }
         };
 
-        // Track which zoom band we're in to avoid unnecessary rebuilds
-        let lastZoomBand = -1;
-        const getZoomBand = (z: number) => (z < 5 ? 0 : z <= 8 ? 1 : 2);
+        let lastZoomInt = Math.round(map.getZoom());
 
         const onZoomEnd = () => {
-            const band = getZoomBand(map.getZoom());
-            if (band !== lastZoomBand) {
-                lastZoomBand = band;
+            const zi = Math.round(map.getZoom());
+            if (zi !== lastZoomInt) {
+                lastZoomInt = zi;
                 rebuildMarkers();
             }
         };
@@ -618,7 +620,7 @@ export function useCycloneLayer(
                 }
 
                 cyclonesRef.current = cyclones;
-                lastZoomBand = getZoomBand(map.getZoom());
+                lastZoomInt = Math.round(map.getZoom());
 
                 // Update track SVG overlay
                 trackOverlayRef.current?.update(cyclones);
