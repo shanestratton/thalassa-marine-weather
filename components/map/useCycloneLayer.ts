@@ -115,7 +115,7 @@ function stormClassification(basin: string, windKts: number): string {
 // ── Create DOM marker for a cyclone ───────────────────────
 
 function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement {
-    const color = categoryColor(cyclone.category);
+    const _color = categoryColor(cyclone.category);
     const { windKts, pressureMb } = cyclone.currentPosition;
     const classification = stormClassification(cyclone.basin, windKts ?? cyclone.maxWindKts);
 
@@ -126,7 +126,6 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
 
     // Semantic zoom: scale marker elements
     const isMacro = zoom < 5;
-    const isRegional = zoom >= 5 && zoom <= 8;
     const showInfoBadge = true; // Always show info badge
 
     // Heatmap eye sizing scales continuously with zoom
@@ -318,7 +317,6 @@ function createTrackOverlay(map: mapboxgl.Map): {
 
         const zoom = map.getZoom();
         const isMacro = zoom < 5;
-        const isMicro = zoom > 8;
         const lineWidth = isMacro ? 1.5 : 3;
 
         for (const c of storedCyclones) {
@@ -356,7 +354,6 @@ function createTrackOverlay(map: mapboxgl.Map): {
 
             // ── Forecast track (NOAA NHC predicted positions) ──
             if (c.forecastTrack && c.forecastTrack.length > 0) {
-                console.info(`[CYCLONE] Rendering forecast for ${c.name}: ${c.forecastTrack.length} points`);
                 // Start from current position
                 const forecastAll = [c.currentPosition, ...c.forecastTrack];
                 const fcProjected = forecastAll.map((p) => ({

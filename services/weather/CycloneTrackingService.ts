@@ -165,7 +165,6 @@ async function fetchNOAAForecast(): Promise<Map<string, CyclonePosition[]>> {
             return new Map();
         }
         const geojson: { features: NOAAForecastFeature[] } = await response.json();
-        console.info(`[CYCLONE] NOAA raw features: ${geojson.features?.length ?? 0}`);
 
         const forecasts = new Map<string, CyclonePosition[]>();
 
@@ -202,9 +201,8 @@ async function fetchNOAAForecast(): Promise<Map<string, CyclonePosition[]>> {
         }
 
         // Sort each storm's forecast by time
-        for (const [name, positions] of forecasts) {
+        for (const [, positions] of forecasts) {
             positions.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-            console.info(`[CYCLONE] NOAA forecast for ${name}: ${positions.length} positions`);
         }
 
         return forecasts;

@@ -767,34 +767,35 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             mapboxMap.on('resize', onResize);
 
             // Re-apply shifted data AFTER velocity lib finishes its internal redraw
-            // (the lib redraws asynchronously on zoom, overwriting our shifted data)
+            // (the lib redraws asynchronously on zoom/move, overwriting our shifted data)
             // Re-apply every 200ms for 2 seconds to catch any late redraws
-            let zoomSnapInterval: ReturnType<typeof setInterval> | null = null;
-            const onZoomEnd = () => {
+            let snapInterval: ReturnType<typeof setInterval> | null = null;
+            const onViewEnd = () => {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const vl = velocityLayerRef.current as any;
                 if (!lastShiftedDataRef.current || !vl?._windy) return;
 
                 // Clear any previous interval
-                if (zoomSnapInterval) clearInterval(zoomSnapInterval);
+                if (snapInterval) clearInterval(snapInterval);
 
                 let count = 0;
-                zoomSnapInterval = setInterval(() => {
+                snapInterval = setInterval(() => {
                     count++;
                     if (count >= 10 || !lastShiftedDataRef.current || !vl?._windy) {
-                        if (zoomSnapInterval) clearInterval(zoomSnapInterval);
-                        zoomSnapInterval = null;
+                        if (snapInterval) clearInterval(snapInterval);
+                        snapInterval = null;
                         return;
                     }
                     vl._windy.setData(lastShiftedDataRef.current);
                 }, 200);
             };
-            mapboxMap.on('zoomend', onZoomEnd);
+            mapboxMap.on('zoomend', onViewEnd);
+            mapboxMap.on('moveend', onViewEnd);
 
             syncRef.current = syncFull;
             moveRef.current = correctOnly;
             resizeRef.current = onResize;
-            zoomEndRef.current = onZoomEnd;
+            zoomEndRef.current = onViewEnd;
 
             // Initial sync, then fade in
             lMap.invalidateSize();
@@ -820,7 +821,10 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     mapboxMap.off('zoom', syncRef.current);
                 }
                 if (resizeRef.current) mapboxMap.off('resize', resizeRef.current);
-                if (zoomEndRef.current) mapboxMap.off('zoomend', zoomEndRef.current);
+                if (zoomEndRef.current) {
+                    mapboxMap.off('zoomend', zoomEndRef.current);
+                    mapboxMap.off('moveend', zoomEndRef.current);
+                }
             } catch (_) {
                 /* ok */
             }
