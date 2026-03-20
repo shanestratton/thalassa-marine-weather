@@ -34,10 +34,15 @@ AS $$
             -- MMSI exact match (if the query is all digits)
             (search_query ~ '^\d{5,9}$' AND v.mmsi = search_query::bigint)
             OR
-            -- Name/call_sign ILIKE match
-            (v.name ILIKE '%' || search_query || '%')
+            -- Name match: start of name OR start of any word within name
+            (v.name ILIKE search_query || '%')
             OR
-            (v.call_sign ILIKE '%' || search_query || '%')
+            (v.name ILIKE '% ' || search_query || '%')
+            OR
+            (v.name ILIKE '%-' || search_query || '%')
+            OR
+            -- Call sign match (start-of-string only)
+            (v.call_sign ILIKE search_query || '%')
         )
     ORDER BY v.updated_at DESC
     LIMIT max_results;
