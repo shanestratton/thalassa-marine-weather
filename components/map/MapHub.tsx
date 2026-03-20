@@ -384,10 +384,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Weather Layers ──
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
 
-    // ── Vortex offset: snap GFS wind pattern to ATCF cyclone position ──
-    // Uses vorticity (curl of wind field: ∂v/∂x - ∂u/∂y) to find the GFS
-    // cyclone center. The max |vorticity| is the rotational center — immune
-    // to terrain effects that cause false calm spots over land.
+    // ── Vortex offset: snap GFS wind to ATCF cyclone position ──
+    // Strategy: Find the closest point of maximum rotation to the ATCF eye.
+    // score = vorticity / (1 + distance_to_ATCF) → closest spinning point wins.
     const vortexOffset = useMemo(() => {
         const grid = weather.windGridRef?.current;
         if (!closestStorm || !grid || !cycloneVisible) return null;
@@ -396,52 +395,63 @@ export const MapHub: React.FC<MapHubProps> = ({
         const stormLat = closestStorm.currentPosition.lat;
         const stormLon = closestStorm.currentPosition.lon;
         const h = Math.min(weather.windHour, grid.totalHours - 1);
-        const uData = grid.u[h];
-        const vData = grid.v[h];
-        if (!uData || !vData) return null;
+        const uArr = grid.u[h];
+        const vArr = grid.v[h];
+        if (!uArr || !vArr) return null;
 
-        const SEARCH_DEG = 6;
         const w = grid.width;
         const hgt = grid.height;
+        const SEARCH = 8; // search ±8° around ATCF
 
-        let maxVort = 0;
+        let bestScore = 0;
         let bestLat = stormLat;
         let bestLon = stormLon;
+        let bestVort = 0;
 
-        // Scan interior grid points (need neighbors for finite differences)
         for (let row = 1; row < hgt - 1; row++) {
             const lat = grid.lats[row];
-            if (Math.abs(lat - stormLat) > SEARCH_DEG) continue;
+            const dLat = lat - stormLat;
+            if (Math.abs(dLat) > SEARCH) continue;
+
             for (let col = 1; col < w - 1; col++) {
                 const lon = grid.lons[col];
-                if (Math.abs(lon - stormLon) > SEARCH_DEG) continue;
+                const dLon = lon - stormLon;
+                if (Math.abs(dLon) > SEARCH) continue;
 
-                // ∂v/∂x ≈ (v[row][col+1] - v[row][col-1]) / 2
-                const dvdx = vData[row * w + col + 1] - vData[row * w + col - 1];
-                // ∂u/∂y ≈ (u[row-1][col] - u[row+1][col]) / 2
-                const dudy = uData[(row - 1) * w + col] - uData[(row + 1) * w + col];
-                // Vorticity = ∂v/∂x - ∂u/∂y
+                // Vorticity: ∂v/∂x - ∂u/∂y
+                const dvdx = vArr[row * w + col + 1] - vArr[row * w + col - 1];
+                const dudy = uArr[(row - 1) * w + col] - uArr[(row + 1) * w + col];
                 const vort = Math.abs(dvdx - dudy);
 
-                if (vort > maxVort) {
-                    maxVort = vort;
+                // Distance from ATCF position (degrees)
+                const dist = Math.sqrt(dLat * dLat + dLon * dLon);
+
+                // Score: high vorticity + close to ATCF = best
+                const score = vort / (1 + dist);
+
+                if (score > bestScore) {
+                    bestScore = score;
                     bestLat = lat;
                     bestLon = lon;
+                    bestVort = vort;
                 }
             }
         }
 
-        if (maxVort < 5) return null; // No significant rotation found
+        if (bestVort < 3) return null; // No cyclonic rotation found
 
-        const dLat = stormLat - bestLat;
-        const dLon = stormLon - bestLon;
+        const offLat = stormLat - bestLat;
+        const offLon = stormLon - bestLon;
 
-        if (Math.abs(dLat) < 0.1 && Math.abs(dLon) < 0.1) return null;
+        if (Math.abs(offLat) < 0.1 && Math.abs(offLon) < 0.1) return null;
 
         console.info(
-            `[VORTEX] vort=${maxVort.toFixed(1)}, GFS eye ${bestLat.toFixed(2)},${bestLon.toFixed(2)} → ATCF ${stormLat.toFixed(2)},${stormLon.toFixed(2)} (Δ${dLat.toFixed(2)}°,${dLon.toFixed(2)}°)`,
+            `[VORTEX] score=${bestScore.toFixed(1)} vort=${bestVort.toFixed(1)} ` +
+                `GFS=${bestLat.toFixed(2)},${bestLon.toFixed(2)} ` +
+                `ATCF=${stormLat.toFixed(2)},${stormLon.toFixed(2)} ` +
+                `Δlat=${offLat.toFixed(2)} Δlon=${offLon.toFixed(2)}`,
         );
-        return { dLat, dLon };
+        return { dLat: offLat, dLon: offLon };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [closestStorm, cycloneVisible, weather.windHour]);
 
