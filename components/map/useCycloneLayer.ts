@@ -38,9 +38,52 @@ function categoryColor(cat: number): string {
 
 // ── Create DOM marker for a cyclone ───────────────────────
 
+// ── Regional storm classification ─────────────────────────
+
+function stormClassification(basin: string, windKts: number): string {
+    const b = basin.toUpperCase();
+
+    // Atlantic & Eastern/Central Pacific → Hurricane
+    if (['AL', 'EP', 'CP'].includes(b)) {
+        if (windKts >= 96) return 'Major Hurricane';
+        if (windKts >= 64) return 'Hurricane';
+        if (windKts >= 34) return 'Tropical Storm';
+        return 'Tropical Depression';
+    }
+
+    // Western Pacific → Typhoon
+    if (b === 'WP') {
+        if (windKts >= 130) return 'Super Typhoon';
+        if (windKts >= 64) return 'Typhoon';
+        if (windKts >= 34) return 'Tropical Storm';
+        return 'Tropical Depression';
+    }
+
+    // Australian & South Pacific & South Indian → Tropical Cyclone
+    if (['AU', 'SP', 'SI'].includes(b)) {
+        if (windKts >= 64) return 'Severe Tropical Cyclone';
+        if (windKts >= 34) return 'Tropical Cyclone';
+        return 'Tropical Depression';
+    }
+
+    // North Indian → Cyclonic Storm
+    if (['IO', 'NI', 'BB', 'AS'].includes(b)) {
+        if (windKts >= 64) return 'Very Severe Cyclonic Storm';
+        if (windKts >= 48) return 'Severe Cyclonic Storm';
+        if (windKts >= 34) return 'Cyclonic Storm';
+        return 'Depression';
+    }
+
+    // Fallback
+    if (windKts >= 64) return 'Tropical Cyclone';
+    if (windKts >= 34) return 'Tropical Storm';
+    return 'Tropical Depression';
+}
+
 function createStormMarkerEl(cyclone: ActiveCyclone): HTMLElement {
     const color = categoryColor(cyclone.category);
     const { windKts, pressureMb } = cyclone.currentPosition;
+    const classification = stormClassification(cyclone.basin, windKts ?? cyclone.maxWindKts);
 
     const catStr =
         cyclone.category > 0
@@ -60,19 +103,22 @@ function createStormMarkerEl(cyclone: ActiveCyclone): HTMLElement {
 
     el.innerHTML = `
         <div style="
-            font-size: 14px;
             font-weight: 800;
             color: #fff;
             text-shadow: 0 1px 6px rgba(0,0,0,1), 0 0 12px rgba(0,0,0,0.8);
             letter-spacing: 0.5px;
             margin-bottom: 4px;
-            white-space: nowrap;
+            text-align: center;
             background: rgba(0,0,0,0.55);
-            padding: 2px 10px;
+            padding: 3px 12px;
             border-radius: 8px;
             backdrop-filter: blur(4px);
             -webkit-backdrop-filter: blur(4px);
-        ">${cyclone.name}</div>
+            line-height: 1.3;
+        ">
+            <div style="font-size: 10px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.08em;">${classification}</div>
+            <div style="font-size: 15px;">${cyclone.name}</div>
+        </div>
         <div style="
             position: relative;
             width: 52px;
