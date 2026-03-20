@@ -46,7 +46,7 @@ import { useAisLayer } from './useAisLayer';
 import { useAisStreamLayer } from './useAisStreamLayer';
 import { useChokepointLayer } from './useChokepointLayer';
 import { useCycloneLayer } from './useCycloneLayer';
-import { type ActiveCyclone } from '../../services/weather/CycloneTrackingService';
+import { type ActiveCyclone, fetchActiveCyclones } from '../../services/weather/CycloneTrackingService';
 import { AisLegend } from './AisLegend';
 import { AisGuardAlert } from './AisGuardAlert';
 import { VesselSearch } from './VesselSearch';
@@ -192,6 +192,44 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [chokepointVisible, setChokepointVisible] = useState(false);
     const [cycloneVisible, setCycloneVisible] = useState(false);
     const [closestStorm, setClosestStorm] = useState<ActiveCyclone | null>(null);
+    const [allCyclones, setAllCyclones] = useState<ActiveCyclone[]>([]);
+
+    // Fetch all active cyclones for the storm picker menu (runs regardless of layer visibility)
+    useEffect(() => {
+        let cancelled = false;
+        const load = async () => {
+            try {
+                const cyclones = await fetchActiveCyclones();
+                if (!cancelled) setAllCyclones(cyclones);
+            } catch {
+                /* non-critical */
+            }
+        };
+        load();
+        const timer = setInterval(load, 30 * 60 * 1000);
+        return () => {
+            cancelled = true;
+            clearInterval(timer);
+        };
+    }, []);
+
+    // Handle storm selection from the picker menu
+    const handleSelectStorm = useCallback(
+        (storm: ActiveCyclone) => {
+            setCycloneVisible(true);
+            setClosestStorm(storm);
+            const map = mapRef.current;
+            if (map) {
+                map.flyTo({
+                    center: [storm.currentPosition.lon, storm.currentPosition.lat],
+                    zoom: 5,
+                    duration: 2000,
+                    essential: true,
+                });
+            }
+        },
+        [mapRef],
+    );
 
     // ── Passage Planner ──
     const passage = usePassagePlanner(mapRef, mapReady);
@@ -861,6 +899,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                         cycloneVisible={cycloneVisible}
                         onToggleCyclones={() => setCycloneVisible((v) => !v)}
                         cycloneStormName={closestStorm?.name ?? null}
+                        allCyclones={allCyclones}
+                        userLat={location.lat}
+                        userLon={location.lon}
+                        onSelectStorm={handleSelectStorm}
                     />
                 )}
 

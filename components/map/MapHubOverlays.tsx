@@ -6,8 +6,9 @@
  * PointInput, ResultCard.
  */
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { type WeatherLayer } from './mapConstants';
+import { type ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { triggerHaptic } from '../../utils/system';
 
 // ── PointInput ──
@@ -194,6 +195,10 @@ export const LayerFABMenu: React.FC<{
     cycloneVisible?: boolean;
     onToggleCyclones?: () => void;
     cycloneStormName?: string | null;
+    allCyclones?: ActiveCyclone[];
+    userLat?: number;
+    userLon?: number;
+    onSelectStorm?: (storm: ActiveCyclone) => void;
 }> = ({
     activeLayers,
     showLayerMenu,
@@ -213,19 +218,36 @@ export const LayerFABMenu: React.FC<{
     cycloneVisible = false,
     onToggleCyclones,
     cycloneStormName = null,
+    allCyclones = [],
+    userLat = 0,
+    userLon = 0,
+    onSelectStorm,
 }) => {
     const activeCount = activeLayers.size;
     const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const [stormMenuOpen, setStormMenuOpen] = useState(false);
 
     // Auto-dismiss menu after 5 seconds of inactivity
     useEffect(() => {
         if (!showLayerMenu) return;
-        dismissTimer.current = setTimeout(() => setShowLayerMenu(false), 5000);
+        dismissTimer.current = setTimeout(() => setShowLayerMenu(false), 8000);
         return () => {
             if (dismissTimer.current) clearTimeout(dismissTimer.current);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [showLayerMenu, activeCount]); // reset on every toggle (activeCount changes)
+    }, [showLayerMenu, activeCount, stormMenuOpen]); // reset on every toggle
+
+    // Reset submenu when main menu closes
+    useEffect(() => {
+        if (!showLayerMenu) setStormMenuOpen(false);
+    }, [showLayerMenu]);
+
+    // Sort cyclones by distance from user
+    const sortedCyclones = [...allCyclones].sort((a, b) => {
+        const dA = Math.hypot(a.currentPosition.lat - userLat, a.currentPosition.lon - userLon);
+        const dB = Math.hypot(b.currentPosition.lat - userLat, b.currentPosition.lon - userLon);
+        return dA - dB;
+    });
 
     return (
         <div className={`absolute z-[500] flex flex-col items-end gap-2 top-14 right-4`}>
@@ -284,6 +306,110 @@ export const LayerFABMenu: React.FC<{
                     className="bg-slate-900/95 border border-white/[0.08] rounded-2xl overflow-hidden overflow-y-auto shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200"
                     style={{ maxHeight: 'calc(100vh - 240px)' }}
                 >
+                    {/* ── Major Storms (top of menu) ── */}
+                    {onToggleCyclones && (
+                        <>
+                            <button
+                                onClick={() => {
+                                    if (allCyclones.length > 0) {
+                                        setStormMenuOpen(!stormMenuOpen);
+                                        triggerHaptic('light');
+                                    } else {
+                                        onToggleCyclones();
+                                        triggerHaptic('light');
+                                    }
+                                }}
+                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
+                                    cycloneVisible
+                                        ? 'bg-red-500/15 text-red-400 border-l-2 border-red-400'
+                                        : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'
+                                }`}
+                            >
+                                <span className="text-xl">🌀</span>
+                                <span className="text-sm font-bold flex-1">Major Storms</span>
+                                {cycloneVisible ? (
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-red-400 shadow-lg shadow-red-400/50 animate-pulse" />
+                                        <span className="text-[11px] font-bold text-red-400 uppercase tracking-wider">
+                                            {cycloneStormName || 'Active'}
+                                        </span>
+                                    </span>
+                                ) : allCyclones.length > 0 ? (
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                        <span className="text-[11px] font-bold text-amber-400">
+                                            {allCyclones.length} active
+                                        </span>
+                                        <span className="text-gray-500 text-xs ml-1">{stormMenuOpen ? '▾' : '▸'}</span>
+                                    </span>
+                                ) : (
+                                    <span className="text-[11px] text-gray-500">None active</span>
+                                )}
+                            </button>
+
+                            {/* ── Storm picker submenu ── */}
+                            {stormMenuOpen && sortedCyclones.length > 0 && (
+                                <div className="bg-black/30">
+                                    {sortedCyclones.map((storm) => {
+                                        const distKm = Math.round(
+                                            Math.hypot(
+                                                (storm.currentPosition.lat - userLat) * 111,
+                                                (storm.currentPosition.lon - userLon) *
+                                                    111 *
+                                                    Math.cos((userLat * Math.PI) / 180),
+                                            ),
+                                        );
+                                        const catColors: Record<number, string> = {
+                                            5: 'bg-fuchsia-500',
+                                            4: 'bg-red-500',
+                                            3: 'bg-orange-500',
+                                            2: 'bg-amber-500',
+                                            1: 'bg-yellow-500',
+                                            0: 'bg-sky-500',
+                                        };
+                                        const isSelected = cycloneStormName === storm.name;
+                                        return (
+                                            <button
+                                                key={storm.sid}
+                                                onClick={() => {
+                                                    onSelectStorm?.(storm);
+                                                    setStormMenuOpen(false);
+                                                    setShowLayerMenu(false);
+                                                    triggerHaptic('medium');
+                                                }}
+                                                className={`w-full flex items-center gap-2.5 pl-8 pr-4 py-2.5 text-left transition-colors ${
+                                                    isSelected
+                                                        ? 'bg-red-500/20 text-white'
+                                                        : 'text-gray-300 hover:bg-white/5'
+                                                }`}
+                                            >
+                                                <span
+                                                    className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black text-white ${catColors[storm.category] ?? 'bg-gray-500'}`}
+                                                >
+                                                    {storm.categoryLabel}
+                                                </span>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="text-xs font-bold truncate">{storm.name}</div>
+                                                    <div className="text-[10px] text-gray-500">
+                                                        {storm.maxWindKts}kt
+                                                        {storm.minPressureMb ? ` · ${storm.minPressureMb}hPa` : ''}
+                                                        {' · '}
+                                                        {distKm > 1000 ? `${Math.round(distKm / 1000)}k` : distKm}km
+                                                    </div>
+                                                </div>
+                                                {isSelected && (
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                            <div className="h-px bg-white/[0.06] mx-3" />
+                        </>
+                    )}
+
+                    {/* ── Weather layers ── */}
                     {(
                         [
                             { key: 'none', label: 'Clear All', icon: '🗺️' },
@@ -365,33 +491,6 @@ export const LayerFABMenu: React.FC<{
                                             Active
                                         </span>
                                     </span>
-                                )}
-                            </button>
-                        </>
-                    )}
-
-                    {/* ── Cyclone Tracker toggle ── */}
-                    {onToggleCyclones && (
-                        <>
-                            <div className="h-px bg-white/[0.06] mx-3" />
-                            <button
-                                onClick={() => {
-                                    onToggleCyclones();
-                                    triggerHaptic('light');
-                                }}
-                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${cycloneVisible ? 'bg-red-500/15 text-red-400 border-l-2 border-red-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
-                            >
-                                <span className="text-xl">🌀</span>
-                                <span className="text-sm font-bold flex-1">Major Storms</span>
-                                {cycloneVisible ? (
-                                    <span className="flex items-center gap-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-red-400 shadow-lg shadow-red-400/50 animate-pulse" />
-                                        <span className="text-[11px] font-bold text-red-400 uppercase tracking-wider">
-                                            {cycloneStormName || 'Active'}
-                                        </span>
-                                    </span>
-                                ) : (
-                                    <span className="text-[11px] text-gray-500">NOAA IBTrACS</span>
                                 )}
                             </button>
                         </>
