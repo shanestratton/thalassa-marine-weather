@@ -388,6 +388,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const vortexOffset = useMemo(() => {
         const grid = weather.windGridRef?.current;
         if (!closestStorm || !grid || !cycloneVisible) return null;
+        if (!grid.lats?.length || !grid.lons?.length) return null;
 
         const stormLat = closestStorm.currentPosition.lat;
         const stormLon = closestStorm.currentPosition.lon;
@@ -396,21 +397,19 @@ export const MapHub: React.FC<MapHubProps> = ({
         const vData = grid.v[h];
         if (!uData || !vData) return null;
 
-        // Search region: ±5° around ATCF position
-        const SEARCH_DEG = 5;
+        // Search ±8° around ATCF position for the GFS vortex (min wind speed)
+        const SEARCH_DEG = 8;
         const w = grid.width;
-        const latStep = (grid.north - grid.south) / (grid.height - 1);
-        const lonStep = (grid.east - grid.west) / (w - 1);
 
         let minSpeed = Infinity;
         let minLat = stormLat;
         let minLon = stormLon;
 
         for (let row = 0; row < grid.height; row++) {
-            const lat = grid.north - row * latStep;
+            const lat = grid.lats[row];
             if (Math.abs(lat - stormLat) > SEARCH_DEG) continue;
             for (let col = 0; col < w; col++) {
-                const lon = grid.west + col * lonStep;
+                const lon = grid.lons[col];
                 if (Math.abs(lon - stormLon) > SEARCH_DEG) continue;
                 const idx = row * w + col;
                 const u = uData[idx];
@@ -427,12 +426,11 @@ export const MapHub: React.FC<MapHubProps> = ({
         const dLat = stormLat - minLat;
         const dLon = stormLon - minLon;
 
-        // Only apply if offset is meaningful (> 0.1° but < 5°)
+        // Only apply if offset is > 0.1° (worth correcting)
         if (Math.abs(dLat) < 0.1 && Math.abs(dLon) < 0.1) return null;
-        if (Math.abs(dLat) > 5 || Math.abs(dLon) > 5) return null;
 
         console.info(
-            `[VORTEX] Snapping wind: GFS eye at ${minLat.toFixed(2)},${minLon.toFixed(2)} → ATCF at ${stormLat.toFixed(2)},${stormLon.toFixed(2)} (Δ${dLat.toFixed(2)}°,${dLon.toFixed(2)}°)`,
+            `[VORTEX] Snapping: GFS eye ${minLat.toFixed(2)},${minLon.toFixed(2)} → ATCF ${stormLat.toFixed(2)},${stormLon.toFixed(2)} (Δ${dLat.toFixed(2)}°,${dLon.toFixed(2)}°)`,
         );
         return { dLat, dLon };
         // eslint-disable-next-line react-hooks/exhaustive-deps
