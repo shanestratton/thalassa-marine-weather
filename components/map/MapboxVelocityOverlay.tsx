@@ -452,6 +452,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     const syncRef = useRef<(() => void) | null>(null);
     const moveRef = useRef<(() => void) | null>(null);
     const resizeRef = useRef<(() => void) | null>(null);
+    const zoomEndRef = useRef<(() => void) | null>(null);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const lastShiftedDataRef = useRef<any[] | null>(null);
     const [windData, setWindData] = useState<GribRecord[] | null>(null);
@@ -764,9 +765,27 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             mapboxMap.on('moveend', syncFull);
             mapboxMap.on('zoom', syncFull);
             mapboxMap.on('resize', onResize);
+
+            // Re-apply shifted data AFTER velocity lib finishes its internal redraw
+            // (the lib redraws asynchronously on zoom, overwriting our shifted data)
+            const onZoomEnd = () => {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const vl = velocityLayerRef.current as any;
+                if (!lastShiftedDataRef.current || !vl?._windy) return;
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        if (lastShiftedDataRef.current && vl?._windy) {
+                            vl._windy.setData(lastShiftedDataRef.current);
+                        }
+                    });
+                });
+            };
+            mapboxMap.on('zoomend', onZoomEnd);
+
             syncRef.current = syncFull;
             moveRef.current = correctOnly;
             resizeRef.current = onResize;
+            zoomEndRef.current = onZoomEnd;
 
             // Initial sync, then fade in
             lMap.invalidateSize();
@@ -792,12 +811,14 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                     mapboxMap.off('zoom', syncRef.current);
                 }
                 if (resizeRef.current) mapboxMap.off('resize', resizeRef.current);
+                if (zoomEndRef.current) mapboxMap.off('zoomend', zoomEndRef.current);
             } catch (_) {
                 /* ok */
             }
             syncRef.current = null;
             moveRef.current = null;
             resizeRef.current = null;
+            zoomEndRef.current = null;
 
             // Remove heat map from Mapbox
             // Heat map has its own useEffect lifecycle — don't touch it here
