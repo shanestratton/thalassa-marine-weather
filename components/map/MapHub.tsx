@@ -202,6 +202,28 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Cyclone Tracking Layer ──
     useCycloneLayer(mapRef, mapReady, cycloneVisible, location.lat, location.lon, setClosestStorm);
 
+    // ── Keep cyclone centered on zoom ──
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !cycloneVisible || !closestStorm) return;
+
+        const onZoomEnd = () => {
+            const { lat, lon } = closestStorm.currentPosition;
+            const center = map.getCenter();
+            // Only re-center if the storm isn't already roughly centered
+            const dLat = Math.abs(center.lat - lat);
+            const dLon = Math.abs(center.lng - lon);
+            if (dLat > 0.5 || dLon > 0.5) {
+                map.easeTo({ center: [lon, lat], duration: 300 });
+            }
+        };
+
+        map.on('zoomend', onZoomEnd);
+        return () => {
+            map.off('zoomend', onZoomEnd);
+        };
+    }, [cycloneVisible, closestStorm, mapRef]);
+
     // Clear isochrone progress when route completes
     useEffect(() => {
         if (passage.isoResultRef.current) setIsoProgress(null);
