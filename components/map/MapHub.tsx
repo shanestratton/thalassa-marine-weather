@@ -213,11 +213,21 @@ export const MapHub: React.FC<MapHubProps> = ({
         };
     }, []);
 
+    // Ref for weather layer toggle (populated after weather hook runs)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const weatherRef = useRef<{ toggleLayer: (k: any) => void; activeLayers: Set<any> } | null>(null);
+
     // Handle storm selection from the picker menu
     const handleSelectStorm = useCallback(
         (storm: ActiveCyclone) => {
             setCycloneVisible(true);
             setClosestStorm(storm);
+            // Auto-enable wind + rain for the storm view
+            const w = weatherRef.current;
+            if (w) {
+                if (!w.activeLayers.has('velocity')) w.toggleLayer('velocity');
+                if (!w.activeLayers.has('rain')) w.toggleLayer('rain');
+            }
             const map = mapRef.current;
             if (map) {
                 map.flyTo({
@@ -439,6 +449,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Weather Layers ──
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
+    weatherRef.current = weather;
 
     // ── Vortex offset: snap GFS wind to ATCF cyclone position ──
     // Strategy: Find the closest point of maximum rotation to the ATCF eye.
@@ -897,7 +908,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                             weather.setShowLayerMenu(false);
                         }}
                         cycloneVisible={cycloneVisible}
-                        onToggleCyclones={() => setCycloneVisible((v) => !v)}
+                        onToggleCyclones={() => {
+                            const willBeVisible = !cycloneVisible;
+                            setCycloneVisible(willBeVisible);
+                            // Auto-enable wind + rain when activating storm view
+                            if (willBeVisible) {
+                                if (!weather.activeLayers.has('velocity')) weather.toggleLayer('velocity');
+                                if (!weather.activeLayers.has('rain')) weather.toggleLayer('rain');
+                            }
+                        }}
                         cycloneStormName={closestStorm?.name ?? null}
                         allCyclones={allCyclones}
                         userLat={location.lat}
