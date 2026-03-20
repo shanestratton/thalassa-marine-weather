@@ -17,6 +17,9 @@
 
 // ── Cache TTLs (milliseconds) ─────────────────────────────────
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('apiCache');
 const TTL = {
     worldtides: 24 * 60 * 60 * 1000, // 24 hours — predictions are deterministic
     stormglass: 3 * 60 * 60 * 1000, //  3 hours — catches every 6h model cycle
@@ -72,7 +75,7 @@ export function apiCacheGet<T>(provider: ApiCacheProvider, lat: number, lon: num
         const _ttlMin = Math.round(ttl / 60000);
         return entry.data;
     } catch (e) {
-        console.warn('[apiCache]', e);
+        log.warn('[apiCache]', e);
         return null;
     }
 }
@@ -90,7 +93,7 @@ export function apiCacheSet<T>(provider: ApiCacheProvider, lat: number, lon: num
         };
         localStorage.setItem(key, JSON.stringify(entry));
     } catch (e) {
-        console.warn('[apiCache]', e);
+        log.warn('[apiCache]', e);
         // localStorage full — evict oldest entries
         evictOldest(3);
         try {
@@ -104,7 +107,7 @@ export function apiCacheSet<T>(provider: ApiCacheProvider, lat: number, lon: num
                 }),
             );
         } catch (e) {
-            console.warn('[apiCache]', e);
+            log.warn('[apiCache]', e);
             // Still full — give up silently
         }
     }
@@ -132,7 +135,7 @@ function evictOldest(count: number): void {
             const parsed = JSON.parse(raw);
             entries.push({ key, storedAt: parsed.storedAt || 0 });
         } catch (e) {
-            console.warn('[apiCache] skip corrupt:', e);
+            log.warn('[apiCache] skip corrupt:', e);
         }
     }
 
@@ -159,7 +162,7 @@ export function apiCacheStats(): { provider: string; count: number; oldestAge: s
             existing.oldest = Math.min(existing.oldest, parsed.storedAt || 0);
             stats.set(provider, existing);
         } catch (e) {
-            console.warn('[apiCache] skip:', e);
+            log.warn('[apiCache] skip:', e);
         }
     }
 

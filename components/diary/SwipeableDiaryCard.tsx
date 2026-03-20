@@ -13,6 +13,10 @@ import { Share } from '@capacitor/share';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('SwipeableDiaryCard');
+
 /** Format lat/lon to a human-readable coordinate string */
 const formatCoord = (lat: number, lon: number): string => {
     const latDir = lat >= 0 ? 'N' : 'S';
@@ -111,7 +115,7 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                     const fileName = uri.split('/').pop();
                     if (fileName) {
                         Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch((e) => {
-                            console.warn(`[SwipeableDiaryCard]`, e);
+                            log.warn(`[SwipeableDiaryCard]`, e);
                         });
                     }
                 }

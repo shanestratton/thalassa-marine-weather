@@ -177,9 +177,7 @@ export class WeatherOrchestrator {
             addBreadcrumb({ category: 'weather', message: 'Loading cached weather data', level: 'info' });
             const cached = await loadLargeData(DATA_CACHE_KEY);
             if (cached && cached.locationName) {
-                console.info(
-                    `[WeatherOrchestrator] Cache HIT: ${cached.locationName} (generated: ${cached.generatedAt})`,
-                );
+                log.info(`[WeatherOrchestrator] Cache HIT: ${cached.locationName} (generated: ${cached.generatedAt})`);
                 addBreadcrumb({
                     category: 'weather',
                     message: `Cache HIT: ${cached.locationName}`,
@@ -256,7 +254,7 @@ export class WeatherOrchestrator {
         }
 
         if (hasCachedData && cachedAge >= STALE_THRESHOLD_MS) {
-            console.info(
+            log.info(
                 `[WeatherOrchestrator] Cache stale (${Math.round(cachedAge / 60000)}m old) — blur + background refresh`,
             );
             addBreadcrumb({

@@ -11,6 +11,10 @@
 
 import { supabase } from './supabase';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('CrewService');
+
 // ── Types ──────────────────────────────────────────────────────
 
 /** Registers that can be shared with crew */
@@ -72,13 +76,13 @@ export async function lookupUserByEmail(email: string): Promise<{
         });
 
         if (error) {
-            console.error('[CrewService] Lookup failed:', error.message);
+            log.error('[CrewService] Lookup failed:', error.message);
             return null;
         }
 
         return data as { found: boolean; user_id?: string; email?: string; reason?: string };
     } catch (e) {
-        console.error('[CrewService] Lookup error:', e);
+        log.error('[CrewService] Lookup error:', e);
         return null;
     }
 }
@@ -178,7 +182,7 @@ export async function getMyCrew(): Promise<CrewMember[]> {
             .order('created_at', { ascending: false });
 
         if (error) {
-            console.error('[CrewService] getMyCrew error:', error.message);
+            log.error('[CrewService] getMyCrew error:', error.message);
             return [];
         }
 

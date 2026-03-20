@@ -9,6 +9,9 @@
  *   import { captureException, setUser } from './services/sentry';
  */
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('sentry');
 type SentryModule = typeof import('@sentry/react');
 
 let _sentry: SentryModule | null = null;
@@ -69,7 +72,7 @@ export const captureException = (err: unknown, scope?: Record<string, unknown>) 
         _sentry.captureException(err, scope);
     } else {
         loadSentry().then((s) => s.captureException(err, scope));
-        console.error('[Sentry:deferred]', err);
+        log.error('[Sentry:deferred]', err);
     }
 };
 

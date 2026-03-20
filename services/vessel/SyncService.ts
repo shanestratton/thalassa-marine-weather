@@ -22,6 +22,10 @@ import {
     type SyncQueueItem,
 } from './LocalDatabase';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('SyncService');
+
 // ── Types ──────────────────────────────────────────────────────
 
 interface SyncResult {
@@ -183,7 +187,7 @@ export async function syncNow(): Promise<SyncResult> {
         const msg = e instanceof Error ? e.message : 'Unknown sync error';
         result.errors.push(msg);
         setStatus('error');
-        console.error('[SyncService] Sync failed:', msg);
+        log.error('[SyncService] Sync failed:', msg);
     } finally {
         isSyncing = false;
     }
@@ -337,7 +341,7 @@ async function uploadFileIfNeeded(table: SyncableTable, row: Record<string, unkn
         });
 
         if (uploadError) {
-            console.error(`[SyncService] File upload failed for ${storagePath}:`, uploadError.message);
+            log.error(`[SyncService] File upload failed for ${storagePath}:`, uploadError.message);
             return; // Don't block the row sync — file stays local
         }
 
@@ -393,7 +397,7 @@ async function pullTable(table: SyncableTable, since: string): Promise<number> {
             normalizedSince = d.toISOString(); // Always ends with 'Z'
         }
     } catch (e) {
-        console.warn('[Sync]', e);
+        log.warn('[Sync]', e);
         // Keep original if parsing fails (should not happen with valid ISO strings)
     }
 

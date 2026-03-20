@@ -12,7 +12,7 @@
 
 import { createLogger } from '../utils/createLogger';
 import { supabase } from './supabase';
-const _log = createLogger('Moderation');
+const log = createLogger('Moderation');
 
 // --- CONFIG ---
 const MESSAGES_TABLE = 'chat_messages';
@@ -27,7 +27,7 @@ const getSupabaseUrl = (): string => {
             return process.env.SUPABASE_URL;
         }
     } catch (e) {
-        console.warn('[ContentModeration] browser env:', e);
+        log.warn('[ContentModeration] browser env:', e);
     }
     return '';
 };
@@ -237,7 +237,7 @@ export const geminiModerate = async (text: string): Promise<ModerationResult> =>
             }
             parsed = JSON.parse(clean);
         } catch (e) {
-            console.warn('[ContentModeration]', e);
+            log.warn('[ContentModeration]', e);
             parsed = null;
         }
 
@@ -297,7 +297,7 @@ export const reportMessage = async (
 
         return !error;
     } catch (e) {
-        console.warn('[ContentModeration]', e);
+        log.warn('[ContentModeration]', e);
         return false;
     }
 };
@@ -358,7 +358,7 @@ export const moderateMessage = async (
         }
     } catch (error) {
         // Moderation failure should never crash the app — fail open
-        console.error('[MODERATION] Pipeline error:', error);
+        log.error('[MODERATION] Pipeline error:', error);
     }
 };
 
@@ -389,7 +389,7 @@ const logModerationAction = async (
 
     if (!supabase) return;
 
-    const log: ModerationLog = {
+    const entry: ModerationLog = {
         message_id: messageId,
         user_id: userId,
         channel_id: channelId,
@@ -402,9 +402,9 @@ const logModerationAction = async (
     };
 
     try {
-        await supabase.from(MODERATION_LOG_TABLE).insert(log);
+        await supabase.from(MODERATION_LOG_TABLE).insert(entry);
     } catch (e) {
-        console.warn('[ContentModeration]', e);
+        log.warn('[ContentModeration]', e);
         // Best effort — moderation logging is non-critical
     }
 };

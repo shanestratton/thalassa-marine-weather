@@ -6,6 +6,10 @@ import { XIcon, LockIcon, BoatIcon, CheckIcon, DiamondIcon } from './Icons';
 import { useFocusTrap } from '../hooks/useAccessibility';
 import { Capacitor } from '@capacitor/core';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('AuthModal');
+
 interface AuthModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -125,7 +129,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         const errObj = err as Partial<HttpError> | undefined;
         const status = errObj?.status ?? errObj?.statusCode ?? 'n/a';
         const code = errObj?.code ?? 'n/a';
-        console.error(`[AuthModal] ${context}: status=${status} code=${code} msg="${msg}"`, err);
+        log.error(`[AuthModal] ${context}: status=${status} code=${code} msg="${msg}"`, err);
     };
 
     if (!isOpen) return null;

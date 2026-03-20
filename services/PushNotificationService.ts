@@ -160,7 +160,7 @@ class PushNotificationServiceClass {
                 });
                 log.info('Push token removed from Supabase');
             } catch (e) {
-                console.warn('[PushNotification]', e);
+                log.warn('[PushNotification]', e);
                 /* best effort */
             }
         }
@@ -179,7 +179,7 @@ class PushNotificationServiceClass {
             const status = await PushNotifications.checkPermissions();
             return status.receive === 'granted';
         } catch (e) {
-            console.warn('[PushNotification]', e);
+            log.warn('[PushNotification]', e);
             return false;
         }
     }

@@ -6,6 +6,10 @@ import { fetchWeatherKitFull, buildReportFromWeatherKit } from './api/weatherkit
 import { fetchRealTides } from './api/tides';
 import { saveToCache, getFromCache, getFromCacheOffline } from './cache';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('index');
+
 // --- RE-EXPORTS (Maintain API Compatibility) ---
 export { MAJOR_BUOYS } from './config';
 export { getApiKeySuffix, isStormglassKeyPresent, debugStormglassConnection, checkStormglassStatus } from './keys';
@@ -352,7 +356,7 @@ export const fetchFastWeather = async (
                     name = `Ocean Point ${latStr} ${lonStr}`;
                 }
             } catch (e) {
-                console.warn('[index]', e);
+                log.warn('[index]', e);
                 name = `Location ${lat.toFixed(2)},${lon.toFixed(2)}`;
             }
         }

@@ -16,6 +16,10 @@
 import { supabase } from './supabase';
 import { LocationStore } from '../stores/LocationStore';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('GuardianService');
+
 // ── Types ──
 
 export interface GuardianProfile {
@@ -159,7 +163,7 @@ class GuardianServiceClass {
                 .maybeSingle();
 
             if (error) {
-                console.warn('[Guardian] Profile fetch error:', error.message);
+                log.warn('[Guardian] Profile fetch error:', error.message);
                 return null;
             }
 
@@ -171,7 +175,7 @@ class GuardianServiceClass {
             this.notify();
             return data;
         } catch (e) {
-            console.warn('[Guardian] Profile fetch exception:', e);
+            log.warn('[Guardian] Profile fetch exception:', e);
             return null;
         }
     }
@@ -199,14 +203,14 @@ class GuardianServiceClass {
             );
 
             if (error) {
-                console.error('[Guardian] Profile update error:', error.message);
+                log.error('[Guardian] Profile update error:', error.message);
                 return false;
             }
 
             await this.fetchProfile();
             return true;
         } catch (e) {
-            console.error('[Guardian] Profile update exception:', e);
+            log.error('[Guardian] Profile update exception:', e);
             return false;
         }
     }
@@ -252,7 +256,7 @@ class GuardianServiceClass {
 
         const pos = LocationStore.getState();
         if (!pos.lat || !pos.lon) {
-            console.warn('[Guardian] Cannot arm — no GPS position');
+            log.warn('[Guardian] Cannot arm — no GPS position');
             return false;
         }
 
@@ -263,7 +267,7 @@ class GuardianServiceClass {
             });
 
             if (error) {
-                console.error('[Guardian] Arm error:', error.message);
+                log.error('[Guardian] Arm error:', error.message);
                 return false;
             }
 
@@ -272,7 +276,7 @@ class GuardianServiceClass {
             await this.fetchProfile();
             return true;
         } catch (e) {
-            console.error('[Guardian] Arm exception:', e);
+            log.error('[Guardian] Arm exception:', e);
             return false;
         }
     }
@@ -284,7 +288,7 @@ class GuardianServiceClass {
             const { error } = await supabase.rpc('guardian_disarm');
 
             if (error) {
-                console.error('[Guardian] Disarm error:', error.message);
+                log.error('[Guardian] Disarm error:', error.message);
                 return false;
             }
 
@@ -293,7 +297,7 @@ class GuardianServiceClass {
             await this.fetchProfile();
             return true;
         } catch (e) {
-            console.error('[Guardian] Disarm exception:', e);
+            log.error('[Guardian] Disarm exception:', e);
             return false;
         }
     }
@@ -314,7 +318,7 @@ class GuardianServiceClass {
             });
 
             if (error) {
-                console.warn('[Guardian] Nearby fetch error:', error.message);
+                log.warn('[Guardian] Nearby fetch error:', error.message);
                 return [];
             }
 
@@ -327,7 +331,7 @@ class GuardianServiceClass {
             this.notify();
             return users;
         } catch (e) {
-            console.warn('[Guardian] Nearby fetch exception:', e);
+            log.warn('[Guardian] Nearby fetch exception:', e);
             return [];
         }
     }
@@ -349,7 +353,7 @@ class GuardianServiceClass {
             });
 
             if (error) {
-                console.warn('[Guardian] Alerts fetch error:', error.message);
+                log.warn('[Guardian] Alerts fetch error:', error.message);
                 return [];
             }
 
@@ -358,7 +362,7 @@ class GuardianServiceClass {
             this.notify();
             return alerts;
         } catch (e) {
-            console.warn('[Guardian] Alerts fetch exception:', e);
+            log.warn('[Guardian] Alerts fetch exception:', e);
             return [];
         }
     }
@@ -394,14 +398,14 @@ class GuardianServiceClass {
             });
 
             if (error) {
-                console.error('[Guardian] Report suspicious error:', error.message);
+                log.error('[Guardian] Report suspicious error:', error.message);
                 return { success: false, notified: 0 };
             }
 
             await this.fetchAlerts();
             return { success: true, notified: data as number };
         } catch (e) {
-            console.error('[Guardian] Report suspicious exception:', e);
+            log.error('[Guardian] Report suspicious exception:', e);
             return { success: false, notified: 0 };
         }
     }
@@ -435,14 +439,14 @@ class GuardianServiceClass {
             });
 
             if (error) {
-                console.error('[Guardian] Weather broadcast error:', error.message);
+                log.error('[Guardian] Weather broadcast error:', error.message);
                 return { success: false, notified: 0 };
             }
 
             await this.fetchAlerts();
             return { success: true, notified: data as number };
         } catch (e) {
-            console.error('[Guardian] Weather broadcast exception:', e);
+            log.error('[Guardian] Weather broadcast exception:', e);
             return { success: false, notified: 0 };
         }
     }
@@ -471,7 +475,7 @@ class GuardianServiceClass {
             });
 
             if (error) {
-                console.error('[Guardian] Hail error:', error.message);
+                log.error('[Guardian] Hail error:', error.message);
                 return false;
             }
 
@@ -486,7 +490,7 @@ class GuardianServiceClass {
 
             return true;
         } catch (e) {
-            console.error('[Guardian] Hail exception:', e);
+            log.error('[Guardian] Hail exception:', e);
             return false;
         }
     }
@@ -513,14 +517,14 @@ class GuardianServiceClass {
             );
 
             if (error) {
-                console.error('[Guardian] Set home error:', error.message);
+                log.error('[Guardian] Set home error:', error.message);
                 return false;
             }
 
             await this.fetchProfile();
             return true;
         } catch (e) {
-            console.error('[Guardian] Set home exception:', e);
+            log.error('[Guardian] Set home exception:', e);
             return false;
         }
     }

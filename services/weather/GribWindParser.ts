@@ -23,6 +23,10 @@
 import type { WindGrid } from './windField';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('GribWindParser');
+
 const HEADER_BYTES = 28; // 4 floats + 3 uint32s
 
 /**
@@ -132,7 +136,7 @@ export async function loadLocalWindFile(filename: string): Promise<WindGrid> {
 
         return parseWindBin(bytes.buffer);
     } catch (e) {
-        console.error('[GribWindParser] Failed to load local wind file:', e);
+        log.error('[GribWindParser] Failed to load local wind file:', e);
         throw new Error(`Failed to load wind file: ${filename}`);
     }
 }

@@ -13,6 +13,9 @@
 
 // ── Types ─────────────────────────────────────────────────────
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('decodeGrib2Precip');
 export interface PrecipFrame {
     /** Precipitation rate in mm/h, row-major [height × width] */
     rate: Float32Array;
@@ -252,7 +255,7 @@ export function decodeGrib2Precip(buffer: ArrayBuffer): DecodedPrecipGrid {
                 rateClean[i] = msg.data[i] < PRECIP_DEAD_ZONE ? 0 : msg.data[i];
             }
 
-            console.info(
+            log.info(
                 `[GRIB2-Precip] lat1=${msg.lat1.toFixed(2)}, lat2=${msg.lat2.toFixed(2)}, w=${msg.width}, h=${msg.height}`,
             );
 

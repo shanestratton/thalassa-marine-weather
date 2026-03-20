@@ -11,6 +11,10 @@ import { ShipLogService } from '../services/ShipLogService';
 import { importGPXToEntries } from '../services/gpxService';
 import { getErrorMessage } from '../utils/logger';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('CommunityTrackBrowser');
+
 interface CommunityTrackBrowserProps {
     isOpen: boolean;
     onClose: () => void;
@@ -98,7 +102,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
             TrackSharingService.getDistinctRegions()
                 .then(setAvailableRegions)
                 .catch((e) => {
-                    console.warn(`[CommunityTrackBrowser]`, e);
+                    log.warn(`[CommunityTrackBrowser]`, e);
                 });
         }
     }, [isOpen]);

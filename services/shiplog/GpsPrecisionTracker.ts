@@ -19,6 +19,9 @@
  *   if (GpsPrecision.isPrecision()) { ... }
  */
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('GpsPrecisionTracker');
 export type GpsQuality = 'precision' | 'standard' | 'degraded';
 
 // ── Constants ───────────────────────────────────────────────────
@@ -200,7 +203,7 @@ class GpsPrecisionTrackerClass {
             try {
                 cb(this.currentQuality, avgAccuracy);
             } catch (e) {
-                console.warn('[GpsPrecisionTracker] isolated:', e);
+                log.warn('[GpsPrecisionTracker] isolated:', e);
             }
         });
     }

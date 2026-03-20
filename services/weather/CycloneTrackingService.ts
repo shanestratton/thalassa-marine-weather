@@ -15,6 +15,9 @@
 
 // ── Types ──────────────────────────────────────────────────
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('CycloneTrackingService');
 export interface CyclonePosition {
     lat: number;
     lon: number;
@@ -129,14 +132,14 @@ function parseIBTrACStracks(csv: string): Map<string, CyclonePosition[]> {
 // ── Primary Fetch: ATCF API (real-time) ──────────────────
 
 async function fetchATCF(): Promise<ATCFStorm[]> {
-    console.info('[CYCLONE] Fetching real-time ATCF data...');
+    log.info('[CYCLONE] Fetching real-time ATCF data...');
     const response = await fetch(ATCF_URL);
     if (!response.ok) {
-        console.error(`[CYCLONE] ATCF fetch failed: HTTP ${response.status}`);
+        log.error(`[CYCLONE] ATCF fetch failed: HTTP ${response.status}`);
         return [];
     }
     const data: ATCFStorm[] = await response.json();
-    console.info(`[CYCLONE] ATCF: ${data.length} systems returned`);
+    log.info(`[CYCLONE] ATCF: ${data.length} systems returned`);
     return data;
 }
 
@@ -158,10 +161,10 @@ interface NOAAForecastFeature {
 
 async function fetchNOAAForecast(): Promise<Map<string, CyclonePosition[]>> {
     try {
-        console.info('[CYCLONE] Fetching NOAA NHC forecast positions...');
+        log.info('[CYCLONE] Fetching NOAA NHC forecast positions...');
         const response = await fetch(NOAA_FORECAST_URL);
         if (!response.ok) {
-            console.warn(`[CYCLONE] NOAA forecast fetch HTTP ${response.status}`);
+            log.warn(`[CYCLONE] NOAA forecast fetch HTTP ${response.status}`);
             return new Map();
         }
         const geojson: { features: NOAAForecastFeature[] } = await response.json();
@@ -207,7 +210,7 @@ async function fetchNOAAForecast(): Promise<Map<string, CyclonePosition[]>> {
 
         return forecasts;
     } catch (err) {
-        console.warn('[CYCLONE] NOAA forecast fetch failed:', err);
+        log.warn('[CYCLONE] NOAA forecast fetch failed:', err);
         return new Map();
     }
 }
@@ -219,7 +222,7 @@ async function fetchIBTrACStracks(): Promise<Map<string, CyclonePosition[]>> {
         const csv = await response.text();
         return parseIBTrACStracks(csv);
     } catch {
-        console.warn('[CYCLONE] IBTrACS track fetch failed (non-critical)');
+        log.warn('[CYCLONE] IBTrACS track fetch failed (non-critical)');
         return new Map();
     }
 }
@@ -233,7 +236,7 @@ async function fetchIBTrACStracks(): Promise<Map<string, CyclonePosition[]>> {
 export async function fetchActiveCyclones(): Promise<ActiveCyclone[]> {
     // Check cache
     if (cachedCyclones && Date.now() - cachedCyclones.fetchedAt < CACHE_TTL) {
-        console.info('[CYCLONE] Using cached data');
+        log.info('[CYCLONE] Using cached data');
         return cachedCyclones.data;
     }
 
@@ -289,7 +292,7 @@ export async function fetchActiveCyclones(): Promise<ActiveCyclone[]> {
             });
         }
 
-        console.info(
+        log.info(
             `[CYCLONE] 🌀 ${cyclones.length} active cyclone(s):`,
             cyclones
                 .map((c) => `${c.name} Cat ${c.categoryLabel} (${c.maxWindKts} kts, ${c.minPressureMb} hPa)`)
@@ -299,7 +302,7 @@ export async function fetchActiveCyclones(): Promise<ActiveCyclone[]> {
         cachedCyclones = { data: cyclones, fetchedAt: Date.now() };
         return cyclones;
     } catch (e) {
-        console.error('[CYCLONE] ❌ Fetch error:', e);
+        log.error('[CYCLONE] ❌ Fetch error:', e);
         return cachedCyclones?.data ?? [];
     }
 }

@@ -254,7 +254,7 @@ class ChatServiceClass {
             // Run role load + offline sync in parallel
             await Promise.all([this.loadUserRole(), this.syncOfflineQueue()]);
         } catch (e) {
-            console.warn('[Chat]', e);
+            log.warn('[Chat]', e);
             // Non-critical — will retry on next call
             this.initPromise = null; // Allow retry
         }
@@ -1260,7 +1260,7 @@ class ChatServiceClass {
                 data: opts.data || {},
             });
         } catch (e) {
-            console.warn('[Chat]', e);
+            log.warn('[Chat]', e);
             /* Push notification is best-effort — never block message sending */
         }
     }
@@ -1302,7 +1302,7 @@ class ChatServiceClass {
                 await supabase.from('push_notification_queue').insert(inserts);
             }
         } catch (e) {
-            console.warn('[Chat]', e);
+            log.warn('[Chat]', e);
             /* Best effort */
         }
     }

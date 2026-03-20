@@ -396,7 +396,7 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
                 setFetchedSeamarks(geojson as unknown as GeoJSON.FeatureCollection);
             })
             .catch((e) => {
-                console.warn(`[SpatiotemporalMap]`, e);
+                log.warn(`[SpatiotemporalMap]`, e);
             });
     }, []);
 

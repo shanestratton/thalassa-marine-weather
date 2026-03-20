@@ -10,7 +10,7 @@
 
 import { createLogger } from '../utils/createLogger';
 import type { IsochroneResult } from './IsochroneRouter';
-const _log = createLogger('IsoCache');
+const log = createLogger('IsoCache');
 
 interface PrecomputedRoute {
     depLat: number;
@@ -70,7 +70,7 @@ export async function precomputeIsochrone(
     _cache = null;
 
     try {
-        console.info(
+        log.info(
             `[Precompute] Starting background isochrone: ${dep.lat.toFixed(2)},${dep.lon.toFixed(2)} → ${arr.lat.toFixed(2)},${arr.lon.toFixed(2)}`,
         );
 
@@ -86,7 +86,7 @@ export async function precomputeIsochrone(
 
         const windGrid = WindStore.getState().grid;
         if (!windGrid) {
-            console.info('[Precompute] No wind data cached — skipping');
+            log.info('[Precompute] No wind data cached — skipping');
             return;
         }
 
@@ -135,14 +135,12 @@ export async function precomputeIsochrone(
                 result: isoResult,
                 computedAt: Date.now(),
             };
-            console.info(
-                `[Precompute] ✓ Route cached: ${isoResult.totalDistanceNM} NM, ${isoResult.totalDurationHours}h`,
-            );
+            log.info(`[Precompute] ✓ Route cached: ${isoResult.totalDistanceNM} NM, ${isoResult.totalDurationHours}h`);
         } else {
-            console.info('[Precompute] No route found');
+            log.info('[Precompute] No route found');
         }
     } catch (err) {
-        console.warn('[Precompute] Background isochrone failed:', err);
+        log.warn('[Precompute] Background isochrone failed:', err);
     } finally {
         if (gen === _abortGen) _computing = false;
     }

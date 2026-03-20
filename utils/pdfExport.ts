@@ -2,6 +2,10 @@ import type { jsPDF as JsPDFType } from 'jspdf';
 import { VoyagePlan, VesselProfile } from '../types';
 import { fmtCoord } from './coords';
 
+import { createLogger } from './createLogger';
+
+const log = createLogger('pdfExport');
+
 interface PDFExportOptions {
     voyagePlan: VoyagePlan;
     vessel: VesselProfile;
@@ -430,7 +434,7 @@ async function generatePassageBriefPDF({ voyagePlan, vessel }: PDFExportOptions)
                 }
             }
         } catch (e) {
-            console.warn('[pdfExport]', e);
+            log.warn('[pdfExport]', e);
             // Mapbox unavailable — fall through to vector fallback
         }
 

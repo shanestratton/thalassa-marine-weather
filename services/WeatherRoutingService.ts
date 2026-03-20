@@ -14,6 +14,9 @@
 
 // ── Types ──────────────────────────────────────────────────────
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('WeatherRoutingService');
 export interface RouteWaypoint {
     id: string;
     lat: number;
@@ -252,7 +255,7 @@ export async function enhanceRouteWithDepth(
 
         return analysis;
     } catch (err) {
-        console.warn('[WeatherRouting] Depth enhancement failed (non-critical):', err);
+        log.warn('[WeatherRouting] Depth enhancement failed (non-critical):', err);
         return analysis;
     }
 }

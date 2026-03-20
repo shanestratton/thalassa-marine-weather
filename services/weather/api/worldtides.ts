@@ -2,7 +2,7 @@ import { CapacitorHttp } from '@capacitor/core';
 import { createLogger } from '../../../utils/createLogger';
 import { getWorldTidesKey } from '../keys';
 import { WorldTidesResponse } from '../../../types';
-const _log = createLogger('Tides');
+const log = createLogger('Tides');
 
 /**
  * fetchWorldTides — Tide Extremes via Supabase Edge Proxy
@@ -31,7 +31,7 @@ function isRateLimited(): boolean {
         const recent = timestamps.filter((t) => t > oneHourAgo);
         return recent.length >= MAX_CALLS_PER_HOUR;
     } catch (e) {
-        console.warn('[worldtides]', e);
+        log.warn('[worldtides]', e);
         return false;
     }
 }
@@ -45,7 +45,7 @@ function recordCall(): void {
         recent.push(Date.now());
         localStorage.setItem(WT_RATE_KEY, JSON.stringify(recent));
     } catch (e) {
-        console.warn('[worldtides] localStorage full — proceed anyway:', e);
+        log.warn('[worldtides] localStorage full — proceed anyway:', e);
     }
 }
 
@@ -131,7 +131,7 @@ async function fetchDirect(lat: number, lon: number, days: number): Promise<Worl
             return null;
         }
     } catch (e) {
-        console.warn('[worldtides]', e);
+        log.warn('[worldtides]', e);
         // Fallback: native fetch (web/dev)
         try {
             const nativeRes = await fetch(url);
@@ -141,7 +141,7 @@ async function fetchDirect(lat: number, lon: number, days: number): Promise<Worl
                 return nativeData as WorldTidesResponse;
             }
         } catch (e) {
-            console.warn('[worldtides]', e);
+            log.warn('[worldtides]', e);
             // Both methods failed
         }
         return null;

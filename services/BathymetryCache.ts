@@ -50,7 +50,7 @@ export async function preloadBathymetry(
     const west = Math.min(origin.lon, destination.lon) - paddingDeg;
     const east = Math.max(origin.lon, destination.lon) + paddingDeg;
 
-    console.info(
+    log.info(
         `[BathyCache] Preloading ${south.toFixed(1)}–${north.toFixed(1)}°N, ${west.toFixed(1)}–${east.toFixed(1)}°E`,
     );
     const t0 = performance.now();

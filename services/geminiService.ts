@@ -11,7 +11,7 @@ import {
 } from '../types';
 import { convertLength, convertSpeed } from '../utils';
 import { fetchStormGlassWeather } from './weather/api/stormglass';
-const _log = createLogger('Gemini');
+const log = createLogger('Gemini');
 
 // ── Supabase Edge Proxy ──────────────────────────────────────
 // All Gemini calls go through the proxy-gemini edge function.
@@ -25,7 +25,7 @@ const getSupabaseUrl = (): string => {
             return process.env.SUPABASE_URL;
         }
     } catch (e) {
-        console.warn('[gemini] browser:', e);
+        log.warn('[gemini] browser:', e);
     }
     return '';
 };
@@ -250,7 +250,7 @@ export const findNearestCoastalPoint = async (
         if (data && data.lat && data.lon) return data;
         throw new Error('No coords');
     } catch (e) {
-        console.warn('[gemini]', e);
+        log.warn('[gemini]', e);
         /* AI geo-lookup failed — return slight coord offset as safe fallback */
         return { name: `${originalName} (Offshore)`, lat: lat, lon: lon + 0.045 };
     }
@@ -449,7 +449,7 @@ DISAMBIGUATION RULES (CRITICAL):
                             data.destination = `Destination ${coordStr}`;
                         }
                     } catch (e) {
-                        console.warn('[gemini]', e);
+                        log.warn('[gemini]', e);
                         data.destination = `Destination ${coordStr}`;
                     }
                 } else {
@@ -703,7 +703,7 @@ export const fetchDeepVoyageAnalysis = async (plan: VoyagePlan, vessel: VesselPr
         }
         return data;
     } catch (e) {
-        console.warn('[gemini]', e);
+        log.warn('[gemini]', e);
         /* AI analysis unavailable — return static safety defaults */
         return {
             strategy: 'Analysis unavailable due to network or quota limits.',

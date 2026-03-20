@@ -12,7 +12,7 @@
  *
  *   // One-shot position
  *   const pos = await GpsService.getCurrentPosition();
- *   if (pos) console.info(pos.latitude, pos.longitude);
+ *   if (pos) log.info(pos.latitude, pos.longitude);
  *
  *   // Watch position (returns unsubscribe function)
  *   const unsub = GpsService.watchPosition((pos) => { ... });
@@ -21,7 +21,7 @@
 
 import { createLogger } from '../utils/createLogger';
 import { Capacitor } from '@capacitor/core';
-const _log = createLogger('GPS');
+const log = createLogger('GPS');
 
 // ---------- TYPES ----------
 
@@ -98,7 +98,7 @@ class GpsServiceClass {
                 timestamp: cached.timestamp,
             };
         } catch (e) {
-            console.warn('[GpsService] native getCurrentPosition failed:', e);
+            log.warn('[GpsService] native getCurrentPosition failed:', e);
             return null;
         }
     }
@@ -143,9 +143,9 @@ class GpsServiceClass {
                             });
                         }
                     })
-                    .catch((e) => console.warn('[GpsService] ensureReady failed:', e));
+                    .catch((e) => log.warn('[GpsService] ensureReady failed:', e));
             })
-            .catch((e) => console.warn('[GpsService] import BgGeoManager failed:', e));
+            .catch((e) => log.warn('[GpsService] import BgGeoManager failed:', e));
 
         return () => {
             cancelled = true;
@@ -191,7 +191,7 @@ class GpsServiceClass {
                     speed: pos.coords.speed ?? 0,
                     timestamp: pos.timestamp,
                 }),
-            (err) => console.warn('[GpsService] web watch error:', err),
+            (err) => log.warn('[GpsService] web watch error:', err),
             { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 },
         );
         return () => navigator.geolocation.clearWatch(id);

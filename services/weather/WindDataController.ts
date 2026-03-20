@@ -17,7 +17,7 @@ import type mapboxgl from 'mapbox-gl';
 import { fetchWindGrid, fetchGlobalWindField } from './windField';
 import { loadLocalWindFile } from './GribWindParser';
 import { WindStore } from '../../stores/WindStore';
-const _log = createLogger('WindCtrl');
+const log = createLogger('WindCtrl');
 
 // ── Bounds Cache (avoid redundant re-fetches) ──
 
@@ -169,7 +169,7 @@ export const WindDataController = {
                         zoom: currentZoom,
                     };
                     WindStore.setGrid(grid);
-                    console.info(
+                    log.info(
                         `[WindController] GFS GRIB loaded: ${grid.width}×${grid.height}, ${grid.totalHours} forecast hours`,
                     );
                     return;
@@ -177,7 +177,7 @@ export const WindDataController = {
             }
 
             // If edge function failed, fall back to Open-Meteo
-            console.warn('[WindController] Edge function failed, trying Open-Meteo fallback');
+            log.warn('[WindController] Edge function failed, trying Open-Meteo fallback');
             const fallbackGrid = isGlobalMode
                 ? await fetchGlobalWindField()
                 : await fetchWindGrid(north, south, west, east, currentZoom);
@@ -189,7 +189,7 @@ export const WindDataController = {
                 WindStore.setError('No wind data available');
             }
         } catch (e) {
-            console.error('[WindController] Fetch failed:', e);
+            log.error('[WindController] Fetch failed:', e);
             WindStore.setError(`Failed to fetch wind data: ${e instanceof Error ? e.message : 'Unknown error'}`);
         }
     },
@@ -211,7 +211,7 @@ export const WindDataController = {
             const grid = await loadLocalWindFile(localGribPath);
             WindStore.setGrid(grid);
         } catch (e) {
-            console.error('[WindController] Offline load failed:', e);
+            log.error('[WindController] Offline load failed:', e);
             WindStore.setError(`Failed to load wind file: ${e instanceof Error ? e.message : 'Unknown error'}`);
         }
     },

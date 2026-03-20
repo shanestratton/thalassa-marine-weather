@@ -18,6 +18,9 @@
 
 // ── Types ─────────────────────────────────────────────────────────
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('GebcoDepthService');
 export interface DepthPoint {
     lat: number;
     lon: number;
@@ -203,14 +206,14 @@ class GebcoDepthServiceClass {
             });
 
             if (!resp.ok) {
-                console.error(`[GebcoDepth] Edge function error ${resp.status}`);
+                log.error(`[GebcoDepth] Edge function error ${resp.status}`);
                 return points.map((pt) => ({ lat: pt.lat, lon: pt.lon, depth_m: null }));
             }
 
             const data: DepthQueryResponse = await resp.json();
             return data.depths;
         } catch (err) {
-            console.error('[GebcoDepth] Fetch error:', err);
+            log.error('[GebcoDepth] Fetch error:', err);
             return points.map((pt) => ({ lat: pt.lat, lon: pt.lon, depth_m: null }));
         }
     }

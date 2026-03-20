@@ -20,6 +20,10 @@ import {
     type FetchWeatherOptions as _FetchWeatherOptions,
 } from '../services/WeatherOrchestrator';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('WeatherContext');
+
 // ── Context Type (unchanged — zero consumer impact) ──────────
 
 interface WeatherContextType {
@@ -169,7 +173,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     useEffect(() => {
         if (settingsLoading) return;
         if (!versionChecked) return;
-        console.info('[WeatherContext] Init starting (settings loaded, version checked)');
+        log.info('[WeatherContext] Init starting (settings loaded, version checked)');
         orchestrator.loadCacheAndInit();
     }, [settingsLoading, versionChecked]);
 
@@ -369,7 +373,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const dataAge = data?.generatedAt ? Date.now() - new Date(data.generatedAt).getTime() : Infinity;
 
             if (dataAge > STALE_ON_WAKE_MS) {
-                console.info(`[WeatherContext] Wake: data is ${Math.round(dataAge / 60000)}m old — refreshing`);
+                log.info(`[WeatherContext] Wake: data is ${Math.round(dataAge / 60000)}m old — refreshing`);
                 setStaleRefresh(true);
                 setTimeout(() => {
                     if (isFetchingRef.current) return;
@@ -449,7 +453,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     const geo = await reverseGeocode(latitude, longitude);
                     if (geo) name = geo;
                 } catch (e) {
-                    console.warn('[WeatherContext] fallback to cardinal coords:', e);
+                    log.warn('[WeatherContext] fallback to cardinal coords:', e);
                 }
 
                 if (dist >= WEATHER_REFRESH_NM) {

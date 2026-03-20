@@ -514,7 +514,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
         if (Math.abs(offLat) < 0.1 && Math.abs(offLon) < 0.1) return null;
 
-        console.info(
+        log.info(
             `[VORTEX] score=${bestScore.toFixed(1)} vort=${bestVort.toFixed(1)} ` +
                 `GFS=${bestLat.toFixed(2)},${bestLon.toFixed(2)} ` +
                 `ATCF=${stormLat.toFixed(2)},${stormLon.toFixed(2)} ` +

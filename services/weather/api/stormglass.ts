@@ -10,6 +10,10 @@ import { mergeWeatherData } from './dataSourceMerger';
 import { findAndFetchNearestBeacon } from './beaconService';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
 
+import { createLogger } from '../../../utils/createLogger';
+
+const log = createLogger('stormglass');
+
 // FIX: Generate dense hourly tide data from High/Low extremes using Cosine Interpolation.
 // This restores the Tide Graph without needing the expensive SeaLevel API.
 const interpolateTides = (tides: { time: string; height: number }[]): { time: string; sg: number }[] => {
@@ -121,7 +125,7 @@ export const fetchStormGlassWeather = async (
                 elevation: wRes.elevation,
             };
         } catch (e) {
-            console.warn('[stormglass]', e);
+            log.warn('[stormglass]', e);
             return null;
         }
     };

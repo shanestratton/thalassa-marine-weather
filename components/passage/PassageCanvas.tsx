@@ -446,7 +446,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                     return;
                 }
             } catch (_) {
-                console.warn(`[PassageCanvas]`, _);
+                log.warn(`[PassageCanvas]`, _);
             }
 
             try {
@@ -456,7 +456,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                     return;
                 }
             } catch (_) {
-                console.warn(`[PassageCanvas]`, _);
+                log.warn(`[PassageCanvas]`, _);
             }
 
             if (!cancelled) WindStore.setLoading(false);

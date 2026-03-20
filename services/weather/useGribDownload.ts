@@ -15,6 +15,10 @@ import { ResumableGribFetcher } from './ResumableGribFetcher';
 import { decodeWindBinary, type DecodedWindField } from './decodeWindBinary';
 import { useNetworkMode } from '../../context/NetworkModeContext';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('useGribDownload');
+
 // ── Types ──────────────────────────────────────────────────────
 
 export interface GribDownloadState {
@@ -140,7 +144,7 @@ export function useGribDownload(options: UseGribDownloadOptions): GribDownloadSt
             } else {
                 const message = err instanceof Error ? err.message : 'Download failed';
                 setDownloadError(message);
-                console.error('[useGribDownload]', err);
+                log.error('[useGribDownload]', err);
             }
         } finally {
             setIsDownloading(false);

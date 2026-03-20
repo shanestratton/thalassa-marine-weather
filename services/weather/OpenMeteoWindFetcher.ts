@@ -79,9 +79,7 @@ export async function fetchModelWindGrid(
         }
     }
 
-    console.info(
-        `[OpenMeteoFetcher] ${model.name}: ${rows}×${cols} grid (${allPoints.length} points), ${forecastHours}h`,
-    );
+    log.info(`[OpenMeteoFetcher] ${model.name}: ${rows}×${cols} grid (${allPoints.length} points), ${forecastHours}h`);
 
     // Batch requests
     const allResults: unknown[] = new Array(allPoints.length).fill(null);

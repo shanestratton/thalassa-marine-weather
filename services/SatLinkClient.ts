@@ -9,6 +9,10 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import type { GribDownloadState } from '../types';
 import { saveLargeData, loadLargeData } from './nativeStorage';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('SatLinkClient');
+
 const STATE_KEY = 'thalassa_grib_download_state';
 const RETRY_BASE_MS = 2000;
 const RETRY_MAX_MS = 30000;
@@ -106,7 +110,7 @@ class SatLinkClientClass {
                 directory: Directory.Documents,
             });
         } catch (e) {
-            console.warn('[SatLink] ignore:', e);
+            log.warn('[SatLink] ignore:', e);
         }
 
         this.state = this.createIdleState();
@@ -232,7 +236,7 @@ class SatLinkClientClass {
                 });
                 this.state.tempFilePath = finalPath;
             } catch (e) {
-                console.warn('[SatLink] rename failed, temp file still valid:', e);
+                log.warn('[SatLink] rename failed, temp file still valid:', e);
             }
 
             this.emitStatus();

@@ -15,6 +15,10 @@ import { useEffect, useRef, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { supabase } from '../../services/supabase';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('useChokepointLayer');
+
 // ── Chokepoint definitions ──────────────────────────────────────
 
 interface Chokepoint {
@@ -249,7 +253,7 @@ export function useChokepointLayer(map: mapboxgl.Map | null, enabled: boolean): 
                 source.setData({ type: 'FeatureCollection', features: darkFeatures });
             }
         } catch (e) {
-            console.warn('[Chokepoint] Failed to fetch dark vessels:', e);
+            log.warn('[Chokepoint] Failed to fetch dark vessels:', e);
         }
     }, [map]);
 

@@ -463,7 +463,7 @@ class DiaryServiceClass {
                         syncedCount++;
                         log.info(`✅ Synced entry: ${entry.title || entry.id}`);
                     } else if (error) {
-                        console.error(
+                        log.error(
                             `[Diary] ❌ Supabase error for "${entry.title}":`,
                             error.message,
                             error.code,

@@ -1,5 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('supabase');
+
 const logConfig = (_msg: string) => {};
 
 const getUrl = () => {
@@ -21,7 +25,7 @@ const getUrl = () => {
                 logConfig('Found URL in process.env.SUPABASE_URL');
             }
         } catch (e) {
-            console.warn('[supabase] process.env may not exist in browser:', e);
+            log.warn('[supabase] process.env may not exist in browser:', e);
         }
     }
 
@@ -45,7 +49,7 @@ const getKey = () => {
                 logConfig('Found KEY in process.env.SUPABASE_KEY');
             }
         } catch (e) {
-            console.warn('[supabase] process.env may not exist in browser:', e);
+            log.warn('[supabase] process.env may not exist in browser:', e);
         }
     }
 

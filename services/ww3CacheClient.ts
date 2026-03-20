@@ -14,6 +14,10 @@
 
 import type { WindGrid } from '../services/weather/windField';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('ww3CacheClient');
+
 // ── Types ─────────────────────────────────────────────────────────
 
 interface WW3Metadata {
@@ -87,7 +91,7 @@ async function fetchMetadata(): Promise<WW3Metadata | null> {
         metadataFetchedAt = now;
         return metadataCache;
     } catch (e) {
-        console.warn('[ww3Cache]', e);
+        log.warn('[ww3Cache]', e);
         return null;
     }
 }
@@ -106,7 +110,7 @@ async function fetchShard(cycle: string, forecastHour: number): Promise<WW3Shard
         shardCache.set(key, shard);
         return shard;
     } catch (e) {
-        console.warn('[ww3Cache]', e);
+        log.warn('[ww3Cache]', e);
         return null;
     }
 }

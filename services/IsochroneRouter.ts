@@ -497,7 +497,7 @@ export async function computeIsochrones(
         // Tier 1: After 10 stalled steps, disable reef rejection (keep land check)
         if (!depthFilterDisabled && stepsWithoutProgress >= STALL_THRESHOLD_STEPS) {
             depthFilterDisabled = true;
-            console.info(
+            log.info(
                 `[Isochrone] Stall T1 at step ${step} — disabling reef filter (best: ${Math.round(bestDistanceSoFar)} NM)`,
             );
         }
@@ -506,7 +506,7 @@ export async function computeIsochrones(
         // pushRouteOffshore() will fix any land clips in the final route.
         if (!allBathyDisabled && stepsWithoutProgress >= 30) {
             allBathyDisabled = true;
-            console.info(
+            log.info(
                 `[Isochrone] Stall T2 at step ${step} — disabling ALL bathy checks (land teleport, best: ${Math.round(bestDistanceSoFar)} NM)`,
             );
         }
@@ -572,7 +572,7 @@ export async function computeIsochrones(
         }
         // Fallback: if all arrival candidates clip land (coastal destination), accept the closest
         if (!arrivedThisStep && closestArrivalCandidate) {
-            console.info(
+            log.info(
                 `[Isochrone] Arrival fallback: accepting candidate at ${closestArrivalCandidate.distToDest.toFixed(1)} NM (land-clipped but close enough)`,
             );
             arrivalNode = { ...closestArrivalCandidate.node, lat: destination.lat, lon: destination.lon };
@@ -662,7 +662,7 @@ export async function computeIsochrones(
 
         if (finalFront.length === 0) break;
 
-        console.info(
+        log.info(
             `[Isochrone] Step ${step}: ${timeHours}h, ${finalFront.length} nodes (${endpointValid.length}/${candidates.length} valid), closest ${Math.round(
                 finalFront.reduce(
                     (min, n) =>

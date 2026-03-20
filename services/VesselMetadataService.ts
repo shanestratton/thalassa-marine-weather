@@ -165,7 +165,6 @@ class VesselMetadataServiceClass {
                 // For any AU vessel (503xxx) with a name but missing specs,
                 // check amsa_register for LOA, type, home port
                 await this.enrichFromAmsaRegister(results);
-
             } catch (e) {
                 log.warn('Batch lookup error:', e);
             }
@@ -209,8 +208,8 @@ class VesselMetadataServiceClass {
             const fnUrl = `${supabaseUrl}/functions/v1/lookup-vessel?mmsi=${mmsi}`;
             const resp = await fetch(fnUrl, {
                 headers: {
-                    'Authorization': `Bearer ${supabaseAnonKey}`,
-                    'apikey': supabaseAnonKey,
+                    Authorization: `Bearer ${supabaseAnonKey}`,
+                    apikey: supabaseAnonKey,
                 },
                 signal: AbortSignal.timeout(12000),
             });
@@ -296,9 +295,7 @@ class VesselMetadataServiceClass {
      * Enrich Australian vessels (503xxxxxx) with AMSA register data.
      * Looks up vessel by name in amsa_register table to fill LOA, type, home port.
      */
-    private async enrichFromAmsaRegister(
-        results: Map<number, VesselMetadata | null>
-    ): Promise<void> {
+    private async enrichFromAmsaRegister(results: Map<number, VesselMetadata | null>): Promise<void> {
         if (!supabase) return;
 
         // Find AU vessels that have a name but are missing LOA or type

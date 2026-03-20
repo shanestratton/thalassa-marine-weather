@@ -14,6 +14,10 @@ import { supabase } from './supabase';
 import { ShipLogEntry } from '../types';
 import { exportVoyageAsGPX } from './gpxService';
 
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('TrackSharingService');
+
 // --- TYPES ---
 
 export type TrackCategory =
@@ -238,7 +242,7 @@ class TrackSharingServiceClass {
             try {
                 await supabase.rpc('increment_download_count', { track_id: trackId });
             } catch (e) {
-                console.warn('[TrackSharing] Fire-and-forget — counter miss is non-critical:', e);
+                log.warn('[TrackSharing] Fire-and-forget — counter miss is non-critical:', e);
             }
         })();
 

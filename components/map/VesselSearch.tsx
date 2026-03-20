@@ -12,6 +12,10 @@ import { supabase } from '../../services/supabase';
 import { getMmsiFlag } from '../../utils/MmsiDecoder';
 import { triggerHaptic } from '../../utils/system';
 
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('VesselSearch');
+
 interface VesselSearchResult {
     mmsi: number;
     name: string | null;
@@ -71,7 +75,7 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
             });
 
             if (error) {
-                console.warn('[VesselSearch] RPC error:', error.message);
+                log.warn('[VesselSearch] RPC error:', error.message);
                 setResults([]);
                 return;
             }
@@ -101,7 +105,7 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
 
             setResults(merged);
         } catch (err) {
-            console.warn('[VesselSearch] Error:', err);
+            log.warn('[VesselSearch] Error:', err);
             setResults([]);
         } finally {
             setLoading(false);

@@ -13,7 +13,7 @@ import { createLogger } from '../utils/createLogger';
 import { VoyagePlan, VesselProfile, PolarData, Waypoint } from '../types';
 import { supabase } from './supabase';
 import type { SpatiotemporalPayload } from '../types/spatiotemporal';
-const _log = createLogger('WxRouter');
+const log = createLogger('WxRouter');
 
 // Re-export the type for convenience
 export type { SpatiotemporalPayload };
@@ -65,7 +65,7 @@ async function fetchUserPolarData(): Promise<PolarData | null> {
             return data.polar_data as PolarData;
         }
     } catch (e) {
-        console.warn('[weather] No polar data:', e);
+        log.warn('[weather] No polar data:', e);
     }
     return null;
 }
@@ -116,14 +116,14 @@ export async function fetchWeatherRoute(
 
         if (!resp.ok) {
             const errData = await resp.json().catch(() => ({}));
-            console.error(`[WeatherRouter] Edge function error ${resp.status}:`, errData);
+            log.error(`[WeatherRouter] Edge function error ${resp.status}:`, errData);
             return null;
         }
 
         const data: SpatiotemporalPayload = await resp.json();
 
         if (data.error) {
-            console.error(`[WeatherRouter] Routing error:`, data.error);
+            log.error(`[WeatherRouter] Routing error:`, data.error);
             return null;
         } // Debug: log track coordinates to diagnose crossing-earth issue
         if (data.track) {
@@ -134,7 +134,7 @@ export async function fetchWeatherRoute(
         if (err instanceof Error && err.name === 'TimeoutError') {
             /* best effort */
         } else {
-            console.error('[WeatherRouter] Error:', err);
+            log.error('[WeatherRouter] Error:', err);
         }
         return null;
     }
@@ -261,7 +261,7 @@ export async function enhanceVoyagePlanWithWeather(
         try {
             polarData = await fetchUserPolarData();
         } catch (e) {
-            console.warn('[weather] Non-critical:', e);
+            log.warn('[weather] Non-critical:', e);
         }
     }
 

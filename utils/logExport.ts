@@ -7,6 +7,10 @@ import { ShipLogEntry, VesselProfile, VesselDimensionUnits, UnitPreferences } fr
 import type { jsPDF as JsPDFType } from 'jspdf';
 import { convertMetersTo } from './units';
 
+import { createLogger } from './createLogger';
+
+const log = createLogger('logExport');
+
 // Vessel data interface for PDF export
 interface VesselData {
     vessel?: VesselProfile;
@@ -802,7 +806,7 @@ async function generateDeckLogPDF(
             const wpName = await reverseGeocode(wp.latitude!, wp.longitude!);
             waypointNames.set(i, wpName);
         } catch (e) {
-            console.warn('[logExport]', e);
+            log.warn('[logExport]', e);
             // Use coords as fallback
         }
     }
@@ -827,7 +831,7 @@ async function generateDeckLogPDF(
     });
 
     let y = 0;
-     
+
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     let pageNum = 1;
 
@@ -1433,7 +1437,6 @@ async function generateDeckLogPDF(
 
     // ===== VOYAGE TRACK MAP PAGE =====
     pdf.addPage();
-
 
     // Navy header bar
     pdf.setFillColor(26, 42, 58);
