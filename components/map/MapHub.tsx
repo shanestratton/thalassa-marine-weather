@@ -935,8 +935,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setShowVesselSearch(true);
                             triggerHaptic('light');
                         }}
-                        className="absolute z-[500] w-10 h-10 rounded-xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 text-slate-400"
-                        style={{ top: 56, left: 16 }}
+                        className="absolute z-[500] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 text-slate-400"
+                        style={{ top: 56, right: 68 }}
                         aria-label="Search vessels"
                     >
                         🔍
