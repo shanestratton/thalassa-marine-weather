@@ -385,6 +385,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
 
     // ── Vortex offset: snap GFS wind pattern to ATCF cyclone position ──
+    // Uses vorticity (curl of wind field: ∂v/∂x - ∂u/∂y) to find the GFS
+    // cyclone center. The max |vorticity| is the rotational center — immune
+    // to terrain effects that cause false calm spots over land.
     const vortexOffset = useMemo(() => {
         const grid = weather.windGridRef?.current;
         if (!closestStorm || !grid || !cycloneVisible) return null;
@@ -398,66 +401,37 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (!uData || !vData) return null;
 
         const SEARCH_DEG = 6;
-        const RING_DEG = 2; // Check surrounding winds within 2° ring
         const w = grid.width;
         const hgt = grid.height;
 
-        // Helper: wind speed² at grid index
-        const speedSq = (row: number, col: number) => {
-            const idx = row * w + col;
-            const u = uData[idx];
-            const v = vData[idx];
-            return u * u + v * v;
-        };
-
-        // For each candidate, compute vortex score = avgRingSpeed / (centerSpeed + 1)
-        // Cyclone eye: low center + high ring = high score
-        // Calm land: low center + low ring = low score
-        let bestScore = 0;
+        let maxVort = 0;
         let bestLat = stormLat;
         let bestLon = stormLon;
 
-        for (let row = 0; row < hgt; row++) {
+        // Scan interior grid points (need neighbors for finite differences)
+        for (let row = 1; row < hgt - 1; row++) {
             const lat = grid.lats[row];
             if (Math.abs(lat - stormLat) > SEARCH_DEG) continue;
-            for (let col = 0; col < w; col++) {
+            for (let col = 1; col < w - 1; col++) {
                 const lon = grid.lons[col];
                 if (Math.abs(lon - stormLon) > SEARCH_DEG) continue;
 
-                const centerSpd = Math.sqrt(speedSq(row, col));
+                // ∂v/∂x ≈ (v[row][col+1] - v[row][col-1]) / 2
+                const dvdx = vData[row * w + col + 1] - vData[row * w + col - 1];
+                // ∂u/∂y ≈ (u[row-1][col] - u[row+1][col]) / 2
+                const dudy = uData[(row - 1) * w + col] - uData[(row + 1) * w + col];
+                // Vorticity = ∂v/∂x - ∂u/∂y
+                const vort = Math.abs(dvdx - dudy);
 
-                // Sample surrounding ring (1-2° out) for average wind speed
-                let ringTotal = 0;
-                let ringCount = 0;
-                for (let r2 = 0; r2 < hgt; r2++) {
-                    const lat2 = grid.lats[r2];
-                    const dLat = Math.abs(lat2 - lat);
-                    if (dLat > RING_DEG || dLat < 0.5) continue; // Ring: 0.5-2° away
-                    for (let c2 = 0; c2 < w; c2++) {
-                        const lon2 = grid.lons[c2];
-                        const dLon = Math.abs(lon2 - lon);
-                        if (dLon > RING_DEG || dLon < 0.5) continue;
-                        const dist = Math.sqrt(dLat * dLat + dLon * dLon);
-                        if (dist < 0.5 || dist > RING_DEG) continue;
-                        ringTotal += Math.sqrt(speedSq(r2, c2));
-                        ringCount++;
-                    }
-                }
-
-                if (ringCount < 4) continue; // Need enough ring samples
-                const avgRing = ringTotal / ringCount;
-                const score = avgRing / (centerSpd + 1);
-
-                if (score > bestScore) {
-                    bestScore = score;
+                if (vort > maxVort) {
+                    maxVort = vort;
                     bestLat = lat;
                     bestLon = lon;
                 }
             }
         }
 
-        // Require a meaningful vortex signature (score > 3 means ring is 3x center speed)
-        if (bestScore < 2) return null;
+        if (maxVort < 5) return null; // No significant rotation found
 
         const dLat = stormLat - bestLat;
         const dLon = stormLon - bestLon;
@@ -465,7 +439,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (Math.abs(dLat) < 0.1 && Math.abs(dLon) < 0.1) return null;
 
         console.info(
-            `[VORTEX] score=${bestScore.toFixed(1)}, GFS eye ${bestLat.toFixed(2)},${bestLon.toFixed(2)} → ATCF ${stormLat.toFixed(2)},${stormLon.toFixed(2)} (Δ${dLat.toFixed(2)}°,${dLon.toFixed(2)}°)`,
+            `[VORTEX] vort=${maxVort.toFixed(1)}, GFS eye ${bestLat.toFixed(2)},${bestLon.toFixed(2)} → ATCF ${stormLat.toFixed(2)},${stormLon.toFixed(2)} (Δ${dLat.toFixed(2)}°,${dLon.toFixed(2)}°)`,
         );
         return { dLat, dLon };
         // eslint-disable-next-line react-hooks/exhaustive-deps
