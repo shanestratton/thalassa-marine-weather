@@ -23,21 +23,26 @@ import {
 
 // ── Category → Color mapping ──────────────────────────────
 
-function categoryColor(cat: number): string {
+/** Category → color palette { core, mid, outer, glow } */
+function categoryPalette(cat: number) {
     switch (cat) {
         case 5:
-            return '#9333ea';
+            return { core: '#1a0005', mid: '#9b0000', outer: '#ff2200', glow: '#ff4400', accent: '#ffd700' };
         case 4:
-            return '#dc2626';
+            return { core: '#1a0000', mid: '#b91c1c', outer: '#ef4444', glow: '#ff3333', accent: '#ff8c00' };
         case 3:
-            return '#ea580c';
+            return { core: '#1a0800', mid: '#c2410c', outer: '#f97316', glow: '#ff6600', accent: '#fbbf24' };
         case 2:
-            return '#d97706';
+            return { core: '#1a1000', mid: '#b45309', outer: '#f59e0b', glow: '#ffaa00', accent: '#fde68a' };
         case 1:
-            return '#eab308';
+            return { core: '#1a1500', mid: '#a16207', outer: '#eab308', glow: '#ffcc00', accent: '#fef08a' };
         default:
-            return '#06b6d4';
+            return { core: '#0a1520', mid: '#0e7490', outer: '#06b6d4', glow: '#22d3ee', accent: '#a5f3fc' };
     }
+}
+
+function categoryColor(cat: number): string {
+    return categoryPalette(cat).outer;
 }
 
 /** Color a track point by its wind speed */
@@ -122,11 +127,15 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
     // Semantic zoom: scale marker elements
     const isMacro = zoom < 5;
     const isRegional = zoom >= 5 && zoom <= 8;
-    const eyeSize = isMacro ? 32 : isRegional ? 44 : 52;
-    const innerSize = isMacro ? 24 : isRegional ? 34 : 40;
-    const fontSize = isMacro ? 13 : isRegional ? 16 : 18;
-    const showPulse = !isMacro;
     const showInfoBadge = !isMacro;
+
+    // Heatmap eye sizing scales with category + zoom
+    const catScale = Math.min(cyclone.category, 5) || 1;
+    const baseEye = isMacro ? 36 : isRegional ? 56 : 68;
+    const eyeSize = baseEye + catScale * 4;
+    const fontSize = isMacro ? 14 : isRegional ? 20 : 24;
+
+    const pal = categoryPalette(cyclone.category);
 
     const el = document.createElement('div');
     el.className = 'cyclone-marker';
@@ -136,9 +145,26 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
         align-items: center;
         pointer-events: none;
         z-index: 500;
-        filter: drop-shadow(0 2px 12px rgba(0,0,0,0.8));
+        filter: drop-shadow(0 4px 20px ${pal.glow}80);
         transition: transform 0.3s ease;
     `;
+
+    // Build glow rings — more for higher categories
+    const glowRings = [];
+    const numRings = isMacro ? 1 : Math.min(catScale, 3);
+    for (let i = 0; i < numRings; i++) {
+        const scale = 1.3 + i * 0.4;
+        const opacity = 0.35 - i * 0.1;
+        const delay = i * 0.6;
+        glowRings.push(`<div style="
+            position: absolute; inset: 0; border-radius: 50%;
+            background: radial-gradient(circle, ${pal.outer}00 40%, ${pal.glow}${Math.round(opacity * 255)
+                .toString(16)
+                .padStart(2, '0')} 70%, transparent 100%);
+            animation: cyclone-pulse ${2 + i * 0.5}s ease-in-out ${delay}s infinite;
+            transform: scale(${scale});
+        "></div>`);
+    }
 
     el.innerHTML = `
         <div style="
@@ -146,7 +172,7 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
             color: #fff;
             text-shadow: 0 1px 6px rgba(0,0,0,1), 0 0 12px rgba(0,0,0,0.8);
             letter-spacing: 0.5px;
-            margin-bottom: 4px;
+            margin-bottom: 6px;
             text-align: center;
             background: rgba(0,0,0,0.35);
             padding: 3px 12px;
@@ -166,31 +192,28 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
             align-items: center;
             justify-content: center;
         ">
-            ${
-                showPulse
-                    ? `<div style="
-                position: absolute;
-                inset: 0;
-                border-radius: 50%;
-                background: ${color}33;
-                animation: cyclone-pulse 2s ease-in-out infinite;
-            "></div>`
-                    : ''
-            }
+            ${glowRings.join('')}
             <div style="
-                width: ${innerSize}px;
-                height: ${innerSize}px;
-                border-radius: 50%;
-                background: rgba(0,0,0,0.7);
-                border: ${isMacro ? 2 : 3}px solid ${color};
-                display: flex;
-                align-items: center;
-                justify-content: center;
+                position: absolute; inset: 0; border-radius: 50%;
+                background: radial-gradient(circle,
+                    ${pal.core} 0%,
+                    ${pal.mid} 30%,
+                    ${pal.outer} 55%,
+                    ${pal.accent} 75%,
+                    transparent 100%);
+                animation: cyclone-spin ${6 - catScale * 0.5}s linear infinite;
+                opacity: 0.9;
+            "></div>
+            <div style="
+                position: relative; z-index: 2;
                 font-size: ${fontSize}px;
                 font-weight: 900;
                 color: #fff;
-                text-shadow: 0 0 8px ${color};
-                z-index: 1;
+                text-shadow:
+                    0 0 6px ${pal.core},
+                    0 0 14px ${pal.outer},
+                    0 0 28px ${pal.glow};
+                letter-spacing: 1px;
             ">${cyclone.categoryLabel}</div>
         </div>
         ${
@@ -200,7 +223,7 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
             font-weight: 600;
             color: #fff;
             text-shadow: 0 1px 4px rgba(0,0,0,1);
-            margin-top: 4px;
+            margin-top: 5px;
             white-space: nowrap;
             background: rgba(0,0,0,0.35);
             padding: 3px 10px;
@@ -225,7 +248,11 @@ function injectCycloneCSS() {
     style.textContent = `
         @keyframes cyclone-pulse {
             0%, 100% { transform: scale(1); opacity: 0.6; }
-            50% { transform: scale(1.4); opacity: 0.2; }
+            50% { transform: scale(1.5); opacity: 0.15; }
+        }
+        @keyframes cyclone-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
     `;
     document.head.appendChild(style);
