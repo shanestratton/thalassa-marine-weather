@@ -141,6 +141,24 @@ export function useWeatherLayers(
     const [windMaxSpeed, setWindMaxSpeed] = useState(30);
     /** The wind scrubber index that corresponds to 'now' (current time) */
     const windNowIdxRef = useRef(0);
+    /** GFS model run time for dynamic 'now' recomputation */
+    const windRefTimeRef = useRef<string | null>(null);
+
+    /** Compute which forecast hour index best matches 'now' given the model refTime */
+    const computeNowIndex = useCallback((refTime: string, fhrs: number[]): number => {
+        const ageMs = Date.now() - new Date(refTime).getTime();
+        const ageHours = ageMs / (60 * 60 * 1000);
+        let bestIdx = 0;
+        let bestDiff = Math.abs(fhrs[0] - ageHours);
+        for (let i = 1; i < fhrs.length; i++) {
+            const diff = Math.abs(fhrs[i] - ageHours);
+            if (diff < bestDiff) {
+                bestDiff = diff;
+                bestIdx = i;
+            }
+        }
+        return bestIdx;
+    }, []);
 
     // GRIB download
     const [isGribDownloading, setIsGribDownloading] = useState(false);
@@ -410,21 +428,13 @@ export function useWeatherLayers(
                     // ── Default scrubber to "now" ──
                     // Compute hours since GFS model run, find closest forecast index
                     if (currentGrid.refTime) {
-                        const ageMs = Date.now() - new Date(currentGrid.refTime).getTime();
-                        const ageHours = ageMs / (60 * 60 * 1000);
+                        windRefTimeRef.current = currentGrid.refTime;
                         const fhrs = windForecastHoursRef.current;
-                        // Find the forecast hour index closest to the model age
-                        let bestIdx = 0;
-                        let bestDiff = Math.abs(fhrs[0] - ageHours);
-                        for (let i = 1; i < fhrs.length; i++) {
-                            const diff = Math.abs(fhrs[i] - ageHours);
-                            if (diff < bestDiff) {
-                                bestDiff = diff;
-                                bestIdx = i;
-                            }
-                        }
+                        const bestIdx = computeNowIndex(currentGrid.refTime, fhrs);
                         setWindHour(bestIdx);
                         windNowIdxRef.current = bestIdx;
+                        const ageMs = Date.now() - new Date(currentGrid.refTime).getTime();
+                        const ageHours = ageMs / (60 * 60 * 1000);
                         console.info(
                             `[WindScrubber] Auto-set to "now": refTime=${currentGrid.refTime}, age=${ageHours.toFixed(1)}h, index=${bestIdx} (forecast hour ${fhrs[bestIdx]})`,
                         );
@@ -441,6 +451,35 @@ export function useWeatherLayers(
         return () => clearTimeout(windTimer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeKey, mapReady]);
+
+    // ── Periodically recompute "now" index (every 3 min) ──
+    useEffect(() => {
+        if (!windReady) return;
+        const interval = setInterval(
+            () => {
+                const refTime = windRefTimeRef.current;
+                const fhrs = windForecastHoursRef.current;
+                if (!refTime || fhrs.length === 0) return;
+                const newNowIdx = computeNowIndex(refTime, fhrs);
+                const oldNowIdx = windNowIdxRef.current;
+                if (newNowIdx !== oldNowIdx) {
+                    windNowIdxRef.current = newNowIdx;
+                    // Auto-advance scrubber if user is still on the old "now"
+                    setWindHour((prev) => {
+                        if (prev === oldNowIdx) {
+                            console.info(
+                                `[WindScrubber] Advanced "now": ${oldNowIdx} → ${newNowIdx} (forecast hour ${fhrs[newNowIdx]})`,
+                            );
+                            return newNowIdx;
+                        }
+                        return prev;
+                    });
+                }
+            },
+            3 * 60 * 1000,
+        ); // Every 3 minutes
+        return () => clearInterval(interval);
+    }, [windReady, computeNowIndex]);
 
     // ── Center map when switching layers + WIND GEOLOCK ──
     const prevLayerCountRef = useRef(0);
