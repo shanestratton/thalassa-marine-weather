@@ -356,6 +356,7 @@ function createTrackOverlay(map: mapboxgl.Map): {
 
             // ── Forecast track (NOAA NHC predicted positions) ──
             if (c.forecastTrack && c.forecastTrack.length > 0) {
+                console.info(`[CYCLONE] Rendering forecast for ${c.name}: ${c.forecastTrack.length} points`);
                 // Start from current position
                 const forecastAll = [c.currentPosition, ...c.forecastTrack];
                 const fcProjected = forecastAll.map((p) => ({
