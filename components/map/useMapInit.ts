@@ -833,7 +833,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                 id: 'ais-targets-heading',
                 type: 'symbol',
                 source: 'ais-targets',
-                minzoom: 99, // Effectively hidden — heading is shown by boat rotation
+                minzoom: 24, // Effectively hidden — heading is shown by boat rotation
                 layout: { visibility: 'none' },
             });
 
