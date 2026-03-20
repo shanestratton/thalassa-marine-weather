@@ -149,7 +149,7 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
         transition: transform 0.3s ease;
     `;
 
-    // Build glow rings — more for higher categories
+    // Build glow rings — organic blob shapes, more for higher categories
     const glowRings = [];
     const numRings = isMacro ? 1 : Math.min(catScale, 3);
     for (let i = 0; i < numRings; i++) {
@@ -157,11 +157,13 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
         const opacity = 0.35 - i * 0.1;
         const delay = i * 0.6;
         glowRings.push(`<div style="
-            position: absolute; inset: 0; border-radius: 50%;
-            background: radial-gradient(circle, ${pal.outer}00 40%, ${pal.glow}${Math.round(opacity * 255)
+            position: absolute; inset: -${4 + i * 6}px;
+            border-radius: 40% 60% 55% 45% / 55% 45% 50% 50%;
+            background: radial-gradient(ellipse 70% 80%, ${pal.outer}00 30%, ${pal.glow}${Math.round(opacity * 255)
                 .toString(16)
-                .padStart(2, '0')} 70%, transparent 100%);
-            animation: cyclone-pulse ${2 + i * 0.5}s ease-in-out ${delay}s infinite;
+                .padStart(2, '0')} 65%, transparent 100%);
+            animation: cyclone-morph ${3 + i * 0.7}s ease-in-out ${delay}s infinite alternate,
+                       cyclone-pulse ${2 + i * 0.5}s ease-in-out ${delay}s infinite;
             transform: scale(${scale});
         "></div>`);
     }
@@ -194,14 +196,16 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
         ">
             ${glowRings.join('')}
             <div style="
-                position: absolute; inset: 0; border-radius: 50%;
-                background: radial-gradient(circle,
+                position: absolute; inset: -2px;
+                border-radius: 45% 55% 50% 50% / 50% 45% 55% 50%;
+                background: radial-gradient(ellipse 60% 75%,
                     ${pal.core} 0%,
-                    ${pal.mid} 30%,
-                    ${pal.outer} 55%,
-                    ${pal.accent} 75%,
+                    ${pal.mid} 25%,
+                    ${pal.outer} 50%,
+                    ${pal.accent} 70%,
                     transparent 100%);
-                animation: cyclone-spin ${6 - catScale * 0.5}s linear infinite;
+                animation: cyclone-blob ${6 - catScale * 0.5}s ease-in-out infinite alternate,
+                           cyclone-spin ${8 - catScale * 0.8}s linear infinite;
                 opacity: 0.9;
             "></div>
             <div style="
@@ -253,6 +257,19 @@ function injectCycloneCSS() {
         @keyframes cyclone-spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
+        }
+        @keyframes cyclone-morph {
+            0%   { border-radius: 40% 60% 55% 45% / 55% 45% 50% 50%; }
+            25%  { border-radius: 55% 45% 40% 60% / 45% 55% 60% 40%; }
+            50%  { border-radius: 45% 55% 60% 40% / 60% 40% 45% 55%; }
+            75%  { border-radius: 60% 40% 45% 55% / 40% 60% 55% 45%; }
+            100% { border-radius: 50% 50% 55% 45% / 45% 55% 50% 50%; }
+        }
+        @keyframes cyclone-blob {
+            0%   { border-radius: 45% 55% 50% 50% / 50% 45% 55% 50%; transform: rotate(0deg); }
+            33%  { border-radius: 55% 45% 45% 55% / 45% 55% 50% 50%; }
+            66%  { border-radius: 50% 50% 55% 45% / 55% 45% 45% 55%; }
+            100% { border-radius: 45% 55% 50% 50% / 50% 50% 55% 45%; transform: rotate(120deg); }
         }
     `;
     document.head.appendChild(style);
