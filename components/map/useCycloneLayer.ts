@@ -353,6 +353,40 @@ function createTrackOverlay(map: mapboxgl.Map): {
             if (!isMacro) {
                 drawTrackDots(svg, projected, zoom);
             }
+
+            // ── Forecast track (NOAA NHC predicted positions) ──
+            if (c.forecastTrack && c.forecastTrack.length > 0) {
+                // Start from current position
+                const forecastAll = [c.currentPosition, ...c.forecastTrack];
+                const fcProjected = forecastAll.map((p) => ({
+                    px: map.project([p.lon, p.lat]),
+                    point: p,
+                }));
+
+                // Draw forecast line segments (wider, more prominent dashes)
+                for (let i = 0; i < fcProjected.length - 1; i++) {
+                    const from = fcProjected[i];
+                    const to = fcProjected[i + 1];
+                    const segColor = windColor(to.point.windKts);
+
+                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    line.setAttribute('x1', String(from.px.x));
+                    line.setAttribute('y1', String(from.px.y));
+                    line.setAttribute('x2', String(to.px.x));
+                    line.setAttribute('y2', String(to.px.y));
+                    line.setAttribute('stroke', segColor);
+                    line.setAttribute('stroke-width', String(isMacro ? 2 : 3.5));
+                    line.setAttribute('stroke-dasharray', '12,6');
+                    line.setAttribute('stroke-opacity', '0.7');
+                    line.setAttribute('stroke-linecap', 'round');
+                    svg.appendChild(line);
+                }
+
+                // Draw forecast dots and labels (skip first = current position)
+                if (!isMacro) {
+                    drawForecastDots(svg, fcProjected.slice(1), zoom);
+                }
+            }
         }
     };
 
@@ -508,6 +542,139 @@ function drawTrackDots(svg: SVGSVGElement, projected: { px: mapboxgl.Point; poin
             infoTxt.setAttribute('fill', '#94a3b8');
             infoTxt.setAttribute('font-size', '8');
             infoTxt.setAttribute('font-weight', '500');
+            infoTxt.setAttribute('font-family', 'system-ui, sans-serif');
+            infoTxt.textContent = infoStr;
+            g.appendChild(infoTxt);
+        }
+
+        svg.appendChild(g);
+    }
+}
+
+/** Draw forecast position labels (future predicted track) */
+function drawForecastDots(
+    svg: SVGSVGElement,
+    projected: { px: mapboxgl.Point; point: CyclonePosition }[],
+    zoom: number,
+) {
+    const showLabels = zoom >= 7;
+
+    for (let i = 0; i < projected.length; i++) {
+        const { px, point } = projected[i];
+        const dotColor = windColor(point.windKts);
+        const cat = point.windKts ? windToSS(point.windKts) : 0;
+
+        // White glow ring (distinguishes forecast from historical)
+        const glow = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        glow.setAttribute('cx', String(px.x));
+        glow.setAttribute('cy', String(px.y));
+        glow.setAttribute('r', '7');
+        glow.setAttribute('fill', 'none');
+        glow.setAttribute('stroke', 'rgba(255,255,255,0.4)');
+        glow.setAttribute('stroke-width', '1.5');
+        svg.appendChild(glow);
+
+        // Inner dot
+        const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        dot.setAttribute('cx', String(px.x));
+        dot.setAttribute('cy', String(px.y));
+        dot.setAttribute('r', '5');
+        dot.setAttribute('fill', dotColor);
+        dot.setAttribute('stroke', '#000');
+        dot.setAttribute('stroke-width', '1');
+        svg.appendChild(dot);
+
+        // Category number inside dot for Cat 1+
+        if (cat >= 1) {
+            const catText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            catText.setAttribute('x', String(px.x));
+            catText.setAttribute('y', String(px.y + 3));
+            catText.setAttribute('fill', '#fff');
+            catText.setAttribute('font-size', '7');
+            catText.setAttribute('font-weight', '900');
+            catText.setAttribute('font-family', 'system-ui, sans-serif');
+            catText.setAttribute('text-anchor', 'middle');
+            catText.textContent = String(cat);
+            svg.appendChild(catText);
+        }
+
+        if (!showLabels || !point.time) continue;
+
+        // Format forecast time
+        const d = new Date(point.time);
+        const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const h = d.getUTCHours();
+        const hourStr = h >= 12 ? `${h === 12 ? 12 : h - 12} PM` : `${h === 0 ? 12 : h} AM`;
+        const timeLabel = `${dayNames[d.getUTCDay()]} ${hourStr}`;
+
+        const windStr = point.windKts ? `${point.windKts}kt` : '';
+        const presStr = point.pressureMb ? `${point.pressureMb}hPa` : '';
+        const infoStr = [windStr, presStr].filter(Boolean).join(' · ');
+
+        // Alternate label position
+        const labelRight = i % 2 === 0;
+        const xOff = labelRight ? 14 : -14;
+
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+        // Connector
+        const connector = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        connector.setAttribute('x1', String(px.x));
+        connector.setAttribute('y1', String(px.y));
+        connector.setAttribute('x2', String(px.x + xOff));
+        connector.setAttribute('y2', String(px.y));
+        connector.setAttribute('stroke', 'rgba(255,255,255,0.3)');
+        connector.setAttribute('stroke-width', '1');
+        connector.setAttribute('stroke-dasharray', '2,2');
+        g.appendChild(connector);
+
+        // Background
+        const pillW = 88;
+        const pillH = 30;
+        const rx = px.x + xOff + (labelRight ? 0 : -pillW);
+        const ry = px.y - pillH / 2;
+
+        const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        bg.setAttribute('x', String(rx));
+        bg.setAttribute('y', String(ry));
+        bg.setAttribute('width', String(pillW));
+        bg.setAttribute('height', String(pillH));
+        bg.setAttribute('rx', '3');
+        bg.setAttribute('fill', 'rgba(0,0,0,0.85)');
+        bg.setAttribute('stroke', 'rgba(255,255,255,0.15)');
+        bg.setAttribute('stroke-width', '0.5');
+        g.appendChild(bg);
+
+        // Color bar
+        const bar = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        bar.setAttribute('x', String(rx));
+        bar.setAttribute('y', String(ry));
+        bar.setAttribute('width', '2');
+        bar.setAttribute('height', String(pillH));
+        bar.setAttribute('rx', '1');
+        bar.setAttribute('fill', dotColor);
+        g.appendChild(bar);
+
+        // "FCST" header
+        const fcstTxt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        fcstTxt.setAttribute('x', String(rx + 6));
+        fcstTxt.setAttribute('y', String(ry + 9));
+        fcstTxt.setAttribute('fill', '#fbbf24');
+        fcstTxt.setAttribute('font-size', '7');
+        fcstTxt.setAttribute('font-weight', '700');
+        fcstTxt.setAttribute('font-family', 'system-ui, sans-serif');
+        fcstTxt.setAttribute('letter-spacing', '0.08em');
+        fcstTxt.textContent = `FCST · ${timeLabel}`;
+        g.appendChild(fcstTxt);
+
+        // Wind + pressure
+        if (infoStr) {
+            const infoTxt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            infoTxt.setAttribute('x', String(rx + 6));
+            infoTxt.setAttribute('y', String(ry + 20));
+            infoTxt.setAttribute('fill', dotColor);
+            infoTxt.setAttribute('font-size', '9');
+            infoTxt.setAttribute('font-weight', '700');
             infoTxt.setAttribute('font-family', 'system-ui, sans-serif');
             infoTxt.textContent = infoStr;
             g.appendChild(infoTxt);
