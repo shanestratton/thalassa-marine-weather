@@ -207,20 +207,16 @@ export const MapHub: React.FC<MapHubProps> = ({
         const map = mapRef.current;
         if (!map || !cycloneVisible || !closestStorm) return;
 
-        const onZoomEnd = () => {
-            const { lat, lon } = closestStorm.currentPosition;
-            const center = map.getCenter();
-            // Only re-center if the storm isn't already roughly centered
-            const dLat = Math.abs(center.lat - lat);
-            const dLon = Math.abs(center.lng - lon);
-            if (dLat > 0.5 || dLon > 0.5) {
-                map.easeTo({ center: [lon, lat], duration: 300 });
-            }
+        const { lat, lon } = closestStorm.currentPosition;
+
+        // Lock center to storm on every zoom frame (instant, no animation)
+        const onZoom = () => {
+            map.setCenter([lon, lat]);
         };
 
-        map.on('zoomend', onZoomEnd);
+        map.on('zoom', onZoom);
         return () => {
-            map.off('zoomend', onZoomEnd);
+            map.off('zoom', onZoom);
         };
     }, [cycloneVisible, closestStorm, mapRef]);
 
