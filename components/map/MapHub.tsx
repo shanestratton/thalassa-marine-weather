@@ -522,7 +522,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         );
         return { dLat: offLat, dLon: offLon };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [closestStorm, cycloneVisible, weather.windHour]);
+    }, [closestStorm, cycloneVisible, weather.windHour, weather.windReady]);
 
     // ── Embedded Rain (also loads as background on full-map velocity mode) ──
     const _embRain = useEmbeddedRain(mapRef, embedded, mapReady, false);
