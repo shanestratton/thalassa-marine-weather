@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createLogger } from '../utils/createLogger';
 
-const _log = createLogger('SettingsModal');
+const log = createLogger('SettingsModal');
 import { UserSettings } from '../types';
 import { BellIcon, ArrowRightIcon, BoatIcon, StarIcon, GearIcon, ServerIcon, MapPinIcon } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
