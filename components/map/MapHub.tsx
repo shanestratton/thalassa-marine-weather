@@ -440,8 +440,10 @@ export const MapHub: React.FC<MapHubProps> = ({
 
         if (bestVort < 3) return null; // No cyclonic rotation found
 
-        const offLat = stormLat - bestLat;
-        const offLon = stormLon - bestLon;
+        // Negate: shifting bounds LEFT makes pattern move RIGHT in the renderer,
+        // so we need GFS→ATCF direction, not ATCF→GFS
+        const offLat = bestLat - stormLat;
+        const offLon = bestLon - stormLon;
 
         if (Math.abs(offLat) < 0.1 && Math.abs(offLon) < 0.1) return null;
 
