@@ -526,39 +526,56 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         const nx = windGrid.width;
         const ny = windGrid.height;
 
-        // Interpolate U/V between hours and flip rows (south→north to north→south)
+        const dx = windGrid.lons.length > 1 ? Math.abs(windGrid.lons[1] - windGrid.lons[0]) : 1;
+        const dy = windGrid.lats.length > 1 ? Math.abs(windGrid.lats[1] - windGrid.lats[0]) : 1;
+
+        // Compute data shift in grid cells from vortex offset
+        const colShift = vortexOffset ? Math.round(vortexOffset.dLon / dx) : 0;
+        const rowShift = vortexOffset ? Math.round(vortexOffset.dLat / dy) : 0;
+
+        // Interpolate U/V between hours, flip rows, and apply vortex data shift
         const uFlipped = new Array(nx * ny);
         const vFlipped = new Array(nx * ny);
         for (let row = 0; row < ny; row++) {
-            const srcRow = (ny - 1 - row) * nx;
+            const srcRow = ny - 1 - row; // flip south→north to north→south
             const dstRow = row * nx;
+
+            // Apply row shift to source (shift data, not bounds)
+            const shiftedSrcRow = srcRow + rowShift;
+
             for (let col = 0; col < nx; col++) {
-                const si = srcRow + col;
                 const di = dstRow + col;
+
+                // Apply col shift to source
+                const shiftedCol = col + colShift;
+
+                // Bounds check — if shifted source is outside grid, use zero wind
+                if (shiftedSrcRow < 0 || shiftedSrcRow >= ny || shiftedCol < 0 || shiftedCol >= nx) {
+                    uFlipped[di] = 0;
+                    vFlipped[di] = 0;
+                    continue;
+                }
+
+                const si = shiftedSrcRow * nx + shiftedCol;
                 if (lerp < 0.01 || !u1 || !v1) {
-                    // No interpolation needed — exact hour
                     uFlipped[di] = u0[si];
                     vFlipped[di] = v0[si];
                 } else {
-                    // Smooth blend between hours
                     uFlipped[di] = u0[si] * (1 - lerp) + u1[si] * lerp;
                     vFlipped[di] = v0[si] * (1 - lerp) + v1[si] * lerp;
                 }
             }
         }
 
-        const dx = windGrid.lons.length > 1 ? Math.abs(windGrid.lons[1] - windGrid.lons[0]) : 1;
-        const dy = windGrid.lats.length > 1 ? Math.abs(windGrid.lats[1] - windGrid.lats[0]) : 1;
-
         const header = {
             nx,
             ny,
             dx,
             dy,
-            lo1: windGrid.west + (vortexOffset?.dLon ?? 0),
-            lo2: windGrid.east + (vortexOffset?.dLon ?? 0),
-            la1: windGrid.north + (vortexOffset?.dLat ?? 0),
-            la2: windGrid.south + (vortexOffset?.dLat ?? 0),
+            lo1: windGrid.west,
+            lo2: windGrid.east,
+            la1: windGrid.north,
+            la2: windGrid.south,
             parameterCategory: 2,
             parameterNumber: 2,
             parameterNumberName: 'U-component_of_wind',
