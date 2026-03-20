@@ -430,7 +430,7 @@ export function useWeatherLayers(
                         );
                     }
 
-                    console.warn(
+                    log.info(
                         `[WindScrubber] Grid loaded: totalHours=${currentGrid.totalHours}, u.length=${currentGrid.u.length}`,
                     );
                 })
@@ -524,7 +524,7 @@ export function useWeatherLayers(
                 try {
                     if (m.getLayer(fcId)) m.setPaintProperty(fcId, 'raster-opacity', 0);
                 } catch (_) {
-                    console.warn(`[useWeatherLayers]`, _);
+                    log.warn('[useWeatherLayers]', _);
                 }
                 visibleForecastIdxRef.current = null;
             }
@@ -535,7 +535,7 @@ export function useWeatherLayers(
                 try {
                     if (m.getLayer(prevId)) m.setPaintProperty(prevId, 'raster-opacity', 0);
                 } catch (_) {
-                    console.warn(`[useWeatherLayers]`, _);
+                    log.warn('[useWeatherLayers]', _);
                 }
             }
 
@@ -545,7 +545,7 @@ export function useWeatherLayers(
                 try {
                     if (m.getLayer(layerId)) m.setPaintProperty(layerId, 'raster-opacity', 0.75);
                 } catch (_) {
-                    console.warn(`[useWeatherLayers]`, _);
+                    log.warn('[useWeatherLayers]', _);
                 }
                 visibleRadarIdxRef.current = rdIdx;
             }
@@ -561,7 +561,7 @@ export function useWeatherLayers(
                 try {
                     if (m.getLayer(rdId)) m.setPaintProperty(rdId, 'raster-opacity', 0);
                 } catch (_) {
-                    console.warn(`[useWeatherLayers]`, _);
+                    log.warn('[useWeatherLayers]', _);
                 }
                 visibleRadarIdxRef.current = null;
             }
@@ -572,7 +572,7 @@ export function useWeatherLayers(
                 try {
                     if (m.getLayer(prevId)) m.setPaintProperty(prevId, 'raster-opacity', 0);
                 } catch (_) {
-                    console.warn(`[useWeatherLayers]`, _);
+                    log.warn('[useWeatherLayers]', _);
                 }
             }
 
@@ -582,7 +582,7 @@ export function useWeatherLayers(
                 try {
                     if (m.getLayer(layerId)) m.setPaintProperty(layerId, 'raster-opacity', 0.75);
                 } catch (_) {
-                    console.warn(`[useWeatherLayers]`, _);
+                    log.warn('[useWeatherLayers]', _);
                 }
                 visibleForecastIdxRef.current = fcIdx;
             }
@@ -604,7 +604,7 @@ export function useWeatherLayers(
                         if (map.getLayer(id)) map.removeLayer(id);
                         if (map.getSource(id)) map.removeSource(id);
                     } catch (_) {
-                        console.warn(`[useWeatherLayers]`, _);
+                        log.warn('[useWeatherLayers]', _);
                     }
                 });
             }
@@ -620,7 +620,7 @@ export function useWeatherLayers(
             try {
                 if (map.getLayer('wind-particles')) map.removeLayer('wind-particles');
             } catch (_) {
-                console.warn(`[useWeatherLayers]`, _);
+                log.warn('[useWeatherLayers]', _);
             }
             windEngineRef.current = null;
             WindDataController.deactivate(map);
@@ -1117,17 +1117,17 @@ export function useWeatherLayers(
                             try {
                                 if (m?.getLayer(id)) m.removeLayer(id);
                             } catch (_) {
-                                console.warn(`[useWeatherLayers]`, _);
+                                log.warn('[useWeatherLayers]', _);
                             }
                             try {
                                 if (m?.getSource(id)) m.removeSource(id);
                             } catch (_) {
-                                console.warn(`[useWeatherLayers]`, _);
+                                log.warn('[useWeatherLayers]', _);
                             }
                         });
                     }
                 } catch (_) {
-                    console.warn(`[useWeatherLayers]`, _);
+                    log.warn('[useWeatherLayers]', _);
                 }
 
                 unifiedFramesRef.current = [];
@@ -1145,12 +1145,12 @@ export function useWeatherLayers(
                 try {
                     if (map.getLayer(tileId)) map.removeLayer(tileId);
                 } catch (_) {
-                    console.warn(`[useWeatherLayers]`, _);
+                    log.warn('[useWeatherLayers]', _);
                 }
                 try {
                     if (map.getSource(tileId)) map.removeSource(tileId);
                 } catch (_) {
-                    console.warn(`[useWeatherLayers]`, _);
+                    log.warn('[useWeatherLayers]', _);
                 }
             }
         }
@@ -1158,12 +1158,12 @@ export function useWeatherLayers(
         try {
             if (map.getLayer('weather-tiles')) map.removeLayer('weather-tiles');
         } catch (_) {
-            console.warn(`[useWeatherLayers]`, _);
+            log.warn('[useWeatherLayers]', _);
         }
         try {
             if (map.getSource('weather-tiles')) map.removeSource('weather-tiles');
         } catch (_) {
-            console.warn(`[useWeatherLayers]`, _);
+            log.warn('[useWeatherLayers]', _);
         }
 
         // Add tile layers that ARE active
@@ -1344,7 +1344,7 @@ export function useEmbeddedRain(
                         embRainNowIdx.current = nowIdx;
                         setEmbRainIdx(nowIdx);
                     } catch (err) {
-                        console.warn(`[useWeatherLayers]`, err);
+                        log.warn('[useWeatherLayers]', err);
                     }
                 })();
             },
@@ -1357,7 +1357,7 @@ export function useEmbeddedRain(
                 if (mx?.getLayer('embedded-rain')) mx.removeLayer('embedded-rain');
                 if (mx?.getSource('embedded-rain')) mx.removeSource('embedded-rain');
             } catch (_) {
-                console.warn(`[useWeatherLayers]`, _);
+                log.warn('[useWeatherLayers]', _);
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps

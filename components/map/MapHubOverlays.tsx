@@ -224,6 +224,7 @@ export const LayerFABMenu: React.FC<{
         return () => {
             if (dismissTimer.current) clearTimeout(dismissTimer.current);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showLayerMenu, activeCount]); // reset on every toggle (activeCount changes)
 
     return (

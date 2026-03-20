@@ -231,8 +231,9 @@ const ThalassaMap: React.FC<ThalassaMapProps> = ({
 
     // Cleanup
     useEffect(() => {
+        const currentMap = mapRef.current;
         return () => {
-            const map = mapRef.current?.getMap();
+            const map = currentMap?.getMap();
             if (map && windLayerRef.current) {
                 try {
                     map.removeLayer(windLayerRef.current.id);
