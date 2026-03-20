@@ -110,6 +110,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                 <div className="shrink-0 px-4 pt-4 pb-3">
                     <div className="flex items-center gap-3">
                         <button
+                            aria-label="Cancel"
                             onClick={onCancel}
                             className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
                         >
@@ -151,6 +152,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             const cfg = MOOD_CONFIG[key];
                             return (
                                 <button
+                                    aria-label="Set Mood"
                                     key={key}
                                     onClick={() => {
                                         onSetMood(key);
@@ -174,6 +176,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                         <div className="flex gap-2">
                             {/* Position — 2/3 width */}
                             <button
+                                aria-label="Grab Gps"
                                 type="button"
                                 onClick={onGrabGps}
                                 disabled={gpsLoading}
@@ -218,6 +221,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
 
                             {/* Voice — 1/6 width */}
                             <button
+                                aria-label="Recording"
                                 onClick={isRecording ? onStopRecording : onStartRecording}
                                 className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-xl border transition-all active:scale-[0.95] ${
                                     isRecording
@@ -251,6 +255,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
 
                             {/* Polish — 1/6 width */}
                             <button
+                                aria-label="Polish"
                                 onClick={onPolish}
                                 disabled={polishing || body.trim().length < 10}
                                 className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-xl border transition-all active:scale-[0.95] ${
@@ -364,6 +369,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                 <div key={i} className="relative aspect-square rounded-xl overflow-hidden group">
                                     <img src={url} loading="lazy" alt="" className="w-full h-full object-cover" />
                                     <button
+                                        aria-label="Remove"
                                         onClick={() => onPhotoRemove(i)}
                                         className="absolute top-1 right-1 w-5 h-5 bg-black/60 rounded-full flex items-center justify-center text-white text-[11px] opacity-0 group-hover:opacity-100 transition-opacity"
                                     >
@@ -373,6 +379,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             ))}
                             {Array.from({ length: Math.max(1, 6 - photos.length) }).map((_, i) => (
                                 <button
+                                    aria-label="Ref"
                                     key={`add-${i}`}
                                     onClick={() => fileRef.current?.click()}
                                     disabled={uploading || photos.length >= 6}
@@ -403,12 +410,14 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                 <div className="shrink-0 px-4 py-3 border-t border-white/5 bg-slate-950">
                     <div className="flex gap-3">
                         <button
+                            aria-label="Cancel"
                             onClick={onCancel}
                             className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.08] text-gray-400 font-bold text-sm hover:bg-white/10 transition-colors active:scale-[0.98]"
                         >
                             Cancel
                         </button>
                         <button
+                            aria-label="Save"
                             onClick={onSave}
                             disabled={saving || (!body.trim() && !title.trim() && !audioUrl)}
                             className="flex-[2] py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-400 text-white font-bold text-sm transition-colors active:scale-[0.98]"

@@ -90,6 +90,7 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                     ] as const
                 ).map((tab) => (
                     <button
+                        aria-label="User Id"
                         key={tab.key}
                         onClick={() => {
                             if ((tab.key === 'board' || tab.key === 'matches') && !currentUserId) {

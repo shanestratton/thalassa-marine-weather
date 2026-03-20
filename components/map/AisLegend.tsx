@@ -69,6 +69,7 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
             >
                 {/* Guard Zone Shield Toggle */}
                 <button
+                    aria-label="Guard"
                     onClick={toggleGuard}
                     onContextMenu={(e) => {
                         e.preventDefault();
@@ -156,6 +157,7 @@ export const AisLegend: React.FC<AisLegendProps> = ({ visible }) => {
                 >
                     {RADIUS_OPTIONS.map((r) => (
                         <button
+                            aria-label="Radius"
                             key={r}
                             onClick={() => selectRadius(r)}
                             style={{

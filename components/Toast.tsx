@@ -151,6 +151,7 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: () => void }> = ({ item,
             </span>
             {item.action && (
                 <button
+                    aria-label="Click"
                     onClick={() => {
                         item.action!.onClick();
                         setExiting(true);

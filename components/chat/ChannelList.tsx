@@ -206,6 +206,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
             {/* Admin Panel — gold crown card */}
             {isAdmin && onOpenAdmin && (
                 <button
+                    aria-label="Open Admin"
                     onClick={onOpenAdmin}
                     className="w-full group flex items-center gap-3.5 p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/[0.08] to-yellow-500/[0.04] hover:from-amber-500/[0.15] hover:to-yellow-500/[0.08] border border-amber-500/20 hover:border-amber-500/40 transition-all duration-200 active:scale-[0.98] mb-3"
                 >

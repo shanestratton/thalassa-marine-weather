@@ -116,6 +116,7 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
                     <div key={group.date} className="rounded-xl overflow-hidden border border-white/5 bg-slate-900/20">
                         {/* Date Header - Sticky */}
                         <button
+                            aria-label="Date"
                             onClick={() => toggleDate(group.date)}
                             className={`w-full px-3 py-2 flex items-center justify-between transition-all duration-150 ${
                                 isToday ? 'bg-sky-900/30 hover:bg-sky-900/40' : 'bg-slate-800/50 hover:bg-slate-800/70'
@@ -262,6 +263,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                     >
                         {onEdit && (
                             <button
+                                aria-label="Swipe Offset"
                                 onClick={() => {
                                     setSwipeOffset(0);
                                     onEdit!(entry);
@@ -288,6 +290,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                         )}
                         {onDelete && (
                             <button
+                                aria-label="Swipe Offset"
                                 onClick={() => {
                                     setSwipeOffset(0);
                                     onDelete!(entry.id);
@@ -333,6 +336,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                 >
                     {/* Compact Row - Always Visible */}
                     <button
+                        aria-label="Toggle"
                         onClick={() => onToggle(entry.id)}
                         className="w-full px-2.5 py-2 flex items-center gap-2 text-left active:scale-[0.99] transition-transform"
                     >
@@ -523,6 +527,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                                 <div className="mt-3 flex gap-2">
                                     {onEdit && (
                                         <button
+                                            aria-label="Propagation"
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 onEdit!(entry);
@@ -547,6 +552,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                                     )}
                                     {onDelete && entry.entryType !== 'auto' && (
                                         <button
+                                            aria-label="Propagation"
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 onDelete!(entry.id);

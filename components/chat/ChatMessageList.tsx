@@ -351,6 +351,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                     className={`mt-1.5 rounded-2xl overflow-hidden border ${isLoc ? 'border-emerald-500/20' : isPoi ? 'border-purple-500/20' : 'border-white/[0.08]'} bg-white/[0.02] max-w-[280px]`}
                                                                 >
                                                                     <button
+                                                                        aria-label="Pin"
                                                                         onClick={() => navigateToPin(pin.lat, pin.lng)}
                                                                         className="w-full cursor-pointer hover:opacity-90 transition-opacity relative"
                                                                     >
@@ -426,6 +427,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                             const isImporting = importingTrackId === track.trackId;
                                                             return (
                                                                 <button
+                                                                    aria-label="Show Track Disclaimer"
                                                                     onClick={() => onShowTrackDisclaimer(track)}
                                                                     disabled={isImporting}
                                                                     className="mt-1.5 rounded-2xl overflow-hidden border border-sky-500/[0.15] bg-gradient-to-r from-sky-500/[0.06] to-sky-500/[0.04] max-w-[280px] px-3 py-2.5 text-left w-full hover:from-sky-500/[0.12] hover:to-sky-500/[0.08] transition-all active:scale-[0.98] disabled:opacity-50"
@@ -493,6 +495,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                         </button>
                                                         {isMod && (
                                                             <button
+                                                                aria-label="Toggle"
                                                                 onClick={() => onToggleModMenu(msg.id)}
                                                                 className="text-[11px] text-white/40 hover:text-red-400/60 transition-colors"
                                                             >
@@ -530,6 +533,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                 { hrs: 168, label: '7d' },
                                                             ].map(({ hrs, label }) => (
                                                                 <button
+                                                                    aria-label="Mute"
                                                                     key={hrs}
                                                                     onClick={() => onMuteUser(msg.user_id, hrs)}
                                                                     className="text-[11px] text-amber-400/70 hover:bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/10 transition-colors min-h-[36px]"

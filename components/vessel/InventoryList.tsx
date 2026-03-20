@@ -181,6 +181,7 @@ const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                         {/* Quantity controls only */}
                         <div className="flex items-center justify-center gap-4 py-2 bg-white/[0.03] border border-white/[0.06] rounded-xl">
                             <button
+                                aria-label="Propagation"
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     onQuantityAdjust(item.id, -1);
@@ -194,6 +195,7 @@ const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
                                 {item.quantity}
                             </span>
                             <button
+                                aria-label="Propagation"
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     onQuantityAdjust(item.id, 1);
@@ -466,6 +468,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                         <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
                                         <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                                             <button
+                                                aria-label="Menu"
                                                 onClick={() => {
                                                     setHeaderMenuOpen(false);
                                                     setExportMode('download');
@@ -491,6 +494,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                             </button>
                                             <div className="border-t border-white/5" />
                                             <button
+                                                aria-label="Menu"
                                                 onClick={() => {
                                                     setHeaderMenuOpen(false);
                                                     setExportMode('share');
@@ -643,6 +647,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             <div className="grid grid-cols-4 gap-1 mt-0.5">
                                 {CATEGORIES.map((cat) => (
                                     <button
+                                        aria-label="Edit"
                                         key={cat}
                                         type="button"
                                         onClick={() => setEditCategory(cat)}
@@ -679,6 +684,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                     className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors"
                                 />
                                 <button
+                                    aria-label="Capacitor"
                                     type="button"
                                     onClick={async () => {
                                         if (Capacitor.isNativePlatform()) {
@@ -779,6 +785,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         <p className="text-micro text-amber-400/80 text-center mt-2">Item name is required</p>
                     )}
                     <button
+                        aria-label="Edit"
                         onClick={handleSaveEdit}
                         disabled={!editName.trim()}
                         className="w-full mt-2 py-2.5 bg-gradient-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98] disabled:opacity-30"
@@ -809,6 +816,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             const selected = exportCategories.has(cat);
                             return (
                                 <button
+                                    aria-label="Export Category"
                                     key={cat}
                                     onClick={() => toggleExportCategory(cat)}
                                     className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-bold transition-all ${
@@ -836,6 +844,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         })}
                     </div>
                     <button
+                        aria-label="Export"
                         onClick={() => handleExport(exportMode, exportCategories)}
                         className="w-full py-3 bg-gradient-to-r from-sky-600 to-sky-500 text-white font-black text-sm uppercase tracking-widest rounded-xl transition-all active:scale-[0.98]"
                     >

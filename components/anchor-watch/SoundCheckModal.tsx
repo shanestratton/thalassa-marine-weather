@@ -65,12 +65,14 @@ export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onC
                 {/* Actions */}
                 <div className="px-5 pb-5 flex gap-2.5">
                     <button
+                        aria-label="Cancel"
                         onClick={onCancel}
                         className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.06] text-sm font-bold text-slate-400 hover:text-white transition-colors"
                     >
                         Cancel
                     </button>
                     <button
+                        aria-label="Confirm"
                         onClick={onConfirm}
                         className="flex-[2] py-3 rounded-xl text-white text-sm font-black transition-all active:scale-[0.98]"
                         style={{

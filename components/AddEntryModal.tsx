@@ -174,6 +174,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                         <div className="grid grid-cols-4 gap-2">
                             {EVENT_CATEGORIES.map((cat) => (
                                 <button
+                                    aria-label="Event Category"
                                     key={cat.value}
                                     type="button"
                                     onClick={() => setEventCategory(cat.value)}
@@ -234,6 +235,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                     <div className="flex gap-2">
                         {/* Position — 2/3 width */}
                         <button
+                            aria-label="Fetching Pos"
                             type="button"
                             disabled={fetchingPos}
                             onClick={async () => {
@@ -288,6 +290,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
 
                         {/* Voice — 1/6 width */}
                         <button
+                            aria-label="SR"
                             type="button"
                             onClick={() => {
                                 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -338,6 +341,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
 
                         {/* Polish — 1/6 width */}
                         <button
+                            aria-label="Polishing"
                             type="button"
                             disabled={polishing || !notes.trim()}
                             onClick={() => {
@@ -384,6 +388,7 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                     {/* Buttons */}
                     <div className="flex gap-3 pt-2">
                         <button
+                            aria-label="Close"
                             type="button"
                             onClick={onClose}
                             className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold transition-colors"

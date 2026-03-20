@@ -108,6 +108,7 @@ export const AccordionSection: React.FC<AccordionSectionProps> = React.memo(
 
                 {/* Header Bar — always visible */}
                 <button
+                    aria-label="Is Open"
                     onClick={() => setIsOpen((o) => !o)}
                     className="w-full flex items-center gap-3 px-5 py-4 text-left group relative z-10 transition-colors hover:bg-white/[0.03]"
                     aria-expanded={isOpen}

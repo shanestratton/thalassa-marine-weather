@@ -87,6 +87,7 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({
                             <div className="space-y-1">
                                 {entries.map((entry) => (
                                     <button
+                                        aria-label="Local Selected"
                                         key={entry.model}
                                         onClick={() => {
                                             setLocalSelected(entry.model);

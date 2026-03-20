@@ -599,6 +599,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                                         <span className="text-[11px] text-sky-400 font-bold">⏱ {elapsedLabel}</span>
                                     )}
                                     <button
+                                        aria-label="Show HUD"
                                         onClick={() => setShowHUD(false)}
                                         className="w-5 h-5 flex items-center justify-center rounded-full bg-white/10 text-white/60 hover:text-white transition-colors pointer-events-auto"
                                     >
@@ -799,6 +800,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                                         )}
                                     </div>
                                     <button
+                                        aria-label="Active Waypoint"
                                         onClick={() => setActiveWaypoint(null)}
                                         className="w-5 h-5 flex items-center justify-center rounded-full bg-white/10 text-amber-300/60 hover:text-white transition-colors shrink-0"
                                     >
@@ -860,6 +862,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                     .track-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #22c55e; margin-top: -5.5px; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
                 `}</style>
                 <button
+                    aria-label="Go back"
                     onClick={togglePlayback}
                     className="w-6 h-6 flex items-center justify-center shrink-0 text-white/70 active:scale-90 transition-transform"
                 >

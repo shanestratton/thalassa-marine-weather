@@ -53,6 +53,7 @@ export const TimerBadge = () => {
 
     return (
         <button
+            aria-label="Tap"
             onClick={handleTap}
             disabled={isRefreshing}
             className={`px-2 py-1.5 rounded-lg border text-[11px] font-bold uppercase tracking-wider bg-black/40 flex items-center gap-1 min-w-[52px] justify-center active:scale-95 transition-transform ${

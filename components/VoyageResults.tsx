@@ -802,6 +802,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                                 <DiamondIcon className="w-8 h-8 text-sky-500/40 mb-3" />
                                 <p className="text-sm text-gray-400 mb-4 max-w-md">{voyagePlan.overview}</p>
                                 <button
+                                    aria-label="Deep Analysis"
                                     onClick={handleDeepAnalysis}
                                     disabled={analyzingDeep}
                                     className="text-sky-400 hover:text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20 px-4 py-2 rounded-lg text-xs font-bold uppercase tracking-wider transition-all flex items-center gap-2"
@@ -963,6 +964,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                     {/* EXPORT & SAVE BUTTONS */}
                     <div className="grid grid-cols-2 gap-3">
                         <button
+                            aria-label="Passage Brief"
                             onClick={async () => {
                                 const { printPassageBrief } = await import('../utils/pdfExport');
                                 printPassageBrief({ voyagePlan, vessel });
@@ -975,6 +977,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                             </span>
                         </button>
                         <button
+                            aria-label="Ship Log Service"
                             onClick={async () => {
                                 try {
                                     const { ShipLogService } = await import('../services/ShipLogService');

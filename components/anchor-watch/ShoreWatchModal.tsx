@@ -91,6 +91,7 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
                                     aria-label="6-digit session code"
                                 />
                                 <button
+                                    aria-label="Join"
                                     onClick={() => {
                                         onJoin();
                                         onClose();

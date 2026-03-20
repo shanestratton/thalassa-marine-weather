@@ -22,6 +22,7 @@ export const AudioWidget: React.FC<AudioWidgetProps> = React.memo(
         <div className="bg-gradient-to-r from-emerald-500/10 to-emerald-500/10 border border-emerald-500/15 rounded-xl p-3">
             <div className="flex items-center gap-2.5">
                 <button
+                    aria-label="Go back"
                     onClick={() => onTogglePlayback(url)}
                     className="p-2.5 bg-emerald-500/20 rounded-full hover:bg-emerald-500/30 transition-colors active:scale-95"
                 >
@@ -52,6 +53,7 @@ export const AudioWidget: React.FC<AudioWidgetProps> = React.memo(
                 <div className="flex items-center gap-1">
                     {allowTranscribe && onTranscribe && (
                         <button
+                            aria-label="Transcribe"
                             onClick={() => onTranscribe(url)}
                             disabled={transcribing}
                             className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[11px] font-bold text-purple-300 hover:bg-purple-500/15 transition-colors disabled:opacity-40"
@@ -61,7 +63,11 @@ export const AudioWidget: React.FC<AudioWidgetProps> = React.memo(
                         </button>
                     )}
                     {allowRemove && onRemove && (
-                        <button onClick={onRemove} className="p-1.5 rounded-lg hover:bg-red-500/20 transition-colors">
+                        <button
+                            aria-label="Remove"
+                            onClick={onRemove}
+                            className="p-1.5 rounded-lg hover:bg-red-500/20 transition-colors"
+                        >
                             <svg
                                 className="w-4 h-4 text-red-400/60"
                                 fill="none"

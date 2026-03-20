@@ -182,6 +182,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 <div className="grid grid-cols-4 gap-3 stagger-cascade">
                     {/* Anchor Watch Card */}
                     <button
+                        aria-label="Haptic"
                         onClick={() => {
                             triggerHaptic('light');
                             onNavigate('compass');
@@ -213,6 +214,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
                     {/* 🛡️ Guardian Card — Maritime Neighborhood Watch */}
                     <button
+                        aria-label="Haptic"
                         onClick={() => {
                             triggerHaptic('light');
                             onNavigate('guardian');
@@ -242,6 +244,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
                     {/* Passage Planning Card */}
                     <button
+                        aria-label="Observer"
                         onClick={() => {
                             if (isObserver) return;
                             triggerHaptic('light');
@@ -264,6 +267,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
                     {/* Log Book Card */}
                     <button
+                        aria-label="Haptic"
                         onClick={() => {
                             triggerHaptic('light');
                             onNavigate('details');
@@ -309,6 +313,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         const disabled = card.id === 'polars' && isObserver;
                         return (
                             <button
+                                aria-label="Haptic"
                                 key={card.id}
                                 onClick={() => {
                                     if (disabled) return;
@@ -349,6 +354,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 </div>
 
                 <button
+                    aria-label="Haptic"
                     onClick={() => {
                         triggerHaptic('light');
                         onNavigate('crew');
@@ -397,6 +403,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden divide-y divide-white/[0.06]">
                     {/* Account & Subscription */}
                     <button
+                        aria-label="Navigate"
                         onClick={() => onNavigate('settings')}
                         className="w-full px-4 py-3.5 flex items-center gap-3 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98]"
                     >

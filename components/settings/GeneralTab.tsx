@@ -183,6 +183,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
             <Section title="Danger Zone">
                 <div className="p-4">
                     <button
+                        aria-label="Reset"
                         onClick={onShowFactoryReset}
                         className="w-full py-3 bg-red-500/10 text-red-400 rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-2"
                     >

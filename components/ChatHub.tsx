@@ -133,6 +133,7 @@ export const ChatHub: React.FC = () => {
 
                     {/* Community tab */}
                     <button
+                        aria-label="Haptic"
                         onClick={() => {
                             triggerHaptic('light');
                             setActiveTab('community');
@@ -159,6 +160,7 @@ export const ChatHub: React.FC = () => {
 
                     {/* Marketplace tab */}
                     <button
+                        aria-label="Haptic"
                         onClick={() => {
                             triggerHaptic('light');
                             setActiveTab('marketplace');
@@ -227,6 +229,7 @@ export const ChatHub: React.FC = () => {
                             <div className="space-y-1 p-4">
                                 {conversations.map((convo) => (
                                     <button
+                                        aria-label="Haptic"
                                         key={convo.listing.id}
                                         onClick={() => {
                                             triggerHaptic('light');

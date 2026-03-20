@@ -383,6 +383,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                         <div className="grid grid-cols-4 gap-1.5 mt-0.5">
                             {CATEGORIES.map((cat) => (
                                 <button
+                                    aria-label="New Item"
                                     key={cat}
                                     onClick={() => setNewItem((prev) => ({ ...prev, category: cat }))}
                                     className={`py-1 rounded-lg text-label font-bold transition-all text-center ${
@@ -418,6 +419,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                                 className="flex-[2] min-w-0 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm font-mono outline-none focus:border-sky-500/30 transition-colors placeholder:text-gray-400"
                             />
                             <button
+                                aria-label="Inline Scanner"
                                 type="button"
                                 onClick={openInlineScanner}
                                 className="flex-1 flex items-center justify-center gap-1.5 bg-sky-600/20 border border-sky-500/30 rounded-xl text-sky-400 text-xs font-bold hover:bg-sky-600/30 transition-colors active:scale-95"
@@ -540,12 +542,14 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                 {/* Actions */}
                 <div className="flex gap-3 mt-3">
                     <button
+                        aria-label="Close"
                         onClick={onClose}
                         className="flex-1 py-2.5 bg-white/5 text-gray-400 rounded-xl text-sm font-bold"
                     >
                         Cancel
                     </button>
                     <button
+                        aria-label="Save"
                         onClick={handleSaveNew}
                         disabled={!newItem.item_name.trim() || saving}
                         className="flex-1 py-2.5 bg-sky-600 text-white rounded-xl text-sm font-black uppercase tracking-wider disabled:opacity-50 transition-all active:scale-[0.98]"
@@ -602,6 +606,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                         </button>
                         <span className="text-sm font-black text-white uppercase tracking-widest">Scan Item</span>
                         <button
+                            aria-label="Manual Entry"
                             onClick={handleManualEntry}
                             className="px-3 py-2 rounded-xl bg-white/10 text-xs font-bold text-white"
                         >
@@ -616,6 +621,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                         <div className="text-center px-8">
                             <p className="text-amber-400 text-sm font-bold mb-4">{cameraError}</p>
                             <button
+                                aria-label="Manual Entry"
                                 onClick={handleManualEntry}
                                 className="px-6 py-3 bg-sky-600 text-white rounded-xl text-sm font-bold"
                             >
@@ -664,6 +670,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                     {/* Quantity controls */}
                     <div className="flex items-center justify-center gap-6 py-4 bg-white/[0.03] border border-white/[0.06] rounded-2xl mb-4">
                         <button
+                            aria-label="Quantity Adjust"
                             onClick={() => handleQuantityAdjust(-1)}
                             disabled={saving || foundItem.quantity <= 0}
                             className="w-14 h-14 rounded-2xl bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400 text-2xl font-black hover:bg-red-500/30 transition-all active:scale-90 disabled:opacity-30"
@@ -675,6 +682,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                             <p className="text-label text-gray-400 uppercase tracking-widest">In Stock</p>
                         </div>
                         <button
+                            aria-label="Quantity Adjust"
                             onClick={() => handleQuantityAdjust(1)}
                             disabled={saving}
                             className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-2xl font-black hover:bg-emerald-500/30 transition-all active:scale-90"
@@ -693,6 +701,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                     )}
 
                     <button
+                        aria-label="Sheet"
                         onClick={dismissSheet}
                         className="w-full py-3 bg-white/5 text-gray-400 rounded-xl text-sm font-bold"
                     >
@@ -720,6 +729,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                             <div className="grid grid-cols-4 gap-1.5 mt-1">
                                 {CATEGORIES.map((cat) => (
                                     <button
+                                        aria-label="New Item"
                                         key={cat}
                                         onClick={() => setNewItem((prev) => ({ ...prev, category: cat }))}
                                         className={`py-1.5 rounded-lg text-label font-bold transition-all text-center ${
@@ -859,12 +869,14 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                     {/* Actions */}
                     <div className="flex gap-3 mt-5">
                         <button
+                            aria-label="Sheet"
                             onClick={dismissSheet}
                             className="flex-1 py-3 bg-white/5 text-gray-400 rounded-xl text-sm font-bold"
                         >
                             Cancel
                         </button>
                         <button
+                            aria-label="Save"
                             onClick={handleSaveNew}
                             disabled={!newItem.item_name.trim() || saving}
                             className="flex-1 py-3 bg-sky-600 text-white rounded-xl text-sm font-black uppercase tracking-wider disabled:opacity-50 transition-all active:scale-[0.98]"

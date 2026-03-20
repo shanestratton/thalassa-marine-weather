@@ -31,12 +31,14 @@ export const PointInput: React.FC<{
             <p className="text-xs text-white font-bold truncate">{point ? point.name : 'Not set'}</p>
         </div>
         <button
+            aria-label="Use Current"
             onClick={onUseCurrent}
             className="text-[11px] text-sky-400 font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg hover:bg-sky-500/10"
         >
             📍 Here
         </button>
         <button
+            aria-label="Set"
             onClick={onSet}
             className={`text-[11px] font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg ${isActive ? 'text-amber-400 bg-amber-500/10' : 'text-gray-400 hover:bg-white/5'}`}
         >
@@ -252,6 +254,7 @@ export const LayerFABMenu: React.FC<{
     return (
         <div className={`absolute z-[500] flex flex-col items-end gap-2 top-14 right-4`}>
             <button
+                aria-label="Menu"
                 onClick={() => {
                     setShowLayerMenu(!showLayerMenu);
                     triggerHaptic('light');
@@ -310,6 +313,7 @@ export const LayerFABMenu: React.FC<{
                     {onToggleCyclones && (
                         <>
                             <button
+                                aria-label="Cyclones"
                                 onClick={() => {
                                     if (allCyclones.length > 0) {
                                         setStormMenuOpen(!stormMenuOpen);
@@ -370,6 +374,7 @@ export const LayerFABMenu: React.FC<{
                                         const isSelected = cycloneStormName === storm.name;
                                         return (
                                             <button
+                                                aria-label="Select Storm"
                                                 key={storm.sid}
                                                 onClick={() => {
                                                     onSelectStorm?.(storm);
@@ -413,6 +418,7 @@ export const LayerFABMenu: React.FC<{
                     {onToggleWeatherInspect && (
                         <>
                             <button
+                                aria-label="Toggle"
                                 onClick={() => {
                                     onToggleWeatherInspect();
                                     triggerHaptic('light');
@@ -440,6 +446,7 @@ export const LayerFABMenu: React.FC<{
                     {onToggleAis && (
                         <>
                             <button
+                                aria-label="Toggle"
                                 onClick={() => {
                                     onToggleAis();
                                     triggerHaptic('light');
@@ -474,6 +481,7 @@ export const LayerFABMenu: React.FC<{
                         const isActive = activeLayers.has(layer.key);
                         return (
                             <button
+                                aria-label="Layer"
                                 key={layer.key}
                                 onClick={() => {
                                     toggleLayer(layer.key);
@@ -500,6 +508,7 @@ export const LayerFABMenu: React.FC<{
                         <>
                             <div className="h-px bg-white/[0.06] mx-3" />
                             <button
+                                aria-label="Toggle"
                                 onClick={() => {
                                     onToggleChokepoint();
                                     triggerHaptic('light');
@@ -525,6 +534,7 @@ export const LayerFABMenu: React.FC<{
                         <>
                             <div className="h-px bg-white/[0.06] mx-3" />
                             <button
+                                aria-label="Layer"
                                 onClick={() => {
                                     toggleLayer('none');
                                     triggerHaptic('light');

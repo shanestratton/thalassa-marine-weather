@@ -34,6 +34,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ icon, title, subtitle, a
 
         {action && (
             <button
+                aria-label="Click"
                 onClick={action.onClick}
                 className="mt-5 px-5 py-2.5 bg-sky-500/15 border border-sky-500/25 rounded-xl text-sky-400 text-sm font-bold uppercase tracking-wider hover:bg-sky-500/25 transition-all active:scale-[0.97]"
             >

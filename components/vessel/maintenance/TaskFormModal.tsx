@@ -45,6 +45,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                         </label>
                         <div className="grid grid-cols-2 gap-2">
                             <button
+                                aria-label="Task Type"
                                 onClick={() => {
                                     setTaskType('maintenance');
                                     setCategory('Engine');
@@ -58,6 +59,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                                 🔄 Maintenance
                             </button>
                             <button
+                                aria-label="Task Type"
                                 onClick={() => {
                                     setTaskType('repair');
                                     setCategory('Repair');
@@ -82,6 +84,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                             <div className="grid grid-cols-3 gap-1.5">
                                 {CATEGORIES.filter((cat) => cat.id !== 'Repair').map((cat) => (
                                     <button
+                                        aria-label="Category"
                                         key={cat.id}
                                         onClick={() => setCategory(cat.id)}
                                         className={`py-1 rounded-full text-label font-bold transition-all text-center ${
@@ -126,6 +129,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                             <div className="grid grid-cols-3 gap-1.5">
                                 {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map((t) => (
                                     <button
+                                        aria-label="Trigger"
                                         key={t}
                                         onClick={() => setTrigger(t)}
                                         className={`py-1 rounded-full text-label font-bold transition-all text-center ${
@@ -178,6 +182,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                     <p className="text-micro text-amber-400/80 text-center mt-2">Enter a task name to continue</p>
                 )}
                 <button
+                    aria-label="Submit"
                     onClick={onSubmit}
                     disabled={!form.title.trim()}
                     className="w-full py-3 mt-2 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30 shrink-0"
@@ -222,6 +227,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 <div className="grid grid-cols-3 gap-2">
                     {CATEGORIES.map((cat) => (
                         <button
+                            aria-label="Category"
                             key={cat.id}
                             onClick={() => setCategory(cat.id)}
                             className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.category === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
@@ -240,6 +246,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 <div className="grid grid-cols-3 gap-2">
                     {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map((t) => (
                         <button
+                            aria-label="Trigger"
                             key={t}
                             onClick={() => setTrigger(t)}
                             className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
@@ -287,6 +294,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
             )}
 
             <button
+                aria-label="Submit"
                 onClick={onSubmit}
                 disabled={!form.title.trim()}
                 className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.97] disabled:opacity-30"

@@ -306,6 +306,7 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
                     {/* Open Manual button */}
                     {item.manual_uri && (
                         <button
+                            aria-label="Manual"
                             onClick={openManual}
                             className="w-full py-4 bg-gradient-to-r from-sky-600/20 to-sky-600/20 border border-sky-500/20 rounded-2xl flex items-center justify-center gap-3 group hover:from-sky-600/30 hover:to-sky-600/30 transition-all active:scale-[0.98]"
                         >
@@ -338,6 +339,7 @@ const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, onEdit,
 
                     {/* Delete button */}
                     <button
+                        aria-label="Delete"
                         onClick={onDelete}
                         className="w-full py-3 bg-red-500/10 border border-red-500/20 rounded-2xl text-sm font-bold text-red-400 hover:bg-red-500/20 transition-all active:scale-[0.98]"
                     >
@@ -609,6 +611,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     <ModalSheet isOpen={true} onClose={() => setShowEditForm(false)} title="Edit Equipment">
                         {renderFormFields()}
                         <button
+                            aria-label="Edit"
                             onClick={handleSaveEdit}
                             className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98]"
                         >
@@ -630,6 +633,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     <div className="grid grid-cols-3 gap-1.5">
                         {CATEGORIES.map((cat) => (
                             <button
+                                aria-label="New Category"
                                 key={cat.id}
                                 onClick={() => setNewCategory(cat.id)}
                                 className={`py-1 rounded-full text-label font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
@@ -719,6 +723,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                         <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
                                         <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                                             <button
+                                                aria-label="Equipment Pdf"
                                                 onClick={() => {
                                                     exportEquipmentPdf(items);
                                                     setMenuOpen(false);
@@ -922,6 +927,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             <div className="space-y-2">
                                 {/* View Details */}
                                 <button
+                                    aria-label="Edit"
                                     onClick={() => {
                                         setSelectedItem(contextItem);
                                         setContextItem(null);
@@ -952,6 +958,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                 {/* Copy Serial */}
                                 {contextItem.serial_number && (
                                     <button
+                                        aria-label="Copy"
                                         onClick={() => {
                                             handleCopySerial(contextItem.serial_number);
                                             setContextItem(null);
@@ -983,6 +990,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                 {/* Open Manual */}
                                 {contextItem.manual_uri && (
                                     <button
+                                        aria-label="Item"
                                         onClick={() => {
                                             window.open(contextItem.manual_uri!, '_blank');
                                             setContextItem(null);
@@ -1008,6 +1016,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
                                 {/* Edit */}
                                 <button
+                                    aria-label="Edit"
                                     onClick={() => {
                                         openEditForm(contextItem);
                                         setSelectedItem(contextItem);
@@ -1033,6 +1042,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
                                 {/* Delete */}
                                 <button
+                                    aria-label="Delete"
                                     onClick={() => {
                                         handleDelete(contextItem.id);
                                     }}
@@ -1067,6 +1077,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                         <p className="text-micro text-amber-400/80 text-center mt-2">Equipment name is required</p>
                     )}
                     <button
+                        aria-label="Add"
                         onClick={handleAdd}
                         disabled={!newName.trim()}
                         className="w-full py-3 mt-2 bg-gradient-to-r from-emerald-600 to-emerald-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30 shrink-0"

@@ -335,6 +335,7 @@ const SystemRow: React.FC<{
         {/* Action button */}
         {action && (
             <button
+                aria-label="Propagation"
                 onClick={(e) => {
                     e.stopPropagation();
                     action.onClick();
@@ -604,12 +605,14 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
                         </div>
                         <div className="px-6 pb-6 flex gap-3">
                             <button
+                                aria-label="Stop"
                                 onClick={() => setShowStopConfirm(false)}
                                 className="flex-1 py-3.5 px-4 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-bold text-sm hover:bg-white/10 transition-all active:scale-[0.97]"
                             >
                                 Keep
                             </button>
                             <button
+                                aria-label="Follow"
                                 onClick={() => {
                                     stopFollowing();
                                     setShowStopConfirm(false);

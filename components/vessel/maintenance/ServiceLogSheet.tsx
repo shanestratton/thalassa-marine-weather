@@ -96,18 +96,21 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
             {/* Action buttons */}
             <div className="flex gap-3">
                 <button
+                    aria-label="History"
                     onClick={onHistory}
                     className="px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-xs font-bold text-gray-400 hover:bg-white/10 transition-colors"
                 >
                     History
                 </button>
                 <button
+                    aria-label="Edit"
                     onClick={onEdit}
                     className="px-4 py-3 bg-sky-500/10 border border-sky-500/20 rounded-xl text-xs font-bold text-sky-400 hover:bg-sky-500/20 transition-colors"
                 >
                     ✎ Edit
                 </button>
                 <button
+                    aria-label="Log"
                     onClick={onLog}
                     disabled={saving}
                     className="flex-1 py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-600 rounded-xl text-sm font-black text-white uppercase tracking-widest shadow-lg shadow-emerald-500/20 hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.97] disabled:opacity-50"

@@ -60,6 +60,7 @@ const PlaceholderScreen: React.FC<{
         <div className="w-full max-w-2xl mx-auto px-4 py-6 animate-in fade-in duration-300">
             {/* Back button */}
             <button
+                aria-label="Go back"
                 onClick={onBack}
                 className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors mb-6"
             >

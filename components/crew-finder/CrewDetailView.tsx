@@ -28,6 +28,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
             <div className="px-4 py-5">
                 {/* Back button */}
                 <button
+                    aria-label="Go back"
                     onClick={onBack}
                     className="flex items-center gap-1.5 text-sm text-white/60 hover:text-white/60 mb-4 transition-colors"
                 >
@@ -196,6 +197,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                 <div className="flex gap-3 mt-6 sticky bottom-4">
                     {matchedUserIds.has(selectedCard.user_id) ? (
                         <button
+                            aria-label="Messaged User"
                             onClick={() => {
                                 trackMessagedUser(selectedCard.user_id);
                                 onOpenDM(selectedCard.user_id, selectedCard.display_name);
@@ -215,6 +217,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                         </div>
                     )}
                     <button
+                        aria-label="Like"
                         onClick={() => onLike(selectedCard)}
                         className={`w-16 rounded-2xl flex items-center justify-center text-2xl transition-all active:scale-90 border ${likedUsers.has(selectedCard.user_id) ? 'bg-amber-500/20 border-amber-400/30' : 'bg-white/[0.03] border-white/[0.06]'}`}
                     >

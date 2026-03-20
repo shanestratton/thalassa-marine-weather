@@ -182,6 +182,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
                         {/* Option A: Cash on Dock */}
                         <button
+                            aria-label="Cash Deal"
                             onClick={handleCashDeal}
                             className="w-full p-4 rounded-2xl bg-white/[0.04] border border-white/10 text-left group hover:border-emerald-500/30 hover:bg-emerald-500/[0.04] transition-all active:scale-[0.98]"
                         >
@@ -206,6 +207,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
                         {/* Option B: Secure Escrow */}
                         <button
+                            aria-label="Escrow"
                             onClick={handleEscrow}
                             className="w-full p-4 rounded-2xl border-2 border-sky-500/30 bg-gradient-to-br from-sky-500/[0.06] to-sky-500/[0.03] text-left group hover:border-sky-500/50 transition-all active:scale-[0.98] relative overflow-hidden"
                         >
@@ -338,6 +340,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         </div>
 
                         <button
+                            aria-label="Close"
                             onClick={handleClose}
                             className="w-full py-3 rounded-2xl bg-white/[0.06] border border-white/10 text-xs font-bold text-white/60 active:scale-[0.98] transition-transform"
                         >
@@ -356,12 +359,14 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
                         </div>
                         <div className="flex gap-3">
                             <button
+                                aria-label="Mode"
                                 onClick={() => setMode('choose')}
                                 className="flex-1 py-3 rounded-2xl bg-white/[0.06] border border-white/10 text-xs font-bold text-white/60"
                             >
                                 Back
                             </button>
                             <button
+                                aria-label="Escrow"
                                 onClick={handleEscrow}
                                 className="flex-1 py-3 rounded-2xl bg-sky-500/20 border border-sky-500/30 text-xs font-bold text-sky-300"
                             >

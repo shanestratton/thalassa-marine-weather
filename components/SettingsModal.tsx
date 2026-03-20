@@ -36,6 +36,7 @@ const NavButton = React.memo(
         label: string;
     }) => (
         <button
+            aria-label="Click"
             onClick={onClick}
             className={`group relative flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300 text-left overflow-hidden ${active ? 'bg-gradient-to-r from-sky-500/20 to-sky-600/20 text-white shadow-[0_0_20px_rgba(14,165,233,0.15)] border border-sky-500/30' : 'text-gray-400 hover:bg-white/5 hover:text-white border border-transparent'}`}
         >
@@ -70,6 +71,7 @@ const _MobileNavTab = React.memo(
         label: string;
     }) => (
         <button
+            aria-label="Click"
             onClick={onClick}
             className={`flex items-center gap-2 px-4 py-2 rounded-full whitespace-nowrap transition-all duration-300 ${active ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
         >
@@ -399,6 +401,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             {MENU_ITEMS.map((item) => {
                                 return (
                                     <button
+                                        aria-label="Active Tab"
                                         key={item.id}
                                         onClick={() => setActiveTab(item.id)}
                                         className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"

@@ -88,6 +88,7 @@ export const DeleteVoyageModal: React.FC<DeleteVoyageModalProps> = ({
                     {/* Buttons */}
                     <div className="space-y-2">
                         <button
+                            aria-label="Export First"
                             onClick={onExportFirst}
                             className="w-full px-4 py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
                         >
@@ -103,6 +104,7 @@ export const DeleteVoyageModal: React.FC<DeleteVoyageModalProps> = ({
                         </button>
 
                         <button
+                            aria-label="Delete"
                             onClick={onDelete}
                             className="w-full px-4 py-3 bg-red-600/80 hover:bg-red-600 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
                         >
@@ -118,6 +120,7 @@ export const DeleteVoyageModal: React.FC<DeleteVoyageModalProps> = ({
                         </button>
 
                         <button
+                            aria-label="Close"
                             onClick={onClose}
                             className="w-full px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-medium transition-colors"
                         >

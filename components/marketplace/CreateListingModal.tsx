@@ -358,6 +358,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                 {/* Header — sticky at top of modal */}
                 <div className="shrink-0 flex items-center justify-between px-5 py-4 bg-slate-900/95 border-b border-white/[0.06] rounded-t-3xl">
                     <button
+                        aria-label="Close"
                         onClick={() => {
                             reset();
                             onClose();
@@ -370,6 +371,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         {isBoat ? 'List a Boat for Sale' : 'List Gear for Sale'}
                     </h2>
                     <button
+                        aria-label="Submit"
                         onClick={handleSubmit}
                         disabled={submitting || !title.trim() || !price || !category || !condition}
                         className={`text-xs font-bold ${submitting || !title.trim() || !price || !category || !condition ? 'text-white/30' : 'text-sky-400'}`}
@@ -399,6 +401,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         <div className="flex flex-wrap gap-2">
                             {LISTING_CATEGORIES.map((cat) => (
                                 <button
+                                    aria-label="Category"
                                     key={cat}
                                     onClick={() => setCategory(cat)}
                                     className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
@@ -537,6 +540,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 <div className="flex flex-wrap gap-1.5">
                                     {HULL_MATERIALS.map((h) => (
                                         <button
+                                            aria-label="Boat Hull"
                                             key={h}
                                             onClick={() => setBoatHull(h)}
                                             className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all ${
@@ -559,6 +563,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 <div className="flex flex-wrap gap-1.5">
                                     {ENGINE_TYPES.map((et) => (
                                         <button
+                                            aria-label="Boat Engine Type"
                                             key={et}
                                             onClick={() => setBoatEngineType(et)}
                                             className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all ${
@@ -605,6 +610,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                         <div className="flex flex-wrap gap-1">
                                             {FUEL_TYPES.map((f) => (
                                                 <button
+                                                    aria-label="Boat Fuel"
                                                     key={f}
                                                     onClick={() => setBoatFuel(f)}
                                                     className={`px-2 py-1 rounded-lg border text-[11px] font-medium transition-all ${
@@ -676,6 +682,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                     />
                                 </div>
                                 <button
+                                    aria-label="Boat Surveyed"
                                     onClick={() => setBoatSurveyed(!boatSurveyed)}
                                     className={`px-3 py-2.5 rounded-xl border text-xs font-bold transition-all ${
                                         boatSurveyed
@@ -697,6 +704,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                         const selected = boatFeatures.includes(feat);
                                         return (
                                             <button
+                                                aria-label="Boat Features"
                                                 key={feat}
                                                 onClick={() =>
                                                     setBoatFeatures((prev) =>
@@ -727,6 +735,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         <div className="flex flex-wrap gap-2">
                             {LISTING_CONDITIONS.map((cond) => (
                                 <button
+                                    aria-label="Condition"
                                     key={cond}
                                     onClick={() => setCondition(cond)}
                                     className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
@@ -827,6 +836,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 >
                                     <img src={url} className="w-full h-full object-cover" alt="" />
                                     <button
+                                        aria-label="Image"
                                         onClick={() => removeImage(i)}
                                         className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded-full bg-black/70 text-white text-[11px]"
                                     >
@@ -836,6 +846,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             ))}
                             {images.length < MAX_PHOTOS && (
                                 <button
+                                    aria-label="Ref"
                                     onClick={() => fileRef.current?.click()}
                                     className="w-20 h-20 rounded-xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center text-white/60 hover:border-sky-500/30 hover:text-sky-400/50 transition-colors"
                                 >
@@ -861,6 +872,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                 {/* Submit button — pinned outside scroll area */}
                 <div className="shrink-0 px-5 py-3 border-t border-white/[0.06] bg-slate-950">
                     <button
+                        aria-label="Submit"
                         onClick={handleSubmit}
                         disabled={submitting || !title.trim() || !price || !category || !condition}
                         className={`w-full py-3.5 rounded-2xl font-bold text-sm uppercase tracking-wider transition-all active:scale-[0.98] ${

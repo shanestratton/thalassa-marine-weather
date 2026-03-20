@@ -134,6 +134,7 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
                     {/* Buttons */}
                     <div className="flex gap-3 pt-2">
                         <button
+                            aria-label="Close"
                             type="button"
                             onClick={onClose}
                             className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold transition-colors"

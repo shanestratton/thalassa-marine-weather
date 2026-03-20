@@ -450,6 +450,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
 
                         {/* Meal plan toggle */}
                         <button
+                            aria-label="Show Meal Plan"
                             onClick={() => setShowMealPlan(!showMealPlan)}
                             className="w-full py-2.5 px-4 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 rounded-xl text-xs font-bold uppercase tracking-widest text-amber-300 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
                         >
