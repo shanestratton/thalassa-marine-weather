@@ -252,7 +252,7 @@ export function useWeatherLayers(
         cachedFramesRef.current = new Array(total);
         let idx = 0;
         const computeBatch = () => {
-            const batchEnd = Math.min(idx + 4, total);
+            const batchEnd = Math.min(idx + 8, total);
             for (let h = idx; h < batchEnd; h++) {
                 cachedFramesRef.current[h] = generateIsobarsFromGrid(grid, h);
             }
@@ -820,8 +820,8 @@ export function useWeatherLayers(
             // Only adjust zoom when pressure is the sole layer
             if (activeLayers.size === 1) {
                 const currentZoom = map.getZoom();
-                if (currentZoom > 4 || currentZoom < 2.5) {
-                    map.flyTo({ zoom: 3, duration: 1200 });
+                if (currentZoom > 4 || currentZoom < 0.5) {
+                    map.flyTo({ zoom: 1, duration: 1200 });
                 }
             }
 

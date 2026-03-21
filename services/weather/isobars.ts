@@ -149,7 +149,7 @@ async function fetchPressureGridGfs(
 
         // ── Interpolate between GRIB frames for butter-smooth animation ──
         // 5 GRIB frames at 3h intervals → 25 sub-frames at 30-min intervals
-        const INTERP_STEPS = 6;
+        const INTERP_STEPS = 3;
         const interpPressure: number[][][] = [];
 
         for (let f = 0; f < totalHours - 1; f++) {
@@ -213,7 +213,7 @@ export async function fetchPressureGrid(
         for (let lon = west; lon <= east; lon += res) lons.push(Math.round(lon * 100) / 100);
 
         // Cap grid size to prevent massive requests
-        if (lats.length * lons.length > 8000) {
+        if (lats.length * lons.length > 12000) {
             lats.length = 0;
             lons.length = 0;
             const bigRes = 3.0;
@@ -223,8 +223,8 @@ export async function fetchPressureGrid(
 
         if (lats.length < 3 || lons.length < 3) return null;
 
-        const sparseLatStep = Math.max((north - south) / 24, 0.5);
-        const sparseLonStep = Math.max((east - west) / 24, 0.5);
+        const sparseLatStep = Math.max((north - south) / 28, 0.5);
+        const sparseLonStep = Math.max((east - west) / 28, 0.5);
 
         const points: { lat: number; lon: number }[] = [];
         for (let lat = south; lat <= north + 0.01; lat += sparseLatStep) {

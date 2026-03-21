@@ -626,7 +626,25 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     // ── Inject wind data into existing velocity layer (no teardown) ──
     useEffect(() => {
         windDataRef.current = windData;
-        if (!windData || !velocityLayerRef.current || !leafletMapRef.current) return;
+        if (!windData || !leafletMapRef.current) return;
+
+        // If velocity layer doesn't exist yet (data arrived after overlay setup), create it now
+        if (!velocityLayerRef.current) {
+            try {
+                const vLayer = createVelocityLayer(windData);
+                vLayer.addTo(leafletMapRef.current);
+                velocityLayerRef.current = vLayer;
+                // Fade in the overlay
+                if (overlayRef.current) {
+                    overlayRef.current.style.opacity = '1';
+                }
+                if (syncRef.current) syncRef.current();
+            } catch (err) {
+                log.warn('[VelocityOverlay] Failed to create velocity layer on data arrival:', err);
+            }
+            return;
+        }
+
         try {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const vl = velocityLayerRef.current as any;

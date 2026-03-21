@@ -521,7 +521,7 @@ const App: React.FC = () => {
                                         )}
                                     </div>
                                     <p className="text-[11px] text-sky-200 uppercase tracking-widest shadow-black drop-shadow-md">
-                                        Officer on Watch Assistant
+                                        The Sailor's Assistant
                                     </p>
                                 </div>
                             </div>
