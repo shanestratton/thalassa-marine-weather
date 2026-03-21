@@ -1,6 +1,6 @@
 # Thalassa — Marine Weather & Navigation
 
-> Officer on Watch Assistant — Weather routing, AIS, anchor watch, and crew community for offshore sailors.
+> The Sailor's Assistant — Weather routing, AIS, anchor watch, and crew community for offshore sailors.
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
 [![React](https://img.shields.io/badge/React-18-61DAFB)](https://react.dev/)
