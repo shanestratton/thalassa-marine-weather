@@ -304,7 +304,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                         >
                                                             {msg.display_name}
                                                         </span>
-                                                        <button
+                                                        <button aria-label="View rank"
                                                             className="relative"
                                                             onMouseEnter={() => onSetRankTooltip(msg.id)}
                                                             onMouseLeave={() => onSetRankTooltip(null)}

@@ -33,7 +33,7 @@ export function useWeatherLayers(
     // Multi-layer support — users can toggle multiple layers simultaneously.
     // Max 3 active layers for mobile performance.
     // Persisted to localStorage so selection survives app restart.
-    const MAX_LAYERS = 3;
+    const MAX_LAYERS = 4;
     const STORAGE_KEY = 'thalassa_active_layers';
     const [activeLayers, setActiveLayers] = useState<Set<WeatherLayer>>(() => {
         try {
@@ -58,9 +58,21 @@ export function useWeatherLayers(
                 next.delete(layer);
             } else {
                 if (next.size >= MAX_LAYERS) {
-                    // At limit — remove the oldest (first) to make room
-                    const first = next.values().next().value;
-                    if (first) next.delete(first);
+                    // At limit — prefer evicting static layers (temp, clouds, sea) over interactive (wind, rain)
+                    const EVICTION_ORDER: WeatherLayer[] = ['sea', 'clouds', 'temperature', 'pressure', 'rain', 'velocity', 'wind'];
+                    let evicted = false;
+                    for (const candidate of EVICTION_ORDER) {
+                        if (next.has(candidate) && candidate !== layer) {
+                            next.delete(candidate);
+                            evicted = true;
+                            break;
+                        }
+                    }
+                    if (!evicted) {
+                        // Fallback: remove the oldest (first)
+                        const first = next.values().next().value;
+                        if (first) next.delete(first);
+                    }
                 }
                 next.add(layer);
             }
@@ -134,7 +146,7 @@ export function useWeatherLayers(
     const rainNowIdxRef = useRef(0);
 
     // Wind scrubber
-    const [windHour, setWindHour] = useState(0);
+    const [windHour, setWindHourInternal] = useState(0);
     const [windTotalHours, setWindTotalHours] = useState(48);
     const [windPlaying, setWindPlaying] = useState(false);
     const [windReady, setWindReady] = useState(false);
@@ -143,6 +155,17 @@ export function useWeatherLayers(
     const windNowIdxRef = useRef(0);
     /** GFS model run time for dynamic 'now' recomputation */
     const windRefTimeRef = useRef<string | null>(null);
+    /** Whether the user has manually scrubbed (prevents auto-advance temporarily) */
+    const windUserScrubbedRef = useRef(false);
+    /** Timestamp of last manual scrub — auto-advance resumes after 5 min */
+    const windUserScrubbedTimeRef = useRef(0);
+
+    /** Wrapper for external callers — marks manual scrub */
+    const setWindHour = useCallback((valOrFn: number | ((prev: number) => number)) => {
+        windUserScrubbedRef.current = true;
+        windUserScrubbedTimeRef.current = Date.now();
+        setWindHourInternal(valOrFn);
+    }, []);
 
     /** Compute which forecast hour index best matches 'now' given the model refTime */
     const computeNowIndex = useCallback((refTime: string, fhrs: number[]): number => {
@@ -211,9 +234,9 @@ export function useWeatherLayers(
                         id: 'pressure-heatmap-layer',
                         type: 'raster',
                         source: 'pressure-heatmap',
-                        paint: { 'raster-opacity': 0.5, 'raster-fade-duration': 0 },
+                        paint: { 'raster-opacity': 0.65, 'raster-fade-duration': 0 },
                     },
-                    'isobar-lines',
+                    map.getLayer('isobar-lines') ? 'isobar-lines' : undefined,
                 );
             }
         }
@@ -243,30 +266,39 @@ export function useWeatherLayers(
     const updateIsobars = useCallback(
         async (map: mapboxgl.Map) => {
             const token = ++isobarFetchRef.current;
-            const bounds = map.getBounds();
-            if (!bounds) return;
             const zoom = map.getZoom();
-            let west = bounds.getWest();
-            let east = bounds.getEast();
-            // Mapbox can return lons outside [-180, 180] when map wraps (e.g. east=200°)
-            // Normalize and detect dateline crossing
-            const span = east - west;
-            if (span >= 360) {
-                // Viewport covers full globe
+
+            let north: number, south: number, west: number, east: number;
+
+            if (zoom < 4) {
+                // Zoomed out: global coverage
+                north = 85;
+                south = -85;
                 west = -180;
                 east = 180;
             } else {
-                // Normalize to [-180, 180]
+                // Zoomed in: viewport bounds with 30% padding for detail
+                const bounds = map.getBounds();
+                if (!bounds) return;
+                const latSpan = bounds.getNorth() - bounds.getSouth();
+                const lonSpan = bounds.getEast() - bounds.getWest();
+                const latPad = latSpan * 0.3;
+                const lonPad = lonSpan * 0.3;
+                north = Math.min(bounds.getNorth() + latPad, 85);
+                south = Math.max(bounds.getSouth() - latPad, -85);
+                west = bounds.getWest() - lonPad;
+                east = bounds.getEast() + lonPad;
+                // Normalize longitudes
                 const normLon = (lon: number) => ((((lon + 180) % 360) + 360) % 360) - 180;
                 west = normLon(west);
                 east = normLon(east);
-                // After normalization, west > east means dateline crossing
                 if (west > east) {
                     west = -180;
                     east = 180;
                 }
             }
-            const data = await generateIsobars(bounds.getNorth(), bounds.getSouth(), west, east, zoom);
+
+            const data = await generateIsobars(north, south, west, east, zoom);
             if (token !== isobarFetchRef.current) return;
             if (!data) return;
             setForecastHour(0);
@@ -431,8 +463,10 @@ export function useWeatherLayers(
                         windRefTimeRef.current = currentGrid.refTime;
                         const fhrs = windForecastHoursRef.current;
                         const bestIdx = computeNowIndex(currentGrid.refTime, fhrs);
-                        setWindHour(bestIdx);
+                        setWindHourInternal(bestIdx);
                         windNowIdxRef.current = bestIdx;
+                        // Reset manual scrub flag on fresh GRIB load
+                        windUserScrubbedRef.current = false;
                         const ageMs = Date.now() - new Date(currentGrid.refTime).getTime();
                         const ageHours = ageMs / (60 * 60 * 1000);
                         log.info(
@@ -447,7 +481,7 @@ export function useWeatherLayers(
                 .catch((err) => {
                     log.warn('activate() failed:', err);
                 });
-        }, 1200);
+        }, 800);
         return () => clearTimeout(windTimer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeKey, mapReady]);
@@ -461,19 +495,31 @@ export function useWeatherLayers(
             if (!refTime || fhrs.length === 0) return;
             const newNowIdx = computeNowIndex(refTime, fhrs);
             const oldNowIdx = windNowIdxRef.current;
+
+            // Always update the now-index reference
             if (newNowIdx !== oldNowIdx) {
                 windNowIdxRef.current = newNowIdx;
-                // Auto-advance scrubber if user is still on the old "now"
-                setWindHour((prev) => {
-                    if (prev === oldNowIdx) {
-                        log.info(
-                            `[WindScrubber] Advanced "now": ${oldNowIdx} → ${newNowIdx} (forecast hour ${fhrs[newNowIdx]})`,
-                        );
-                        return newNowIdx;
-                    }
-                    return prev;
-                });
             }
+
+            // Auto-advance scrubber to track real time:
+            // Skip if user manually scrubbed within the last 5 minutes
+            const manualAge = Date.now() - windUserScrubbedTimeRef.current;
+            const MANUAL_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+            if (windUserScrubbedRef.current && manualAge < MANUAL_COOLDOWN_MS) {
+                return; // User recently scrubbed — leave their position alone
+            }
+
+            // Reset the manual flag after cooldown, then auto-advance
+            windUserScrubbedRef.current = false;
+            setWindHourInternal((prev) => {
+                if (prev !== newNowIdx) {
+                    log.info(
+                        `[WindScrubber] Auto-tracking "now": ${prev} → ${newNowIdx} (forecast hour ${fhrs[newNowIdx]})`,
+                    );
+                    return newNowIdx;
+                }
+                return prev;
+            });
         }, 60 * 1000); // Every 1 minute
         return () => clearInterval(interval);
     }, [windReady, computeNowIndex]);
@@ -518,7 +564,7 @@ export function useWeatherLayers(
 
     // Rain auto-play (unified radar + forecast) — loops continuously
     useEffect(() => {
-        if (!rainPlaying || !activeLayers.has('rain') || activeLayers.size > 1) return;
+        if (!rainPlaying || !activeLayers.has('rain')) return;
         const timer = setInterval(() => {
             // Pause when app is backgrounded
             if (document.hidden) return;
@@ -533,6 +579,9 @@ export function useWeatherLayers(
 
     // Unified rain frame swap: toggle visibility on pre-loaded layers
     const rainFadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const rainCleanupRef = useRef<(() => void) | null>(null);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const savedLandFillColorsRef = useRef<Map<string, any>>(new Map());
 
     useEffect(() => {
         if (!activeLayers.has('rain') || !rainReady) return;
@@ -633,6 +682,11 @@ export function useWeatherLayers(
 
         // Remove layers NOT in active set
         if (!activeLayers.has('rain')) {
+            // Clean up rain sources/layers when rain is deactivated
+            if (rainFadeTimerRef.current) {
+                clearTimeout(rainFadeTimerRef.current);
+                rainFadeTimerRef.current = null;
+            }
             for (let i = 0; i < 30; i++) {
                 ['radar-', 'rainbow-fc-'].forEach((prefix) => {
                     const id = `${prefix}${i}`;
@@ -647,6 +701,7 @@ export function useWeatherLayers(
             unifiedFramesRef.current = [];
             setRainFrameCount(0);
             setRainFrameIndex(0);
+            setRainReady(false);
         }
         if (!activeLayers.has('wind') && !activeLayers.has('velocity')) {
             if (map.getLayer('wind-labels')) map.removeLayer('wind-labels');
@@ -660,37 +715,72 @@ export function useWeatherLayers(
             }
             windEngineRef.current = null;
             WindDataController.deactivate(map);
+            setWindReady(false);
         }
 
         const hideIsobars = () => {
             [
                 'isobar-lines',
                 'isobar-labels',
-                'isobar-center-circles',
                 'isobar-center-labels',
-                'wind-barb-layer',
-                'circulation-arrow-layer',
                 'movement-track-lines',
                 'movement-track-labels',
                 'pressure-heatmap-layer',
+                'coastal-vignette',
             ].forEach((id) => {
                 if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
             });
+            // Restore land fill colors
+            for (const [layerId, color] of savedLandFillColorsRef.current) {
+                try {
+                    if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'fill-color', color);
+                } catch (_) { /* skip */ }
+            }
+            // Restore land label opacity
+            const style = map.getStyle();
+            if (style?.layers) {
+                for (const layer of style.layers) {
+                    if (layer.type === 'symbol' && !layer.id.match(/isobar|wind|barb|movement|circulation/i)) {
+                        try { map.setPaintProperty(layer.id, 'text-opacity', 1.0); } catch (_) { /* skip */ }
+                    }
+                }
+            }
         };
         const showIsobars = () => {
             [
                 'isobar-lines',
                 'isobar-labels',
-                'isobar-center-circles',
                 'isobar-center-labels',
-                'wind-barb-layer',
-                'circulation-arrow-layer',
                 'movement-track-lines',
                 'movement-track-labels',
                 'pressure-heatmap-layer',
+                'coastal-vignette',
             ].forEach((id) => {
                 if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
             });
+            // Desaturate landmasses to charcoal + ghost labels to 30%
+            const style = map.getStyle();
+            if (style?.layers) {
+                for (const layer of style.layers) {
+                    if (
+                        layer.type === 'fill' &&
+                        layer.id.match(/land|building|park|landuse|landcover|background/i) &&
+                        !layer.id.match(/water|ocean|sea/i)
+                    ) {
+                        try {
+                            if (!savedLandFillColorsRef.current.has(layer.id)) {
+                                const current = map.getPaintProperty(layer.id, 'fill-color');
+                                if (current) savedLandFillColorsRef.current.set(layer.id, current);
+                            }
+                            map.setPaintProperty(layer.id, 'fill-color', '#1a1a1a');
+                        } catch (_) { /* skip */ }
+                    }
+                    // Ghost labels: fade land labels to 30% opacity
+                    if (layer.type === 'symbol' && !layer.id.match(/isobar|wind|barb|movement|circulation/i)) {
+                        try { map.setPaintProperty(layer.id, 'text-opacity', 0.3); } catch (_) { /* skip */ }
+                    }
+                }
+            }
         };
 
         if (!activeLayers.has('pressure')) hideIsobars();
@@ -713,7 +803,7 @@ export function useWeatherLayers(
                         id: SAT_ID,
                         type: 'raster',
                         source: SAT_ID,
-                        paint: { 'raster-opacity': 0.85 },
+                        paint: { 'raster-opacity': 0.85, 'raster-fade-duration': 0 },
                     },
                     firstSymbolId,
                 );
@@ -746,7 +836,21 @@ export function useWeatherLayers(
                     id: 'isobar-lines',
                     type: 'line',
                     source: 'isobar-contours',
-                    paint: { 'line-color': '#ffffff', 'line-width': 1.5, 'line-opacity': 0.7 },
+                    paint: {
+                        'line-color': [
+                            'case',
+                            ['==', ['get', 'pressure'], 1012],
+                            '#d4a843', // Gold — standard atmosphere anchor
+                            'rgba(255, 255, 255, 0.4)', // Ghostly white
+                        ],
+                        'line-width': [
+                            'case',
+                            ['==', ['get', 'pressure'], 1012],
+                            2.0,
+                            1.0,
+                        ],
+                        'line-opacity': 0.9,
+                    },
                 });
                 map.addLayer({
                     id: 'isobar-labels',
@@ -760,28 +864,18 @@ export function useWeatherLayers(
                         'symbol-spacing': 500,
                         'text-keep-upright': true,
                     },
-                    paint: { 'text-color': '#e2e8f0', 'text-halo-color': '#0f172a', 'text-halo-width': 1.5 },
-                });
-
-                map.addLayer({
-                    id: 'isobar-center-circles',
-                    type: 'circle',
-                    source: 'isobar-centers',
                     paint: {
-                        'circle-radius': 18,
-                        'circle-color': [
-                            'match',
-                            ['get', 'type'],
-                            'H',
-                            'rgba(239, 68, 68, 0.15)',
-                            'L',
-                            'rgba(59, 130, 246, 0.15)',
-                            'rgba(100, 116, 139, 0.15)',
+                        'text-color': [
+                            'case',
+                            ['==', ['get', 'pressure'], 1012],
+                            '#d4a843', // Gold for 1012hPa
+                            '#e2e8f0',
                         ],
-                        'circle-stroke-color': ['match', ['get', 'type'], 'H', '#ef4444', 'L', '#3b82f6', '#64748b'],
-                        'circle-stroke-width': 2,
+                        'text-halo-color': '#0f172a',
+                        'text-halo-width': 1.5,
                     },
                 });
+
                 map.addLayer({
                     id: 'isobar-center-labels',
                     type: 'symbol',
@@ -944,6 +1038,22 @@ export function useWeatherLayers(
 
             showIsobars();
             updateIsobars(map);
+
+            // ── Coastal Vignette Glow ──
+            if (!map.getLayer('coastal-vignette') && map.getSource('composite')) {
+                map.addLayer({
+                    id: 'coastal-vignette',
+                    type: 'line',
+                    source: 'composite',
+                    'source-layer': 'water',
+                    paint: {
+                        'line-color': '#000814',
+                        'line-width': 6,
+                        'line-blur': 8,
+                        'line-opacity': 0.6,
+                    },
+                });
+            }
         }
 
         // ── Rain (unified: RainViewer radar past + GFS forecast future) ──
@@ -952,6 +1062,8 @@ export function useWeatherLayers(
             setRainLoading(true);
             setRainReady(false);
             setRainFrameIndex(0);
+
+            let stale = false;
 
             (async () => {
                 try {
@@ -1028,8 +1140,9 @@ export function useWeatherLayers(
                     setRainFrameIndex(nowIdx);
 
                     // 4. Set up map sources
-                    if (!mapRef.current) return;
+                    if (stale) return; // Bail if effect was cleaned up during fetch
                     const m = mapRef.current;
+                    if (!m) return;
 
                     // Pre-create ALL radar layers (hidden) — same instant approach as forecast
                     const radarFrames = unified.filter((f) => f.type === 'radar');
@@ -1133,20 +1246,21 @@ export function useWeatherLayers(
                     );
                 } catch (err) {
                     log.error('Error loading unified rain data:', err);
+                    setRainReady(false);
                 } finally {
                     setRainLoading(false);
                 }
             })();
 
-            return () => {
-                // Clear pending fade timer
+            // Store cleanup for this rain session (called by effect teardown)
+            rainCleanupRef.current = () => {
+                stale = true;
                 if (rainFadeTimerRef.current) {
                     clearTimeout(rainFadeTimerRef.current);
                     rainFadeTimerRef.current = null;
                 }
                 try {
                     const m = map;
-                    // Clean up pre-created radar + forecast layers
                     for (let i = 0; i < 30; i++) {
                         ['radar-', 'rainbow-fc-'].forEach((prefix) => {
                             const id = `${prefix}${i}`;
@@ -1165,7 +1279,6 @@ export function useWeatherLayers(
                 } catch (_) {
                     log.warn('[useWeatherLayers]', _);
                 }
-
                 unifiedFramesRef.current = [];
                 setRainFrameCount(0);
                 setRainReady(false);
@@ -1263,19 +1376,39 @@ export function useWeatherLayers(
                 /* layer not present — skip */
             }
         }
+
+        // ── Unified cleanup: runs when activeKey changes ──
+        return () => {
+            // Call rain cleanup if it was set up in this render
+            if (rainCleanupRef.current) {
+                rainCleanupRef.current();
+                rainCleanupRef.current = null;
+            }
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeKey, mapReady, updateIsobars]);
 
-    // ── Isobar moveend re-fetch (separate stable effect, debounced) ──
-    // Debounce: wait 1.5s after the last pan/zoom before re-fetching.
-    // Existing isobar data stays visible during the delay (geo-locked).
+    // ── Isobar moveend re-fetch (zoom-based progressive detail) ──
     const isobarDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lastIsobarZoomRef = useRef<number | null>(null);
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady || !hasPressure) return;
         const onMoveEnd = () => {
+            const currentZoom = map.getZoom();
+            const lastZoom = lastIsobarZoomRef.current;
+            // Only re-fetch when zoom changes significantly (crossing the detail threshold)
+            const crossedThreshold =
+                lastZoom !== null &&
+                ((lastZoom < 4 && currentZoom >= 4) ||
+                    (lastZoom >= 4 && currentZoom < 4) ||
+                    (currentZoom >= 4 && Math.abs(currentZoom - lastZoom) >= 1));
+            if (!crossedThreshold && lastZoom !== null) return;
             if (isobarDebounceRef.current) clearTimeout(isobarDebounceRef.current);
-            isobarDebounceRef.current = setTimeout(() => updateIsobars(map), 1500);
+            isobarDebounceRef.current = setTimeout(() => {
+                lastIsobarZoomRef.current = currentZoom;
+                updateIsobars(map);
+            }, 1500);
         };
         map.on('moveend', onMoveEnd);
         return () => {
@@ -1284,6 +1417,20 @@ export function useWeatherLayers(
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasPressure, mapReady, updateIsobars]);
+
+    // ── Cleanup on unmount — ensures fresh re-initialization on re-entry ──
+    useEffect(() => {
+        return () => {
+            setWindReady(false);
+            setRainReady(false);
+            setRainFrameCount(0);
+            windEngineRef.current = null;
+            windGridRef.current = null;
+            unifiedFramesRef.current = [];
+            savedLandFillColorsRef.current.clear();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     return {
         activeLayer,

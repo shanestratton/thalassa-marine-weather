@@ -77,7 +77,7 @@ export const DisclaimerOverlay: React.FC<DisclaimerOverlayProps> = ({ onAccepted
                         ↓ Scroll to read the full disclaimer
                     </div>
                 ) : (
-                    <button
+                    <button aria-label="Previous"
                         onClick={handleAccept}
                         className="w-full py-4 rounded-2xl text-white text-lg font-bold transition-all active:scale-[0.98]"
                         style={{

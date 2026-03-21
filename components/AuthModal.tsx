@@ -355,7 +355,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                 </div>
                             )}
 
-                            <button
+                            <button aria-label="Save"
                                 type="submit"
                                 disabled={loading || !supabase || resendCooldown > 0}
                                 className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${!supabase || resendCooldown > 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
@@ -404,7 +404,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                 </div>
                             )}
 
-                            <button
+                            <button aria-label="Save"
                                 type="submit"
                                 disabled={loading || otp.length !== 8}
                                 className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${otp.length !== 8 ? 'opacity-50' : 'hover:bg-gray-100'}`}

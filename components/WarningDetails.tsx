@@ -111,7 +111,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
                                         <p className="text-lg font-medium text-red-100 leading-relaxed">{alert}</p>
                                     </div>
                                     {!isCritical(alert) && (
-                                        <button
+                                        <button aria-label="Close"
                                             onClick={() => dismiss(alert)}
                                             className="shrink-0 bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/70 font-bold text-xs px-3 py-2 rounded-xl transition-colors uppercase tracking-wider mt-1"
                                         >

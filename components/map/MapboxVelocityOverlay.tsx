@@ -224,7 +224,7 @@ function _injectHeatMap(map: mapboxgl.Map, windData: GribRecord[]): void {
             id: HEATMAP_LAYER,
             type: 'raster',
             source: HEATMAP_SOURCE,
-            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 },
+            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 0 },
         });
 
         // Right: -180° → (east - 360)
@@ -244,7 +244,7 @@ function _injectHeatMap(map: mapboxgl.Map, windData: GribRecord[]): void {
             id: rLyr,
             type: 'raster',
             source: rSrc,
-            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 },
+            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 0 },
         });
     } else if (lonSpan > 180) {
         // ── Global GFS data: lon 0°→359.5° ──
@@ -282,7 +282,7 @@ function _injectHeatMap(map: mapboxgl.Map, windData: GribRecord[]): void {
                 id: HEATMAP_LAYER,
                 type: 'raster',
                 source: HEATMAP_SOURCE,
-                paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 },
+                paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 0 },
             });
         }
 
@@ -307,7 +307,7 @@ function _injectHeatMap(map: mapboxgl.Map, windData: GribRecord[]): void {
                 id: rLyr,
                 type: 'raster',
                 source: rSrc,
-                paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 },
+                paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 0 },
             });
         }
     } else {
@@ -327,7 +327,7 @@ function _injectHeatMap(map: mapboxgl.Map, windData: GribRecord[]): void {
             id: HEATMAP_LAYER,
             type: 'raster',
             source: HEATMAP_SOURCE,
-            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 300 },
+            paint: { 'raster-opacity': 0.12, 'raster-fade-duration': 0 },
         });
     }
 }
@@ -456,6 +456,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
     windHourRef.current = windHour;
     windGridPropRef.current = windGrid;
     const [windData, setWindData] = useState<GribRecord[] | null>(null);
+    const windDataRef = useRef<GribRecord[] | null>(null);
     const [dataInfo, setDataInfo] = useState<{ refTime: string | null; source: 'live' | 'cached' | 'static' | null }>({
         refTime: null,
         source: null,
@@ -622,9 +623,35 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
         };
     }, [mapboxMap, visible]);
 
+    // ── Inject wind data into existing velocity layer (no teardown) ──
+    useEffect(() => {
+        windDataRef.current = windData;
+        if (!windData || !velocityLayerRef.current || !leafletMapRef.current) return;
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const vl = velocityLayerRef.current as any;
+            if (vl._windy) {
+                vl._windy.setData(windData);
+            } else if (typeof vl.setData === 'function') {
+                vl.setData(windData);
+            } else {
+                // Fallback: recreate layer
+                if (leafletMapRef.current.hasLayer(velocityLayerRef.current)) {
+                    leafletMapRef.current.removeLayer(velocityLayerRef.current);
+                }
+                const layer = createVelocityLayer(windData);
+                layer.addTo(leafletMapRef.current);
+                velocityLayerRef.current = layer;
+            }
+            if (syncRef.current) syncRef.current();
+        } catch (err) {
+            log.warn('[VelocityOverlay] Failed to inject new wind data:', err);
+        }
+    }, [windData]);
+
     // ── Create/destroy particle overlay ──────────────────────────
     useEffect(() => {
-        if (!mapboxMap || !visible || !windData) return;
+        if (!mapboxMap || !visible) return;
 
         let cancelled = false;
 
@@ -673,10 +700,13 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             const mapPane = lMap.getPane('mapPane');
             if (mapPane) mapPane.style.background = 'transparent';
 
-            // Inject velocity layer via helper
-            const vLayer = createVelocityLayer(windData);
-            vLayer.addTo(lMap);
-            velocityLayerRef.current = vLayer;
+            // Inject velocity layer via helper — use current data or an empty placeholder
+            const initialData = windDataRef.current ?? windData ?? [];
+            if (initialData.length > 0) {
+                const vLayer = createVelocityLayer(initialData);
+                vLayer.addTo(lMap);
+                velocityLayerRef.current = vLayer;
+            }
 
             // ── Anchor-point geo-locking (performance optimised) ──
             // MOVE events (every pixel during drag):
@@ -753,22 +783,19 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             resizeRef.current = onResize;
             zoomEndRef.current = onViewEnd;
 
-            // Initial sync, then fade in
+            // Initial sync
             lMap.invalidateSize();
             syncFull();
 
-            // Delayed re-sync — container may not have final dimensions on first mount
+            // Delayed re-sync — container may not have final dimensions on first mount.
+            // Fade in AFTER this final sync so particles don't visibly jump.
             setTimeout(() => {
+                if (cancelled) return;
                 lMap.invalidateSize();
                 syncFull();
-            }, 500);
-
-            // Fade in after velocity canvas has rendered its first frame
-            requestAnimationFrame(() => {
-                requestAnimationFrame(() => {
-                    if (overlayRef.current) overlayRef.current.style.opacity = '1';
-                });
-            });
+                // Fade in now that position is settled
+                if (overlayRef.current) overlayRef.current.style.opacity = '1';
+            }, 600);
 
             // ── Apply current windHour from grid (fixes race condition) ──
             // The windHour effect may have already fired (and bailed because
@@ -831,7 +858,7 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
                             },
                         ];
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const vlInit = vLayer as any;
+                        const vlInit = velocityLayerRef.current as any;
                         if (vlInit._windy) vlInit._windy.setData(initData);
                         log.info(`[VelocityOverlay] Applied windHour=${curHour} from grid after async setup`);
                     }
@@ -899,7 +926,8 @@ export const MapboxVelocityOverlay: React.FC<MapboxVelocityOverlayProps> = ({
             }
             overlayRef.current = null;
         };
-    }, [mapboxMap, visible, windData]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mapboxMap, visible]);
 
     // ── Data freshness badge ─────────────────────────────────────
     if (!visible || !dataInfo.refTime || hideBadge) return null;

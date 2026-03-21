@@ -37,7 +37,7 @@ import { exportPassageAsGPX, exportBasicPassageGPX } from '../../services/passag
 import { shareGPXFile } from '../../services/gpxService';
 import { GpsService } from '../../services/GpsService';
 
-import { type MapHubProps } from './mapConstants';
+import { type MapHubProps, type WeatherLayer } from './mapConstants';
 import { useMapInit, useLocationDot, usePickerMode } from './useMapInit';
 import { useWeatherLayers, useEmbeddedRain } from './useWeatherLayers';
 import { usePassagePlanner } from './usePassagePlanner';
@@ -52,8 +52,9 @@ import { AisGuardAlert } from './AisGuardAlert';
 import { VesselSearch } from './VesselSearch';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
+import { GhostShip } from './GhostShip';
 import { LayerFABMenu } from './MapHubOverlays';
-import { ThalassaHelixControl, type HelixLayer } from './ThalassaHelixControl';
+import { ThalassaHelixControl, LegendDock, type HelixLayer } from './ThalassaHelixControl';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 import { PassageDataPanel } from './PassageDataPanel';
 import { WeatherInspectPopup } from './WeatherInspectPopup';
@@ -436,81 +437,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
     weatherRef.current = weather;
 
-    // ── Cyclone-aware temporal snap ──
-    // GFS forecast error means the model's predicted cyclone position diverges
-    // from the actual ATCF position over time. Instead of spatially shifting the
-    // wind grid (old vortexOffset), we find which forecast hour's vortex center
-    // best matches the ATCF position and auto-advance the scrubber there.
-    useEffect(() => {
-        const grid = weather.windGridRef?.current;
-        if (!closestStorm || !grid || !cycloneVisible || !weather.windReady) return;
-        if (!grid.lats?.length || !grid.lons?.length) return;
-
-        const stormLat = closestStorm.currentPosition.lat;
-        const stormLon = closestStorm.currentPosition.lon;
-        const w = grid.width;
-        const hgt = grid.height;
-        const SEARCH = 10; // search ±10° around ATCF
-
-        let bestHourIdx = weather.windNowIdxRef.current; // fallback to time-based "now"
-        let bestDist = Infinity;
-
-        // Scan each forecast hour to find the one whose vortex center is closest to ATCF
-        for (let h = 0; h < grid.totalHours; h++) {
-            const uArr = grid.u[h];
-            const vArr = grid.v[h];
-            if (!uArr || !vArr) continue;
-
-            // Find the point of maximum vorticity near the storm
-            let maxVort = 0;
-            let vortLat = stormLat;
-            let vortLon = stormLon;
-
-            for (let row = 1; row < hgt - 1; row++) {
-                const lat = grid.lats[row];
-                if (Math.abs(lat - stormLat) > SEARCH) continue;
-
-                for (let col = 1; col < w - 1; col++) {
-                    const lon = grid.lons[col];
-                    if (Math.abs(lon - stormLon) > SEARCH) continue;
-
-                    // Vorticity: ∂v/∂x - ∂u/∂y
-                    const dvdx = vArr[row * w + col + 1] - vArr[row * w + col - 1];
-                    const dudy = uArr[(row - 1) * w + col] - uArr[(row + 1) * w + col];
-                    const vort = Math.abs(dvdx - dudy);
-
-                    if (vort > maxVort) {
-                        maxVort = vort;
-                        vortLat = lat;
-                        vortLon = lon;
-                    }
-                }
-            }
-
-            if (maxVort < 3) continue; // No cyclonic rotation found at this hour
-
-            // Distance between this hour's vortex center and the ATCF position
-            const dist = Math.sqrt((vortLat - stormLat) ** 2 + (vortLon - stormLon) ** 2);
-
-            if (dist < bestDist) {
-                bestDist = dist;
-                bestHourIdx = h;
-            }
-        }
-
-        // Only override if we found a better hour than the time-based "now"
-        const currentNow = weather.windNowIdxRef.current;
-        if (bestHourIdx !== currentNow && bestDist < 5) {
-            const fhrs = weather.windForecastHoursRef.current;
-            log.info(
-                `[CycloneSnap] GFS vortex at hour ${fhrs[bestHourIdx] ?? bestHourIdx} ` +
-                    `(idx ${bestHourIdx}) best matches ATCF position ` +
-                    `(dist=${bestDist.toFixed(1)}°, time-based now=idx ${currentNow})`,
-            );
-            weather.setWindHour(bestHourIdx);
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [closestStorm, cycloneVisible, weather.windReady]);
+    // ── Cyclone-aware temporal snap — REMOVED ──
+    // Previously this scanned all GFS forecast hours to find the vortex center
+    // closest to the ATCF position and overrode the wind scrubber. However, this
+    // always biased toward hour-0 (model initialization) which showed wind data
+    // 5-6 hours in the past. The time-based "now" index already produces correct
+    // wind alignment with the tracked cyclone position.
 
     // ── Embedded Rain (also loads as background on full-map velocity mode) ──
     const _embRain = useEmbeddedRain(mapRef, embedded, mapReady, false);
@@ -587,10 +519,30 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {!isPinView && (
                     <MapboxVelocityOverlay
                         mapboxMap={mapRef.current}
-                        visible={weather.activeLayers.has('velocity')}
+                        visible={weather.activeLayers.has('velocity') || weather.activeLayers.has('wind')}
                         windHour={weather.windHour}
                         windGrid={weather.windGridRef?.current ?? undefined}
                         hideBadge={passage.showPassage}
+                    />
+                )}
+
+                {/* ═══ GHOST SHIP (route interpolation during forecast scrub) ═══ */}
+                {!isPinView && passage.showPassage && passage.routeAnalysis && (
+                    <GhostShip
+                        map={mapRef.current}
+                        routeCoords={
+                            passage.isoResultRef.current?.routeCoordinates ?? null
+                        }
+                        departureTime={passage.departureTime || new Date().toISOString()}
+                        speed={passage.speed}
+                        windHour={weather.windHour}
+                        windForecastHours={weather.windForecastHoursRef.current}
+                        windNowIdx={weather.windNowIdxRef.current}
+                        visible={
+                            (weather.activeLayers.has('wind') || weather.activeLayers.has('velocity'))
+                            && passage.showPassage
+                            && !!passage.routeAnalysis
+                        }
                     />
                 )}
 
@@ -710,7 +662,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         </div>
                                     )}
                                     <div className="flex gap-2">
-                                        <button
+                                        <button aria-label="Export"
                                             onClick={async () => {
                                                 try {
                                                     let gpx: string;
@@ -899,10 +851,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onToggleCyclones={() => {
                             const willBeVisible = !cycloneVisible;
                             setCycloneVisible(willBeVisible);
-                            // Auto-enable wind + rain when activating storm view
                             if (willBeVisible) {
+                                // Auto-enable wind + rain when activating storm view
                                 if (!weather.activeLayers.has('velocity')) weather.toggleLayer('velocity');
                                 if (!weather.activeLayers.has('rain')) weather.toggleLayer('rain');
+                            } else {
+                                // Clean up auto-enabled layers when dismissing
+                                if (weather.activeLayers.has('velocity')) weather.toggleLayer('velocity');
+                                if (weather.activeLayers.has('rain')) weather.toggleLayer('rain');
                             }
                         }}
                         cycloneStormName={closestStorm?.name ?? null}
@@ -1099,22 +1055,96 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {!isPinView &&
                     weather.activeLayers.size > 0 &&
                     (() => {
-                        // Determine active layer
-                        const activeLayerKey: HelixLayer = weather.activeLayers.has('pressure')
-                            ? 'pressure'
-                            : weather.activeLayers.has('wind') || weather.activeLayers.has('velocity')
-                              ? 'wind'
-                              : weather.activeLayers.has('rain')
-                                ? 'rain'
-                                : weather.activeLayers.has('temperature')
-                                  ? 'temperature'
-                                  : weather.activeLayers.has('clouds')
-                                    ? 'clouds'
-                                    : null;
+                        // Identify active weather layers (only scrubble types)
+                        const WEATHER_KEYS: HelixLayer[] = ['pressure', 'wind', 'rain', 'temperature', 'clouds'];
+                        const activeWeatherLayers = WEATHER_KEYS.filter((k) =>
+                            k === 'wind'
+                                ? weather.activeLayers.has('wind' as WeatherLayer) || weather.activeLayers.has('velocity')
+                                : weather.activeLayers.has(k as WeatherLayer),
+                        );
 
+                        // ── Wind+Rain combo: synced scrubber limited to shortest timeline ──
+                        const isWindRainCombo =
+                            activeWeatherLayers.length === 2 &&
+                            activeWeatherLayers.includes('wind') &&
+                            activeWeatherLayers.includes('rain');
+
+                        if (activeWeatherLayers.length >= 2 && !isWindRainCombo) {
+                            return <LegendDock layers={activeWeatherLayers} embedded={embedded} />;
+                        }
+
+                        if (isWindRainCombo) {
+                            // Synced scrubber: use rain timeline (shorter, ~4h) and drive both
+                            if (weather.rainLoading) {
+                                return (
+                                    <ThalassaHelixControl
+                                        activeLayer="rain"
+                                        frameIndex={0}
+                                        totalFrames={1}
+                                        frameLabel="Loading..."
+                                        sublabel="Rain"
+                                        isPlaying={false}
+                                        isLoading={true}
+                                        embedded={embedded}
+                                        onScrub={() => {}}
+                                        onPlayToggle={() => {}}
+                                    />
+                                );
+                            }
+                            if (weather.rainReady && weather.rainFrameCount > 1) {
+                                const rainNow = weather.rainNowIdxRef.current;
+                                const curFrame = weather.unifiedFramesRef.current[weather.rainFrameIndex];
+                                const isForecast = curFrame?.type === 'forecast';
+                                return (
+                                    <ThalassaHelixControl
+                                        activeLayer="wind"
+                                        frameIndex={weather.rainFrameIndex}
+                                        totalFrames={weather.rainFrameCount}
+                                        frameLabel={curFrame?.label ?? '--'}
+                                        sublabel={isForecast ? 'Forecast' : 'Live'}
+                                        isPlaying={weather.rainPlaying}
+                                        isLoading={false}
+                                        embedded={embedded}
+                                        nowIndex={rainNow}
+                                        dualColor={true}
+                                        forecastAccent="#fbbf24"
+                                        onScrub={(idx: number) => {
+                                            weather.setRainFrameIndex(idx);
+                                            // Map rain frame time to closest wind hour
+                                            const frame = weather.unifiedFramesRef.current[idx];
+                                            if (frame && weather.windForecastHoursRef.current.length > 0) {
+                                                const fhrs = weather.windForecastHoursRef.current;
+                                                const nowIdx = weather.windNowIdxRef.current;
+                                                const rainNowIdx = weather.rainNowIdxRef.current;
+                                                const deltaFrames = idx - rainNowIdx;
+                                                // Each rain frame is ~10 min apart; map to wind hour index
+                                                const deltaHours = (deltaFrames * 10) / 60;
+                                                const targetForecastHour = (fhrs[nowIdx] ?? 0) + deltaHours;
+                                                // Find closest wind forecast hour
+                                                let bestWindIdx = nowIdx;
+                                                let bestDist = Infinity;
+                                                for (let i = 0; i < fhrs.length; i++) {
+                                                    const d = Math.abs(fhrs[i] - targetForecastHour);
+                                                    if (d < bestDist) { bestDist = d; bestWindIdx = i; }
+                                                }
+                                                weather.setWindHour(bestWindIdx);
+                                            }
+                                        }}
+                                        onScrubStart={() => weather.setRainPlaying(false)}
+                                        onPlayToggle={() => weather.setRainPlaying(!weather.rainPlaying)}
+                                    />
+                                );
+                            }
+                            // Rain not ready — fall through to wind-only scrubber
+                        }
+
+                        // ── 0 weather layers (only sea/traffic/etc): nothing ──
+                        if (activeWeatherLayers.length === 0) return null;
+
+                        // ── Exactly 1 weather layer: show scrubber ──
+                        const activeLayerKey = activeWeatherLayers[0];
                         if (!activeLayerKey) return null;
 
-                        // Compute scrubber props based on active layer
                         let frameIndex = 0;
                         let totalFrames = 1;
                         let frameLabel = 'Live';
@@ -1161,7 +1191,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 frameLabel = 'Now';
                                 sublabel = 'Current';
                             } else {
-                                // Show relative to "now" so labels make intuitive sense
                                 const relativeH = actualHour - nowHour;
                                 if (relativeH > 0) {
                                     frameLabel = `+${relativeH}h`;
@@ -1195,9 +1224,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 onScrub = (idx: number) => weather.setRainFrameIndex(idx);
                                 onPlayToggle = () => weather.setRainPlaying(!weather.rainPlaying);
                                 onScrubStart = () => weather.setRainPlaying(false);
+                            } else {
+                                frameLabel = 'No Data';
+                                sublabel = 'Retry';
                             }
                         }
-                        // temperature: no scrubber, just legend (totalFrames stays 1)
+                        // temperature / clouds: no scrubber, just legend (totalFrames stays 1)
 
                         return (
                             <ThalassaHelixControl

@@ -656,7 +656,7 @@ const App: React.FC = () => {
                                                                     Error
                                                                 </h3>
                                                                 <p className="text-white/80">{error}</p>
-                                                                <button
+                                                                <button aria-label="Retry"
                                                                     onClick={() =>
                                                                         fetchWeather(
                                                                             query || settings.defaultLocation || '',

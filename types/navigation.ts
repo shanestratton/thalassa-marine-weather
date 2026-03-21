@@ -98,11 +98,31 @@ export interface VoyagePlan {
         description: string;
     }[];
     routeReasoning?: string;
+    /** Full bathymetric route as GeoJSON LineString (from bathymetric edge function) */
+    routeGeoJSON?: GeoJSON.Feature<GeoJSON.LineString>;
+    /** Traffic light segmented FeatureCollection (green/orange/red depth zones) */
+    trafficGeoJSON?: GeoJSON.FeatureCollection<GeoJSON.LineString>;
+    /** Per-segment safety summary from bathymetric router */
+    safety?: { safe: number; caution: number; danger: number };
     /** Internal runtime annotations — populated by passage planner, not serialized */
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    __depthSummary?: any;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    __multiModelComparison?: any;
+    __depthSummary?: DepthSummary;
+    __multiModelComparison?: import('../services/weather/MultiModelWeatherService').MultiModelResult;
+    /** Spatiotemporal weather routing payload — stashed by enhanceVoyagePlanWithWeather */
+    __spatiotemporalPayload?: import('../types/spatiotemporal').SpatiotemporalPayload;
+}
+
+/** GEBCO depth analysis result — attached to VoyagePlan by the passage planner */
+export interface DepthSegment {
+    depth_m: number | null;
+    safety: string;
+    costMultiplier: number;
+}
+
+export interface DepthSummary {
+    minDepth: number | null;
+    shallowSegments: number;
+    totalSegments: number;
+    segments: DepthSegment[];
 }
 
 export interface DeepAnalysisReport {

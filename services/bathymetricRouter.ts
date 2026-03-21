@@ -143,19 +143,16 @@ export function mergeBathymetricRoute(voyagePlan: VoyagePlan, bathyRoute: Bathym
     // This is the key fix: the geojson has ALL graph waypoints
     // so the map renders smooth curves following waterways
     if (bathyRoute.geojson) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (merged as any).routeGeoJSON = bathyRoute.geojson;
+        merged.routeGeoJSON = bathyRoute.geojson;
     }
     if (bathyRoute.trafficGeoJSON) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (merged as any).trafficGeoJSON = bathyRoute.trafficGeoJSON;
+        merged.trafficGeoJSON = bathyRoute.trafficGeoJSON;
     }
 
     // ── Update metadata ──
     merged.distanceApprox = `${bathyRoute.totalNM} NM`;
     if (bathyRoute.safety) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (merged as any).safety = bathyRoute.safety;
+        merged.safety = bathyRoute.safety;
     }
 
     return merged;

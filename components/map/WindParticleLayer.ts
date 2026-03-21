@@ -12,7 +12,7 @@ const MS_TO_KNOTS = 1.94384;
 const VELOCITY_KILL_THRESHOLD = 0.3; // knots — kill particles in convergence zones
 const RANDOM_DROP_RATE = 0.004; // 0.4% chance per frame of spontaneous respawn
 const TRAIL_LENGTH = 30;
-const FLOATS_PER_TRAIL_PT = 4;
+const FLOATS_PER_TRAIL_PT = 5; // x, y, speed, alpha, opposition
 const FLOATS_PER_PARTICLE = TRAIL_LENGTH * FLOATS_PER_TRAIL_PT;
 const TOTAL_POINTS = NUM_PARTICLES * TRAIL_LENGTH;
 
@@ -27,6 +27,41 @@ interface WindBounds {
 interface WindTimestep {
     u: Float32Array;
     v: Float32Array;
+}
+
+// ── East Australian Current (EAC) — Static Lookup ─────────────
+// The EAC flows consistently southward along the Australian east coast.
+// These regional boxes define where current flows, with direction vectors.
+// Phase 2: replace with live HYCOM API data.
+
+interface CurrentRegion {
+    south: number;
+    north: number;
+    west: number;
+    east: number;
+    /** Current direction U (m/s, positive = eastward) */
+    cu: number;
+    /** Current direction V (m/s, positive = northward) */
+    cv: number;
+}
+
+const EAC_REGIONS: CurrentRegion[] = [
+    // Main EAC flow — strong southward (−1.5 m/s), slight onshore
+    { south: -33, north: -25, west: 152, east: 155, cu: 0.2, cv: -1.5 },
+    // EAC extension — weaker southward past Sydney
+    { south: -37, north: -33, west: 150, east: 153, cu: 0.1, cv: -0.8 },
+    // Northern feeder — moderate southward into the EAC
+    { south: -25, north: -20, west: 153, east: 156, cu: 0.1, cv: -1.0 },
+];
+
+/** Sample ocean current at a geographic position. Returns [cu, cv] or null if outside known current zones. */
+function sampleCurrentDirection(lat: number, lon: number): [number, number] | null {
+    for (const r of EAC_REGIONS) {
+        if (lat >= r.south && lat <= r.north && lon >= r.west && lon <= r.east) {
+            return [r.cu, r.cv];
+        }
+    }
+    return null;
 }
 
 // ── Shaders ───────────────────────────────────────────────────
@@ -114,6 +149,7 @@ precision highp float;
 attribute vec2 a_particle_pos;
 attribute float a_particle_speed;
 attribute float a_particle_alpha;
+attribute float a_particle_opposition;
 uniform mat4 u_matrix;
 uniform vec4 u_grid_bounds;
 uniform vec4 u_bbox;
@@ -121,6 +157,7 @@ uniform float u_zoom;
 uniform float u_lon_offset;
 varying float v_speed;
 varying float v_alpha;
+varying float v_opposition;
 
 const float PI = 3.14159265359;
 
@@ -142,6 +179,7 @@ void main() {
 
     v_speed = a_particle_speed;
     v_alpha = a_particle_alpha;
+    v_opposition = a_particle_opposition;
     vec2 merc = toMercator(lon, lat);
     gl_Position = u_matrix * vec4(merc, 0.0, 1.0);
     gl_PointSize = mix(2.5, 5.0, clamp((u_zoom - 3.0) / 7.0, 0.0, 1.0));
@@ -151,6 +189,7 @@ const PARTICLE_FRAG = `
 precision highp float;
 varying float v_speed;
 varying float v_alpha;
+varying float v_opposition;
 
 void main() {
     // Speed-based color ramp: steel blue → warm amber → coral
@@ -161,7 +200,14 @@ void main() {
     vec3 color = t < 0.5
         ? mix(calm, fresh, t * 2.0)
         : mix(fresh, gale, (t - 0.5) * 2.0);
+
+    // Wind-Against-Current: blend toward warning orange when opposing
+    vec3 warning = vec3(0.95, 0.55, 0.15);   // bright warning orange
+    color = mix(color, warning, v_opposition * 0.85);
+
+    // Boost alpha slightly when opposing — make danger more visible
     float alpha = v_alpha * mix(0.35, 0.65, t);
+    alpha = mix(alpha, max(alpha, 0.7), v_opposition * 0.5);
     gl_FragColor = vec4(color, alpha);
 }`;
 
@@ -212,6 +258,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     private aParticlePosLoc: number = -1;
     private aParticleSpeedLoc: number = -1;
     private aParticleAlphaLoc: number = -1;
+    private aParticleOppositionLoc: number = -1;
     private particleVAO: WebGLVertexArrayObject | null = null;
     private uMatrixLoc: WebGLUniformLocation | null = null;
     private uGridBoundsLoc: WebGLUniformLocation | null = null;
@@ -293,10 +340,11 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             const base = i * FLOATS_PER_PARTICLE;
             for (let t = 0; t < TRAIL_LENGTH; t++) {
                 const offset = base + t * FLOATS_PER_TRAIL_PT;
-                this.trailData[offset] = px;
-                this.trailData[offset + 1] = py;
-                this.trailData[offset + 2] = 0;
-                this.trailData[offset + 3] = 0;
+                this.trailData[offset] = px;      // x
+                this.trailData[offset + 1] = py;   // y
+                this.trailData[offset + 2] = 0;    // speed
+                this.trailData[offset + 3] = 0;    // alpha
+                this.trailData[offset + 4] = 0;    // opposition
             }
             this.trailData[base + 3] = 0.85;
             this.particleAges[i] = Math.floor(Math.random() * MAX_AGE);
@@ -317,6 +365,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         this.aParticlePosLoc = gl.getAttribLocation(this.program, 'a_particle_pos');
         this.aParticleSpeedLoc = gl.getAttribLocation(this.program, 'a_particle_speed');
         this.aParticleAlphaLoc = gl.getAttribLocation(this.program, 'a_particle_alpha');
+        this.aParticleOppositionLoc = gl.getAttribLocation(this.program, 'a_particle_opposition');
 
         this.uMatrixLoc = gl.getUniformLocation(this.program, 'u_matrix');
         this.uGridBoundsLoc = gl.getUniformLocation(this.program, 'u_grid_bounds');
@@ -355,6 +404,10 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         if (this.aParticleAlphaLoc >= 0) {
             gl.enableVertexAttribArray(this.aParticleAlphaLoc);
             gl.vertexAttribPointer(this.aParticleAlphaLoc, 1, gl.FLOAT, false, STRIDE, 3 * 4);
+        }
+        if (this.aParticleOppositionLoc >= 0) {
+            gl.enableVertexAttribArray(this.aParticleOppositionLoc);
+            gl.vertexAttribPointer(this.aParticleOppositionLoc, 1, gl.FLOAT, false, STRIDE, 4 * 4);
         }
 
         // Unbind our VAO so MapLibre's state isn't affected
@@ -781,6 +834,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
                 data[offset + 1] = py;
                 data[offset + 2] = 0;
                 data[offset + 3] = 0;
+                data[offset + 4] = 0; // opposition
             }
             data[base + 3] = 0.85;
             ages[i] = Math.floor(Math.random() * MAX_AGE);
@@ -808,18 +862,33 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             let y = data[base + 1];
             let speedKnots = 0;
 
+            let opposition = 0;
+
             if (hasWind) {
                 const [u, v] = this.sampleWind(x, y);
                 speedKnots = Math.sqrt(u * u + v * v) * MS_TO_KNOTS;
 
                 // Scale displacement by cos(latitude) to prevent Mercator polar acceleration.
-                // At equator (y=0.5, lat=0°): cosLat=1.0 (no scaling)
-                // At lat=60° (y=0.83): cosLat=0.5 (half speed)
-                // At lat=80° (y=0.94): cosLat=0.17 (very slow)
                 const latDeg = this.gridBounds.south + y * (this.gridBounds.north - this.gridBounds.south);
+                const lonDeg = this.gridBounds.west + x * (this.gridBounds.east - this.gridBounds.west);
                 const cosLat = Math.max(0.1, Math.cos((latDeg * Math.PI) / 180));
                 x += u * SPEED_FACTOR * cosLat;
                 y += v * SPEED_FACTOR * cosLat;
+
+                // Wind-Against-Current: compute opposition factor via dot product
+                const current = sampleCurrentDirection(latDeg, lonDeg);
+                if (current && speedKnots > 2) {
+                    const [cu, cv] = current;
+                    // Normalize wind direction
+                    const windMag = Math.sqrt(u * u + v * v);
+                    const curMag = Math.sqrt(cu * cu + cv * cv);
+                    if (windMag > 0.01 && curMag > 0.01) {
+                        // dot product of normalized directions: -1 = directly opposing, +1 = aligned
+                        const dot = (u * cu + v * cv) / (windMag * curMag);
+                        // opposition = 0 when aligned/perpendicular, 0→1 when opposing
+                        opposition = Math.max(0, -dot);
+                    }
+                }
             }
 
             // ── Global wrapping vs bounded kill ──
@@ -837,6 +906,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
                         data[offset + 1] = y;
                         data[offset + 2] = 0;
                         data[offset + 3] = 0;
+                        data[offset + 4] = 0;
                     }
                     data[base + 3] = 0.85;
                     ages[i] = 0;
@@ -856,6 +926,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
                         data[offset + 1] = ry;
                         data[offset + 2] = 0;
                         data[offset + 3] = 0;
+                        data[offset + 4] = 0;
                     }
                     data[base + 3] = 0.85;
                     ages[i] = 0;
@@ -876,6 +947,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
                         data[offset + 1] = ry;
                         data[offset + 2] = 0;
                         data[offset + 3] = 0;
+                        data[offset + 4] = 0;
                     }
                     data[base + 3] = 0.85;
                     ages[i] = 0;
@@ -886,6 +958,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             data[base] = x;
             data[base + 1] = y;
             data[base + 2] = speedKnots;
+            data[base + 4] = opposition; // Wind-Against-Current factor
 
             for (let t = 0; t < TRAIL_LENGTH; t++) {
                 const offset = base + t * FLOATS_PER_TRAIL_PT;
@@ -1116,6 +1189,10 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             if (this.aParticleAlphaLoc >= 0) {
                 gl.enableVertexAttribArray(this.aParticleAlphaLoc);
                 gl.vertexAttribPointer(this.aParticleAlphaLoc, 1, gl.FLOAT, false, STRIDE, 3 * 4);
+            }
+            if (this.aParticleOppositionLoc >= 0) {
+                gl.enableVertexAttribArray(this.aParticleOppositionLoc);
+                gl.vertexAttribPointer(this.aParticleOppositionLoc, 1, gl.FLOAT, false, STRIDE, 4 * 4);
             }
         }
 

@@ -142,7 +142,7 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
                         >
                             Cancel
                         </button>
-                        <button
+                        <button aria-label="Save"
                             type="submit"
                             className="flex-1 px-4 py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-bold transition-colors disabled:opacity-50"
                             disabled={saving}
