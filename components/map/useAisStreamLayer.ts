@@ -375,6 +375,32 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
         };
     }, [map, enabled, fetchAndMerge]);
 
+    // ── Adaptive polling — 10s on fast WiFi, 60s on cellular/slow ──
+    useEffect(() => {
+        if (!map || !enabled) return;
+
+        const getInterval = (): number => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const conn = (navigator as any).connection;
+            if (!conn) return 10_000; // API unavailable — assume fast
+            const type: string = conn.type ?? '';
+            const ect: string = conn.effectiveType ?? '4g';
+            // Cellular or slow effective connection → 60s
+            if (type === 'cellular') return 60_000;
+            if (ect === '2g' || ect === 'slow-2g' || ect === '3g') return 60_000;
+            // WiFi/ethernet with fast effective type → 10s
+            return 10_000;
+        };
+
+        let timer: ReturnType<typeof setTimeout>;
+        const tick = () => {
+            fetchAndMerge();
+            timer = setTimeout(tick, getInterval());
+        };
+        timer = setTimeout(tick, getInterval());
+        return () => clearTimeout(timer);
+    }, [map, enabled, fetchAndMerge]);
+
     // ── Premium vessel popup on tap ──
     useEffect(() => {
         if (!map || !enabled) return;

@@ -230,9 +230,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                 shallowSegments: depthEnhanced.shallowSegments,
                                 totalSegments: depthEnhanced.segments.length,
                                 segments: depthEnhanced.segments.map((s) => ({
-                                    depth_m: s.depth_m,
-                                    safety: s.depthSafety,
-                                    costMultiplier: s.depthCostMultiplier,
+                                    depth_m: s.depth_m ?? null,
+                                    safety: s.depthSafety ?? 'unknown',
+                                    costMultiplier: s.depthCostMultiplier ?? 1,
                                 })),
                             };
                         }

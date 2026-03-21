@@ -737,7 +737,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                         id: 'comfort-zone-layer',
                                         type: 'raster',
                                         source: 'comfort-zone',
-                                        paint: { 'raster-opacity': 0.7, 'raster-fade-duration': 300 },
+                                        paint: { 'raster-opacity': 0.7, 'raster-fade-duration': 0 },
                                     },
                                     'route-line-layer',
                                 ); // Insert BELOW route line

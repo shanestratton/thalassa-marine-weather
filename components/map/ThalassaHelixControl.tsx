@@ -498,3 +498,58 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
 );
 
 ThalassaHelixControl.displayName = 'ThalassaHelixControl';
+
+// ── Multi-Legend Dock (2+ weather layers active → side-by-side legends, no scrubber) ──
+
+export interface LegendDockProps {
+    layers: HelixLayer[];
+    embedded?: boolean;
+}
+
+export const LegendDock: React.FC<LegendDockProps> = memo(({ layers, embedded }) => {
+    const validLayers = layers.filter((l): l is NonNullable<HelixLayer> => !!l && !!LAYER_CONFIGS[l]);
+    if (validLayers.length === 0) return null;
+
+    return (
+        <div
+            className="absolute z-[500] flex items-end gap-2 animate-in fade-in duration-200"
+            style={{
+                left: 12,
+                bottom: embedded ? 12 : 'calc(80px + env(safe-area-inset-bottom))',
+            }}
+        >
+            {validLayers.map((layer) => {
+                const config = LAYER_CONFIGS[layer];
+                if (!config) return null;
+                return (
+                    <div
+                        key={layer}
+                        className="flex flex-col items-center gap-1"
+                        style={{
+                            background: 'rgba(15, 23, 42, 0.75)',
+                            backdropFilter: 'blur(16px)',
+                            WebkitBackdropFilter: 'blur(16px)',
+                            border: '1px solid rgba(255,255,255,0.08)',
+                            borderRadius: 14,
+                            padding: '8px 6px',
+                        }}
+                    >
+                        <span className="text-[8px] font-black text-red-400/70 uppercase tracking-wider">↑</span>
+                        <span className="text-[7px] font-bold text-white/40 uppercase">{config.highLabel}</span>
+                        <div
+                            className="rounded-full"
+                            style={{ width: 6, height: 64, background: config.gradient }}
+                        />
+                        <span className="text-[7px] font-bold text-white/40 uppercase">{config.lowLabel}</span>
+                        <span className="text-[8px] font-black text-blue-400/70 uppercase tracking-wider">↓</span>
+                        <div className="mt-1 w-7 h-7 flex items-center justify-center rounded-lg bg-white/[0.04]">
+                            <span className="text-sm">{config.icon}</span>
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+});
+
+LegendDock.displayName = 'LegendDock';

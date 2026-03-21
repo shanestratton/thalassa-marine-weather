@@ -8,6 +8,7 @@ import {
     MarketplaceService,
     MarketplaceListing,
     ListingCategory,
+    ListingCondition,
     LISTING_CATEGORIES,
     LISTING_CONDITIONS,
     CATEGORY_ICONS,
@@ -37,7 +38,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     const [price, setPrice] = useState('');
     const [currency, setCurrency] = useState<string>('AUD');
     const [category, setCategory] = useState<ListingCategory | null>(null);
-    const [condition, setCondition] = useState<string | null>(null);
+    const [condition, setCondition] = useState<ListingCondition | null>(null);
     const [locCountry, setLocCountry] = useState('');
     const [locState, setLocState] = useState('');
     const [locSuburb, setLocSuburb] = useState('');
@@ -291,8 +292,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
             price: parseFloat(price),
             currency,
             category,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            condition: condition as any,
+            condition,
             images: images.length > 0 ? images : undefined,
             latitude: gpsLat || undefined,
             longitude: gpsLon || undefined,

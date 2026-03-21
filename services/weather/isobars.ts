@@ -213,7 +213,7 @@ export async function fetchPressureGrid(
         for (let lon = west; lon <= east; lon += res) lons.push(Math.round(lon * 100) / 100);
 
         // Cap grid size to prevent massive requests
-        if (lats.length * lons.length > 5000) {
+        if (lats.length * lons.length > 8000) {
             lats.length = 0;
             lons.length = 0;
             const bigRes = 3.0;
@@ -223,8 +223,8 @@ export async function fetchPressureGrid(
 
         if (lats.length < 3 || lons.length < 3) return null;
 
-        const sparseLatStep = Math.max((north - south) / 12, 0.5);
-        const sparseLonStep = Math.max((east - west) / 12, 0.5);
+        const sparseLatStep = Math.max((north - south) / 24, 0.5);
+        const sparseLonStep = Math.max((east - west) / 24, 0.5);
 
         const points: { lat: number; lon: number }[] = [];
         for (let lat = south; lat <= north + 0.01; lat += sparseLatStep) {
@@ -859,14 +859,19 @@ function generatePressureHeatmap(
     const imgData = ctx.createImageData(cols, rows);
 
     // Pressure color stops (hPa → RGBA)
-    // Inspired by Weatherzone: deep-blue lows → cyan mids → white highs
+    // Windy-inspired: intense magenta/red for deep lows → cyan/blue for highs
     const colorStops: [number, number, number, number, number][] = [
         // [pressure_hPa, R, G, B, A]
-        [970, 60, 20, 120, 180], // Deep purple — intense low
-        [990, 40, 80, 180, 160], // Royal blue — moderate low
-        [1008, 50, 140, 210, 130], // Ocean blue — neutral-low
-        [1020, 120, 200, 230, 100], // Cyan — neutral-high
-        [1040, 200, 230, 245, 80], // Light ice — strong high
+        [960, 180, 30, 30, 220],   // Intense red — extreme cyclone
+        [975, 200, 40, 100, 210],  // Deep magenta — severe low
+        [985, 210, 60, 150, 200],  // Hot magenta — cyclone
+        [995, 180, 80, 200, 185],  // Purple-magenta — moderate low
+        [1005, 120, 100, 210, 170], // Blue-violet — mild low
+        [1012, 80, 160, 220, 140],  // Ocean blue — standard (anchor)
+        [1018, 60, 190, 230, 150],  // Bright cyan — neutral-high
+        [1025, 50, 140, 220, 165],  // Deep blue — moderate high
+        [1035, 40, 100, 200, 180],  // Royal blue — strong high
+        [1045, 30, 60, 160, 190],   // Deep navy — extreme high
     ];
 
     // Clamp range to observed data (with padding)
@@ -916,6 +921,18 @@ function generatePressureHeatmap(
 
     ctx.putImageData(imgData, 0, 0);
 
+    // Upscale with bilinear smoothing for silky gradients (4× resolution)
+    const SCALE = 4;
+    const smooth = document.createElement('canvas');
+    smooth.width = cols * SCALE;
+    smooth.height = rows * SCALE;
+    const sCtx = smooth.getContext('2d');
+    if (sCtx) {
+        sCtx.imageSmoothingEnabled = true;
+        sCtx.imageSmoothingQuality = 'high';
+        sCtx.drawImage(canvas, 0, 0, smooth.width, smooth.height);
+    }
+
     // Bounds: [west, south, east, north]
     const west = lons[0];
     const east = lons[cols - 1];
@@ -923,7 +940,7 @@ function generatePressureHeatmap(
     const north = lats[rows - 1];
 
     return {
-        dataUrl: canvas.toDataURL('image/png'),
+        dataUrl: (sCtx ? smooth : canvas).toDataURL('image/png'),
         bounds: [west, south, east, north],
     };
 }

@@ -332,10 +332,26 @@ export const LayerFABMenu: React.FC<{
                                 <span className="text-xl">🌀</span>
                                 <span className="text-sm font-bold flex-1">Major Storms</span>
                                 {cycloneVisible ? (
-                                    <span className="flex items-center gap-1">
+                                    <span className="flex items-center gap-1.5">
                                         <span className="w-1.5 h-1.5 rounded-full bg-red-400 shadow-lg shadow-red-400/50 animate-pulse" />
                                         <span className="text-[11px] font-bold text-red-400 uppercase tracking-wider">
                                             {cycloneStormName || 'Active'}
+                                        </span>
+                                        <span
+                                            role="button"
+                                            tabIndex={0}
+                                            aria-label="Dismiss storm tracking"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                onToggleCyclones();
+                                                triggerHaptic('medium');
+                                            }}
+                                            onKeyDown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); onToggleCyclones(); } }}
+                                            className="ml-0.5 w-5 h-5 rounded-full bg-red-500/25 border border-red-500/40 flex items-center justify-center text-red-300 hover:bg-red-500/50 hover:text-white transition-all active:scale-90 cursor-pointer"
+                                        >
+                                            <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
                                         </span>
                                     </span>
                                 ) : allCyclones.length > 0 ? (
@@ -473,6 +489,7 @@ export const LayerFABMenu: React.FC<{
                         [
                             { key: 'rain', label: 'Rain', icon: '🌧️' },
                             { key: 'velocity', label: 'Wind', icon: '💨' },
+                            { key: 'pressure', label: 'Synoptic', icon: '📊' },
                             { key: 'temperature', label: 'Temp', icon: '🌡️' },
                             { key: 'clouds', label: 'Clouds', icon: '☁️' },
                             { key: 'sea', label: 'Sea Marks', icon: '⚓' },

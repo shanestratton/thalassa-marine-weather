@@ -26,6 +26,7 @@ import { downloadRouteGPX } from '../../utils/gpxRouteExport';
 import { toast } from '../Toast';
 import { FONT, SIZE, HEADER_STYLE, MICRO_STYLE, FOOTNOTE_STYLE } from '../../styles/typeScale';
 import type { SpatiotemporalPayload } from '../../types/spatiotemporal';
+import type { VoyagePlan } from '../../types';
 import '../../styles/bioluminescent.css';
 
 // ── SVG Icons ───────────────────────────────────────────────────
@@ -284,7 +285,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
             const track = payload.track;
 
             // Build a VoyagePlan-compatible object from the spatiotemporal payload
-            const plan = {
+            const plan: VoyagePlan = {
                 origin: track[0]?.name || 'Origin',
                 destination: track[track.length - 1]?.name || 'Destination',
                 originCoordinates: track[0]
@@ -303,10 +304,10 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                 distanceApprox: `${payload.summary.total_distance_nm} NM`,
                 durationApprox: `${payload.summary.total_duration_hours} hours`,
                 departureDate: payload.summary.departure_time || new Date().toISOString(),
+                overview: '',
             };
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            downloadRouteGPX(plan as any);
+            downloadRouteGPX(plan);
             setSaveState('saved');
             toast.success('GPX route exported');
             setTimeout(() => setSaveState('idle'), 3000);
@@ -327,7 +328,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
             const { ShipLogService } = await import('../../services/ShipLogService');
             const track = payload.track;
 
-            const plan = {
+            const plan: VoyagePlan = {
                 origin: track[0]?.name || 'Origin',
                 destination: track[track.length - 1]?.name || 'Destination',
                 originCoordinates: track[0]
@@ -346,10 +347,10 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                 distanceApprox: `${payload.summary.total_distance_nm} NM`,
                 durationApprox: `${payload.summary.total_duration_hours} hours`,
                 departureDate: payload.summary.departure_time || new Date().toISOString(),
+                overview: '',
             };
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const voyageId = await ShipLogService.savePassagePlanToLogbook(plan as any);
+            const voyageId = await ShipLogService.savePassagePlanToLogbook(plan);
             if (voyageId) {
                 setLogbookState('saved');
                 const dest = track[track.length - 1]?.name || 'Destination';
@@ -802,7 +803,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
 
                 {/* Telemetry temporarily hidden
                 <div style={{ marginBottom: 6 }}>
-                    <button aria-label="Collapse"
+                    <button
                         onClick={() => setHudCollapsed(c => !c)}
                         aria-label={hudCollapsed ? 'Show telemetry panel' : 'Hide telemetry panel'}
                         aria-expanded={!hudCollapsed}

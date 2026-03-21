@@ -1,21 +1,37 @@
 {
   "name": "Thalassa Marine Weather",
   "short_name": "Thalassa",
-  "description": "Premium marine weather forecasting and voyage intelligence.",
+  "description": "Premium marine weather forecasting, voyage intelligence, and officer-on-watch assistant for cruising sailors.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "any",
   "background_color": "#0f172a",
   "theme_color": "#0f172a",
+  "categories": ["weather", "navigation", "utilities"],
+  "lang": "en",
+  "dir": "ltr",
   "icons": [
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/567/567055.png",
+      "src": "/thalassa-icon.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/567/567055.png",
+      "src": "/thalassa-icon.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/thalassa-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Thalassa Marine Weather Dashboard"
     }
   ]
 }

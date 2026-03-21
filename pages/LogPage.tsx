@@ -293,7 +293,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 <div className="flex flex-col h-full">
                     <div className="flex items-center justify-between p-4 border-b border-white/10">
                         <h2 className="text-lg font-bold text-white">Voyage Statistics</h2>
-                        <button
+                        <button aria-label="Close statistics"
                             onClick={() => dispatch({ type: 'SHOW_STATS', show: false })}
                             className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
                         >
@@ -362,7 +362,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 {onBack && (
-                                    <button
+                                    <button aria-label="Go back"
                                         onClick={onBack}
                                         className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
                                     >
@@ -397,7 +397,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 )}
                             </div>
                             <div className="relative">
-                                <button
+                                <button aria-label="Open menu"
                                     onClick={() => setShowMenu(!showMenu)}
                                     className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
                                 >
@@ -591,14 +591,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}
                             >
                                 <div className="flex gap-2">
-                                    <button
+                                    <button aria-label="Stop tracking"
                                         onClick={handleStopTracking}
                                         className="flex-1 h-14 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 active:scale-[0.97]"
                                     >
                                         <StopIcon className="w-4 h-4" />
                                         Stop
                                     </button>
-                                    <button
+                                    <button aria-label="Export voyage"
                                         onClick={async () => {
                                             try {
                                                 const voyageEntries = entries
@@ -634,7 +634,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     >
                                         <MapPinIcon className="w-5 h-5" />
                                     </button>
-                                    <button
+                                    <button aria-label="Add log entry"
                                         onClick={() => dispatch({ type: 'SHOW_ADD_MODAL', show: true })}
                                         className="flex-1 h-14 px-4 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white shadow-lg shadow-sky-500/25 active:scale-[0.98]"
                                     >
@@ -709,7 +709,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 {/* ── Archived Voyages ── */}
                                 {archivedVoyages.length > 0 && (
                                     <div className="mt-4">
-                                        <button
+                                        <button aria-label="Toggle archived voyages"
                                             onClick={() => setShowArchived(!showArchived)}
                                             className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 active:scale-[0.98] transition-all"
                                         >
@@ -785,7 +785,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                                 NM
                                                             </div>
                                                         </div>
-                                                        <button
+                                                        <button aria-label="Unarchive voyage"
                                                             onClick={() => handleUnarchiveVoyage(voyage.voyageId)}
                                                             className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/20 uppercase tracking-wider active:scale-[0.95] transition-all"
                                                         >
@@ -846,7 +846,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             />
                             <span className="text-xs text-slate-400">Don't show this again</span>
                         </label>
-                        <button
+                        <button aria-label="Dismiss GPS disclaimer"
                             onClick={() => {
                                 const checkbox = document.getElementById('gps-disclaimer-dismiss') as HTMLInputElement;
                                 dismissGpsDisclaimer(checkbox?.checked ?? false);
@@ -936,7 +936,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 </div>
                                 <h2 className="text-lg font-bold text-white">Export Voyage</h2>
                             </div>
-                            <button
+                            <button aria-label="Close"
                                 onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
                                 className="p-2 text-slate-400 hover:text-white transition-colors"
                             >
@@ -959,7 +959,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     <div className="flex-1 flex flex-col justify-center px-4 pb-8">
                         <div className="space-y-4 max-w-2xl mx-auto w-full">
                             {/* PDF Card — disabled for imported/community tracks (provenance) */}
-                            <button
+                            <button aria-label="Export as PDF"
                                 onClick={async () => {
                                     if (!hasNonDeviceEntries && !isExportingPDF) {
                                         setIsExportingPDF(true);
@@ -1035,7 +1035,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             </button>
 
                             {/* GPX Card */}
-                            <button
+                            <button aria-label="Export as GPX"
                                 onClick={async () => {
                                     if (!isExportingGPX) {
                                         setIsExportingGPX(true);
@@ -1124,7 +1124,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 </div>
                                 <h2 className="text-lg font-bold text-white">Import Tracks</h2>
                             </div>
-                            <button
+                            <button aria-label="Close"
                                 onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
                                 className="p-2 text-slate-400 hover:text-white transition-colors"
                             >
@@ -1147,7 +1147,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             {/* Import GPX File Card — hidden for now, unhide when users request it */}
                             {/* eslint-disable-next-line no-constant-binary-expression */}
                             {false && (
-                                <button
+                                <button aria-label="Import GPX file"
                                     onClick={() => {
                                         if (!isImportingGPX) gpxFileInputRef.current?.click();
                                     }}
@@ -1203,7 +1203,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             )}
 
                             {/* Browse Community Card */}
-                            <button
+                            <button aria-label="Browse community tracks"
                                 onClick={() => {
                                     dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true });
                                     dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
@@ -1286,7 +1286,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 </div>
                                 <h2 className="text-lg font-bold text-white">Share</h2>
                             </div>
-                            <button
+                            <button aria-label="Close"
                                 onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
                                 className="p-2 text-slate-400 hover:text-white transition-colors"
                             >
@@ -1311,7 +1311,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     <div className="flex-1 flex flex-col justify-center px-4 pb-8">
                         <div className="space-y-4 max-w-2xl mx-auto w-full">
                             {/* Community Share Card — disabled for imported/community tracks */}
-                            <button
+                            <button aria-label="Share voyage"
                                 onClick={() => {
                                     if (!hasNonDeviceEntries)
                                         dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share_form' });
@@ -1365,7 +1365,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             </button>
 
                             {/* Browse Community Card */}
-                            <button
+                            <button aria-label="Browse community tracks"
                                 onClick={() => {
                                     dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true });
                                     dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
@@ -1418,7 +1418,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-2">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2.5">
-                                <button
+                                <button aria-label="Share"
                                     onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' })}
                                     className="p-1.5 text-slate-400 hover:text-white transition-colors -ml-1"
                                 >
@@ -1448,7 +1448,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 </div>
                                 <h2 className="text-lg font-bold text-white">Community Share</h2>
                             </div>
-                            <button
+                            <button aria-label="Close"
                                 onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
                                 className="p-2 text-slate-400 hover:text-white transition-colors"
                             >
@@ -1544,7 +1544,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 </div>
 
                                 {/* Submit Button */}
-                                <button
+                                <button aria-label="Submit share"
                                     onClick={() => {
                                         const rawTitle = (
                                             document.getElementById('share-title') as HTMLInputElement
@@ -1580,7 +1580,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             </div>
 
                             {/* Browse Community */}
-                            <button
+                            <button aria-label="Browse shared tracks"
                                 onClick={() => {
                                     dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true });
                                     dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
@@ -1650,7 +1650,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 </div>
                                 <h2 className="text-lg font-bold text-white">Voyage Statistics</h2>
                             </div>
-                            <button
+                            <button aria-label="Close"
                                 onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
                                 className="p-2 text-slate-400 hover:text-white transition-colors"
                             >
@@ -1677,7 +1677,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     ? entries.filter((e) => e.voyageId === effectiveVoyageId).length
                                     : 0;
                                 return (
-                                    <button
+                                    <button aria-label="View voyage statistics"
                                         onClick={() => {
                                             dispatch({ type: 'SELECT_VOYAGE', voyageId: effectiveVoyageId });
                                             dispatch({ type: 'SHOW_STATS', show: true });
@@ -1729,7 +1729,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             })()}
 
                             {/* All Voyages Card */}
-                            <button
+                            <button aria-label="View all statistics"
                                 onClick={() => {
                                     dispatch({ type: 'SELECT_VOYAGE', voyageId: null });
                                     dispatch({ type: 'SHOW_STATS', show: true });

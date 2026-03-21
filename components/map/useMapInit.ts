@@ -187,11 +187,11 @@ export function useMapInit(opts: UseMapInitOptions) {
             interactive: true,
             dragPan: true,
             scrollZoom: true,
-            dragRotate: false,
+            dragRotate: true,
+            pitch: 0,
+            maxPitch: 60,
+            maxTileCacheSize: 200,
         });
-
-        map.dragRotate.disable();
-        map.touchZoomRotate.disableRotation();
 
         // Measure actual world width via map.project(), set minZoom so
         // one world copy fills the container. No tile-size guessing.
@@ -210,10 +210,11 @@ export function useMapInit(opts: UseMapInitOptions) {
             if (style?.layers) {
                 for (const layer of style.layers) {
                     // minimalLabels: hide country/state/continent labels but KEEP city names
+                    // Works with both Mapbox (country-label) and MapTiler (Country labels) conventions
                     if (
                         minimalLabels &&
                         layer.type === 'symbol' &&
-                        layer.id.match(/country-label|state-label|continent-label/)
+                        layer.id.match(/country.?label|state.?label|continent.?label|Country|State|Continent/i)
                     ) {
                         map.setLayoutProperty(layer.id, 'visibility', 'none');
                     }
@@ -223,21 +224,57 @@ export function useMapInit(opts: UseMapInitOptions) {
                     // Boost place labels so they're readable under wind particles
                     if (
                         layer.type === 'symbol' &&
-                        layer.id.match(/country-label|state-label|continent-label|place-label|settlement|water-point/)
+                        layer.id.match(/country.?label|state.?label|continent.?label|place.?label|settlement|water.?point|City|Town|Village|Place|label/i)
                     ) {
-                        map.setPaintProperty(layer.id, 'text-color', '#ffffff');
-                        map.setPaintProperty(layer.id, 'text-halo-color', 'rgba(0, 0, 0, 0.9)');
-                        map.setPaintProperty(layer.id, 'text-halo-width', 2);
+                        try {
+                            map.setPaintProperty(layer.id, 'text-color', '#ffffff');
+                            map.setPaintProperty(layer.id, 'text-halo-color', 'rgba(0, 0, 0, 0.9)');
+                            map.setPaintProperty(layer.id, 'text-halo-width', 2);
+                        } catch {
+                            // Some MapTiler layers may not support text paint properties
+                        }
                     }
                 }
+            }
+
+            // ── MapTiler Ocean Bathymetry Overlay ──
+            // Adds high-res bathymetry contours from MapTiler Ocean tiles as a raster overlay.
+            // Uses raster XYZ endpoint (plain HTTPS) which works with mapbox-gl v2+.
+            if (!map.getSource('maptiler-ocean')) {
+                map.addSource('maptiler-ocean', {
+                    type: 'raster',
+                    tiles: [
+                        'https://api.maptiler.com/maps/ocean/{z}/{x}/{y}.png?key=3misfI2jeOYbJqgl5a6e',
+                    ],
+                    tileSize: 512,
+                    maxzoom: 16,
+                    attribution: '',
+                });
+
+                // Find the first symbol layer to insert ocean tiles below labels
+                const firstSymbol = style?.layers?.find((l) => l.type === 'symbol')?.id;
+
+                map.addLayer(
+                    {
+                        id: 'maptiler-ocean-layer',
+                        type: 'raster',
+                        source: 'maptiler-ocean',
+                        paint: {
+                            'raster-opacity': 0.6,
+                            'raster-brightness-max': 0.7,
+                            'raster-contrast': 0.15,
+                            'raster-fade-duration': 0,
+                        },
+                    },
+                    firstSymbol, // Insert below labels so text stays readable
+                );
             }
 
             setMapReady(true);
 
             // ── Coastline outline — always on top of weather layers ──
             // Uses the built-in 'water' source-layer from the composite vector tileset
-            // to draw a thin white line at land/sea boundaries. This ensures geographic
-            // context is never lost under heavy rain/cloud overlays.
+            // to draw a thin white line at land/sea boundaries.
             if (!map.getLayer('coastline-outline')) {
                 map.addLayer({
                     id: 'coastline-outline',
@@ -260,8 +297,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                 }
             }
 
-            // GEBCO Bathymetry removed — WMS service now returns 'Zoom Level Not Supported'
-            // tiles at most useful zoom levels. Mapbox dark-v11 base style provides ocean styling.
+            // Bathymetry is now provided by the MapTiler Ocean base style.
 
             // ── OpenSeaMap overlay ──
             if (!map.getSource('openseamap-permanent')) {
@@ -278,7 +314,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                         source: 'openseamap-permanent',
                         minzoom: 6,
                         maxzoom: 18,
-                        paint: { 'raster-opacity': 0.85 },
+                        paint: { 'raster-opacity': 0.85, 'raster-fade-duration': 0 },
                     },
                     firstSymbolId,
                 );
