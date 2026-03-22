@@ -9,15 +9,23 @@
  * State protection: blocks if another voyage is already ACTIVE.
  */
 import React, { useState, useCallback, useEffect } from 'react';
-import { getDraftVoyages, getActiveVoyage, castOff, endVoyage, type Voyage } from '../../services/VoyageService';
+import {
+    getDraftVoyages,
+    getActiveVoyage,
+    castOff,
+    endVoyage,
+    createVoyage,
+    type Voyage,
+} from '../../services/VoyageService';
 import { triggerHaptic } from '../../utils/system';
+import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 
 interface CastOffPanelProps {
     onCastOff?: (voyage: Voyage) => void;
     onClose: () => void;
 }
 
-type Step = 'select' | 'preflight' | 'active';
+type Step = 'select' | 'create' | 'preflight' | 'active';
 
 export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }) => {
     const [step, setStep] = useState<Step>('select');
@@ -33,6 +41,13 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }
     const [crewReady, setCrewReady] = useState(false);
     const [storesCleared, setStoresCleared] = useState(false);
     const [weatherChecked, setWeatherChecked] = useState(false);
+
+    // Quick-create state
+    const [newName, setNewName] = useState('');
+    const [newFrom, setNewFrom] = useState('');
+    const [newTo, setNewTo] = useState('');
+    const [newCrew, setNewCrew] = useState(2);
+    const [creating, setCreating] = useState(false);
 
     // Load drafts + check active
     useEffect(() => {
@@ -58,6 +73,34 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }
         setWeatherChecked(false);
         triggerHaptic('light');
     }, []);
+
+    const handleCreateVoyage = useCallback(async () => {
+        if (!newName.trim()) return;
+        setCreating(true);
+        setError('');
+        try {
+            const voyage = await createVoyage({
+                voyage_name: newName.trim(),
+                departure_port: newFrom.trim() || null,
+                destination_port: newTo.trim() || null,
+                crew_count: newCrew,
+            });
+            if (voyage) {
+                setDrafts((prev) => [...prev, voyage]);
+                setStep('select');
+                setNewName('');
+                setNewFrom('');
+                setNewTo('');
+                setNewCrew(2);
+                triggerHaptic('medium');
+            } else {
+                setError('Failed to create voyage');
+            }
+        } catch {
+            setError('Failed to create voyage');
+        }
+        setCreating(false);
+    }, [newName, newFrom, newTo, newCrew]);
 
     const handleCastOff = useCallback(async () => {
         if (!selected || !safetyConfirmed) return;
@@ -105,14 +148,18 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }
                                     ? 'Active Voyage'
                                     : step === 'preflight'
                                       ? 'Ready to Sail?'
-                                      : 'Select Voyage'}
+                                      : step === 'create'
+                                        ? 'New Voyage'
+                                        : 'Select Voyage'}
                             </h2>
                             <p className="text-[10px] text-amber-400/60 uppercase tracking-widest">
                                 {step === 'active'
                                     ? 'Watch Mode'
                                     : step === 'preflight'
                                       ? 'Pre-Departure Check'
-                                      : 'Draft Voyages'}
+                                      : step === 'create'
+                                        ? 'Quick Create'
+                                        : 'Draft Voyages'}
                             </p>
                         </div>
                     </div>
@@ -189,40 +236,152 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }
                 {step === 'select' && !loading && (
                     <div className="p-5 pt-2 space-y-3">
                         {drafts.length === 0 ? (
-                            <div className="text-center py-8">
+                            <div className="text-center py-6">
                                 <span className="text-4xl">🗺️</span>
-                                <p className="text-sm text-gray-400 mt-3">No draft voyages</p>
-                                <p className="text-[11px] text-gray-600 mt-1">
-                                    Create a voyage in Passage Planning first
+                                <p className="text-sm text-gray-400 mt-3">No draft voyages yet</p>
+                                <p className="text-[11px] text-gray-600 mt-1 mb-4">
+                                    Create your first passage to get started
                                 </p>
+                                <button
+                                    onClick={() => {
+                                        setStep('create');
+                                        triggerHaptic('light');
+                                    }}
+                                    className="px-6 py-3 bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl text-sm font-black text-black uppercase tracking-widest active:scale-[0.97] shadow-lg shadow-amber-500/20"
+                                >
+                                    + New Voyage
+                                </button>
                             </div>
                         ) : (
-                            drafts.map((v) => (
-                                <button
-                                    key={v.id}
-                                    onClick={() => handleSelect(v)}
-                                    className="w-full p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-left hover:bg-white/[0.05] hover:border-amber-500/20 transition-all active:scale-[0.98] group"
-                                >
-                                    <div className="flex items-start justify-between">
-                                        <div>
-                                            <h3 className="text-sm font-bold text-white group-hover:text-amber-300 transition-colors">
-                                                {v.voyage_name}
-                                            </h3>
-                                            <p className="text-[11px] text-gray-500 mt-0.5">
-                                                {v.departure_port || '?'} → {v.destination_port || '?'}
-                                            </p>
+                            <>
+                                {drafts.map((v) => (
+                                    <button
+                                        key={v.id}
+                                        onClick={() => handleSelect(v)}
+                                        className="w-full p-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-left hover:bg-white/[0.05] hover:border-amber-500/20 transition-all active:scale-[0.98] group"
+                                    >
+                                        <div className="flex items-start justify-between">
+                                            <div>
+                                                <h3 className="text-sm font-bold text-white group-hover:text-amber-300 transition-colors">
+                                                    {v.voyage_name}
+                                                </h3>
+                                                <p className="text-[11px] text-gray-500 mt-0.5">
+                                                    {v.departure_port || '?'} → {v.destination_port || '?'}
+                                                </p>
+                                            </div>
+                                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-sky-500/10 text-sky-400 border border-sky-500/15">
+                                                Draft
+                                            </span>
                                         </div>
-                                        <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-sky-500/10 text-sky-400 border border-sky-500/15">
-                                            Draft
-                                        </span>
-                                    </div>
-                                    <div className="flex gap-3 mt-2 text-[10px] text-gray-500">
-                                        <span>👥 {v.crew_count} crew</span>
-                                        {v.eta && <span>ETA: {new Date(v.eta).toLocaleDateString()}</span>}
-                                    </div>
+                                        <div className="flex gap-3 mt-2 text-[10px] text-gray-500">
+                                            <span>👥 {v.crew_count} crew</span>
+                                            {v.eta && <span>ETA: {new Date(v.eta).toLocaleDateString()}</span>}
+                                        </div>
+                                    </button>
+                                ))}
+
+                                {/* Add button when drafts exist */}
+                                <button
+                                    onClick={() => {
+                                        setStep('create');
+                                        triggerHaptic('light');
+                                    }}
+                                    className="w-full py-3 text-xs font-bold text-amber-400/60 uppercase tracking-widest hover:text-amber-300 transition-colors"
+                                >
+                                    + New Voyage
                                 </button>
-                            ))
+                            </>
                         )}
+                    </div>
+                )}
+
+                {/* ── Step: Quick Create Voyage ── */}
+                {step === 'create' && (
+                    <div className="p-5 pt-2 space-y-4">
+                        <div>
+                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">
+                                Voyage Name *
+                            </label>
+                            <input
+                                type="text"
+                                value={newName}
+                                onChange={(e) => setNewName(e.target.value)}
+                                onFocus={scrollInputAboveKeyboard}
+                                placeholder="e.g. Tangalooma Day Trip"
+                                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:border-amber-500/40 outline-none transition-colors"
+                                autoFocus
+                            />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">
+                                    From
+                                </label>
+                                <input
+                                    type="text"
+                                    value={newFrom}
+                                    onChange={(e) => setNewFrom(e.target.value)}
+                                    onFocus={scrollInputAboveKeyboard}
+                                    placeholder="Departure port"
+                                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-600 focus:border-amber-500/40 outline-none transition-colors"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">
+                                    To
+                                </label>
+                                <input
+                                    type="text"
+                                    value={newTo}
+                                    onChange={(e) => setNewTo(e.target.value)}
+                                    onFocus={scrollInputAboveKeyboard}
+                                    placeholder="Destination"
+                                    className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-600 focus:border-amber-500/40 outline-none transition-colors"
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">
+                                Crew Count
+                            </label>
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={() => setNewCrew((c) => Math.max(1, c - 1))}
+                                    className="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white hover:bg-white/[0.1] active:scale-90"
+                                >
+                                    −
+                                </button>
+                                <span className="text-xl font-black text-amber-400 w-8 text-center tabular-nums">
+                                    {newCrew}
+                                </span>
+                                <button
+                                    onClick={() => setNewCrew((c) => Math.min(20, c + 1))}
+                                    className="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white hover:bg-white/[0.1] active:scale-90"
+                                >
+                                    +
+                                </button>
+                            </div>
+                        </div>
+
+                        {error && <p className="text-sm text-red-400 text-center">{error}</p>}
+
+                        <div className="space-y-2">
+                            <button
+                                onClick={handleCreateVoyage}
+                                disabled={!newName.trim() || creating}
+                                className="w-full py-3.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl text-sm font-black text-black uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 shadow-lg shadow-amber-500/20"
+                            >
+                                {creating ? '⏳ Creating…' : '✨ Create Draft Voyage'}
+                            </button>
+                            <button
+                                onClick={() => setStep('select')}
+                                className="w-full py-3 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                            >
+                                ← Back
+                            </button>
+                        </div>
                     </div>
                 )}
 
