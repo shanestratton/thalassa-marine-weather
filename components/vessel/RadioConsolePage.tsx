@@ -248,7 +248,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                     {!callSign && !mmsi && !rego && (
                         <button
                             onClick={() => {
-                                onBack();
+                                localStorage.setItem('thalassa_settings_return_to', 'radio');
                                 onNavigate?.('settings');
                             }}
                             className="radio-console__id-chip empty"
