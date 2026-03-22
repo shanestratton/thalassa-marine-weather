@@ -51,6 +51,8 @@ import { ChatErrorBoundary } from './chat/ChatErrorBoundary';
 import { MaritimeIntelCard } from './chat/MaritimeIntelCard';
 import { GalleyCard } from './chat/GalleyCard';
 import { triggerHaptic } from '../utils/system';
+import { AuthModal } from './AuthModal';
+import { supabase } from '../services/supabase';
 import { TypingIndicator } from './chat/TypingIndicator';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
 import { useChatMessages } from '../hooks/chat/useChatMessages';
@@ -221,6 +223,19 @@ export const ChatPage: React.FC = React.memo(() => {
     // Keyboard offset — shrinks chat container height so compose stays visible above iOS keyboard
     const [keyboardOffset, setKeyboardOffset] = useState(0);
     const [showTyping, setShowTyping] = useState(false);
+
+    // Auth banner state (dismissible)
+    const [chatAuthBanner, setChatAuthBanner] = useState(() => {
+        return !localStorage.getItem('thalassa_chat_auth_dismissed');
+    });
+    const [chatIsAuthed, setChatIsAuthed] = useState(true); // assume true until checked
+    const [showChatAuth, setShowChatAuth] = useState(false);
+    useEffect(() => {
+        if (!supabase) return;
+        supabase.auth.getUser().then(({ data }) => {
+            setChatIsAuthed(!!data.user);
+        });
+    }, []);
 
     // Pull-to-refresh — actual message reload
     const pullRefresh = usePullToRefresh(async () => {
@@ -728,6 +743,46 @@ export const ChatPage: React.FC = React.memo(() => {
                         />
                     )}
 
+                    {/* ══════ SIGN-IN BANNER (dismissible) ══════ */}
+                    {view === 'channels' && !loading && !chatIsAuthed && chatAuthBanner && (
+                        <div className="mx-4 mt-3 mb-1 p-3 rounded-xl bg-violet-500/[0.06] border border-violet-500/15 flex items-center gap-3">
+                            <div className="p-1.5 rounded-lg bg-violet-500/10">
+                                <span className="text-lg">👥</span>
+                            </div>
+                            <div className="flex-1">
+                                <p className="text-xs font-bold text-white">Sign In Required</p>
+                                <p className="text-[10px] text-gray-400">Sign in to share registers with crew</p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    setShowChatAuth(true);
+                                }}
+                                className="px-3 py-1.5 bg-white text-slate-900 text-[11px] font-bold rounded-lg hover:bg-gray-100 transition-all active:scale-95"
+                            >
+                                Sign In
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setChatAuthBanner(false);
+                                    localStorage.setItem('thalassa_chat_auth_dismissed', '1');
+                                }}
+                                className="p-1 text-gray-500 hover:text-gray-300 transition-colors"
+                                aria-label="Dismiss"
+                            >
+                                <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                    )}
+
                     {/* ══════ GALLEY & PROVISIONS CARD ══════ */}
                     {view === 'channels' && !loading && <GalleyCard />}
 
@@ -1013,6 +1068,19 @@ export const ChatPage: React.FC = React.memo(() => {
                 confirmLabel={confirmAction?.destructive ? 'Block' : 'Confirm'}
                 onConfirm={confirmAction?.onConfirm || (() => {})}
                 onCancel={() => setConfirmAction(null)}
+            />
+
+            {/* Auth modal for chat sign-in banner */}
+            <AuthModal
+                isOpen={showChatAuth}
+                onClose={() => {
+                    setShowChatAuth(false);
+                    if (supabase) {
+                        supabase.auth.getUser().then(({ data }) => {
+                            setChatIsAuthed(!!data.user);
+                        });
+                    }
+                }}
             />
         </div>
     );
