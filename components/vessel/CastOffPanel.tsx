@@ -24,11 +24,12 @@ import { ChatService } from '../../services/ChatService';
 interface CastOffPanelProps {
     onCastOff?: (voyage: Voyage) => void;
     onClose: () => void;
+    onNavigateToGalley?: () => void;
 }
 
 type Step = 'select' | 'create' | 'preflight' | 'track_prompt' | 'active';
 
-export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }) => {
+export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, onNavigateToGalley }) => {
     const [step, setStep] = useState<Step>('select');
     const [drafts, setDrafts] = useState<Voyage[]>([]);
     const [selected, setSelected] = useState<Voyage | null>(null);
@@ -465,6 +466,22 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }
                                 onToggle={() => setWeatherChecked((v) => !v)}
                             />
                         </div>
+
+                        {/* Galley & Meals Quick Access */}
+                        <button
+                            onClick={() => {
+                                onClose();
+                                onNavigateToGalley?.();
+                            }}
+                            className="w-full flex items-center gap-3 p-3 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/15 hover:bg-emerald-500/10 transition-colors"
+                        >
+                            <span className="text-2xl">🍳</span>
+                            <div className="text-left flex-1">
+                                <p className="text-xs font-bold text-emerald-300">Galley & Meals</p>
+                                <p className="text-[10px] text-gray-500">Plan provisions for this voyage</p>
+                            </div>
+                            <span className="text-gray-600 text-sm">→</span>
+                        </button>
 
                         {/* Safety Confirm */}
                         <div className="p-4 rounded-xl bg-amber-500/[0.04] border border-amber-500/15">
