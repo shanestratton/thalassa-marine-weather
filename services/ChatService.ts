@@ -987,6 +987,67 @@ class ChatServiceClass {
         return data as ChatChannel;
     }
 
+    /**
+     * Create a private voyage channel — any authenticated user can call this.
+     * Used during the planning stage when a draft voyage is selected.
+     * The creator becomes the channel owner (captain) and sole initial member.
+     * Returns existing channel if one already exists for this voyage.
+     */
+    async createVoyageChannel(voyageId: string, voyageName: string): Promise<ChatChannel | null> {
+        if (!supabase) return null;
+
+        const user = (await supabase.auth.getUser()).data.user;
+        if (!user) return null;
+
+        // Check for existing voyage channel to avoid duplicates
+        const channelName = `⛵ ${voyageName}`;
+        const { data: existing } = await supabase
+            .from(CHANNELS_TABLE)
+            .select('*')
+            .eq('name', channelName)
+            .eq('owner_id', user.id)
+            .eq('is_private', true)
+            .eq('status', 'active')
+            .limit(1);
+
+        if (existing && existing.length > 0) {
+            return existing[0] as ChatChannel;
+        }
+
+        // Create the private voyage channel
+        const { data, error } = await supabase
+            .from(CHANNELS_TABLE)
+            .insert({
+                name: channelName,
+                description: `Private passage channel for ${voyageName}`,
+                icon: '⛵',
+                region: null,
+                is_global: false,
+                is_private: true,
+                owner_id: user.id,
+                parent_id: null,
+                status: 'active',
+            })
+            .select()
+            .single();
+
+        if (error || !data) {
+            log.error('createVoyageChannel failed:', error?.message);
+            return null;
+        }
+
+        // Add creator as first member (captain)
+        await supabase.from('channel_members').insert({
+            channel_id: data.id,
+            user_id: user.id,
+        });
+
+        // Invalidate channel cache so it appears in channel list
+        this.invalidateChannelCache();
+
+        return data as ChatChannel;
+    }
+
     /** Anyone can propose a channel (goes to 'pending' — admin approves) */
     async proposeChannel(
         name: string,
