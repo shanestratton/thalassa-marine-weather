@@ -18,15 +18,16 @@ const log = createLogger('CrewService');
 // ── Types ──────────────────────────────────────────────────────
 
 /** Registers that can be shared with crew */
-export type SharedRegister = 'stores' | 'equipment' | 'maintenance' | 'documents';
+export type SharedRegister = 'stores' | 'equipment' | 'maintenance' | 'documents' | 'galley';
 
-export const ALL_REGISTERS: SharedRegister[] = ['stores', 'equipment', 'maintenance', 'documents'];
+export const ALL_REGISTERS: SharedRegister[] = ['stores', 'equipment', 'maintenance', 'documents', 'galley'];
 
 export const REGISTER_LABELS: Record<SharedRegister, string> = {
     stores: "Ship's Stores",
     equipment: 'Equipment',
     maintenance: 'R&M',
     documents: 'Documents',
+    galley: 'Galley & Meals',
 };
 
 export const REGISTER_ICONS: Record<SharedRegister, string> = {
@@ -34,6 +35,7 @@ export const REGISTER_ICONS: Record<SharedRegister, string> = {
     equipment: '⚙️',
     maintenance: '🔧',
     documents: '📄',
+    galley: '🍳',
 };
 
 /** Granular JSONB permissions (synced to vessel_crew.permissions) */
