@@ -26,7 +26,7 @@ interface CastOffPanelProps {
     onClose: () => void;
 }
 
-type Step = 'select' | 'create' | 'preflight' | 'active';
+type Step = 'select' | 'create' | 'preflight' | 'track_prompt' | 'active';
 
 export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }) => {
     const [step, setStep] = useState<Step>('select');
@@ -117,13 +117,24 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }
         const result = await castOff(selected.id);
         if (result.ok && result.voyage) {
             setActiveVoyage(result.voyage);
-            setStep('active');
+            setStep('track_prompt'); // Ask about track logging before going to active
             onCastOff?.(result.voyage);
         } else {
             setError(result.error || 'Cast off failed');
         }
         setCasting(false);
     }, [selected, safetyConfirmed, onCastOff]);
+
+    const handleStartTracking = useCallback(async () => {
+        triggerHaptic('medium');
+        try {
+            const { ShipLogService } = await import('../../services/ShipLogService');
+            await ShipLogService.startTracking(false);
+        } catch (e) {
+            /* best effort — tracking can be started manually */
+        }
+        setStep('active');
+    }, []);
 
     const handleEndVoyage = useCallback(async () => {
         if (!activeVoyage) return;
@@ -137,11 +148,8 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }
     }, [activeVoyage]);
 
     return (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center">
-            <div
-                className="w-full max-w-lg bg-[#0a0e14] border-t border-amber-500/20 rounded-t-3xl shadow-2xl max-h-[85vh] overflow-y-auto"
-                onClick={(e) => e.stopPropagation()}
-            >
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-stretch justify-center">
+            <div className="w-full max-w-lg bg-[#0a0e14] overflow-y-auto pb-24" onClick={(e) => e.stopPropagation()}>
                 {/* Header */}
                 <div className="flex items-center justify-between p-5 pb-3">
                     <div className="flex items-center gap-3">
@@ -152,20 +160,24 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }
                             <h2 className="text-base font-black text-white">
                                 {step === 'active'
                                     ? 'Active Voyage'
-                                    : step === 'preflight'
-                                      ? 'Ready to Sail?'
-                                      : step === 'create'
-                                        ? 'New Voyage'
-                                        : 'Select Voyage'}
+                                    : step === 'track_prompt'
+                                      ? 'Cast Off!'
+                                      : step === 'preflight'
+                                        ? 'Ready to Sail?'
+                                        : step === 'create'
+                                          ? 'New Voyage'
+                                          : 'Select Voyage'}
                             </h2>
                             <p className="text-[10px] text-amber-400/60 uppercase tracking-widest">
                                 {step === 'active'
                                     ? 'Watch Mode'
-                                    : step === 'preflight'
-                                      ? 'Pre-Departure Check'
-                                      : step === 'create'
-                                        ? 'Quick Create'
-                                        : 'Draft Voyages'}
+                                    : step === 'track_prompt'
+                                      ? 'Track Logging'
+                                      : step === 'preflight'
+                                        ? 'Pre-Departure Check'
+                                        : step === 'create'
+                                          ? 'Quick Create'
+                                          : 'Draft Voyages'}
                             </p>
                         </div>
                     </div>
@@ -182,6 +194,33 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }
                     <div className="p-10 text-center">
                         <div className="w-6 h-6 border-2 border-amber-400/30 rounded-full border-t-amber-400 animate-spin mx-auto" />
                         <p className="text-xs text-gray-500 mt-3">Loading voyages…</p>
+                    </div>
+                )}
+
+                {/* ── Track Logging Prompt ── */}
+                {step === 'track_prompt' && (
+                    <div className="p-5 pt-2 space-y-4">
+                        <div className="text-center py-4">
+                            <div className="text-5xl mb-3">🛠️</div>
+                            <h3 className="text-lg font-black text-white mb-1">Log This Track?</h3>
+                            <p className="text-sm text-gray-400 max-w-xs mx-auto">
+                                Start GPS track logging for this voyage. Your track will be saved to the Ship's Log.
+                            </p>
+                        </div>
+
+                        <button
+                            onClick={handleStartTracking}
+                            className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-xl text-base font-black text-black uppercase tracking-[0.15em] transition-all active:scale-[0.96] shadow-lg shadow-emerald-500/20"
+                        >
+                            📡 Yes — Start Logging
+                        </button>
+
+                        <button
+                            onClick={() => setStep('active')}
+                            className="w-full py-3 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                        >
+                            Skip — I'll start later
+                        </button>
                     </div>
                 )}
 
