@@ -177,15 +177,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
             accentColor: 'text-sky-400',
             accentBg: 'from-sky-500/20 to-sky-500/20 border-sky-500/20',
         },
-        {
-            id: 'galley',
-            label: 'Galley',
-            sublabel: 'Meals & Recipes',
-            icon: <GalleyIcon />,
-            page: 'galley',
-            accentColor: 'text-amber-400',
-            accentBg: 'from-amber-500/20 to-orange-500/20 border-amber-500/20',
-        },
     ];
 
     return (
