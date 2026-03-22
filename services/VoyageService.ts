@@ -77,7 +77,10 @@ export async function createVoyage(
         .select()
         .single();
 
-    if (error) return null;
+    if (error) {
+        console.error('[VoyageService] createVoyage failed:', error.message, error.details, error.hint, error.code);
+        return null;
+    }
     return voyage as Voyage;
 }
 
