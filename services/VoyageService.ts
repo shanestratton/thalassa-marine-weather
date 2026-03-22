@@ -15,7 +15,7 @@ export type VoyageStatus = 'planning' | 'active' | 'completed' | 'aborted';
 
 export interface Voyage {
     id: string;
-    owner_id: string;
+    user_id: string;
     vessel_id: string | null;
     voyage_name: string;
     departure_port: string | null;
@@ -70,7 +70,7 @@ export async function createVoyage(
         .from('voyages')
         .insert({
             ...data,
-            owner_id: user.id,
+            user_id: user.id,
             weather_master_id: user.id, // Skipper is default master
             status: 'planning',
         })
@@ -124,7 +124,7 @@ export async function getActiveVoyage(): Promise<Voyage | null> {
     let { data } = await supabase
         .from('voyages')
         .select('*')
-        .eq('owner_id', user.id)
+        .eq('user_id', user.id)
         .eq('status', 'active')
         .limit(1)
         .maybeSingle();
@@ -160,7 +160,7 @@ export async function isWeatherMaster(): Promise<boolean> {
         const cached = getCachedActiveVoyage();
         if (!cached) return true; // No voyage = unrestricted
         const userId = localStorage.getItem('thalassa_user_id');
-        return cached.weather_master_id === userId || cached.owner_id === userId;
+        return cached.weather_master_id === userId || cached.user_id === userId;
     }
 
     const {
@@ -171,5 +171,5 @@ export async function isWeatherMaster(): Promise<boolean> {
     const voyage = await getActiveVoyage();
     if (!voyage) return true; // No active voyage — unrestricted
 
-    return voyage.weather_master_id === user.id || voyage.owner_id === user.id;
+    return voyage.weather_master_id === user.id || voyage.user_id === user.id;
 }
