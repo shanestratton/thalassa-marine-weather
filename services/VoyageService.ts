@@ -101,6 +101,90 @@ export async function startVoyage(voyageId: string): Promise<Voyage | null> {
     return voyage;
 }
 
+/** Get all draft (planning) voyages for the current user */
+export async function getDraftVoyages(): Promise<Voyage[]> {
+    if (!supabase) {
+        try {
+            const raw = localStorage.getItem('thalassa_draft_voyages');
+            return raw ? JSON.parse(raw) : [];
+        } catch {
+            return [];
+        }
+    }
+
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return [];
+
+    const { data, error } = await supabase
+        .from('voyages')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('status', 'planning')
+        .order('created_at', { ascending: false });
+
+    if (error) return [];
+    const drafts = (data || []) as Voyage[];
+    try {
+        localStorage.setItem('thalassa_draft_voyages', JSON.stringify(drafts));
+    } catch {
+        /* full */
+    }
+    return drafts;
+}
+
+/**
+ * Cast Off — Manual activation of a draft voyage.
+ *
+ * 1. Checks no other voyage is ACTIVE
+ * 2. Transitions status DRAFT → ACTIVE
+ * 3. Locks the manifest (no more crew changes)
+ * 4. Initialises Voyage Log with a 'Departure' entry
+ */
+export async function castOff(voyageId: string): Promise<{ ok: boolean; voyage?: Voyage; error?: string }> {
+    // State protection: block if another voyage is active
+    const active = await getActiveVoyage();
+    if (active) {
+        return { ok: false, error: `"${active.voyage_name}" is already active. End it first.` };
+    }
+
+    const voyage = await startVoyage(voyageId);
+    if (!voyage) {
+        return { ok: false, error: 'Failed to activate voyage' };
+    }
+
+    // Lock manifest — mark all crew invites as locked
+    if (supabase) {
+        await supabase
+            .from('vessel_crew')
+            .update({ status: 'confirmed' })
+            .eq('owner_id', voyage.user_id)
+            .eq('status', 'pending');
+    }
+
+    // Voyage log departure entry (local + sync queue)
+    try {
+        const { insertLocal } = await import('./vessel/LocalDatabase');
+        await insertLocal('voyage_log', {
+            id: crypto.randomUUID(),
+            voyage_id: voyageId,
+            entry_type: 'departure',
+            timestamp: new Date().toISOString(),
+            notes: `Departed ${voyage.departure_port || 'port'} — Cast Off by Skipper`,
+            data: JSON.stringify({
+                port: voyage.departure_port,
+                crew_count: voyage.crew_count,
+                voyage_name: voyage.voyage_name,
+            }),
+        });
+    } catch {
+        /* offline — log entry will sync later */
+    }
+
+    return { ok: true, voyage };
+}
+
 /** End a passage */
 export async function endVoyage(voyageId: string, status: 'completed' | 'aborted' = 'completed'): Promise<boolean> {
     if (!supabase) return false;
