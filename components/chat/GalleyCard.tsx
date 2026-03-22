@@ -12,6 +12,7 @@ import { getMealsByStatus, startCooking, completeMeal, type MealPlan } from '../
 import { getStoresAvailability } from '../../services/MealPlanService';
 import { getShoppingList, type ShoppingListSummary } from '../../services/ShoppingListService';
 import { triggerHaptic } from '../../utils/system';
+import { scaleIngredient } from '../../services/GalleyRecipeService';
 
 interface GalleyCardProps {
     onOpenCookingMode?: (meal: MealPlan) => void;
@@ -160,124 +161,31 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode }) => 
                         </button>
                     </div>
 
-                    {/* ── Tab A: Food ── */}
+                    {/* ── Tab A: Chef's Plate ── */}
                     {activeTab === 'food' && (
-                        <div className="p-4 space-y-3 max-h-[280px] overflow-y-auto">
+                        <div className="max-h-[420px] overflow-y-auto">
                             {activeMeals.length === 0 ? (
-                                <div className="text-center py-6">
-                                    <span className="text-3xl">🥘</span>
-                                    <p className="text-xs text-gray-400 mt-2">
-                                        No meals scheduled. Use the Meal Planner in Ship&apos;s Office to add one.
+                                <div className="text-center py-10 px-6">
+                                    <span className="text-5xl">🥘</span>
+                                    <p className="text-sm font-bold text-gray-300 mt-3">No Active Meal</p>
+                                    <p className="text-[11px] text-gray-500 mt-1">
+                                        Schedule a recipe in Ship&apos;s Office to see the Chef&apos;s Plate
                                     </p>
                                 </div>
                             ) : (
-                                activeMeals.map((meal) => (
-                                    <div
-                                        key={meal.id}
-                                        className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] space-y-2"
-                                    >
-                                        <div className="flex items-start justify-between">
-                                            <div>
-                                                <p className="text-sm font-bold text-white">{meal.title}</p>
-                                                <p className="text-[10px] text-gray-400">
-                                                    {meal.planned_date} · {meal.meal_slot} · {meal.servings_planned}{' '}
-                                                    serves
-                                                </p>
-                                            </div>
-                                            <span
-                                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                                                    meal.status === 'cooking'
-                                                        ? 'bg-orange-500/20 text-orange-400'
-                                                        : 'bg-amber-500/10 text-amber-400'
-                                                }`}
-                                            >
-                                                {meal.status}
-                                            </span>
-                                        </div>
-
-                                        {/* Ingredient pills */}
-                                        {meal.ingredients.length > 0 && (
-                                            <div className="flex flex-wrap gap-1">
-                                                {meal.ingredients.slice(0, 6).map((ing, i) => (
-                                                    <span
-                                                        key={i}
-                                                        className="px-2 py-0.5 rounded-full text-[10px] bg-white/[0.04] text-gray-400 border border-white/[0.06]"
-                                                    >
-                                                        {ing.amount} {ing.unit} {ing.name}
-                                                    </span>
-                                                ))}
-                                                {meal.ingredients.length > 6 && (
-                                                    <span className="text-[10px] text-gray-500">
-                                                        +{meal.ingredients.length - 6} more
-                                                    </span>
-                                                )}
-                                            </div>
-                                        )}
-
-                                        {/* Cook Now + Share buttons */}
-                                        <div className="flex gap-2">
-                                            <button
-                                                onClick={() => handleCookNow(meal)}
-                                                disabled={cookingMealId === meal.id}
-                                                className="flex-1 py-2.5 bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold uppercase tracking-widest text-amber-300 hover:from-amber-500/25 hover:to-orange-500/25 transition-all active:scale-[0.97] disabled:opacity-40"
-                                            >
-                                                {cookingMealId === meal.id ? '⏳ Subtracting…' : '🔥 Cook Now'}
-                                            </button>
-                                            <button
-                                                onClick={() => {
-                                                    const text = [
-                                                        `🍽️ ${meal.title}`,
-                                                        `📅 ${meal.planned_date} · ${meal.meal_slot}`,
-                                                        `👥 ${meal.servings_planned} serves`,
-                                                        meal.ingredients.length > 0
-                                                            ? `📦 ${meal.ingredients.map((i) => `${i.amount} ${i.unit} ${i.name}`).join(', ')}`
-                                                            : '',
-                                                    ]
-                                                        .filter(Boolean)
-                                                        .join('\n');
-                                                    if (navigator.share) {
-                                                        navigator.share({ title: meal.title, text }).catch(() => {});
-                                                    } else {
-                                                        navigator.clipboard
-                                                            .writeText(text)
-                                                            .then(() => triggerHaptic('light'));
-                                                    }
-                                                }}
-                                                className="w-10 flex-shrink-0 flex items-center justify-center border border-white/[0.08] bg-white/[0.03] rounded-xl text-gray-400 hover:bg-white/[0.06] hover:text-white transition-colors"
-                                                aria-label="Share meal"
-                                            >
-                                                <svg
-                                                    className="w-4 h-4"
-                                                    fill="none"
-                                                    viewBox="0 0 24 24"
-                                                    stroke="currentColor"
-                                                    strokeWidth={1.5}
-                                                >
-                                                    <path
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
-                                                    />
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-
-                            {/* Shopping summary */}
-                            {shoppingSummary && shoppingSummary.remaining > 0 && (
-                                <div className="p-3 rounded-xl bg-red-500/[0.04] border border-red-500/[0.08] flex items-center gap-3">
-                                    <span className="text-lg">🛒</span>
-                                    <div className="flex-1">
-                                        <p className="text-xs font-bold text-red-300">
-                                            {shoppingSummary.remaining} items still needed
-                                        </p>
-                                        <p className="text-[10px] text-gray-500">
-                                            {shoppingSummary.purchased}/{shoppingSummary.total} purchased
-                                        </p>
-                                    </div>
-                                </div>
+                                activeMeals.map((meal) => {
+                                    const baseServings = meal.servings_planned || 4;
+                                    return (
+                                        <ChefPlate
+                                            key={meal.id}
+                                            meal={meal}
+                                            baseServings={baseServings}
+                                            cooking={cookingMealId === meal.id}
+                                            onCook={() => handleCookNow(meal)}
+                                            shoppingSummary={shoppingSummary}
+                                        />
+                                    );
+                                })
                             )}
                         </div>
                     )}
@@ -335,6 +243,246 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode }) => 
                     )}
                 </div>
             )}
+        </div>
+    );
+};
+
+// ── Ingredient category emoji mapping ──
+const AISLE_EMOJI: Record<string, string> = {
+    meat: '🥩',
+    produce: '🥬',
+    dairy: '🧈',
+    spices: '🧂',
+    bakery: '🍞',
+    'canned goods': '🥫',
+    frozen: '🧊',
+    seafood: '🐟',
+    condiments: '🫙',
+    beverages: '🍺',
+    baking: '🧁',
+};
+
+function getIngredientEmoji(aisle: string): string {
+    const lower = aisle.toLowerCase();
+    for (const [key, emoji] of Object.entries(AISLE_EMOJI)) {
+        if (lower.includes(key)) return emoji;
+    }
+    return '📦';
+}
+
+// ── Location mapping from aisle ──
+function getStorageLocation(aisle: string): string {
+    const lower = aisle.toLowerCase();
+    if (lower.includes('meat') || lower.includes('seafood') || lower.includes('frozen')) return 'Freezer 1';
+    if (lower.includes('dairy') || lower.includes('produce')) return 'Fridge';
+    if (lower.includes('spice') || lower.includes('baking') || lower.includes('condiment')) return 'Pantry';
+    if (lower.includes('canned') || lower.includes('beverage')) return 'Dry Locker 2';
+    return 'Galley';
+}
+
+/** The "Chef's Plate" — premium recipe card */
+const ChefPlate: React.FC<{
+    meal: MealPlan;
+    baseServings: number;
+    cooking: boolean;
+    onCook: () => void;
+    shoppingSummary: ShoppingListSummary | null;
+}> = ({ meal, baseServings, cooking, onCook, shoppingSummary }) => {
+    const [crewCount, setCrewCount] = useState(baseServings);
+    const ratio = crewCount / baseServings;
+
+    // Scale ingredients in real-time
+    const scaledIngredients = meal.ingredients.map((ing) => ({
+        ...ing,
+        scaledAmount: Math.round(scaleIngredient(ing.amount, ing.scalable, baseServings, crewCount) * 10) / 10,
+    }));
+
+    // Stores status
+    const shortfallCount = shoppingSummary?.remaining || 0;
+    const storesReady = shortfallCount === 0;
+
+    // Prep time estimate (rough: 30 min base + 15 min per 2 extra serves)
+    const prepHours =
+        meal.title.toLowerCase().includes('smoked') || meal.title.toLowerCase().includes('brisket')
+            ? 12
+            : meal.title.toLowerCase().includes('roast')
+              ? 4
+              : 1;
+
+    const shareText = [
+        `🍽️ ${meal.title}`,
+        `📅 ${meal.planned_date} · ${meal.meal_slot}`,
+        `👥 ${crewCount} serves`,
+        '',
+        '📦 Ingredients:',
+        ...scaledIngredients.map((i) => `${getIngredientEmoji(i.aisle)} ${i.scaledAmount} ${i.unit} ${i.name}`),
+        '',
+        `⏱️ Prep: ${prepHours}${prepHours >= 2 ? ' Hours' : ' Hour'}`,
+        `🔧 Stores: ${storesReady ? 'READY' : `SHORTFALL (${shortfallCount} ITEMS)`}`,
+        '',
+        'via SupaSpoon™',
+    ].join('\n');
+
+    return (
+        <div className="space-y-0">
+            {/* 1. Hero Shot */}
+            <div className="relative h-40 overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-br from-amber-900/80 via-orange-800/60 to-red-900/80" />
+                <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMjAiIGN5PSIyMCIgcj0iMSIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjAzKSIvPjwvc3ZnPg==')] opacity-50" />
+                <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
+                    <p className="text-lg font-black text-white leading-tight">{meal.title}</p>
+                    <p className="text-[11px] text-amber-300/80 mt-0.5">
+                        {meal.planned_date} · {meal.meal_slot}
+                    </p>
+                </div>
+                {/* SupaSpoon watermark */}
+                <div className="absolute top-3 right-3 px-2 py-1 rounded-md bg-black/40 backdrop-blur-sm">
+                    <span className="text-[9px] font-bold text-white/50 tracking-widest uppercase">SupaSpoon™</span>
+                </div>
+                {/* Status badge */}
+                <div className="absolute top-3 left-3">
+                    <span
+                        className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase backdrop-blur-sm ${
+                            meal.status === 'cooking'
+                                ? 'bg-orange-500/30 text-orange-300 border border-orange-500/30'
+                                : 'bg-amber-500/20 text-amber-300 border border-amber-500/20'
+                        }`}
+                    >
+                        {meal.status}
+                    </span>
+                </div>
+            </div>
+
+            {/* 2. Status Bar */}
+            <div className="flex">
+                <div className="flex-1 p-3 bg-slate-900 border-b border-r border-white/[0.06] flex items-center gap-2">
+                    <span className="text-base">⏱️</span>
+                    <div>
+                        <p className="text-[10px] text-gray-500 uppercase tracking-widest">Preparation</p>
+                        <p className="text-sm font-black text-white">
+                            {prepHours} {prepHours >= 2 ? 'Hours' : 'Hour'}
+                        </p>
+                    </div>
+                </div>
+                <div
+                    className={`flex-1 p-3 border-b border-white/[0.06] flex items-center gap-2 ${
+                        storesReady ? 'bg-emerald-950/30' : 'bg-red-950/30'
+                    }`}
+                >
+                    <span className="text-base">{storesReady ? '✅' : '⚠️'}</span>
+                    <div>
+                        <p className="text-[10px] text-gray-500 uppercase tracking-widest">Stores</p>
+                        <p className={`text-sm font-black ${storesReady ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {storesReady ? 'READY' : `SHORTFALL (${shortfallCount})`}
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            {/* 3. Crew Slider */}
+            <div className="p-4 bg-slate-950 border-b border-white/[0.06]">
+                <div className="flex items-center justify-between">
+                    <div>
+                        <p className="text-[10px] text-gray-500 uppercase tracking-widest">Crew Count</p>
+                        <p className="text-xs text-gray-400 mt-0.5">Ingredients scale live</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <button
+                            onClick={() => {
+                                setCrewCount((c) => Math.max(1, c - 1));
+                                triggerHaptic('light');
+                            }}
+                            className="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white hover:bg-white/[0.1] transition-colors active:scale-90"
+                        >
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2.5}
+                            >
+                                <path strokeLinecap="round" d="M5 12h14" />
+                            </svg>
+                        </button>
+                        <span className="text-2xl font-black text-amber-400 w-8 text-center tabular-nums">
+                            {crewCount}
+                        </span>
+                        <button
+                            onClick={() => {
+                                setCrewCount((c) => Math.min(20, c + 1));
+                                triggerHaptic('light');
+                            }}
+                            className="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white hover:bg-white/[0.1] transition-colors active:scale-90"
+                        >
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2.5}
+                            >
+                                <path strokeLinecap="round" d="M12 5v14m-7-7h14" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                {crewCount !== baseServings && (
+                    <p className="text-[10px] text-amber-400/60 mt-2">
+                        Scaled from {baseServings} → {crewCount} serves (×{ratio.toFixed(1)})
+                    </p>
+                )}
+            </div>
+
+            {/* 4. Ingredient Toggles */}
+            <div className="p-4 space-y-1.5">
+                {scaledIngredients.map((ing, i) => (
+                    <div
+                        key={i}
+                        className="flex items-center gap-3 p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] hover:bg-white/[0.04] transition-colors"
+                    >
+                        <span className="text-base w-6 text-center flex-shrink-0">{getIngredientEmoji(ing.aisle)}</span>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-white truncate">
+                                {ing.scaledAmount} {ing.unit} {ing.name}
+                            </p>
+                            <p className="text-[10px] text-gray-500">📍 {getStorageLocation(ing.aisle)}</p>
+                        </div>
+                        {ing.scalable && crewCount !== baseServings && (
+                            <span className="text-[9px] text-amber-400/50 flex-shrink-0">was {ing.amount}</span>
+                        )}
+                    </div>
+                ))}
+            </div>
+
+            {/* Actions: Cook Now + Share */}
+            <div className="px-4 pb-4 flex gap-2">
+                <button
+                    onClick={onCook}
+                    disabled={cooking}
+                    className="flex-1 py-3 bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold uppercase tracking-widest text-amber-300 hover:from-amber-500/25 hover:to-orange-500/25 transition-all active:scale-[0.97] disabled:opacity-40"
+                >
+                    {cooking ? '⏳ Subtracting from Stores…' : '🔥 Cook Now'}
+                </button>
+                <button
+                    onClick={() => {
+                        if (navigator.share) {
+                            navigator.share({ title: meal.title, text: shareText }).catch(() => {});
+                        } else {
+                            navigator.clipboard.writeText(shareText).then(() => triggerHaptic('light'));
+                        }
+                    }}
+                    className="w-11 flex-shrink-0 flex items-center justify-center border border-white/[0.08] bg-white/[0.03] rounded-xl text-gray-400 hover:bg-white/[0.06] hover:text-white transition-colors"
+                    aria-label="Share recipe"
+                >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
+                        />
+                    </svg>
+                </button>
+            </div>
         </div>
     );
 };
