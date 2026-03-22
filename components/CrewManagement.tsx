@@ -33,6 +33,7 @@ import { supabase } from '../services/supabase';
 import { triggerHaptic } from '../utils/system';
 import { toast } from './Toast';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
+import { AuthModal } from './AuthModal';
 
 interface CrewManagementProps {
     onBack: () => void;
@@ -176,6 +177,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
     // ── Soft-delete with undo ──
     const [deletedMember, setDeletedMember] = useState<{ member: CrewMember; mode: 'captain' | 'crew' } | null>(null);
+
+    // Auth modal for sign-in from this page
+    const [showAuth, setShowAuth] = useState(false);
 
     // Check auth + get user email
     const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -340,11 +344,30 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     <div className="text-center">
                         <div className="text-4xl mb-4">👥</div>
                         <h2 className="text-lg font-bold text-white mb-2">Sign In Required</h2>
-                        <p className="text-sm text-gray-400 max-w-xs">
+                        <p className="text-sm text-gray-400 max-w-xs mb-6">
                             Sign in to share your vessel registers with crew members.
                         </p>
+                        <button
+                            onClick={() => setShowAuth(true)}
+                            className="px-6 py-3 bg-white text-slate-900 font-bold rounded-xl shadow-lg hover:bg-gray-100 transition-all active:scale-95"
+                        >
+                            Sign In
+                        </button>
                     </div>
                 </div>
+                <AuthModal
+                    isOpen={showAuth}
+                    onClose={() => {
+                        setShowAuth(false);
+                        // Re-check auth after modal closes
+                        if (supabase) {
+                            supabase.auth.getUser().then(({ data }) => {
+                                setIsAuthed(!!data.user);
+                                setUserEmail(data.user?.email || null);
+                            });
+                        }
+                    }}
+                />
             </div>
         );
     }
