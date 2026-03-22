@@ -52,6 +52,8 @@ const TABLE_FILES: Record<string, string> = {
     recipes: 'vessel_recipes.json',
     passage_provisions: 'vessel_passage_provisions.json',
     meal_plans: 'vessel_meal_plans.json',
+    shopping_list: 'vessel_shopping_list.json',
+    crew_profiles: 'vessel_crew_profiles.json',
 };
 
 const SYNC_QUEUE_FILE = 'vessel_sync_queue.json';
