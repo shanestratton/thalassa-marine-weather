@@ -99,6 +99,16 @@ const App: React.FC = () => {
         return () => document.documentElement.classList.remove('display-light');
     }, [isLight]);
 
+    // Global navigation event listener — used by components that can't thread setPage via props
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const tab = (e as CustomEvent).detail?.tab;
+            if (tab) setPage(tab);
+        };
+        window.addEventListener('thalassa:navigate', handler);
+        return () => window.removeEventListener('thalassa:navigate', handler);
+    }, [setPage]);
+
     // Loading State
     if (settingsLoading) {
         return (

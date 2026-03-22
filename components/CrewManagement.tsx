@@ -907,6 +907,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         setActiveVoyageName(voyage.voyage_name);
                         setShowCastOff(false);
                     }}
+                    onNavigateToGalley={() => {
+                        window.dispatchEvent(new CustomEvent('thalassa:navigate', { detail: { tab: 'chat' } }));
+                    }}
                 />
             )}
         </div>
