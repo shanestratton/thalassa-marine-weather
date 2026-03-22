@@ -129,12 +129,23 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: SettingsView,
         boundaryName: 'Settings',
         group: 'standalone',
-        getProps: (ctx) => ({
-            settings: ctx.settings,
-            onSave: ctx.updateSettings,
-            onLocationSelect: ctx.handleFavoriteSelect,
-            onBack: () => ctx.setPage('vessel'),
-        }),
+        getProps: (ctx) => {
+            // Check if we came from radio console
+            const returnTo = typeof window !== 'undefined' ? localStorage.getItem('thalassa_settings_return_to') : null;
+            return {
+                settings: ctx.settings,
+                onSave: ctx.updateSettings,
+                onLocationSelect: ctx.handleFavoriteSelect,
+                onBack: () => {
+                    if (returnTo) {
+                        localStorage.removeItem('thalassa_settings_return_to');
+                        ctx.setPage(returnTo);
+                    } else {
+                        ctx.setPage('vessel');
+                    }
+                },
+            };
+        },
     },
     warnings: {
         component: WarningDetails,
@@ -249,7 +260,10 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: RadioConsolePage,
         boundaryName: 'RadioConsole',
         group: 'vessel',
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
+        getProps: (ctx) => ({
+            onBack: () => ctx.setPage('vessel'),
+            onNavigate: (page: string) => ctx.setPage(page),
+        }),
     },
 };
 
