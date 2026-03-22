@@ -19,6 +19,7 @@ import {
 } from '../../services/VoyageService';
 import { triggerHaptic } from '../../utils/system';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
+import { ChatService } from '../../services/ChatService';
 
 interface CastOffPanelProps {
     onCastOff?: (voyage: Voyage) => void;
@@ -72,6 +73,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }
         setStoresCleared(false);
         setWeatherChecked(false);
         triggerHaptic('light');
+
+        // Fire-and-forget: create private voyage channel for planning
+        ChatService.createVoyageChannel(voyage.id, voyage.voyage_name).catch(() => {
+            /* non-critical — channel can be created later */
+        });
     }, []);
 
     const handleCreateVoyage = useCallback(async () => {
