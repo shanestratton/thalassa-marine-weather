@@ -143,13 +143,17 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
                 typeof plan.destination === 'string' ? plan.destination.split(',')[0].trim() : 'Arrival';
             const voyageName = `${departureName} → ${destinationName}`;
 
-            await createVoyage({
+            const { voyage: v, error: vErr } = await createVoyage({
                 voyage_name: voyageName,
                 departure_port: departureName,
                 destination_port: destinationName,
                 crew_count: 1,
             });
-            log.info(`✓ Auto-created draft voyage "${voyageName}" from passage plan`);
+            if (v) {
+                log.info(`✓ Auto-created draft voyage "${voyageName}" from passage plan`);
+            } else {
+                log.warn(`Auto-create voyage skipped: ${vErr}`);
+            }
         } catch (e) {
             log.warn('Auto-create voyage from passage plan failed (non-critical):', e);
         }
