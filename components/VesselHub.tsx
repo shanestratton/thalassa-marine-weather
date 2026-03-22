@@ -381,7 +381,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 <div className="mb-6">
                     <div className="flex items-center gap-2 mb-3">
                         <div className="w-1 h-4 rounded-full bg-violet-500" />
-                        <span className="text-[11px] font-black text-violet-400 uppercase tracking-[0.2em]">Crew</span>
+                        <span className="text-[11px] font-black text-violet-400 uppercase tracking-[0.2em]">
+                            Come Aboard
+                        </span>
                         {pendingCrewInvites > 0 && (
                             <span className="px-1.5 py-0.5 bg-amber-500/30 text-amber-300 text-[11px] font-bold rounded-full animate-pulse">
                                 {pendingCrewInvites} invite{pendingCrewInvites !== 1 ? 's' : ''}
@@ -416,9 +418,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             )}
                         </div>
                         <div className="flex-1">
-                            <h4 className="text-xs font-black text-white tracking-wide">Crew Sharing</h4>
+                            <h4 className="text-xs font-black text-white tracking-wide">Come Aboard</h4>
                             <p className="text-[11px] font-bold uppercase tracking-widest mt-0.5 text-violet-400">
-                                {pendingCrewInvites > 0 ? `${pendingCrewInvites} Pending` : 'Manage Access'}
+                                {pendingCrewInvites > 0 ? `${pendingCrewInvites} Pending` : 'Join Passage'}
                             </p>
                         </div>
                         <ChevronRight />
