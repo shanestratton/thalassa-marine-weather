@@ -17,6 +17,7 @@ import './RadioConsolePage.css';
 
 interface RadioConsolePageProps {
     onBack: () => void;
+    onNavigate?: (page: string) => void;
 }
 
 // ── Coordinate formatting ─────────────────────────────────────────────────
@@ -90,7 +91,7 @@ function buildClipboardText(
     return lines.join('\n');
 }
 
-export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack }) => {
+export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNavigate }) => {
     const { settings } = useSettings();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const vessel = (settings as any)?.vessel;
@@ -245,9 +246,16 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack }) =>
                         </div>
                     )}
                     {!callSign && !mmsi && !rego && (
-                        <div className="radio-console__id-chip empty">
-                            <span className="value">Set identity in Vessel Settings</span>
-                        </div>
+                        <button
+                            onClick={() => {
+                                onBack();
+                                onNavigate?.('settings');
+                            }}
+                            className="radio-console__id-chip empty"
+                            style={{ cursor: 'pointer' }}
+                        >
+                            <span className="value">⚙️ Set identity in Vessel Settings →</span>
+                        </button>
                     )}
                 </div>
             </div>
