@@ -363,6 +363,13 @@ export async function acceptInvite(inviteId: string): Promise<boolean> {
     if (!supabase) return false;
 
     try {
+        // Get invite details first (need captain's user_id + crew user_id)
+        const { data: invite } = await supabase
+            .from('vessel_crew')
+            .select('owner_id, crew_user_id')
+            .eq('id', inviteId)
+            .single();
+
         const { error } = await supabase
             .from('vessel_crew')
             .update({
@@ -371,7 +378,18 @@ export async function acceptInvite(inviteId: string): Promise<boolean> {
             })
             .eq('id', inviteId);
 
-        return !error;
+        if (error) return false;
+
+        // Fire-and-forget: add crew to captain's voyage channels
+        if (invite?.owner_id && invite?.crew_user_id) {
+            import('./ChatService').then(({ ChatService }) => {
+                ChatService.addCrewToVoyageChannels(invite.owner_id, invite.crew_user_id).catch(() => {
+                    /* best effort */
+                });
+            });
+        }
+
+        return true;
     } catch (e) {
         return false;
     }
