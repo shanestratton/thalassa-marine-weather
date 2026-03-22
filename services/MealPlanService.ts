@@ -103,6 +103,17 @@ export async function scheduleMeal(
     };
 
     await insertLocal(TABLE, plan);
+
+    // Auto-persist the recipe to LocalDatabase for offline access at sea
+    try {
+        const { persistRecipe } = await import('./GalleyRecipeService');
+        persistRecipe(meal).catch(() => {
+            /* offline — recipe may already be stored */
+        });
+    } catch {
+        /* GalleyRecipeService not available */
+    }
+
     triggerHaptic('light');
     return plan;
 }

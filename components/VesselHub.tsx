@@ -177,6 +177,15 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
             accentColor: 'text-sky-400',
             accentBg: 'from-sky-500/20 to-sky-500/20 border-sky-500/20',
         },
+        {
+            id: 'galley',
+            label: 'Galley',
+            sublabel: 'Meals & Recipes',
+            icon: <GalleyIcon />,
+            page: 'galley',
+            accentColor: 'text-amber-400',
+            accentBg: 'from-amber-500/20 to-orange-500/20 border-amber-500/20',
+        },
     ];
 
     return (
@@ -630,11 +639,21 @@ const PenIcon: React.FC = () => (
 );
 
 const ChecklistIcon: React.FC = () => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
         <path
             strokeLinecap="round"
             strokeLinejoin="round"
             d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+        />
+    </svg>
+);
+
+const GalleyIcon: React.FC = () => (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 8.25v-1.5m0 1.5c-1.355 0-2.697.056-4.024.166C6.845 8.51 6 9.473 6 10.608v2.513m6-4.871c1.355 0 2.697.056 4.024.166C17.155 8.51 18 9.473 18 10.608v2.513M15 9.75l-3-3m0 0l-3 3m3-3v12"
         />
     </svg>
 );
