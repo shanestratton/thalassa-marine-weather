@@ -1398,4 +1398,3 @@ export async function generateDeckLogPDF(
 
     return pdf;
 }
-

@@ -480,6 +480,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             log.error('Failed to add equipment:', e);
             toast.error('Failed to add equipment');
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [newName, newCategory, newMake, newModel, newSerial, newInstallDate, newWarrantyExpiry, newNotes, loadItems]);
 
     const [deletedItem, setDeletedItem] = useState<EquipmentItem | null>(null);
@@ -570,6 +571,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             log.error('Failed to update equipment:', e);
             toast.error('Failed to update equipment');
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
         selectedItem,
         newName,

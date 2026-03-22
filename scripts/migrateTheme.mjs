@@ -97,7 +97,8 @@ function migrateFile(relPath) {
         if (afterBrace > -1) {
             const afterContent = content.slice(afterBrace + 1, afterBrace + 100);
             if (!afterContent.includes('const th = useTheme()')) {
-                content = content.slice(0, afterBrace + 1) + '\n    const th = useTheme();' + content.slice(afterBrace + 1);
+                content =
+                    content.slice(0, afterBrace + 1) + '\n    const th = useTheme();' + content.slice(afterBrace + 1);
             }
         }
     }

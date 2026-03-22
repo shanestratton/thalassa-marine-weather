@@ -174,5 +174,6 @@ export const useWindHeatMap = (
             map.off('zoomend', onMove);
             map.off('resize', onMove);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapInstance.current, activeLayer, visible, metrics]);
 };

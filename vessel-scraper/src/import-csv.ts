@@ -44,7 +44,9 @@ const FORMAT_COLUMNS: Record<Exclude<Format, 'auto'>, ColumnMap> = {
         type: 'Ship Type',
         flag: 'Flag',
         imo: 'IMO Number',
-        loa: '', beam: '', draft: '',
+        loa: '',
+        beam: '',
+        draft: '',
     },
     amsa: {
         mmsi: 'MMSI_NUMBER',
@@ -72,44 +74,119 @@ const FORMAT_COLUMNS: Record<Exclude<Format, 'auto'>, ColumnMap> = {
 
 // ── Country → emoji lookup ──
 const COUNTRY_FLAGS: Record<string, string> = {
-    'australia': '🇦🇺', 'united states': '🇺🇸', 'usa': '🇺🇸',
-    'united kingdom': '🇬🇧', 'uk': '🇬🇧', 'great britain': '🇬🇧',
-    'panama': '🇵🇦', 'liberia': '🇱🇷', 'marshall islands': '🇲🇭',
-    'bahamas': '🇧🇸', 'malta': '🇲🇹', 'singapore': '🇸🇬',
-    'hong kong': '🇭🇰', 'china': '🇨🇳', 'japan': '🇯🇵',
-    'south korea': '🇰🇷', 'korea': '🇰🇷', 'norway': '🇳🇴',
-    'denmark': '🇩🇰', 'sweden': '🇸🇪', 'finland': '🇫🇮',
-    'germany': '🇩🇪', 'france': '🇫🇷', 'italy': '🇮🇹',
-    'spain': '🇪🇸', 'portugal': '🇵🇹', 'greece': '🇬🇷',
-    'netherlands': '🇳🇱', 'belgium': '🇧🇪', 'ireland': '🇮🇪',
-    'canada': '🇨🇦', 'mexico': '🇲🇽', 'brazil': '🇧🇷',
-    'india': '🇮🇳', 'russia': '🇷🇺', 'turkey': '🇹🇷',
-    'indonesia': '🇮🇩', 'philippines': '🇵🇭', 'vietnam': '🇻🇳',
-    'thailand': '🇹🇭', 'malaysia': '🇲🇾', 'new zealand': '🇳🇿',
-    'cyprus': '🇨🇾', 'bermuda': '🇧🇲', 'cayman islands': '🇰🇾',
-    'gibraltar': '🇬🇮', 'isle of man': '🇮🇲', 'antigua': '🇦🇬',
-    'antigua and barbuda': '🇦🇬', 'st vincent': '🇻🇨',
-    'tuvalu': '🇹🇻', 'vanuatu': '🇻🇺', 'fiji': '🇫🇯',
-    'tonga': '🇹🇴', 'samoa': '🇼🇸', 'tanzania': '🇹🇿',
-    'south africa': '🇿🇦', 'egypt': '🇪🇬', 'nigeria': '🇳🇬',
-    'uae': '🇦🇪', 'united arab emirates': '🇦🇪', 'saudi arabia': '🇸🇦',
-    'taiwan': '🇹🇼', 'croatia': '🇭🇷', 'iceland': '🇮🇸',
-    'poland': '🇵🇱', 'romania': '🇷🇴', 'ukraine': '🇺🇦',
-    'estonia': '🇪🇪', 'latvia': '🇱🇻', 'lithuania': '🇱🇹',
-    'bulgaria': '🇧🇬', 'slovenia': '🇸🇮', 'ecuador': '🇪🇨',
-    'peru': '🇵🇪', 'chile': '🇨🇱', 'argentina': '🇦🇷',
-    'colombia': '🇨🇴', 'cuba': '🇨🇺', 'jamaica': '🇯🇲',
-    'belize': '🇧🇿', 'honduras': '🇭🇳', 'costa rica': '🇨🇷',
-    'barbados': '🇧🇧', 'trinidad': '🇹🇹', 'trinidad and tobago': '🇹🇹',
-    'dominica': '🇩🇲', 'morocco': '🇲🇦', 'tunisia': '🇹🇳',
-    'algeria': '🇩🇿', 'kenya': '🇰🇪', 'ghana': '🇬🇭',
-    'cameroon': '🇨🇲', 'angola': '🇦🇴', 'mozambique': '🇲🇿',
-    'madagascar': '🇲🇬', 'mauritius': '🇲🇺', 'seychelles': '🇸🇨',
-    'sri lanka': '🇱🇰', 'pakistan': '🇵🇰', 'bangladesh': '🇧🇩',
-    'myanmar': '🇲🇲', 'cambodia': '🇰🇭', 'brunei': '🇧🇳',
-    'qatar': '🇶🇦', 'kuwait': '🇰🇼', 'bahrain': '🇧🇭',
-    'oman': '🇴🇲', 'jordan': '🇯🇴', 'israel': '🇮🇱',
-    'lebanon': '🇱🇧', 'iran': '🇮🇷', 'iraq': '🇮🇶',
+    australia: '🇦🇺',
+    'united states': '🇺🇸',
+    usa: '🇺🇸',
+    'united kingdom': '🇬🇧',
+    uk: '🇬🇧',
+    'great britain': '🇬🇧',
+    panama: '🇵🇦',
+    liberia: '🇱🇷',
+    'marshall islands': '🇲🇭',
+    bahamas: '🇧🇸',
+    malta: '🇲🇹',
+    singapore: '🇸🇬',
+    'hong kong': '🇭🇰',
+    china: '🇨🇳',
+    japan: '🇯🇵',
+    'south korea': '🇰🇷',
+    korea: '🇰🇷',
+    norway: '🇳🇴',
+    denmark: '🇩🇰',
+    sweden: '🇸🇪',
+    finland: '🇫🇮',
+    germany: '🇩🇪',
+    france: '🇫🇷',
+    italy: '🇮🇹',
+    spain: '🇪🇸',
+    portugal: '🇵🇹',
+    greece: '🇬🇷',
+    netherlands: '🇳🇱',
+    belgium: '🇧🇪',
+    ireland: '🇮🇪',
+    canada: '🇨🇦',
+    mexico: '🇲🇽',
+    brazil: '🇧🇷',
+    india: '🇮🇳',
+    russia: '🇷🇺',
+    turkey: '🇹🇷',
+    indonesia: '🇮🇩',
+    philippines: '🇵🇭',
+    vietnam: '🇻🇳',
+    thailand: '🇹🇭',
+    malaysia: '🇲🇾',
+    'new zealand': '🇳🇿',
+    cyprus: '🇨🇾',
+    bermuda: '🇧🇲',
+    'cayman islands': '🇰🇾',
+    gibraltar: '🇬🇮',
+    'isle of man': '🇮🇲',
+    antigua: '🇦🇬',
+    'antigua and barbuda': '🇦🇬',
+    'st vincent': '🇻🇨',
+    tuvalu: '🇹🇻',
+    vanuatu: '🇻🇺',
+    fiji: '🇫🇯',
+    tonga: '🇹🇴',
+    samoa: '🇼🇸',
+    tanzania: '🇹🇿',
+    'south africa': '🇿🇦',
+    egypt: '🇪🇬',
+    nigeria: '🇳🇬',
+    uae: '🇦🇪',
+    'united arab emirates': '🇦🇪',
+    'saudi arabia': '🇸🇦',
+    taiwan: '🇹🇼',
+    croatia: '🇭🇷',
+    iceland: '🇮🇸',
+    poland: '🇵🇱',
+    romania: '🇷🇴',
+    ukraine: '🇺🇦',
+    estonia: '🇪🇪',
+    latvia: '🇱🇻',
+    lithuania: '🇱🇹',
+    bulgaria: '🇧🇬',
+    slovenia: '🇸🇮',
+    ecuador: '🇪🇨',
+    peru: '🇵🇪',
+    chile: '🇨🇱',
+    argentina: '🇦🇷',
+    colombia: '🇨🇴',
+    cuba: '🇨🇺',
+    jamaica: '🇯🇲',
+    belize: '🇧🇿',
+    honduras: '🇭🇳',
+    'costa rica': '🇨🇷',
+    barbados: '🇧🇧',
+    trinidad: '🇹🇹',
+    'trinidad and tobago': '🇹🇹',
+    dominica: '🇩🇲',
+    morocco: '🇲🇦',
+    tunisia: '🇹🇳',
+    algeria: '🇩🇿',
+    kenya: '🇰🇪',
+    ghana: '🇬🇭',
+    cameroon: '🇨🇲',
+    angola: '🇦🇴',
+    mozambique: '🇲🇿',
+    madagascar: '🇲🇬',
+    mauritius: '🇲🇺',
+    seychelles: '🇸🇨',
+    'sri lanka': '🇱🇰',
+    pakistan: '🇵🇰',
+    bangladesh: '🇧🇩',
+    myanmar: '🇲🇲',
+    cambodia: '🇰🇭',
+    brunei: '🇧🇳',
+    qatar: '🇶🇦',
+    kuwait: '🇰🇼',
+    bahrain: '🇧🇭',
+    oman: '🇴🇲',
+    jordan: '🇯🇴',
+    israel: '🇮🇱',
+    lebanon: '🇱🇧',
+    iran: '🇮🇷',
+    iraq: '🇮🇶',
 };
 
 function flagForCountry(country: string): string | null {
@@ -119,7 +196,7 @@ function flagForCountry(country: string): string | null {
 
 // ── Simple CSV parser ──
 function parseCSV(text: string): { headers: string[]; rows: string[][] } {
-    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    const lines = text.split(/\r?\n/).filter((l) => l.trim());
     if (lines.length === 0) return { headers: [], rows: [] };
 
     const parseLine = (line: string): string[] => {
@@ -154,7 +231,7 @@ function parseCSV(text: string): { headers: string[]; rows: string[][] } {
 
 // ── Auto-detect format from headers ──
 function detectFormat(headers: string[]): ColumnMap {
-    const lowerHeaders = new Set(headers.map(h => h.toLowerCase()));
+    const lowerHeaders = new Set(headers.map((h) => h.toLowerCase()));
 
     // Try exact format matches
     for (const [format, cols] of Object.entries(FORMAT_COLUMNS)) {
@@ -169,7 +246,7 @@ function detectFormat(headers: string[]): ColumnMap {
     const findCol = (terms: string[]): string => {
         for (const h of headers) {
             const lower = h.toLowerCase();
-            if (terms.some(t => lower.includes(t))) return h;
+            if (terms.some((t) => lower.includes(t))) return h;
         }
         return '';
     };
@@ -218,9 +295,7 @@ async function main(): Promise<void> {
     console.log(`   Rows: ${rows.length}\n`);
 
     // Get column mapping
-    const columns = format === 'auto'
-        ? detectFormat(headers)
-        : FORMAT_COLUMNS[format];
+    const columns = format === 'auto' ? detectFormat(headers) : FORMAT_COLUMNS[format];
 
     if (!columns.mmsi) {
         console.error('❌ Could not find MMSI column. Available headers:', headers.join(', '));
@@ -263,20 +338,24 @@ async function main(): Promise<void> {
 
     for (const row of rows) {
         const mmsiStr = getVal(row, columns.mmsi);
-        if (!mmsiStr) { skipped++; continue; }
+        if (!mmsiStr) {
+            skipped++;
+            continue;
+        }
 
         const mmsi = parseInt(mmsiStr.replace(/\D/g, ''), 10);
-        if (isNaN(mmsi) || mmsi < 100000000 || mmsi > 999999999) { skipped++; continue; }
+        if (isNaN(mmsi) || mmsi < 100000000 || mmsi > 999999999) {
+            skipped++;
+            continue;
+        }
 
         const name = getVal(row, columns.name);
         const flag = getVal(row, columns.flag);
         const flagEmoji = flag ? flagForCountry(flag) : null;
 
         // Detect data source from format
-        const dataSource = format === 'amsa' ? 'AMSA'
-            : format === 'uscg' ? 'USCG'
-            : format === 'itu' ? 'ITU_MARS'
-            : 'Registry';
+        const dataSource =
+            format === 'amsa' ? 'AMSA' : format === 'uscg' ? 'USCG' : format === 'itu' ? 'ITU_MARS' : 'Registry';
 
         results.push({
             mmsi,

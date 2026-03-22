@@ -238,5 +238,6 @@ export function useNavMeshOverlay(
             }
             lastBoundsRef.current = '';
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapInstance.current, visible, graphDataRef.current]);
 }

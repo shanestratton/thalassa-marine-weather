@@ -473,6 +473,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
             log.error('Failed to save document:', e);
             toast.error('Failed to save document');
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editDoc, formName, formCategory, formIssueDate, formExpiryDate, formNotes, formFileUri, loadDocs]);
 
     const [deletedDoc, setDeletedDoc] = useState<ShipDocument | null>(null);

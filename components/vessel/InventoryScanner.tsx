@@ -58,6 +58,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
         category: 'Provisions' as InventoryCategory,
         quantity: 1,
         min_quantity: 0,
+        unit: 'whole',
         location_zone: '',
         location_specific: '',
         description: '',
@@ -70,6 +71,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
             startCamera();
         }
         return () => stopCamera();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const startCamera = async () => {

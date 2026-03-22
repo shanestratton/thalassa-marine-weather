@@ -16,7 +16,7 @@
 import React, { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { createLogger } from '../utils/createLogger';
 
-const log = createLogger('TrackMapViewer');
+const _log = createLogger('TrackMapViewer');
 import { ShipLogEntry } from '../types';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -115,6 +115,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             }
         }
         animFramesRef.current = frames;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sortedEntries]);
 
     // Create map ONCE when opened

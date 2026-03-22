@@ -36,14 +36,16 @@ export interface VesselProfile {
     hullColor?: string;
     registration?: string;
     mmsi?: string;
+    callSign?: string;
+    phoneticName?: string;
     sailNumber?: string;
     crewCount?: number;
     customIconUrl?: string;
     estimatedFields?: string[];
 }
 
-/** Inventory item categories */
-export type InventoryCategory =
+/** Ship's Stores item categories */
+export type StoresCategory =
     | 'Engine'
     | 'Plumbing'
     | 'Electrical'
@@ -51,9 +53,19 @@ export type InventoryCategory =
     | 'Safety'
     | 'Provisions'
     | 'Medical'
-    | 'Misc';
+    | 'Misc'
+    | 'Pantry'
+    | 'Freezer'
+    | 'Fridge'
+    | 'Dry'
+    | 'Booze'
+    | 'Deck'
+    | 'Cleaning';
 
-export const INVENTORY_CATEGORIES: InventoryCategory[] = [
+/** @deprecated Use StoresCategory */
+export type InventoryCategory = StoresCategory;
+
+export const STORES_CATEGORIES: StoresCategory[] = [
     'Engine',
     'Plumbing',
     'Electrical',
@@ -62,9 +74,19 @@ export const INVENTORY_CATEGORIES: InventoryCategory[] = [
     'Provisions',
     'Medical',
     'Misc',
+    'Pantry',
+    'Freezer',
+    'Fridge',
+    'Dry',
+    'Booze',
+    'Deck',
+    'Cleaning',
 ];
 
-export const INVENTORY_CATEGORY_ICONS: Record<InventoryCategory, string> = {
+/** @deprecated Use STORES_CATEGORIES */
+export const INVENTORY_CATEGORIES = STORES_CATEGORIES;
+
+export const STORES_CATEGORY_ICONS: Record<StoresCategory, string> = {
     Engine: '⚙️',
     Plumbing: '🔧',
     Electrical: '⚡',
@@ -73,23 +95,37 @@ export const INVENTORY_CATEGORY_ICONS: Record<InventoryCategory, string> = {
     Provisions: '🥫',
     Medical: '🏥',
     Misc: '📦',
+    Pantry: '🥫',
+    Freezer: '🧊',
+    Fridge: '🧊',
+    Dry: '🌾',
+    Booze: '🍺',
+    Deck: '⚓',
+    Cleaning: '🧹',
 };
 
-export interface InventoryItem {
+/** @deprecated Use STORES_CATEGORY_ICONS */
+export const INVENTORY_CATEGORY_ICONS = STORES_CATEGORY_ICONS;
+
+export interface StoresItem {
     id: string;
     user_id: string;
     barcode: string | null;
     item_name: string;
     description: string | null;
-    category: InventoryCategory;
+    category: StoresCategory;
     quantity: number;
     min_quantity: number;
+    unit: string;
     location_zone: string | null;
     location_specific: string | null;
     expiry_date: string | null;
     created_at: string;
     updated_at: string;
 }
+
+/** @deprecated Use StoresItem */
+export type InventoryItem = StoresItem;
 
 export type MaintenanceCategory = 'Engine' | 'Safety' | 'Hull' | 'Rigging' | 'Routine' | 'Repair';
 export type MaintenanceTriggerType = 'engine_hours' | 'daily' | 'quarterly' | 'monthly' | 'bi_annual' | 'annual';

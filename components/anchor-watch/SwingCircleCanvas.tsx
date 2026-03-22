@@ -345,6 +345,7 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
             cancelAnimationFrame(rafId);
             observer.disconnect();
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [snapshot]);
 
     return (

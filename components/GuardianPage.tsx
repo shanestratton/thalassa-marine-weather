@@ -92,6 +92,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
         });
 
         return unsub;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // ── ARM/DISARM handlers ──

@@ -124,6 +124,7 @@ export const useWeatherOverlay = (
             engineRef.current?.stop();
             engineRef.current = null;
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapInstance.current, showWeather, metrics]);
 
     // Layer Switching

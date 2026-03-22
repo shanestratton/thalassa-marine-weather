@@ -77,7 +77,10 @@ async function run(): Promise<void> {
     } else {
         // Group by priority
         const priorityBuckets: Record<1 | 2 | 3 | 4, number[]> = {
-            1: [], 2: [], 3: [], 4: [],
+            1: [],
+            2: [],
+            3: [],
+            4: [],
         };
 
         for (const mmsi of enrichCandidates) {
@@ -102,10 +105,18 @@ async function run(): Promise<void> {
             try {
                 let enriched = 0;
                 switch (priority) {
-                    case 1: enriched = await scrapeAmsa(batch); break;
-                    case 2: enriched = await scrapeUscg(batch); break;
-                    case 3: enriched = await scrapeEquasis(batch); break;
-                    case 4: enriched = await scrapeItuMars(batch); break;
+                    case 1:
+                        enriched = await scrapeAmsa(batch);
+                        break;
+                    case 2:
+                        enriched = await scrapeUscg(batch);
+                        break;
+                    case 3:
+                        enriched = await scrapeEquasis(batch);
+                        break;
+                    case 4:
+                        enriched = await scrapeItuMars(batch);
+                        break;
                 }
                 totalEnriched += enriched;
 

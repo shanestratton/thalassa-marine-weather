@@ -5,7 +5,7 @@
  */
 
 // Core database
-export { initLocalDatabase, getPendingCount, getSyncMeta, generateUUID } from './LocalDatabase';
+export { initLocalDatabase, getPendingCount, getSyncMeta, generateUUID, deltaLocal } from './LocalDatabase';
 export type { SyncQueueItem, SyncMeta } from './LocalDatabase';
 
 // Sync engine
@@ -22,4 +22,5 @@ export type { SyncStatus } from './SyncService';
 
 // Local-first services
 export { LocalInventoryService } from './LocalInventoryService';
+export { LocalInventoryService as LocalStoresService } from './LocalInventoryService';
 export { LocalMaintenanceService } from './LocalMaintenanceService';

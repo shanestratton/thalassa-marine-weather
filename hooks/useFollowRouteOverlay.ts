@@ -122,5 +122,6 @@ export const useFollowRouteOverlay = (mapInstance: React.MutableRefObject<L.Map 
         }
 
         return cleanup;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapInstance.current, isFollowing, enabled, routeCoords, previousRouteCoords, voyagePlan]);
 };

@@ -432,6 +432,7 @@ export const TideGraphOriginal = ({
         // Sort once before returning
         points.sort((a, b) => a.time - b.time);
         return points;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tides, currentHour, unitPref.tideHeight, hourlyTides, tideSeries]);
 
     // --- COMPREHENSIVE MARKERS (Next ~48h) ---

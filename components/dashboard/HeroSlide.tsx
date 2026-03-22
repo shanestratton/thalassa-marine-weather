@@ -27,7 +27,6 @@ import {
     convertTemp,
     convertSpeed,
     convertLength,
-    convertPrecip,
     convertDistance,
     calculateDailyScore,
     getSailingScoreColor,
@@ -42,13 +41,20 @@ import { LocationClock } from './LocationClock';
 import { useWeather } from '../../context/WeatherContext';
 import { renderHeroWidget, STATIC_WIDGET_CLASS } from './hero/HeroWidgets';
 import { MinutelyRain } from '../../services/weather/api/weatherkit';
-import { ShipLogService } from '../../services/ShipLogService';
+
 import { isGoldenHour } from '../../utils/goldenHour';
 import { EssentialMapSlide } from './hero/EssentialMapSlide';
+import {
+    computeDisplayValues,
+    computeTrends,
+    computeSunPhase,
+    computeCardDisplayValues,
+    buildSlides,
+} from './hero/heroSlideHelpers';
 
 import { createLogger } from '../../utils/createLogger';
 
-const log = createLogger('HeroSlide');
+const _log = createLogger('HeroSlide');
 
 // --- HERO SLIDE COMPONENT (Individual Day Card) ---
 const HeroSlideComponent = ({
@@ -110,6 +116,7 @@ const HeroSlideComponent = ({
     minutelyRain?: MinutelyRain[];
 }) => {
     const { nextUpdate: _nextUpdate, weatherData } = useWeather();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const forecast = weatherData?.forecast || [];
 
     // 1. STATE HOISTING (Zero-Latency Architecture)
@@ -299,99 +306,17 @@ const HeroSlideComponent = ({
             swellPeriod: closestHour?.swellPeriod ?? data.swellPeriod,
             dewPoint: closestHour?.dewPoint ?? data.dewPoint,
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data, hourly, isLive, fullHourly, tick, visualTime]); // Dependency: visualTime
 
     // Use effectiveData for all display logic used in the MAIN CARD
     const displayData = effectiveData;
 
     // Trend Calculation
-    const _trends = useMemo(() => {
-        if (!fullHourly || fullHourly.length < 2) return undefined;
-
-        // Find current index based on time
-        // Use visualTime for instant trend updates
-        const now = visualTime || Date.now();
-        // Look for the slot that matches 'now'
-        let currentIndex = fullHourly.findIndex((h) => {
-            const t = new Date(h.time).getTime();
-            return now >= t && now < t + 3600000;
-        });
-
-        if (currentIndex === -1) {
-            // STABILIZATION: If exact match fails (e.g. slight time drift),
-            // try to find the Closest slot instead of giving up.
-            // This prevents "flickering" arrows during scroll transitions.
-            let minDiff = Infinity;
-            let bestIdx = -1;
-            fullHourly.forEach((h, i) => {
-                const t = new Date(h.time).getTime();
-                const diff = Math.abs(t - now);
-                if (diff < minDiff) {
-                    minDiff = diff;
-                    bestIdx = i;
-                }
-            });
-
-            // Allow if within 2 hours
-            if (minDiff < 7200000 && bestIdx !== -1) {
-                currentIndex = bestIdx;
-            } else {
-                return undefined;
-            }
-        }
-
-        const current = effectiveData; // Use the effective (potentially live) data
-        let baseItem = fullHourly[currentIndex - 1]; // Previous hour
-        let isForecast = false;
-
-        // Fallback: If no previous data (start of array), look ahead to show "Forecast Trend"
-        if (!baseItem) {
-            const nextItem = fullHourly[currentIndex + 1];
-            if (nextItem) {
-                baseItem = nextItem;
-                isForecast = true;
-            }
-        }
-
-        // Final Safety
-        if (!baseItem) return undefined;
-
-        const prev = baseItem;
-
-        const getTrend = (
-            curr?: number | null,
-            old?: number | null,
-            threshold = 0,
-        ): 'rising' | 'falling' | 'steady' => {
-            // STABILIZATION: Treat 0 as a valid number, check for null/undefined strictly
-            if (curr === undefined || curr === null || old === undefined || old === null) return 'steady';
-            let diff = curr - old;
-
-            // If comparing to Future (Next Hour), invert logic:
-            // e.g. Current(10) -> Next(15). Diff(10-15)=-5. But Trend is Rising (+5).
-            if (isForecast) {
-                diff = old - curr;
-            }
-
-            if (diff > threshold) return 'rising';
-            if (diff < -threshold) return 'falling';
-            return 'steady';
-        };
-
-        return {
-            wind: getTrend(current.windSpeed, prev.windSpeed, 1),
-            gust: getTrend(current.windGust, prev.windGust, 2),
-            wave: getTrend(current.waveHeight, prev.waveHeight, 0.1),
-            pressure: getTrend(current.pressure, prev.pressure, 0.5),
-            waterTemp: getTrend(current.waterTemperature, prev.waterTemperature, 0.2),
-            currentSpeed: getTrend(current.currentSpeed, prev.currentSpeed, 0.2),
-            humidity: getTrend(current.humidity, prev.humidity, 3),
-            visibility: getTrend(current.visibility, prev.visibility, 1),
-            precip: getTrend(current.precipitation, prev.precipitation, 0.1),
-            feels: getTrend(current.feelsLike, prev.feelsLike, 1),
-            clouds: getTrend(current.cloudCover, prev.cloudCover, 5),
-        };
-    }, [effectiveData, fullHourly, visualTime]);
+    const _trends = useMemo(
+        () => computeTrends(effectiveData, fullHourly, visualTime),
+        [effectiveData, fullHourly, visualTime],
+    );
 
     // Debug Log for Trends
     // log.info('[TRENDS DEBUG]', { index, hasFullHourly: !!fullHourly, len: fullHourly?.length, trends });
@@ -452,9 +377,11 @@ const HeroSlideComponent = ({
             window.removeEventListener('hero-reset-scroll', handleReset);
             // Clean up any pending rAF on unmount
             if (scrollRafRef.current) {
+                // eslint-disable-next-line react-hooks/exhaustive-deps
                 cancelAnimationFrame(scrollRafRef.current);
             }
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const fullWidgetList =
@@ -479,75 +406,13 @@ const HeroSlideComponent = ({
         const set = new Date(d).setHours(sH, sM, 0, 0);
 
         return d.getTime() >= rise && d.getTime() < set;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [index, displayData.sunrise, displayData.sunset, visualTime, tick]); // Added tick
 
     const _isHighGust = hasWind && rawGust > (displayData.windSpeed || 0) * 1.5;
-    const hasWave = displayData.waveHeight !== null && displayData.waveHeight !== undefined;
+    const _hasWave = displayData.waveHeight !== null && displayData.waveHeight !== undefined;
 
-    const displayValues = {
-        airTemp: displayData.airTemperature !== null ? convertTemp(displayData.airTemperature, units.temp) : '--',
-        highTemp: displayData.highTemp !== undefined ? convertTemp(displayData.highTemp, units.temp) : '--',
-        lowTemp: displayData.lowTemp !== undefined ? convertTemp(displayData.lowTemp, units.temp) : '--',
-        windSpeed: hasWind ? Math.round(convertSpeed(displayData.windSpeed!, units.speed)!) : '--',
-        waveHeight: isLandlocked ? '0' : hasWave ? String(convertLength(displayData.waveHeight, units.length)) : '--',
-        vis: displayData.visibility ? convertDistance(displayData.visibility, units.visibility || 'nm') : '--',
-        gusts: hasWind ? Math.round(convertSpeed(rawGust!, units.speed)!) : '--',
-        precip: (() => {
-            // Live card: show daily mm total; Forecast: show precipChance %
-            if (index === 0) {
-                // Daily mm total for today
-                return convertPrecip(displayData.precipitation, units.length) ?? '0';
-            }
-            // Forecast: use precipChance from daily match or hourly data
-            const chance = displayData.precipChance;
-            return chance !== undefined && chance !== null ? Math.round(chance) : 0;
-        })(),
-        precipUnit: index === 0 ? (units.temp === 'F' ? 'in' : 'mm') : '%',
-        pressure: displayData.pressure ? Math.round(displayData.pressure) : '--',
-        cloudCover:
-            displayData.cloudCover !== null && displayData.cloudCover !== undefined
-                ? Math.round(displayData.cloudCover)
-                : '--',
-        uv: displayData.uvIndex !== undefined && displayData.uvIndex !== null ? Math.round(displayData.uvIndex) : '--',
-        sunrise: displayData.sunrise || '--:--',
-        sunset: displayData.sunset || '--:--',
-        currentSpeed:
-            displayData.currentSpeed !== undefined && displayData.currentSpeed !== null
-                ? Number(displayData.currentSpeed).toFixed(1)
-                : '--',
-        humidity:
-            displayData.humidity !== undefined && displayData.humidity !== null
-                ? Math.round(displayData.humidity)
-                : '--',
-        feelsLike:
-            displayData.feelsLike !== undefined && displayData.feelsLike !== null
-                ? convertTemp(displayData.feelsLike, units.temp)
-                : '--',
-        dewPoint:
-            displayData.dewPoint !== undefined && displayData.dewPoint !== null
-                ? convertTemp(displayData.dewPoint, units.temp)
-                : '--',
-
-        // Critical: Added missing Marine keys for Third Row widgets
-        waterTemperature:
-            displayData.waterTemperature !== undefined && displayData.waterTemperature !== null
-                ? convertTemp(displayData.waterTemperature, units.temp)
-                : '--',
-        currentDirection: (() => {
-            const val = displayData.currentDirection;
-            if (typeof val === 'number') return degreesToCardinal(val);
-            if (typeof val === 'string') return val.replace(/[\d.°]+/g, '').trim() || val;
-            return '--';
-        })(),
-        secondarySwellHeight: (() => {
-            const v = displayData.secondarySwellHeight;
-            return v !== undefined && v !== null && !isNaN(v) ? v : '--';
-        })(),
-        secondarySwellPeriod: (() => {
-            const v = displayData.secondarySwellPeriod;
-            return v !== undefined && v !== null && !isNaN(v) ? Math.round(v) : '--';
-        })(),
-    };
+    const displayValues = computeDisplayValues(displayData, units, index, isLandlocked);
 
     // Score Calculation
     const score = calculateDailyScore(displayData.windSpeed || 0, displayData.waveHeight || 0, vessel);
@@ -782,177 +647,22 @@ const HeroSlideComponent = ({
     // CRITICAL FIX: Do NOT early-return before hooks — it violates React's Rules of Hooks.
     // Instead, guard inside each hook and move the fallback UI to just before the final JSX return.
 
-    const slides = useMemo(() => {
-        if (!data) return [];
-        return [
-            // Only include "current" slide for TODAY (index 0)
-            ...(index === 0 ? [{ type: 'current', data: data, time: undefined as number | undefined }] : []),
-            ...(hourlyToRender || []).map((h) => {
-                // Find matching daily forecast for High/Low
-                const hDate = new Date(h.time);
-                const hDayStr = hDate.toLocaleDateString('en-CA'); // YYYY-MM-DD
-                const matchDay = forecast.find((d) => d.isoDate === hDayStr || d.date === hDayStr);
-
-                return {
-                    type: 'hourly',
-                    data: {
-                        ...h,
-                        airTemperature: h.temperature, // Map for compatibility
-                        feelsLike: h.feelsLike,
-                        windSpeed: h.windSpeed,
-                        waveHeight: h.waveHeight,
-                        precipChance: h.precipChance ?? matchDay?.precipChance, // Carry chance % from hourly or daily
-                        highTemp: matchDay?.highTemp, // Inject Daily High
-                        lowTemp: matchDay?.lowTemp, // Inject Daily Low
-                        sunrise: matchDay?.sunrise || data.sunrise, // Inherit from daily or base data
-                        sunset: matchDay?.sunset || data.sunset, // Inherit from daily or base data
-                    } as unknown as SourcedWeatherMetrics,
-                    time: hDate.getTime(),
-                };
-            }),
-        ];
-    }, [index, data, hourlyToRender, forecast]);
+    const slides = useMemo(
+        () => buildSlides(data, index, hourlyToRender, forecast),
+        [index, data, hourlyToRender, forecast],
+    );
 
     // Phase 2 Optimization: Pre-compute display values for all slides
     // This avoids recalculating on every scroll/render
     const slideDisplayData = useMemo(
         () =>
-            slides.map((slide, _slideIdx) => {
+            slides.map((slide) => {
                 const cardData = slide.data as SourcedWeatherMetrics;
                 const cardTime = slide.type === 'current' ? undefined : slide.time || customTime;
                 const isHourly = slide.type === 'hourly';
 
-                // Pre-compute sunPhase
-                const sunPhase = (() => {
-                    if (!cardData) return { isDay: true, label: 'Sunset', time: '--:--' };
-                    const currentTs = cardTime || Date.now();
-                    const sRise = cardData.sunrise;
-                    const sSet = cardData.sunset;
-                    const fallbackCheck = () => {
-                        const h = new Date(currentTs).getHours();
-                        return {
-                            isDay: h >= 6 && h < 18,
-                            label: h >= 6 && h < 18 ? 'Sunset' : 'Sunrise',
-                            time: '--:--',
-                        };
-                    };
-                    if (!sRise || !sSet || sRise === '--:--' || sSet === '--:--') return fallbackCheck();
-                    try {
-                        const [rH, rM] = sRise
-                            .replace(/[^0-9:]/g, '')
-                            .split(':')
-                            .map(Number);
-                        const [sH, sM] = sSet
-                            .replace(/[^0-9:]/g, '')
-                            .split(':')
-                            .map(Number);
-                        if (isNaN(rH) || isNaN(sH)) return fallbackCheck();
-                        const d = new Date(currentTs);
-                        const riseDt = new Date(d);
-                        riseDt.setHours(rH, rM, 0);
-                        const setDt = new Date(d);
-                        setDt.setHours(sH, sM, 0);
-                        if (d < riseDt) return { isDay: false, label: 'Sunrise', time: sRise };
-                        if (d >= riseDt && d < setDt) return { isDay: true, label: 'Sunset', time: sSet };
-                        return { isDay: false, label: 'Sunrise', time: sRise };
-                    } catch (e) {
-                        return fallbackCheck();
-                    }
-                })();
-
-                // Pre-compute display values
-                const cardDisplayValues = {
-                    airTemp: cardData.airTemperature !== null ? convertTemp(cardData.airTemperature, units.temp) : '--',
-                    highTemp: cardData.highTemp !== undefined ? convertTemp(cardData.highTemp, units.temp) : '--',
-                    lowTemp: cardData.lowTemp !== undefined ? convertTemp(cardData.lowTemp, units.temp) : '--',
-                    windSpeed:
-                        cardData.windSpeed !== null && cardData.windSpeed !== undefined
-                            ? Math.round(convertSpeed(cardData.windSpeed, units.speed)!)
-                            : '--',
-                    waveHeight: isLandlocked
-                        ? '0'
-                        : cardData.waveHeight !== null && cardData.waveHeight !== undefined
-                          ? String(convertLength(cardData.waveHeight, units.waveHeight))
-                          : '--',
-                    vis:
-                        cardData.visibility && !isNaN(cardData.visibility)
-                            ? convertDistance(cardData.visibility, units.visibility || 'nm')
-                            : '--',
-                    gusts:
-                        cardData.windSpeed !== null
-                            ? Math.round(convertSpeed(cardData.windGust ?? cardData.windSpeed * 1.3, units.speed)!)
-                            : '--',
-                    precip: (() => {
-                        // Live card: daily mm total; Forecast hour: precipChance %
-                        if (!isHourly && index === 0) {
-                            return convertPrecip(cardData.precipitation, units.length) ?? '0';
-                        }
-                        const chance = cardData.precipChance;
-                        return chance !== undefined && chance !== null ? Math.round(chance) : 0;
-                    })(),
-                    precipUnit: !isHourly && index === 0 ? (units.temp === 'F' ? 'in' : 'mm') : '%',
-                    pressure: cardData.pressure && !isNaN(cardData.pressure) ? Math.round(cardData.pressure) : '--',
-                    cloudCover:
-                        cardData.cloudCover !== null && cardData.cloudCover !== undefined && !isNaN(cardData.cloudCover)
-                            ? Math.round(cardData.cloudCover)
-                            : '--',
-                    uv:
-                        cardData.uvIndex !== undefined && cardData.uvIndex !== null && !isNaN(cardData.uvIndex)
-                            ? Math.round(cardData.uvIndex)
-                            : '--',
-                    sunrise: cardData.sunrise,
-                    sunset: cardData.sunset,
-                    humidity:
-                        cardData.humidity !== undefined && cardData.humidity !== null && !isNaN(cardData.humidity)
-                            ? Math.round(cardData.humidity)
-                            : '--',
-                    dewPoint:
-                        cardData.dewPoint !== undefined &&
-                        cardData.dewPoint !== null &&
-                        !isNaN(cardData.dewPoint as number)
-                            ? convertTemp(cardData.dewPoint as number, units.temp)
-                            : '--',
-                    waterTemperature: (() => {
-                        const val = cardData.waterTemperature;
-                        return val !== undefined && val !== null && !isNaN(val) ? convertTemp(val, units.temp) : '--';
-                    })(),
-                    currentSpeed:
-                        cardData.currentSpeed !== undefined &&
-                        cardData.currentSpeed !== null &&
-                        !isNaN(cardData.currentSpeed as number)
-                            ? Number(cardData.currentSpeed).toFixed(1)
-                            : '--',
-                    currentDirection: (() => {
-                        const val = cardData.currentDirection;
-                        if (typeof val === 'number' && !isNaN(val)) return degreesToCardinal(val);
-                        if (typeof val === 'string') return val.replace(/[\d.°]+/g, '').trim() || val;
-                        return '--';
-                    })(),
-                    moon: cardData.moonPhase || 'Waxing',
-                    cape:
-                        cardData.cape !== undefined && cardData.cape !== null && !isNaN(cardData.cape as number)
-                            ? Math.round(cardData.cape as number)
-                            : '--',
-                    secondarySwellHeight: (() => {
-                        const v = cardData.secondarySwellHeight;
-                        return v !== undefined && v !== null && !isNaN(v) ? v : '--';
-                    })(),
-                    secondarySwellPeriod: (() => {
-                        const v = cardData.secondarySwellPeriod;
-                        return v !== undefined && v !== null && !isNaN(v) ? Math.round(v) : '--';
-                    })(),
-                    ...(() => {
-                        // SOG/COG only available on live card from GPS
-                        if (!isHourly && index === 0) {
-                            const nav = ShipLogService.getGpsNavData();
-                            return {
-                                sogKts: nav.sogKts ?? '--',
-                                cogDeg: nav.cogDeg ?? '--',
-                            };
-                        }
-                        return { sogKts: '--', cogDeg: '--' };
-                    })(),
-                };
+                const sunPhase = computeSunPhase(cardData, cardTime);
+                const cardDisplayValues = computeCardDisplayValues(cardData, units, index, isHourly, isLandlocked);
 
                 const isCardDay = !isHourly && index > 0 ? true : sunPhase.isDay;
                 const cardIsLive = !isHourly && index === 0;
@@ -963,8 +673,9 @@ const HeroSlideComponent = ({
 
                 return { sunPhase, cardDisplayValues, isCardDay, cardIsLive, isHourly, cardData, cardTime, isGolden };
             }),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [slides, units, isLandlocked, index],
-    ); // Calculate active slide data for static displays
+    );
     // Always track the actively scrolled card for header updates
     const activeSlide = slides[activeHIdx] || slides[0];
     const activeCardData = activeSlide?.data as SourcedWeatherMetrics;
@@ -972,42 +683,7 @@ const HeroSlideComponent = ({
     const activeIsLive = index === 0 && activeHIdx === 0;
 
     // Calculate sunPhase for the active card for the static header's background
-    const activeSunPhase = (() => {
-        if (!activeCardData) return { isDay: true, label: 'Sunset', time: '--:--' };
-
-        const currentTs = activeCardTime || Date.now();
-        const sRise = activeCardData.sunrise;
-        const sSet = activeCardData.sunset;
-        const fallbackCheck = () => {
-            const h = new Date(currentTs).getHours();
-            return { isDay: h >= 6 && h < 18, label: h >= 6 && h < 18 ? 'Sunset' : 'Sunrise', time: '--:--' };
-        };
-        if (!sRise || !sSet || sRise === '--:--' || sSet === '--:--') return fallbackCheck();
-
-        try {
-            const [rH, rM] = sRise
-                .replace(/[^0-9:]/g, '')
-                .split(':')
-                .map(Number);
-            const [sH, sM] = sSet
-                .replace(/[^0-9:]/g, '')
-                .split(':')
-                .map(Number);
-            if (isNaN(rH) || isNaN(sH)) return fallbackCheck();
-
-            const d = new Date(currentTs);
-            const riseDt = new Date(d);
-            riseDt.setHours(rH, rM, 0);
-            const setDt = new Date(d);
-            setDt.setHours(sH, sM, 0);
-
-            if (d < riseDt) return { isDay: false, label: 'Sunrise', time: sRise };
-            if (d >= riseDt && d < setDt) return { isDay: true, label: 'Sunset', time: sSet };
-            return { isDay: false, label: 'Sunrise', time: sRise };
-        } catch (e) {
-            return fallbackCheck();
-        }
-    })();
+    const activeSunPhase = computeSunPhase(activeCardData, activeCardTime);
     const _activeIsCardDay = !activeIsLive && index > 0 ? true : activeSunPhase.isDay;
 
     // Calculate display values for static widgets based on activeCardData

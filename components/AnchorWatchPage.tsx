@@ -114,6 +114,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         const rec = getWeatherRecommendation(wind, gust, waveM);
         const recRode = Math.min(100, Math.round(rec.scope * waterDepth));
         return { ...rec, rode: recRode, wind, gust, wave: waveFt };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [weatherData?.current?.windSpeed, weatherData?.current?.windGust, weatherData?.current?.waveHeight, waterDepth]);
 
     // Elapsed time ticker

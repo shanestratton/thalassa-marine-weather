@@ -244,4 +244,3 @@ export async function sharePDF(
         callbacks?.onError?.(message);
     }
 }
-

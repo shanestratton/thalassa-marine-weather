@@ -111,8 +111,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         },
         {
             id: 'inventory',
-            label: 'Inventory',
-            sublabel: 'Spares & Supplies',
+            label: "Ship's Stores",
+            sublabel: 'Provisions & Spares',
             icon: <BoxIcon />,
             page: 'inventory',
             accentColor: 'text-amber-400',
@@ -179,7 +179,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     <span className="text-[11px] font-black text-red-400 uppercase tracking-[0.2em]">Active Watch</span>
                 </div>
 
-                <div className="grid grid-cols-4 gap-3 stagger-cascade">
+                <div className="grid grid-cols-5 gap-3 stagger-cascade">
                     {/* Anchor Watch Card */}
                     <button
                         aria-label="Haptic"
@@ -292,6 +292,36 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Log Book</h4>
                         <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">
                             Voyage Entries
+                        </p>
+                    </button>
+
+                    {/* 📻 Report Position Card */}
+                    <button
+                        aria-label="Report Position"
+                        onClick={() => {
+                            triggerHaptic('light');
+                            onNavigate('radio');
+                        }}
+                        className="stagger-item bg-gradient-to-br from-amber-500/20 to-yellow-600/15 border border-amber-500/25 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.98]"
+                    >
+                        <div className="p-1.5 rounded-lg bg-white/5 inline-block mb-1.5 group-hover:bg-white/10 transition-colors">
+                            <svg
+                                className="w-4 h-4 text-amber-400"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z"
+                                />
+                            </svg>
+                        </div>
+                        <h4 className="text-[11px] font-black text-white tracking-wide leading-tight">Radio</h4>
+                        <p className="text-[11px] text-amber-400 font-bold uppercase tracking-widest mt-0.5">
+                            Report Pos
                         </p>
                     </button>
                 </div>

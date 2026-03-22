@@ -117,9 +117,7 @@ describe('clientFilter — spam detection', () => {
     });
 
     it('blocks link spam (3+ URLs)', () => {
-        const result = clientFilter(
-            'Check https://spam1.com and https://spam2.com and https://spam3.com',
-        );
+        const result = clientFilter('Check https://spam1.com and https://spam2.com and https://spam3.com');
         expect(result.blocked).toBe(true);
         expect(result.warning).toBeTruthy();
         expect(result.warning).toContain('link');

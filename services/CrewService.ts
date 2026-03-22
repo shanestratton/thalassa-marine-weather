@@ -2,11 +2,11 @@
  * CrewService — Manages crew sharing for Vessel Hub.
  *
  * Handles the full crew lifecycle:
- * - Captain: invite crew by email, set register permissions, revoke access
- * - Crew: view pending invites, accept/decline, leave shared vessel
+ * - Captain: generate manifest codes, set JSONB permissions, revoke access
+ * - Crew: redeem codes, accept/decline, leave shared vessel
  *
- * All data flows through Supabase `vessel_crew` table with RLS enforcement.
- * Crew can only access registers explicitly shared with them.
+ * All data flows through Supabase `vessel_crew` + `manifest_invites` tables
+ * with RLS enforcement. Crew access controlled by JSONB permissions object.
  */
 
 import { supabase } from './supabase';
@@ -18,22 +18,78 @@ const log = createLogger('CrewService');
 // ── Types ──────────────────────────────────────────────────────
 
 /** Registers that can be shared with crew */
-export type SharedRegister = 'inventory' | 'equipment' | 'maintenance' | 'documents';
+export type SharedRegister = 'stores' | 'equipment' | 'maintenance' | 'documents';
 
-export const ALL_REGISTERS: SharedRegister[] = ['inventory', 'equipment', 'maintenance', 'documents'];
+export const ALL_REGISTERS: SharedRegister[] = ['stores', 'equipment', 'maintenance', 'documents'];
 
 export const REGISTER_LABELS: Record<SharedRegister, string> = {
-    inventory: 'Inventory',
+    stores: "Ship's Stores",
     equipment: 'Equipment',
     maintenance: 'R&M',
     documents: 'Documents',
 };
 
 export const REGISTER_ICONS: Record<SharedRegister, string> = {
-    inventory: '📦',
+    stores: '📦',
     equipment: '⚙️',
     maintenance: '🔧',
     documents: '📄',
+};
+
+/** Granular JSONB permissions (synced to vessel_crew.permissions) */
+export interface CrewPermissions {
+    can_view_stores: boolean;
+    can_edit_stores: boolean;
+    can_view_galley: boolean;
+    can_view_nav: boolean;
+    can_view_weather: boolean;
+    can_edit_log: boolean;
+}
+
+export const DEFAULT_PERMISSIONS: CrewPermissions = {
+    can_view_stores: false,
+    can_edit_stores: false,
+    can_view_galley: false,
+    can_view_nav: false,
+    can_view_weather: false,
+    can_edit_log: false,
+};
+
+export type CrewRole = 'co-skipper' | 'navigator' | 'deckhand' | 'punter';
+
+export const ROLE_DEFAULT_PERMISSIONS: Record<CrewRole, CrewPermissions> = {
+    'co-skipper': {
+        can_view_stores: true,
+        can_edit_stores: true,
+        can_view_galley: true,
+        can_view_nav: true,
+        can_view_weather: true,
+        can_edit_log: true,
+    },
+    navigator: {
+        can_view_stores: true,
+        can_edit_stores: false,
+        can_view_galley: true,
+        can_view_nav: true,
+        can_view_weather: true,
+        can_edit_log: true,
+    },
+    deckhand: {
+        can_view_stores: true,
+        can_edit_stores: false,
+        can_view_galley: true,
+        can_view_nav: false,
+        can_view_weather: false,
+        can_edit_log: false,
+    },
+    punter: {
+        can_view_stores: false,
+        can_edit_stores: false,
+        can_view_galley: false,
+        can_view_nav: false,
+        can_view_weather: false,
+        can_edit_log: false,
+    },
 };
 
 export type CrewInviteStatus = 'pending' | 'accepted' | 'declined';
@@ -45,10 +101,26 @@ export interface CrewMember {
     crew_email: string;
     owner_email: string;
     shared_registers: SharedRegister[];
+    permissions: CrewPermissions;
     status: CrewInviteStatus;
-    role: string;
+    role: CrewRole;
     created_at: string;
     updated_at: string;
+}
+
+export interface ManifestInvite {
+    id: string;
+    owner_id: string;
+    invite_code: string;
+    email?: string;
+    role: CrewRole;
+    permissions: CrewPermissions;
+    status: 'pending' | 'accepted' | 'expired' | 'revoked';
+    accepted_by?: string;
+    accepted_at?: string;
+    device_id?: string;
+    expires_at: string;
+    created_at: string;
 }
 
 // ── Captain Operations ─────────────────────────────────────────
@@ -394,5 +466,199 @@ export async function getPendingInviteCount(): Promise<number> {
         return count || 0;
     } catch (e) {
         return 0;
+    }
+}
+
+// ── Manifest Code System ───────────────────────────────────────
+
+/**
+ * Generate a 6-character alphanumeric manifest code (XX-9999 format).
+ * e.g., "TX-5501", "NZ-8842", "AU-3317"
+ */
+function generateManifestCode(): string {
+    const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // No I/O (confusable)
+    const l1 = letters[Math.floor(Math.random() * letters.length)];
+    const l2 = letters[Math.floor(Math.random() * letters.length)];
+    const num = Math.floor(1000 + Math.random() * 9000); // 4 digits, 1000-9999
+    return `${l1}${l2}-${num}`;
+}
+
+/**
+ * Get the device ID for manifest code locking.
+ */
+function getDeviceId(): string {
+    let id = localStorage.getItem('thalassa_device_id');
+    if (!id) {
+        id = `dev_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        localStorage.setItem('thalassa_device_id', id);
+    }
+    return id;
+}
+
+/**
+ * Create a manifest invite code (Skipper action).
+ */
+export async function createManifestInvite(
+    role: CrewRole,
+    permissions?: Partial<CrewPermissions>,
+    email?: string,
+): Promise<{ success: boolean; code?: string; error?: string }> {
+    if (!supabase) return { success: false, error: 'Not connected' };
+
+    try {
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return { success: false, error: 'Not authenticated' };
+
+        // Generate a unique code (retry if collision)
+        let code = generateManifestCode();
+        let attempts = 0;
+        while (attempts < 5) {
+            const { data: existing } = await supabase
+                .from('manifest_invites')
+                .select('id')
+                .eq('invite_code', code)
+                .maybeSingle();
+
+            if (!existing) break;
+            code = generateManifestCode();
+            attempts++;
+        }
+
+        const perms: CrewPermissions = {
+            ...ROLE_DEFAULT_PERMISSIONS[role],
+            ...(permissions || {}),
+        };
+
+        const { error } = await supabase.from('manifest_invites').insert({
+            owner_id: user.id,
+            invite_code: code,
+            email: email?.toLowerCase().trim() || null,
+            role,
+            permissions: perms,
+            status: 'pending',
+        });
+
+        if (error) return { success: false, error: error.message };
+        return { success: true, code };
+    } catch (e) {
+        return { success: false, error: String(e) };
+    }
+}
+
+/**
+ * Redeem a manifest code (Crew action).
+ * Links the current user + device to the vessel.
+ */
+export async function redeemManifestCode(code: string): Promise<{ success: boolean; error?: string }> {
+    if (!supabase) return { success: false, error: 'Not connected' };
+
+    try {
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return { success: false, error: 'Not authenticated' };
+
+        // Find the invite
+        const { data: invite, error: findError } = await supabase
+            .from('manifest_invites')
+            .select('*')
+            .eq('invite_code', code.toUpperCase().trim())
+            .eq('status', 'pending')
+            .gt('expires_at', new Date().toISOString())
+            .maybeSingle();
+
+        if (findError || !invite) {
+            return { success: false, error: 'Invalid or expired code.' };
+        }
+
+        // Check it's not the owner trying to redeem their own code
+        if (invite.owner_id === user.id) {
+            return { success: false, error: "You can't redeem your own code!" };
+        }
+
+        // Check if email-restricted and doesn't match
+        if (invite.email && invite.email !== user.email?.toLowerCase()) {
+            return { success: false, error: 'This code is reserved for a different email.' };
+        }
+
+        const deviceId = getDeviceId();
+
+        // Mark invite as accepted
+        const { error: updateError } = await supabase
+            .from('manifest_invites')
+            .update({
+                status: 'accepted',
+                accepted_by: user.id,
+                accepted_at: new Date().toISOString(),
+                device_id: deviceId,
+            })
+            .eq('id', invite.id);
+
+        if (updateError) return { success: false, error: updateError.message };
+
+        // Create the vessel_crew link with JSONB permissions
+        const { error: crewError } = await supabase.from('vessel_crew').upsert(
+            {
+                owner_id: invite.owner_id,
+                crew_user_id: user.id,
+                crew_email: user.email || '',
+                owner_email: '', // Will be populated on next sync
+                shared_registers: Object.entries(invite.permissions || {})
+                    .filter(([, v]) => v === true)
+                    .map(([k]) => k.replace('can_view_', '').replace('can_edit_', ''))
+                    .filter((v, i, a) => a.indexOf(v) === i) as SharedRegister[],
+                permissions: invite.permissions,
+                status: 'accepted',
+                role: invite.role,
+            },
+            { onConflict: 'owner_id,crew_user_id' },
+        );
+
+        if (crewError) return { success: false, error: crewError.message };
+        return { success: true };
+    } catch (e) {
+        return { success: false, error: String(e) };
+    }
+}
+
+/**
+ * Get all manifest invites created by the current user (Skipper view).
+ */
+export async function getMyManifestInvites(): Promise<ManifestInvite[]> {
+    if (!supabase) return [];
+
+    try {
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return [];
+
+        const { data, error } = await supabase
+            .from('manifest_invites')
+            .select('*')
+            .eq('owner_id', user.id)
+            .order('created_at', { ascending: false });
+
+        if (error) return [];
+        return (data || []) as ManifestInvite[];
+    } catch {
+        return [];
+    }
+}
+
+/**
+ * Revoke a manifest invite (Skipper action).
+ */
+export async function revokeManifestInvite(inviteId: string): Promise<boolean> {
+    if (!supabase) return false;
+
+    try {
+        const { error } = await supabase.from('manifest_invites').update({ status: 'revoked' }).eq('id', inviteId);
+
+        return !error;
+    } catch {
+        return false;
     }
 }

@@ -20,7 +20,7 @@ import { TrackMapViewer } from '../components/TrackMapViewer';
 import { LiveMiniMap } from '../components/LiveMiniMap';
 import { DeleteVoyageModal } from '../components/DeleteVoyageModal';
 import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
-import { RegionAutocomplete } from '../components/RegionAutocomplete';
+
 import { UndoToast } from '../components/ui/UndoToast';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { useLogPageState } from '../hooks/useLogPageState';
@@ -30,6 +30,12 @@ import { reverseGeocode } from '../services/weatherService';
 import { reverseGeocodeContext } from '../services/weather/api/geocoding';
 import { VoyageCard, StatBox, MenuBtn } from './log/LogSubComponents';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
+import { ExportSheet } from './log/ExportSheet';
+import { GpsDisclaimerModal } from './log/GpsDisclaimerModal';
+import { ImportSheet } from './log/ImportSheet';
+import { ShareSheet } from './log/ShareSheet';
+import { ShareFormSheet } from './log/ShareFormSheet';
+import { StatsSheet } from './log/StatsSheet';
 
 // Inline icons not in Icons.tsx
 const PlusIcon = ({ className }: { className?: string }) => (
@@ -98,12 +104,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     } = useLogPageState();
 
     const toast = useToast();
-    const [isExportingPDF, setIsExportingPDF] = useState(false);
-    const [isExportingGPX, setIsExportingGPX] = useState(false);
     const [showMenu, setShowMenu] = useState(false);
     const [showArchived, setShowArchived] = useState(false);
-    const [isImportingGPX, setIsImportingGPX] = useState(false);
-    const gpxFileInputRef = useRef<HTMLInputElement>(null);
 
     // GPS Disclaimer modal state
     const [showGpsDisclaimer, setShowGpsDisclaimer] = useState(false);
@@ -293,7 +295,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 <div className="flex flex-col h-full">
                     <div className="flex items-center justify-between p-4 border-b border-white/10">
                         <h2 className="text-lg font-bold text-white">Voyage Statistics</h2>
-                        <button aria-label="Close statistics"
+                        <button
+                            aria-label="Close statistics"
                             onClick={() => dispatch({ type: 'SHOW_STATS', show: false })}
                             className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
                         >
@@ -362,7 +365,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 {onBack && (
-                                    <button aria-label="Go back"
+                                    <button
+                                        aria-label="Go back"
                                         onClick={onBack}
                                         className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
                                     >
@@ -397,7 +401,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 )}
                             </div>
                             <div className="relative">
-                                <button aria-label="Open menu"
+                                <button
+                                    aria-label="Open menu"
                                     onClick={() => setShowMenu(!showMenu)}
                                     className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
                                 >
@@ -591,14 +596,16 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}
                             >
                                 <div className="flex gap-2">
-                                    <button aria-label="Stop tracking"
+                                    <button
+                                        aria-label="Stop tracking"
                                         onClick={handleStopTracking}
                                         className="flex-1 h-14 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 active:scale-[0.97]"
                                     >
                                         <StopIcon className="w-4 h-4" />
                                         Stop
                                     </button>
-                                    <button aria-label="Export voyage"
+                                    <button
+                                        aria-label="Export voyage"
                                         onClick={async () => {
                                             try {
                                                 const voyageEntries = entries
@@ -634,7 +641,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     >
                                         <MapPinIcon className="w-5 h-5" />
                                     </button>
-                                    <button aria-label="Add log entry"
+                                    <button
+                                        aria-label="Add log entry"
                                         onClick={() => dispatch({ type: 'SHOW_ADD_MODAL', show: true })}
                                         className="flex-1 h-14 px-4 rounded-2xl font-extrabold text-sm uppercase tracking-wider transition-all flex items-center justify-center gap-2 bg-gradient-to-r from-sky-500 to-sky-600 hover:from-sky-400 hover:to-sky-500 text-white shadow-lg shadow-sky-500/25 active:scale-[0.98]"
                                     >
@@ -709,7 +717,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 {/* ── Archived Voyages ── */}
                                 {archivedVoyages.length > 0 && (
                                     <div className="mt-4">
-                                        <button aria-label="Toggle archived voyages"
+                                        <button
+                                            aria-label="Toggle archived voyages"
                                             onClick={() => setShowArchived(!showArchived)}
                                             className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 active:scale-[0.98] transition-all"
                                         >
@@ -785,7 +794,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                                 NM
                                                             </div>
                                                         </div>
-                                                        <button aria-label="Unarchive voyage"
+                                                        <button
+                                                            aria-label="Unarchive voyage"
                                                             onClick={() => handleUnarchiveVoyage(voyage.voyageId)}
                                                             className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/20 uppercase tracking-wider active:scale-[0.95] transition-all"
                                                         >
@@ -820,44 +830,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             <toast.ToastContainer />
 
             {/* GPS Accuracy Disclaimer Modal */}
-            {showGpsDisclaimer && (
-                <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70 backdrop-blur-sm px-6">
-                    <div className="bg-slate-900 border border-amber-500/20 rounded-2xl p-6 max-w-sm w-full shadow-2xl animate-[slideUp_0.2s_ease-out]">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
-                                <span className="text-xl">⚠️</span>
-                            </div>
-                            <h3 className="text-lg font-bold text-white">GPS Accuracy Notice</h3>
-                        </div>
-                        <p className="text-sm text-slate-300 leading-relaxed mb-4">
-                            Phone GPS accuracy degrades significantly on water without WiFi or cell-tower assist —
-                            especially in overcast or rainy conditions.
-                        </p>
-                        <p className="text-sm text-slate-300 leading-relaxed mb-5">
-                            For best track accuracy offshore, connect to your vessel's{' '}
-                            <span className="text-amber-400 font-semibold">NMEA GPS</span> via a WiFi gateway (e.g.
-                            YDWG-02, Vesper, or Bad Elf).
-                        </p>
-                        <label className="flex items-center gap-2.5 mb-5 cursor-pointer">
-                            <input
-                                type="checkbox"
-                                id="gps-disclaimer-dismiss"
-                                className="w-4 h-4 rounded border-white/20 bg-slate-800 accent-amber-500"
-                            />
-                            <span className="text-xs text-slate-400">Don't show this again</span>
-                        </label>
-                        <button aria-label="Dismiss GPS disclaimer"
-                            onClick={() => {
-                                const checkbox = document.getElementById('gps-disclaimer-dismiss') as HTMLInputElement;
-                                dismissGpsDisclaimer(checkbox?.checked ?? false);
-                            }}
-                            className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white font-bold text-sm uppercase tracking-wider active:scale-[0.97] transition-all"
-                        >
-                            Got it — Start Tracking
-                        </button>
-                    </div>
-                </div>
-            )}
+            <GpsDisclaimerModal
+                isOpen={showGpsDisclaimer}
+                onDismiss={async (dontShowAgain) => dismissGpsDisclaimer(dontShowAgain)}
+            />
 
             {/* Manual Entry Modal */}
             <AddEntryModal
@@ -889,895 +865,68 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 onImportComplete={loadData}
             />
 
-            {/* Hidden GPX file input */}
-            <input
-                ref={gpxFileInputRef}
-                type="file"
-                accept=".gpx,.xml"
-                className="hidden"
-                onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    setIsImportingGPX(true);
-                    try {
-                        await handleImportGPXFile(file);
-                    } finally {
-                        setIsImportingGPX(false);
-                        dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
-                    }
-                    // Reset input so same file can be re-selected
-                    e.target.value = '';
-                }}
-            />
-
             {/* ========== ACTION SHEET MODALS ========== */}
 
-            {/* EXPORT ACTION SHEET — full screen panel */}
+            {/* EXPORT ACTION SHEET */}
             {actionSheet === 'export' && (
-                <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
-                    {/* Header bar */}
-                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-lg bg-sky-500/20 flex items-center justify-center">
-                                    <svg
-                                        className="w-4.5 h-4.5 text-sky-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                        />
-                                    </svg>
-                                </div>
-                                <h2 className="text-lg font-bold text-white">Export Voyage</h2>
-                            </div>
-                            <button aria-label="Close"
-                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
-                                className="p-2 text-slate-400 hover:text-white transition-colors"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M6 18L18 6M6 6l12 12"
-                                    />
-                                </svg>
-                            </button>
-                        </div>
-                        <p className="text-sm text-slate-400 mt-2">
-                            {selectedVoyageId ? 'Export the selected voyage' : 'Export all voyage data'}
-                        </p>
-                    </div>
-
-                    {/* Content — vertically centered */}
-                    <div className="flex-1 flex flex-col justify-center px-4 pb-8">
-                        <div className="space-y-4 max-w-2xl mx-auto w-full">
-                            {/* PDF Card — disabled for imported/community tracks (provenance) */}
-                            <button aria-label="Export as PDF"
-                                onClick={async () => {
-                                    if (!hasNonDeviceEntries && !isExportingPDF) {
-                                        setIsExportingPDF(true);
-                                        try {
-                                            await handleShare();
-                                        } finally {
-                                            setIsExportingPDF(false);
-                                        }
-                                        dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
-                                    }
-                                }}
-                                disabled={hasNonDeviceEntries}
-                                className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${
-                                    hasNonDeviceEntries || isExportingPDF
-                                        ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
-                                        : 'bg-gradient-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40'
-                                }`}
-                            >
-                                <div className="w-14 h-14 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
-                                    <svg
-                                        className="w-7 h-7 text-sky-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={1.5}
-                                            d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"
-                                        />
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={1.5}
-                                            d="M9 13h6m-6 4h4"
-                                        />
-                                    </svg>
-                                </div>
-                                {isExportingPDF && (
-                                    <div className="absolute inset-0 bg-black/60 rounded-2xl flex items-center justify-center z-10">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin"></div>
-                                            <span className="text-sky-300 text-sm font-medium">Generating PDF…</span>
-                                        </div>
-                                    </div>
-                                )}
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-lg">Official Deck Log</div>
-                                    {hasNonDeviceEntries ? (
-                                        <div className="text-amber-400 text-sm mt-1">
-                                            ⚠️ Unavailable — contains imported or community data
-                                        </div>
-                                    ) : (
-                                        <div className="text-slate-400 text-sm mt-1">
-                                            PDF with charts, positions &amp; weather data
-                                        </div>
-                                    )}
-                                </div>
-                                <svg
-                                    className="w-5 h-5 text-slate-500"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M9 5l7 7-7 7"
-                                    />
-                                </svg>
-                            </button>
-
-                            {/* GPX Card */}
-                            <button aria-label="Export as GPX"
-                                onClick={async () => {
-                                    if (!isExportingGPX) {
-                                        setIsExportingGPX(true);
-                                        try {
-                                            await handleExportGPX();
-                                        } finally {
-                                            setIsExportingGPX(false);
-                                        }
-                                    }
-                                }}
-                                className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${
-                                    isExportingGPX
-                                        ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
-                                        : 'bg-gradient-to-r from-emerald-500/15 to-emerald-600/5 border-emerald-500/20 hover:border-emerald-400/40'
-                                }`}
-                            >
-                                <div className="w-14 h-14 rounded-xl bg-emerald-500/20 flex items-center justify-center shrink-0">
-                                    <svg
-                                        className="w-7 h-7 text-emerald-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={1.5}
-                                            d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
-                                        />
-                                    </svg>
-                                </div>
-                                {isExportingGPX && (
-                                    <div className="absolute inset-0 bg-black/60 rounded-2xl flex items-center justify-center z-10">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-6 h-6 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
-                                            <span className="text-emerald-300 text-sm font-medium">Exporting GPX…</span>
-                                        </div>
-                                    </div>
-                                )}
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-lg">GPS Track (GPX)</div>
-                                    <div className="text-slate-400 text-sm mt-1">
-                                        Export to OpenCPN, Navionics, or any chartplotter
-                                    </div>
-                                </div>
-                                <svg
-                                    className="w-5 h-5 text-slate-500"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M9 5l7 7-7 7"
-                                    />
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <ExportSheet
+                    onClose={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
+                    selectedVoyageId={selectedVoyageId}
+                    hasNonDeviceEntries={hasNonDeviceEntries}
+                    onExportPDF={handleShare}
+                    onExportGPX={handleExportGPX}
+                />
             )}
 
-            {/* IMPORT ACTION SHEET — always accessible, even with zero entries */}
             {actionSheet === 'import' && (
-                <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
-                    {/* Header bar */}
-                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                                    <svg
-                                        className="w-4.5 h-4.5 text-amber-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-                                        />
-                                    </svg>
-                                </div>
-                                <h2 className="text-lg font-bold text-white">Import Tracks</h2>
-                            </div>
-                            <button aria-label="Close"
-                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
-                                className="p-2 text-slate-400 hover:text-white transition-colors"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M6 18L18 6M6 6l12 12"
-                                    />
-                                </svg>
-                            </button>
-                        </div>
-                        <p className="text-sm text-slate-400 mt-2">Browse and download community-shared tracks</p>
-                    </div>
-
-                    {/* Content — vertically centered */}
-                    <div className="flex-1 flex flex-col justify-center px-4 pb-8">
-                        <div className="space-y-4 max-w-2xl mx-auto w-full">
-                            {/* Import GPX File Card — hidden for now, unhide when users request it */}
-                            {/* eslint-disable-next-line no-constant-binary-expression */}
-                            {false && (
-                                <button aria-label="Import GPX file"
-                                    onClick={() => {
-                                        if (!isImportingGPX) gpxFileInputRef.current?.click();
-                                    }}
-                                    className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all relative overflow-hidden ${
-                                        isImportingGPX
-                                            ? 'bg-slate-800/30 border-slate-700/30 cursor-not-allowed opacity-50'
-                                            : 'bg-gradient-to-r from-amber-500/15 to-amber-600/5 border-amber-500/20 hover:border-amber-400/40'
-                                    }`}
-                                >
-                                    <div className="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
-                                        <svg
-                                            className="w-7 h-7 text-amber-400"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                strokeWidth={1.5}
-                                                d="M9 13h6m-3-3v6m5 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                            />
-                                        </svg>
-                                    </div>
-                                    {isImportingGPX && (
-                                        <div className="absolute inset-0 bg-black/60 rounded-2xl flex items-center justify-center z-10">
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
-                                                <span className="text-amber-300 text-sm font-medium">Importing…</span>
-                                            </div>
-                                        </div>
-                                    )}
-                                    <div className="flex-1 text-left">
-                                        <div className="text-white font-bold text-lg">Import GPX File</div>
-                                        <div className="text-slate-400 text-sm mt-1">
-                                            Import from OpenCPN, Navionics, or any chartplotter export
-                                        </div>
-                                    </div>
-                                    <svg
-                                        className="w-5 h-5 text-slate-500"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M9 5l7 7-7 7"
-                                        />
-                                    </svg>
-                                </button>
-                            )}
-
-                            {/* Browse Community Card */}
-                            <button aria-label="Browse community tracks"
-                                onClick={() => {
-                                    dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true });
-                                    dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
-                                }}
-                                className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-purple-500/15 to-purple-600/5 border-purple-500/20 hover:border-purple-400/40"
-                            >
-                                <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
-                                    <svg
-                                        className="w-7 h-7 text-purple-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={1.5}
-                                            d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
-                                        />
-                                    </svg>
-                                </div>
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-lg">Browse Community</div>
-                                    <div className="text-slate-400 text-sm mt-1">
-                                        Download tracks shared by other sailors
-                                    </div>
-                                </div>
-                                <svg
-                                    className="w-5 h-5 text-slate-500"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M9 5l7 7-7 7"
-                                    />
-                                </svg>
-                            </button>
-
-                            {/* Imported track provenance notice */}
-                            <div className="bg-slate-800/40 border border-white/5 rounded-xl px-4 py-3">
-                                <div className="flex items-start gap-2">
-                                    <span className="text-amber-400 text-sm mt-0.5">ℹ️</span>
-                                    <p className="text-sm text-slate-400 leading-relaxed">
-                                        Imported tracks are marked with an{' '}
-                                        <span className="text-amber-400 font-bold">Imported</span> badge and cannot be
-                                        used for official deck logs or re-shared to the community.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <ImportSheet
+                    onClose={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
+                    onImportGPXFile={handleImportGPXFile}
+                    onShowCommunityBrowser={() => {
+                        dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true });
+                        dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
+                    }}
+                    onImportComplete={loadData}
+                />
             )}
 
-            {/* SHARE ACTION SHEET — card menu matching Export layout */}
             {actionSheet === 'share' && (
-                <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
-                    {/* Header bar */}
-                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center">
-                                    <svg
-                                        className="w-4.5 h-4.5 text-purple-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-                                        />
-                                    </svg>
-                                </div>
-                                <h2 className="text-lg font-bold text-white">Share</h2>
-                            </div>
-                            <button aria-label="Close"
-                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
-                                className="p-2 text-slate-400 hover:text-white transition-colors"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M6 18L18 6M6 6l12 12"
-                                    />
-                                </svg>
-                            </button>
-                        </div>
-                        <p className="text-sm text-slate-400 mt-2">
-                            {selectedVoyageId
-                                ? 'Share the selected voyage'
-                                : 'Share your voyage data with the community'}
-                        </p>
-                    </div>
-
-                    {/* Content — vertically centered */}
-                    <div className="flex-1 flex flex-col justify-center px-4 pb-8">
-                        <div className="space-y-4 max-w-2xl mx-auto w-full">
-                            {/* Community Share Card — disabled for imported/community tracks */}
-                            <button aria-label="Share voyage"
-                                onClick={() => {
-                                    if (!hasNonDeviceEntries)
-                                        dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share_form' });
-                                }}
-                                className={`w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all ${
-                                    hasNonDeviceEntries
-                                        ? 'bg-slate-800/40 border-slate-700/30 opacity-50 cursor-not-allowed'
-                                        : 'bg-gradient-to-r from-purple-500/15 to-purple-600/5 border-purple-500/20 hover:border-purple-400/40'
-                                }`}
-                            >
-                                <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
-                                    <svg
-                                        className="w-7 h-7 text-purple-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={1.5}
-                                            d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-                                        />
-                                    </svg>
-                                </div>
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-lg">Community Share</div>
-                                    {hasNonDeviceEntries ? (
-                                        <div className="text-amber-400 text-sm mt-1">
-                                            ⚠️ Unavailable — contains imported or community data
-                                        </div>
-                                    ) : (
-                                        <div className="text-slate-400 text-sm mt-1">
-                                            Share your track, route, or anchorage with others
-                                        </div>
-                                    )}
-                                </div>
-                                <svg
-                                    className="w-5 h-5 text-slate-500"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M9 5l7 7-7 7"
-                                    />
-                                </svg>
-                            </button>
-
-                            {/* Browse Community Card */}
-                            <button aria-label="Browse community tracks"
-                                onClick={() => {
-                                    dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true });
-                                    dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
-                                }}
-                                className="w-full flex items-center gap-4 p-5 rounded-2xl border active:scale-[0.98] transition-all bg-gradient-to-r from-sky-500/15 to-sky-600/5 border-sky-500/20 hover:border-sky-400/40"
-                            >
-                                <div className="w-14 h-14 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
-                                    <svg
-                                        className="w-7 h-7 text-sky-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={1.5}
-                                            d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
-                                        />
-                                    </svg>
-                                </div>
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-lg">Browse Community</div>
-                                    <div className="text-slate-400 text-sm mt-1">
-                                        Discover and import anchorages, passages & routes
-                                    </div>
-                                </div>
-                                <svg
-                                    className="w-5 h-5 text-slate-500"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M9 5l7 7-7 7"
-                                    />
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <ShareSheet
+                    onClose={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
+                    onShowShareForm={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share_form' })}
+                    onShowCommunityBrowser={() => {
+                        dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true });
+                        dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
+                    }}
+                    hasNonDeviceEntries={hasNonDeviceEntries}
+                    selectedVoyageId={selectedVoyageId}
+                />
             )}
 
-            {/* SHARE FORM ACTION SHEET — full screen panel */}
             {actionSheet === 'share_form' && (
-                <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
-                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-2">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                                <button aria-label="Share"
-                                    onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' })}
-                                    className="p-1.5 text-slate-400 hover:text-white transition-colors -ml-1"
-                                >
-                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M15 19l-7-7 7-7"
-                                        />
-                                    </svg>
-                                </button>
-                                <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center">
-                                    <svg
-                                        className="w-4.5 h-4.5 text-purple-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-                                        />
-                                    </svg>
-                                </div>
-                                <h2 className="text-lg font-bold text-white">Community Share</h2>
-                            </div>
-                            <button aria-label="Close"
-                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
-                                className="p-2 text-slate-400 hover:text-white transition-colors"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M6 18L18 6M6 6l12 12"
-                                    />
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto px-4 py-3">
-                        <div className="space-y-3 max-w-2xl mx-auto w-full">
-                            {/* Offline Banner */}
-                            {typeof navigator !== 'undefined' && !navigator.onLine && (
-                                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs font-medium">
-                                    <span>📡</span>
-                                    <span>Sharing requires internet. Your tracks are saved locally.</span>
-                                </div>
-                            )}
-
-                            {/* Share Track Form */}
-                            <div className="rounded-2xl bg-gradient-to-b from-purple-500/10 to-slate-900/80 border border-purple-500/20 p-4 space-y-3">
-                                {/* Title */}
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                                        Title *
-                                    </label>
-                                    <input
-                                        id="share-title"
-                                        type="text"
-                                        placeholder={shareAutoTitle || 'e.g. "Moreton Bay Anchorage"'}
-                                        className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
-                                    />
-                                </div>
-
-                                {/* Description */}
-                                <div>
-                                    <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                                        Description
-                                    </label>
-                                    <textarea
-                                        id="share-description"
-                                        rows={2}
-                                        placeholder="Brief description of the route, conditions, or points of interest..."
-                                        className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all resize-none"
-                                    />
-                                </div>
-
-                                {/* Category + Region — side by side */}
-                                <div className="flex gap-3">
-                                    <div className="flex-1">
-                                        <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                                            Category
-                                        </label>
-                                        <select
-                                            id="share-category"
-                                            defaultValue="coastal"
-                                            className="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all appearance-none cursor-pointer"
-                                            style={{
-                                                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 8L1 3h10z'/%3E%3C/svg%3E")`,
-                                                backgroundRepeat: 'no-repeat',
-                                                backgroundPosition: 'right 12px center',
-                                            }}
-                                        >
-                                            <option value="anchorage">⚓ Anchorage</option>
-                                            <option value="port_entry">🏗 Port Entry</option>
-                                            <option value="marina_exit">🚤 Marina Exit</option>
-                                            <option value="harbour_entry">⛵ Harbour Entry</option>
-                                            <option value="bar_crossing">🌊 Bar Crossing</option>
-                                            <option value="reef_passage">🪸 Reef Passage</option>
-                                            <option value="coastal">🏖 Coastal</option>
-                                            <option value="offshore">🌊 Offshore</option>
-                                            <option value="walking">🚶 Walking</option>
-                                            <option value="driving">🚗 Driving</option>
-                                        </select>
-                                    </div>
-                                    <div className="flex-1">
-                                        <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1">
-                                            Region
-                                        </label>
-                                        <RegionAutocomplete
-                                            id="share-region"
-                                            defaultValue={shareAutoRegion}
-                                            placeholder='e.g. "QLD, Australia"'
-                                            inputClassName="w-full px-3 py-2.5 rounded-xl bg-slate-800/80 border border-white/10 text-white placeholder-slate-500 text-sm font-medium focus:outline-none focus:border-purple-500/50 focus:ring-1 focus:ring-violet-500/30 transition-all"
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Submit Button */}
-                                <button aria-label="Submit share"
-                                    onClick={() => {
-                                        const rawTitle = (
-                                            document.getElementById('share-title') as HTMLInputElement
-                                        )?.value?.trim();
-                                        const title = rawTitle || shareAutoTitle; // fallback to auto-fill
-                                        const description =
-                                            (
-                                                document.getElementById('share-description') as HTMLTextAreaElement
-                                            )?.value?.trim() || '';
-                                        const category =
-                                            (document.getElementById('share-category') as HTMLSelectElement)?.value ||
-                                            'coastal';
-                                        const region =
-                                            (
-                                                document.getElementById('share-region') as HTMLInputElement
-                                            )?.value?.trim() || shareAutoRegion;
-                                        if (!title) {
-                                            (document.getElementById('share-title') as HTMLInputElement)?.focus();
-                                            return;
-                                        }
-                                        handleShareToCommunity({
-                                            title,
-                                            description,
-                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                            category: category as any,
-                                            region,
-                                        });
-                                    }}
-                                    className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 text-white font-bold text-sm tracking-wide shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 active:scale-[0.98] transition-all"
-                                >
-                                    🚀 Share Track
-                                </button>
-                            </div>
-
-                            {/* Browse Community */}
-                            <button aria-label="Browse shared tracks"
-                                onClick={() => {
-                                    dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true });
-                                    dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
-                                }}
-                                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-gradient-to-r from-sky-500/15 to-sky-600/5 border border-sky-500/20 hover:border-sky-400/40 active:scale-[0.98] transition-all"
-                            >
-                                <div className="w-10 h-10 rounded-xl bg-sky-500/20 flex items-center justify-center shrink-0">
-                                    <svg
-                                        className="w-5 h-5 text-sky-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={1.5}
-                                            d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"
-                                        />
-                                    </svg>
-                                </div>
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-sm">Browse Community</div>
-                                    <div className="text-slate-400 text-xs">
-                                        Discover anchorages, passages &amp; routes
-                                    </div>
-                                </div>
-                                <svg
-                                    className="w-4 h-4 text-slate-500"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M9 5l7 7-7 7"
-                                    />
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <ShareFormSheet
+                    onClose={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
+                    onBack={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: 'share' })}
+                    onShowCommunityBrowser={() => {
+                        dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true });
+                        dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
+                    }}
+                    onShareToCommunity={handleShareToCommunity}
+                    shareAutoTitle={shareAutoTitle}
+                    shareAutoRegion={shareAutoRegion}
+                />
             )}
 
-            {/* STATS ACTION SHEET — full screen panel */}
             {actionSheet === 'stats' && (
-                <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
-                    <div className="shrink-0 bg-slate-900/90 backdrop-blur-md border-b border-white/10 px-4 pt-3 pb-3">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                                    <svg
-                                        className="w-4.5 h-4.5 text-amber-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={2}
-                                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                                        />
-                                    </svg>
-                                </div>
-                                <h2 className="text-lg font-bold text-white">Voyage Statistics</h2>
-                            </div>
-                            <button aria-label="Close"
-                                onClick={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
-                                className="p-2 text-slate-400 hover:text-white transition-colors"
-                            >
-                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M6 18L18 6M6 6l12 12"
-                                    />
-                                </svg>
-                            </button>
-                        </div>
-                        <p className="text-sm text-slate-400 mt-2">Analyze your sailing performance</p>
-                    </div>
-
-                    <div className="flex-1 flex flex-col justify-center px-4 pb-8">
-                        <div className="space-y-4 max-w-2xl mx-auto w-full">
-                            {(() => {
-                                // Use the highlighted card, or fall back to active/first voyage
-                                const effectiveVoyageId =
-                                    selectedVoyageId || currentVoyageId || voyageGroups[0]?.voyageId || null;
-                                const voyageEntryCount = effectiveVoyageId
-                                    ? entries.filter((e) => e.voyageId === effectiveVoyageId).length
-                                    : 0;
-                                return (
-                                    <button aria-label="View voyage statistics"
-                                        onClick={() => {
-                                            dispatch({ type: 'SELECT_VOYAGE', voyageId: effectiveVoyageId });
-                                            dispatch({ type: 'SHOW_STATS', show: true });
-                                            dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
-                                        }}
-                                        className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 to-amber-600/5 border border-amber-500/20 hover:border-amber-400/40 active:scale-[0.98] transition-all"
-                                    >
-                                        <div className="w-14 h-14 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
-                                            <svg
-                                                className="w-7 h-7 text-amber-400"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                            >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    strokeWidth={1.5}
-                                                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
-                                                />
-                                            </svg>
-                                        </div>
-                                        <div className="flex-1 text-left">
-                                            <div className="text-white font-bold text-lg">Selected Voyage</div>
-                                            <div className="text-slate-400 text-sm mt-1">
-                                                Stats for the highlighted track
-                                            </div>
-                                        </div>
-                                        {voyageEntryCount > 0 && (
-                                            <span className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-400 text-xs font-bold">
-                                                {voyageEntryCount} pts
-                                            </span>
-                                        )}
-                                        <svg
-                                            className="w-5 h-5 text-slate-500"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                strokeWidth={2}
-                                                d="M9 5l7 7-7 7"
-                                            />
-                                        </svg>
-                                    </button>
-                                );
-                            })()}
-
-                            {/* All Voyages Card */}
-                            <button aria-label="View all statistics"
-                                onClick={() => {
-                                    dispatch({ type: 'SELECT_VOYAGE', voyageId: null });
-                                    dispatch({ type: 'SHOW_STATS', show: true });
-                                    dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
-                                }}
-                                className="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-r from-purple-500/15 to-purple-600/5 border border-purple-500/20 hover:border-purple-400/40 active:scale-[0.98] transition-all"
-                            >
-                                <div className="w-14 h-14 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
-                                    <svg
-                                        className="w-7 h-7 text-purple-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            strokeWidth={1.5}
-                                            d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"
-                                        />
-                                    </svg>
-                                </div>
-                                <div className="flex-1 text-left">
-                                    <div className="text-white font-bold text-lg">All Voyages</div>
-                                    <div className="text-slate-400 text-sm mt-1">
-                                        Combined statistics across every voyage
-                                    </div>
-                                </div>
-                                <span className="px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-400 text-xs font-bold">
-                                    {entries.length} pts
-                                </span>
-                                <svg
-                                    className="w-5 h-5 text-slate-500"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth={2}
-                                        d="M9 5l7 7-7 7"
-                                    />
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <StatsSheet
+                    onClose={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
+                    onSelectVoyage={(id) => dispatch({ type: 'SELECT_VOYAGE', voyageId: id })}
+                    onShowStats={() => dispatch({ type: 'SHOW_STATS', show: true })}
+                    entries={entries}
+                    selectedVoyageId={selectedVoyageId}
+                    currentVoyageId={currentVoyageId ?? null}
+                    voyageGroups={voyageGroups}
+                />
             )}
 
             {/* Voyage Choice Dialog - Continue or New */}

@@ -91,7 +91,8 @@ export const MenuBtn: React.FC<{
     danger?: boolean;
     accent?: boolean;
 }> = React.memo(({ icon, label, onClick, disabled, danger, accent }) => (
-    <button aria-label="Help"
+    <button
+        aria-label="Help"
         onClick={onClick}
         disabled={disabled}
         className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${
@@ -159,7 +160,8 @@ const FollowRouteButton: React.FC<{
     }, [voyage, startLabel, endLabel, isThisFollowed, startFollowing]);
 
     return (
-        <button aria-label="Help"
+        <button
+            aria-label="Help"
             onClick={handleFollow}
             disabled={isThisFollowed}
             className={`w-14 flex flex-col items-center justify-center py-2 border-t border-white/5 transition-colors ${
@@ -346,7 +348,8 @@ export const VoyageCard: React.FC<{
                 >
                     {/* Archive — hidden for planned routes */}
                     {!isPlannedRoute && (
-                        <button aria-label="Archive"
+                        <button
+                            aria-label="Archive"
                             onClick={() => {
                                 setSwipeOffset(0);
                                 onArchive();
@@ -372,7 +375,8 @@ export const VoyageCard: React.FC<{
                         </button>
                     )}
                     {/* Delete */}
-                    <button aria-label="Delete"
+                    <button
+                        aria-label="Delete"
                         onClick={() => {
                             setSwipeOffset(0);
                             onDelete();
@@ -418,7 +422,8 @@ export const VoyageCard: React.FC<{
                     onTouchEnd={handleSwipeEnd}
                 >
                     {/* LEFT — route info, expands timeline */}
-                    <button aria-label="Toggle"
+                    <button
+                        aria-label="Toggle"
                         onClick={(e) => {
                             if (swipeOffset !== 0) {
                                 setSwipeOffset(0);
@@ -494,7 +499,8 @@ export const VoyageCard: React.FC<{
 
                     {/* RIGHT — action buttons */}
                     <div className="shrink-0 flex flex-col border-l border-white/5">
-                        <button aria-label="Action"
+                        <button
+                            aria-label="Action"
                             onClick={() => {
                                 if (swipeOffset === 0) onShowMap();
                                 else setSwipeOffset(0);
@@ -513,7 +519,8 @@ export const VoyageCard: React.FC<{
                             <span className="text-[8px] uppercase font-bold tracking-wider mt-0.5">Map</span>
                         </button>
                         {isPlannedRoute && (
-                            <button aria-label="Share"
+                            <button
+                                aria-label="Share"
                                 onClick={async () => {
                                     if (swipeOffset !== 0) {
                                         setSwipeOffset(0);

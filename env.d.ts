@@ -19,6 +19,8 @@ declare namespace NodeJS {
         WORLD_TIDES_API_KEY?: string;
         // Background Geolocation
         VITE_TRANSISTOR_LICENSE_KEY?: string;
+        // Spoonacular
+        VITE_SPOONACULAR_KEY?: string;
     }
 }
 

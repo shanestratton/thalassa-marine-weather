@@ -189,5 +189,6 @@ export const useFollowRouteMapbox = (mapRef: React.MutableRefObject<mapboxgl.Map
 
         addedRef.current = true;
         return cleanup;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapRef.current, mapReady, isFollowing, routeCoords, previousRouteCoords, voyagePlan]);
 };

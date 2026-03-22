@@ -69,7 +69,7 @@ async function queryGfw(mmsi: number): Promise<VesselMetadataRow | null> {
 
         if (!resp.ok) return null;
 
-        const data = await resp.json() as {
+        const data = (await resp.json()) as {
             entries?: Array<{
                 selfReportedInfo?: Array<{
                     shipname?: string;

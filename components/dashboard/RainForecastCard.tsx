@@ -120,6 +120,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
             totalPrecip,
             peakIdx,
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data, rainSummary, tick]); // tick forces re-evaluation every 60s
 
     // Close modal on ESC

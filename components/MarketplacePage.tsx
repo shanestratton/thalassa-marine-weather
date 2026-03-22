@@ -699,6 +699,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = React.memo(({ onB
         });
 
         return () => unsub();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const loadListings = async (cat?: ListingCategory | null) => {

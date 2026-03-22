@@ -259,6 +259,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                 buoyLayerGroupRef.current.addLayers(markers);
                 buoyLayerGroupRef.current.addTo(map);
             }
+            // eslint-disable-next-line react-hooks/exhaustive-deps
         }, [activeLayer, buoys, mapReady, onLocationSelect, isConfirmMode]);
 
         // Landscape Orientation Logic for Map View
@@ -368,6 +369,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                     map.fitBounds(paddedBounds, { animate: true, padding: [20, 20] });
                 }
             }
+            // eslint-disable-next-line react-hooks/exhaustive-deps
         }, [activeLayer, mapReady, restrictBounds]); // Removed lat/lon/route deps to prevent snapping during GPS updates
 
         // Force activeLayer to 'buoys' if in Confirm Mode to ensure selection context
@@ -406,6 +408,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
             return () => {
                 map.off('click', handleClick);
             };
+            // eslint-disable-next-line react-hooks/exhaustive-deps
         }, [mapInstance.current, minimal, onLocationSelect, activeLayer, isConfirmMode]);
 
         const handleConfirm = () => {

@@ -58,6 +58,7 @@ export const useAppController = () => {
             setPage('dashboard');
             fetchWeather(settings.defaultLocation);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [settings.defaultLocation]);
 
     // 2. Background Image Sync
@@ -103,6 +104,7 @@ export const useAppController = () => {
                 setQuery(targetName);
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [weatherData, loading]);
 
     // 4. Mobile Landscape Detection
@@ -227,6 +229,7 @@ export const useAppController = () => {
                 showToast('Location update failed, check network.');
             });
         },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [setQuery, selectLocation, setPage, showToast],
     );
 

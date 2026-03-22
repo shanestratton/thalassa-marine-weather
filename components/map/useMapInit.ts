@@ -224,7 +224,9 @@ export function useMapInit(opts: UseMapInitOptions) {
                     // Boost place labels so they're readable under wind particles
                     if (
                         layer.type === 'symbol' &&
-                        layer.id.match(/country.?label|state.?label|continent.?label|place.?label|settlement|water.?point|City|Town|Village|Place|label/i)
+                        layer.id.match(
+                            /country.?label|state.?label|continent.?label|place.?label|settlement|water.?point|City|Town|Village|Place|label/i,
+                        )
                     ) {
                         try {
                             map.setPaintProperty(layer.id, 'text-color', '#ffffff');
@@ -243,9 +245,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             if (!map.getSource('maptiler-ocean')) {
                 map.addSource('maptiler-ocean', {
                     type: 'raster',
-                    tiles: [
-                        'https://api.maptiler.com/maps/ocean/{z}/{x}/{y}.png?key=3misfI2jeOYbJqgl5a6e',
-                    ],
+                    tiles: ['https://api.maptiler.com/maps/ocean/{z}/{x}/{y}.png?key=3misfI2jeOYbJqgl5a6e'],
                     tileSize: 512,
                     maxzoom: 16,
                     attribution: '',

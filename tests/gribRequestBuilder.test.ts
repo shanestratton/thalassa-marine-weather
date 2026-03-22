@@ -29,9 +29,7 @@ describe('GRIB_PARAMETERS', () => {
 
     it('includes wind parameters', () => {
         const keys = GRIB_PARAMETERS.map((p) => p.key);
-        const hasWind = keys.some(
-            (key) => key.toLowerCase().includes('wind') || key.toLowerCase().includes('gust'),
-        );
+        const hasWind = keys.some((key) => key.toLowerCase().includes('wind') || key.toLowerCase().includes('gust'));
         expect(hasWind).toBe(true);
     });
 });
@@ -77,9 +75,7 @@ describe('FORECAST_HOURS_OPTIONS', () => {
 
     it('values are in ascending order', () => {
         for (let i = 1; i < FORECAST_HOURS_OPTIONS.length; i++) {
-            expect(FORECAST_HOURS_OPTIONS[i].value).toBeGreaterThan(
-                FORECAST_HOURS_OPTIONS[i - 1].value,
-            );
+            expect(FORECAST_HOURS_OPTIONS[i].value).toBeGreaterThan(FORECAST_HOURS_OPTIONS[i - 1].value);
         }
     });
 });

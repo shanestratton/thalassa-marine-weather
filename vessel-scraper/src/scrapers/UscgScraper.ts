@@ -65,18 +65,12 @@ export async function scrapeUscg(mmsis: number[]): Promise<number> {
                 flag_country: 'United States',
                 flag_emoji: '🇺🇸',
                 call_sign: extractField(text, 'CallSign') || null,
-                imo_number: extractField(text, 'IMONumber')
-                    ? parseInt(extractField(text, 'IMONumber')!, 10)
-                    : null,
+                imo_number: extractField(text, 'IMONumber') ? parseInt(extractField(text, 'IMONumber')!, 10) : null,
                 loa: extractField(text, 'Length')
-                    ? parseFloat(extractField(text, 'Length')!) * 0.3048  // feet → metres
+                    ? parseFloat(extractField(text, 'Length')!) * 0.3048 // feet → metres
                     : null,
-                beam: extractField(text, 'Breadth')
-                    ? parseFloat(extractField(text, 'Breadth')!) * 0.3048
-                    : null,
-                draft: extractField(text, 'Depth')
-                    ? parseFloat(extractField(text, 'Depth')!) * 0.3048
-                    : null,
+                beam: extractField(text, 'Breadth') ? parseFloat(extractField(text, 'Breadth')!) * 0.3048 : null,
+                draft: extractField(text, 'Depth') ? parseFloat(extractField(text, 'Depth')!) * 0.3048 : null,
                 data_source: 'USCG',
                 is_verified: true,
             });

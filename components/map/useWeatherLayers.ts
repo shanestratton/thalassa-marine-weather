@@ -17,6 +17,13 @@ import { WindParticleLayer } from './WindParticleLayer';
 import { type WindGrid } from '../../services/weather/windField';
 import { WindDataController } from '../../services/weather/WindDataController';
 import { type WeatherLayer, getTileUrl, getWindColor } from './mapConstants';
+import {
+    initIsobarLayers,
+    hideIsobarLayers,
+    showIsobarLayers,
+    RAINVIEWER_COLOR_RAMP,
+    promoteNavLayers,
+} from './isobarLayerSetup';
 // PrecipHeatmapResult removed — replaced by Rainbow.ai XYZ tiles
 
 /**
@@ -59,7 +66,15 @@ export function useWeatherLayers(
             } else {
                 if (next.size >= MAX_LAYERS) {
                     // At limit — prefer evicting static layers (temp, clouds, sea) over interactive (wind, rain)
-                    const EVICTION_ORDER: WeatherLayer[] = ['sea', 'clouds', 'temperature', 'pressure', 'rain', 'velocity', 'wind'];
+                    const EVICTION_ORDER: WeatherLayer[] = [
+                        'sea',
+                        'clouds',
+                        'temperature',
+                        'pressure',
+                        'rain',
+                        'velocity',
+                        'wind',
+                    ];
                     let evicted = false;
                     for (const candidate of EVICTION_ORDER) {
                         if (next.has(candidate) && candidate !== layer) {
@@ -718,72 +733,7 @@ export function useWeatherLayers(
             setWindReady(false);
         }
 
-        const hideIsobars = () => {
-            [
-                'isobar-lines',
-                'isobar-labels',
-                'isobar-center-labels',
-                'movement-track-lines',
-                'movement-track-labels',
-                'pressure-heatmap-layer',
-                'coastal-vignette',
-            ].forEach((id) => {
-                if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'none');
-            });
-            // Restore land fill colors
-            for (const [layerId, color] of savedLandFillColorsRef.current) {
-                try {
-                    if (map.getLayer(layerId)) map.setPaintProperty(layerId, 'fill-color', color);
-                } catch (_) { /* skip */ }
-            }
-            // Restore land label opacity
-            const style = map.getStyle();
-            if (style?.layers) {
-                for (const layer of style.layers) {
-                    if (layer.type === 'symbol' && !layer.id.match(/isobar|wind|barb|movement|circulation/i)) {
-                        try { map.setPaintProperty(layer.id, 'text-opacity', 1.0); } catch (_) { /* skip */ }
-                    }
-                }
-            }
-        };
-        const showIsobars = () => {
-            [
-                'isobar-lines',
-                'isobar-labels',
-                'isobar-center-labels',
-                'movement-track-lines',
-                'movement-track-labels',
-                'pressure-heatmap-layer',
-                'coastal-vignette',
-            ].forEach((id) => {
-                if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
-            });
-            // Desaturate landmasses to charcoal + ghost labels to 30%
-            const style = map.getStyle();
-            if (style?.layers) {
-                for (const layer of style.layers) {
-                    if (
-                        layer.type === 'fill' &&
-                        layer.id.match(/land|building|park|landuse|landcover|background/i) &&
-                        !layer.id.match(/water|ocean|sea/i)
-                    ) {
-                        try {
-                            if (!savedLandFillColorsRef.current.has(layer.id)) {
-                                const current = map.getPaintProperty(layer.id, 'fill-color');
-                                if (current) savedLandFillColorsRef.current.set(layer.id, current);
-                            }
-                            map.setPaintProperty(layer.id, 'fill-color', '#1a1a1a');
-                        } catch (_) { /* skip */ }
-                    }
-                    // Ghost labels: fade land labels to 30% opacity
-                    if (layer.type === 'symbol' && !layer.id.match(/isobar|wind|barb|movement|circulation/i)) {
-                        try { map.setPaintProperty(layer.id, 'text-opacity', 0.3); } catch (_) { /* skip */ }
-                    }
-                }
-            }
-        };
-
-        if (!activeLayers.has('pressure')) hideIsobars();
+        if (!activeLayers.has('pressure')) hideIsobarLayers(map, savedLandFillColorsRef.current);
 
         // ── Permanent base layer: Esri satellite imagery ──
         const SAT_ID = 'tiles-satellite';
@@ -825,218 +775,9 @@ export function useWeatherLayers(
                 }
             }
 
-            if (!map.getSource('isobar-contours')) {
-                map.addSource('isobar-contours', {
-                    type: 'geojson',
-                    data: { type: 'FeatureCollection', features: [] },
-                });
-                map.addSource('isobar-centers', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+            initIsobarLayers(map);
 
-                map.addLayer({
-                    id: 'isobar-lines',
-                    type: 'line',
-                    source: 'isobar-contours',
-                    paint: {
-                        'line-color': [
-                            'case',
-                            ['==', ['get', 'pressure'], 1012],
-                            '#d4a843', // Gold — standard atmosphere anchor
-                            'rgba(255, 255, 255, 0.4)', // Ghostly white
-                        ],
-                        'line-width': [
-                            'case',
-                            ['==', ['get', 'pressure'], 1012],
-                            2.0,
-                            1.0,
-                        ],
-                        'line-opacity': 0.9,
-                    },
-                });
-                map.addLayer({
-                    id: 'isobar-labels',
-                    type: 'symbol',
-                    source: 'isobar-contours',
-                    layout: {
-                        'symbol-placement': 'line',
-                        'text-field': ['get', 'label'],
-                        'text-size': 11,
-                        'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
-                        'symbol-spacing': 500,
-                        'text-keep-upright': true,
-                    },
-                    paint: {
-                        'text-color': [
-                            'case',
-                            ['==', ['get', 'pressure'], 1012],
-                            '#d4a843', // Gold for 1012hPa
-                            '#e2e8f0',
-                        ],
-                        'text-halo-color': '#0f172a',
-                        'text-halo-width': 1.5,
-                    },
-                });
-
-                map.addLayer({
-                    id: 'isobar-center-labels',
-                    type: 'symbol',
-                    source: 'isobar-centers',
-                    layout: {
-                        'text-field': ['get', 'label'],
-                        'text-size': 14,
-                        'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
-                        'text-allow-overlap': true,
-                    },
-                    paint: {
-                        'text-color': ['match', ['get', 'type'], 'H', '#ef4444', 'L', '#3b82f6', '#e2e8f0'],
-                        'text-halo-color': '#0f172a',
-                        'text-halo-width': 1.5,
-                    },
-                });
-
-                // Wind Barbs
-                map.addSource('wind-barbs', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-                const barbCanvas = document.createElement('canvas');
-                barbCanvas.width = 48;
-                barbCanvas.height = 48;
-                const ctx = barbCanvas.getContext('2d');
-                if (ctx) {
-                    ctx.clearRect(0, 0, 48, 48);
-                    ctx.strokeStyle = '#e2e8f0';
-                    ctx.lineWidth = 2;
-                    ctx.lineCap = 'round';
-                    const cx = 24,
-                        bottom = 40,
-                        top = 8;
-                    ctx.beginPath();
-                    ctx.moveTo(cx, bottom);
-                    ctx.lineTo(cx, top);
-                    ctx.stroke();
-                    ctx.beginPath();
-                    ctx.moveTo(cx, top + 2);
-                    ctx.lineTo(cx + 12, top - 2);
-                    ctx.stroke();
-                    ctx.beginPath();
-                    ctx.moveTo(cx, top + 8);
-                    ctx.lineTo(cx + 10, top + 4);
-                    ctx.stroke();
-                    ctx.beginPath();
-                    ctx.moveTo(cx, top + 14);
-                    ctx.lineTo(cx + 6, top + 12);
-                    ctx.stroke();
-                    ctx.beginPath();
-                    ctx.arc(cx, bottom, 3, 0, Math.PI * 2);
-                    ctx.fillStyle = '#e2e8f0';
-                    ctx.fill();
-                }
-                const barbImage = new Image(48, 48);
-                barbImage.onload = () => {
-                    if (!map.hasImage('wind-barb-icon')) map.addImage('wind-barb-icon', barbImage, { sdf: false });
-                };
-                barbImage.src = barbCanvas.toDataURL();
-
-                map.addLayer({
-                    id: 'wind-barb-layer',
-                    type: 'symbol',
-                    source: 'wind-barbs',
-                    layout: {
-                        'icon-image': 'wind-barb-icon',
-                        'icon-size': 0.7,
-                        'icon-rotate': ['get', 'rotation'],
-                        'icon-rotation-alignment': 'map',
-                        'icon-allow-overlap': true,
-                        'text-field': ['concat', ['get', 'label'], ' kt'],
-                        'text-size': 9,
-                        'text-offset': [0, 2.5],
-                        'text-anchor': 'top',
-                        'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
-                        'text-allow-overlap': false,
-                    },
-                    paint: {
-                        'icon-opacity': 0.8,
-                        'text-color': '#94a3b8',
-                        'text-halo-color': '#0f172a',
-                        'text-halo-width': 1,
-                    },
-                });
-
-                // Circulation Arrows
-                map.addSource('circulation-arrows', {
-                    type: 'geojson',
-                    data: { type: 'FeatureCollection', features: [] },
-                });
-                const arrowCanvas = document.createElement('canvas');
-                arrowCanvas.width = 32;
-                arrowCanvas.height = 32;
-                const actx = arrowCanvas.getContext('2d');
-                if (actx) {
-                    actx.clearRect(0, 0, 32, 32);
-                    actx.strokeStyle = '#ffffff';
-                    actx.lineWidth = 3;
-                    actx.lineCap = 'round';
-                    actx.lineJoin = 'round';
-                    actx.beginPath();
-                    actx.moveTo(8, 22);
-                    actx.lineTo(16, 10);
-                    actx.lineTo(24, 22);
-                    actx.stroke();
-                    actx.beginPath();
-                    actx.moveTo(16, 10);
-                    actx.lineTo(16, 28);
-                    actx.stroke();
-                }
-                const arrowImg = new Image(32, 32);
-                arrowImg.onload = () => {
-                    if (!map.hasImage('circulation-arrow')) map.addImage('circulation-arrow', arrowImg, { sdf: true });
-                };
-                arrowImg.src = arrowCanvas.toDataURL();
-                map.addLayer({
-                    id: 'circulation-arrow-layer',
-                    type: 'symbol',
-                    source: 'circulation-arrows',
-                    layout: {
-                        'icon-image': 'circulation-arrow',
-                        'icon-size': 0.6,
-                        'icon-rotate': ['get', 'rotation'],
-                        'icon-rotation-alignment': 'map',
-                        'icon-allow-overlap': true,
-                    },
-                    paint: { 'icon-color': ['get', 'color'], 'icon-opacity': 0.7 },
-                });
-
-                // Movement Tracks
-                map.addSource('movement-tracks', {
-                    type: 'geojson',
-                    data: { type: 'FeatureCollection', features: [] },
-                });
-                map.addLayer({
-                    id: 'movement-track-lines',
-                    type: 'line',
-                    source: 'movement-tracks',
-                    paint: {
-                        'line-color': ['get', 'color'],
-                        'line-width': 3,
-                        'line-opacity': 0.85,
-                        'line-dasharray': [3, 2],
-                    },
-                });
-                map.addLayer({
-                    id: 'movement-track-labels',
-                    type: 'symbol',
-                    source: 'movement-tracks',
-                    layout: {
-                        'symbol-placement': 'line',
-                        'text-field': ['get', 'label'],
-                        'text-size': 11,
-                        'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
-                        'symbol-spacing': 500,
-                        'text-anchor': 'center',
-                        'text-keep-upright': true,
-                    },
-                    paint: { 'text-color': ['get', 'color'], 'text-halo-color': '#0f172a', 'text-halo-width': 1.5 },
-                });
-            }
-
-            showIsobars();
+            showIsobarLayers(map, savedLandFillColorsRef.current);
             updateIsobars(map);
 
             // ── Coastal Vignette Glow ──
@@ -1177,36 +918,6 @@ export function useWeatherLayers(
                     // Uses raw dBZ tiles + raster-color to match RainViewer scheme 4 exactly
                     // dBZ encoding: pixel value 12 = no rain, 13-83 = light→heavy precip
                     // Colour ramp: transparent → blue → cyan → yellow → orange → red
-                    const RAINVIEWER_COLOR_RAMP: mapboxgl.Expression = [
-                        'interpolate',
-                        ['linear'],
-                        ['raster-value'],
-                        // Normalized: pixel/255. dBZ 12 = 0.047, 83 = 0.325
-                        0.047,
-                        'rgba(0,0,0,0)', // ≤12: transparent (no rain)
-                        0.052,
-                        'rgba(0,72,120,0.8)', // ~13: deep blue (light drizzle)
-                        0.078,
-                        'rgba(0,120,180,0.8)', // ~20: medium blue
-                        0.11,
-                        'rgba(0,150,210,0.8)', // ~28: bright blue
-                        0.137,
-                        'rgba(56,190,230,0.85)', // ~35: cyan
-                        0.165,
-                        'rgba(130,220,235,0.85)', // ~42: light cyan
-                        0.196,
-                        'rgba(250,235,0,0.9)', // ~50: yellow
-                        0.22,
-                        'rgba(250,210,0,0.9)', // ~56: yellow-orange
-                        0.247,
-                        'rgba(250,180,0,0.9)', // ~63: orange
-                        0.275,
-                        'rgba(250,120,0,0.95)', // ~70: dark orange
-                        0.302,
-                        'rgba(200,0,0,0.95)', // ~77: red
-                        0.325,
-                        'rgba(143,0,0,1)', // ~83: dark red (extreme)
-                    ];
 
                     const forecastFrames = unified.filter((f) => f.type === 'forecast');
                     for (let i = 0; i < forecastFrames.length; i++) {
@@ -1358,24 +1069,7 @@ export function useWeatherLayers(
         // ── Glass Pane: promote nav layers above any newly-added weather layers ──
         // This is the core safety net: regardless of which weather layers were just
         // added/removed, route and supporting overlays always render on top.
-        const navLayerIds = [
-            'isochrone-fan-layer',
-            'isochrone-time-labels',
-            'comfort-zone-layer',
-            'route-glow',
-            'route-line-layer',
-            'route-harbour-dash',
-            'route-core',
-            'waypoint-circles',
-            'waypoint-labels',
-        ];
-        for (const id of navLayerIds) {
-            try {
-                if (map.getLayer(id)) map.moveLayer(id);
-            } catch (_) {
-                /* layer not present — skip */
-            }
-        }
+        promoteNavLayers(map);
 
         // ── Unified cleanup: runs when activeKey changes ──
         return () => {
@@ -1427,9 +1121,9 @@ export function useWeatherLayers(
             windEngineRef.current = null;
             windGridRef.current = null;
             unifiedFramesRef.current = [];
+            // eslint-disable-next-line react-hooks/exhaustive-deps
             savedLandFillColorsRef.current.clear();
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     return {

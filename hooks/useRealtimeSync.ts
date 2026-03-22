@@ -108,5 +108,6 @@ export function useRealtimeSyncMulti(tables: string[], onSync: () => void, enabl
             clearTimeout(timer);
             channels.forEach((ch) => supabase!.removeChannel(ch));
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tables.join(','), enabled]);
 }

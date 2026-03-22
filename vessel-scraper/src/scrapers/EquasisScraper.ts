@@ -143,16 +143,18 @@ async function queryUkMca(mmsi: number): Promise<EquasisVesselInfo | null> {
         });
 
         if (!resp.ok) return null;
-        const data = await resp.json() as { vessels?: Array<{
-            name?: string;
-            callSign?: string;
-            type?: string;
-            flag?: string;
-            length?: number;
-            breadth?: number;
-            draught?: number;
-            imoNumber?: string;
-        }> };
+        const data = (await resp.json()) as {
+            vessels?: Array<{
+                name?: string;
+                callSign?: string;
+                type?: string;
+                flag?: string;
+                length?: number;
+                breadth?: number;
+                draught?: number;
+                imoNumber?: string;
+            }>;
+        };
 
         if (!data.vessels || data.vessels.length === 0) return null;
         const v = data.vessels[0];
@@ -176,13 +178,27 @@ async function queryUkMca(mmsi: number): Promise<EquasisVesselInfo | null> {
 // ── Flag emoji inference ──
 
 const FLAG_MAP: Record<string, string> = {
-    'United Kingdom': '🇬🇧', 'France': '🇫🇷', 'Germany': '🇩🇪',
-    'Netherlands': '🇳🇱', 'Spain': '🇪🇸', 'Italy': '🇮🇹',
-    'Greece': '🇬🇷', 'Norway': '🇳🇴', 'Denmark': '🇩🇰',
-    'Sweden': '🇸🇪', 'Finland': '🇫🇮', 'Portugal': '🇵🇹',
-    'Malta': '🇲🇹', 'Cyprus': '🇨🇾', 'Ireland': '🇮🇪',
-    'Belgium': '🇧🇪', 'Poland': '🇵🇱', 'Croatia': '🇭🇷',
-    'Turkey': '🇹🇷', 'Gibraltar': '🇬🇮', 'Iceland': '🇮🇸',
+    'United Kingdom': '🇬🇧',
+    France: '🇫🇷',
+    Germany: '🇩🇪',
+    Netherlands: '🇳🇱',
+    Spain: '🇪🇸',
+    Italy: '🇮🇹',
+    Greece: '🇬🇷',
+    Norway: '🇳🇴',
+    Denmark: '🇩🇰',
+    Sweden: '🇸🇪',
+    Finland: '🇫🇮',
+    Portugal: '🇵🇹',
+    Malta: '🇲🇹',
+    Cyprus: '🇨🇾',
+    Ireland: '🇮🇪',
+    Belgium: '🇧🇪',
+    Poland: '🇵🇱',
+    Croatia: '🇭🇷',
+    Turkey: '🇹🇷',
+    Gibraltar: '🇬🇮',
+    Iceland: '🇮🇸',
 };
 
 function inferFlagEmoji(flagName?: string): string {
