@@ -85,14 +85,14 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }
         setCreating(true);
         setError('');
         try {
-            const voyage = await createVoyage({
+            const result = await createVoyage({
                 voyage_name: newName.trim(),
                 departure_port: newFrom.trim() || null,
                 destination_port: newTo.trim() || null,
                 crew_count: newCrew,
             });
-            if (voyage) {
-                setDrafts((prev) => [...prev, voyage]);
+            if (result.voyage) {
+                setDrafts((prev) => [...prev, result.voyage!]);
                 setStep('select');
                 setNewName('');
                 setNewFrom('');
@@ -100,7 +100,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }
                 setNewCrew(2);
                 triggerHaptic('medium');
             } else {
-                setError('Failed to create voyage');
+                setError(result.error || 'Failed to create voyage');
             }
         } catch {
             setError('Failed to create voyage');

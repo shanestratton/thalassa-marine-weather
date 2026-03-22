@@ -58,13 +58,13 @@ export function getCachedActiveVoyage(): Voyage | null {
 /** Create a new voyage (starts in 'planning' status) */
 export async function createVoyage(
     data: Pick<Voyage, 'voyage_name' | 'departure_port' | 'destination_port' | 'crew_count'> & { vessel_id?: string },
-): Promise<Voyage | null> {
-    if (!supabase) return null;
+): Promise<{ voyage: Voyage | null; error?: string }> {
+    if (!supabase) return { voyage: null, error: 'Offline — no Supabase connection' };
 
     const {
         data: { user },
     } = await supabase.auth.getUser();
-    if (!user) return null;
+    if (!user) return { voyage: null, error: 'Sign in required to create a voyage' };
 
     const { data: voyage, error } = await supabase
         .from('voyages')
@@ -79,9 +79,9 @@ export async function createVoyage(
 
     if (error) {
         console.error('[VoyageService] createVoyage failed:', error.message, error.details, error.hint, error.code);
-        return null;
+        return { voyage: null, error: error.message };
     }
-    return voyage as Voyage;
+    return { voyage: voyage as Voyage };
 }
 
 /** Start a passage (set status to 'active') */
