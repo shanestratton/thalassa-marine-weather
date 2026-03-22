@@ -8,7 +8,14 @@
  * Hard-wired to Ship's Stores: "Cook Now" triggers DELTA subtractions.
  */
 import React, { useState, useCallback, useEffect } from 'react';
-import { getMealsByStatus, startCooking, completeMeal, type MealPlan } from '../../services/MealPlanService';
+import {
+    getMealsByStatus,
+    startCooking,
+    completeMeal,
+    scheduleMeal,
+    todayUTC,
+    type MealPlan,
+} from '../../services/MealPlanService';
 import { getStoresAvailability } from '../../services/MealPlanService';
 import { getShoppingList, type ShoppingListSummary } from '../../services/ShoppingListService';
 import { triggerHaptic } from '../../utils/system';
@@ -165,13 +172,13 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode }) => 
                     {activeTab === 'food' && (
                         <div className="max-h-[420px] overflow-y-auto">
                             {activeMeals.length === 0 ? (
-                                <div className="text-center py-10 px-6">
-                                    <span className="text-5xl">🥘</span>
-                                    <p className="text-sm font-bold text-gray-300 mt-3">No Active Meal</p>
-                                    <p className="text-[11px] text-gray-500 mt-1">
-                                        Schedule a recipe in Ship&apos;s Office to see the Chef&apos;s Plate
-                                    </p>
-                                </div>
+                                <QuickMealForm
+                                    onScheduled={() => {
+                                        const reserved = getMealsByStatus('reserved');
+                                        const cooking = getMealsByStatus('cooking');
+                                        setActiveMeals([...cooking, ...reserved]);
+                                    }}
+                                />
                             ) : (
                                 activeMeals.map((meal) => {
                                     const baseServings = meal.servings_planned || 4;
@@ -243,6 +250,141 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode }) => 
                     )}
                 </div>
             )}
+        </div>
+    );
+};
+
+// ── Quick Meal Planning Form ──
+const SLOT_OPTIONS: { value: 'breakfast' | 'lunch' | 'dinner'; label: string; emoji: string }[] = [
+    { value: 'breakfast', label: 'Breakfast', emoji: '🌅' },
+    { value: 'lunch', label: 'Lunch', emoji: '☀️' },
+    { value: 'dinner', label: 'Dinner', emoji: '🌙' },
+];
+
+const QUICK_MEALS = [
+    '🍳 Eggs & Toast',
+    '🥗 Fresh Salad',
+    '🍝 Pasta Marinara',
+    '🐟 Grilled Fish',
+    '🍛 Curry & Rice',
+    '🌮 Tacos',
+    '🍔 Burgers',
+    '🥘 Stew',
+];
+
+const QuickMealForm: React.FC<{ onScheduled: () => void }> = ({ onScheduled }) => {
+    const [mealName, setMealName] = useState('');
+    const [slot, setSlot] = useState<'breakfast' | 'lunch' | 'dinner'>('dinner');
+    const [servings, setServings] = useState(2);
+    const [date, setDate] = useState(todayUTC());
+    const [scheduling, setScheduling] = useState(false);
+
+    const handleSchedule = async () => {
+        if (!mealName.trim()) return;
+        setScheduling(true);
+        try {
+            const galleyMeal = {
+                id: Date.now(),
+                title: mealName.trim(),
+                readyInMinutes: 45,
+                servings,
+                image: '',
+                sourceUrl: '',
+                ingredients: [],
+            };
+            await scheduleMeal(galleyMeal, date, slot, null, servings);
+            triggerHaptic('medium');
+            onScheduled();
+        } catch {
+            /* handled by service */
+        }
+        setScheduling(false);
+    };
+
+    return (
+        <div className="p-4 space-y-4">
+            <div className="text-center pb-1">
+                <span className="text-3xl">🍽️</span>
+                <p className="text-sm font-bold text-white mt-2">Plan a Meal</p>
+                <p className="text-[10px] text-gray-500">What's on the menu?</p>
+            </div>
+
+            {/* Quick pick buttons */}
+            <div className="flex flex-wrap gap-1.5 justify-center">
+                {QUICK_MEALS.map((name) => (
+                    <button
+                        key={name}
+                        onClick={() => setMealName(name)}
+                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
+                            mealName === name
+                                ? 'bg-amber-500/20 border-amber-500/30 text-amber-300 border'
+                                : 'bg-white/[0.04] border border-white/[0.08] text-gray-400 hover:bg-white/[0.08]'
+                        }`}
+                    >
+                        {name}
+                    </button>
+                ))}
+            </div>
+
+            {/* Custom name */}
+            <input
+                value={mealName}
+                onChange={(e) => setMealName(e.target.value)}
+                placeholder="Or type a meal name…"
+                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
+            />
+
+            {/* Slot picker */}
+            <div className="flex gap-2">
+                {SLOT_OPTIONS.map((s) => (
+                    <button
+                        key={s.value}
+                        onClick={() => setSlot(s.value)}
+                        className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition-all ${
+                            slot === s.value
+                                ? 'bg-amber-500/15 border-amber-500/25 text-amber-300 border'
+                                : 'bg-white/[0.03] border border-white/[0.06] text-gray-500 hover:text-gray-300'
+                        }`}
+                    >
+                        {s.emoji} {s.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* Date + servings row */}
+            <div className="flex gap-2">
+                <input
+                    type="date"
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                    className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500/30 [color-scheme:dark]"
+                />
+                <div className="flex items-center gap-2 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3">
+                    <button
+                        onClick={() => setServings((s) => Math.max(1, s - 1))}
+                        className="text-gray-400 hover:text-white text-lg leading-none"
+                    >
+                        −
+                    </button>
+                    <span className="text-sm font-bold text-amber-400 w-5 text-center tabular-nums">{servings}</span>
+                    <button
+                        onClick={() => setServings((s) => Math.min(20, s + 1))}
+                        className="text-gray-400 hover:text-white text-lg leading-none"
+                    >
+                        +
+                    </button>
+                    <span className="text-[10px] text-gray-500">👥</span>
+                </div>
+            </div>
+
+            {/* Schedule button */}
+            <button
+                onClick={handleSchedule}
+                disabled={!mealName.trim() || scheduling}
+                className="w-full py-3 bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold uppercase tracking-widest text-amber-300 hover:from-amber-500/25 hover:to-orange-500/25 transition-all active:scale-[0.97] disabled:opacity-40"
+            >
+                {scheduling ? '⏳ Scheduling…' : '📋 Schedule This Meal'}
+            </button>
         </div>
     );
 };
