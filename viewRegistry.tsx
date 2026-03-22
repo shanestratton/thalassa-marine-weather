@@ -16,6 +16,10 @@ import React from 'react';
 import { lazyRetry } from './utils/lazyRetry';
 
 // ── Lazy-loaded components ───────────────────────────────────────────────────
+const GalleyPage = lazyRetry(
+    () => import('./components/vessel/GalleyPage').then((m) => ({ default: m.GalleyPage })),
+    'GalleyPage',
+);
 const VoyagePlanner = lazyRetry(
     () => import('./components/RoutePlanner').then((m) => ({ default: m.RoutePlanner })),
     'RoutePlanner',
@@ -264,6 +268,12 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
             onBack: () => ctx.setPage('vessel'),
             onNavigate: (page: string) => ctx.setPage(page),
         }),
+    },
+    galley: {
+        component: GalleyPage,
+        boundaryName: 'Galley',
+        group: 'vessel',
+        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
     },
 };
 
