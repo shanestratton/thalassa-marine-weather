@@ -50,6 +50,7 @@ const SYNCABLE_TABLES = [
     'ship_documents',
     'recipes',
     'passage_provisions',
+    'meal_plans',
 ] as const;
 
 type SyncableTable = (typeof SYNCABLE_TABLES)[number];
