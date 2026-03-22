@@ -34,6 +34,11 @@ import { triggerHaptic } from '../utils/system';
 import { toast } from './Toast';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { AuthModal } from './AuthModal';
+import { lazyRetry } from '../utils/lazyRetry';
+const CastOffPanel = lazyRetry(
+    () => import('./vessel/CastOffPanel').then((m) => ({ default: m.CastOffPanel })),
+    'CastOffPanel_Crew',
+);
 
 interface CrewManagementProps {
     onBack: () => void;
@@ -181,6 +186,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // Auth modal for sign-in from this page
     const [showAuth, setShowAuth] = useState(false);
 
+    // Cast Off state
+    const [showCastOff, setShowCastOff] = useState(false);
+    const [activeVoyageName, setActiveVoyageName] = useState<string | null>(null);
+
     // Check auth + get user email
     const [userEmail, setUserEmail] = useState<string | null>(null);
     useEffect(() => {
@@ -204,6 +213,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     useEffect(() => {
         if (isAuthed) loadData();
     }, [isAuthed, loadData]);
+
+    // Load voyage status
+    useEffect(() => {
+        import('../services/VoyageService').then(({ getCachedActiveVoyage }) => {
+            const v = getCachedActiveVoyage();
+            if (v) setActiveVoyageName(v.voyage_name);
+        });
+    }, []);
 
     // ── Handlers ──
 
@@ -439,6 +456,47 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         </button>
                     </div>
                 )}
+
+                {/* ── CAST OFF / ACTIVE VOYAGE ── */}
+                <div className="mb-4">
+                    <button
+                        onClick={() => {
+                            triggerHaptic('light');
+                            setShowCastOff(true);
+                        }}
+                        className={`w-full p-3 rounded-xl border transition-all active:scale-[0.98] flex items-center gap-3 ${
+                            activeVoyageName
+                                ? 'bg-emerald-500/[0.06] border-emerald-500/15 hover:bg-emerald-500/[0.1]'
+                                : 'bg-amber-500/[0.04] border-amber-500/15 hover:bg-amber-500/[0.08]'
+                        }`}
+                    >
+                        <div className={`p-2 rounded-lg ${activeVoyageName ? 'bg-emerald-500/10' : 'bg-amber-500/10'}`}>
+                            <span className="text-base">{activeVoyageName ? '🟢' : '⛵'}</span>
+                        </div>
+                        <div className="flex-1 text-left">
+                            {activeVoyageName ? (
+                                <>
+                                    <p className="text-xs font-bold text-emerald-400">{activeVoyageName}</p>
+                                    <p className="text-[10px] text-gray-500">Active Passage — Watch Mode</p>
+                                </>
+                            ) : (
+                                <>
+                                    <p className="text-xs font-bold text-amber-300">Select Draft Voyage</p>
+                                    <p className="text-[10px] text-gray-500">Pick a passage to Cast Off</p>
+                                </>
+                            )}
+                        </div>
+                        <svg
+                            className="w-3.5 h-3.5 text-gray-500"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                        >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                    </button>
+                </div>
 
                 {loading ? (
                     <div className="flex items-center justify-center py-20">
@@ -840,6 +898,17 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 onUndo={handleUndoDelete}
                 onDismiss={handleDismissDelete}
             />
+
+            {/* ── CAST OFF PANEL ── */}
+            {showCastOff && (
+                <CastOffPanel
+                    onClose={() => setShowCastOff(false)}
+                    onCastOff={(voyage) => {
+                        setActiveVoyageName(voyage.voyage_name);
+                        setShowCastOff(false);
+                    }}
+                />
+            )}
         </div>
     );
 });
