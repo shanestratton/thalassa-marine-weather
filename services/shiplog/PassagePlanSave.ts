@@ -134,6 +134,26 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
         log.info(
             `✓ Saved planned route "${plan.origin} → ${plan.destination}" with ${entries.length} waypoints (${cumulativeNM.toFixed(1)} NM) [${savedOnline ? 'online' : 'offline'}]`,
         );
+
+        // Fire-and-forget: auto-create a draft voyage from this passage plan
+        try {
+            const { createVoyage } = await import('../VoyageService');
+            const departureName = typeof plan.origin === 'string' ? plan.origin.split(',')[0].trim() : 'Departure';
+            const destinationName =
+                typeof plan.destination === 'string' ? plan.destination.split(',')[0].trim() : 'Arrival';
+            const voyageName = `${departureName} → ${destinationName}`;
+
+            await createVoyage({
+                voyage_name: voyageName,
+                departure_port: departureName,
+                destination_port: destinationName,
+                crew_count: 1,
+            });
+            log.info(`✓ Auto-created draft voyage "${voyageName}" from passage plan`);
+        } catch (e) {
+            log.warn('Auto-create voyage from passage plan failed (non-critical):', e);
+        }
+
         return voyageId;
     } catch (err) {
         log.error('savePassagePlanToLogbook error:', err);

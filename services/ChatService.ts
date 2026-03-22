@@ -1048,6 +1048,34 @@ class ChatServiceClass {
         return data as ChatChannel;
     }
 
+    /**
+     * Add a crew member to all active voyage channels owned by a captain.
+     * Called when a crew invite is accepted — auto-joins the crew to the captain's voyage chat.
+     */
+    async addCrewToVoyageChannels(captainUserId: string, crewUserId: string): Promise<void> {
+        if (!supabase) return;
+
+        // Find all active private voyage channels owned by this captain
+        const { data: channels } = await supabase
+            .from(CHANNELS_TABLE)
+            .select('id')
+            .eq('owner_id', captainUserId)
+            .eq('is_private', true)
+            .eq('status', 'active')
+            .like('icon', '⛵');
+
+        if (!channels || channels.length === 0) return;
+
+        // Add crew to each voyage channel (upsert to avoid duplicates)
+        for (const ch of channels) {
+            await supabase
+                .from('channel_members')
+                .upsert({ channel_id: ch.id, user_id: crewUserId }, { onConflict: 'channel_id,user_id' });
+        }
+
+        log.info(`Added crew ${crewUserId} to ${channels.length} voyage channel(s) for captain ${captainUserId}`);
+    }
+
     /** Anyone can propose a channel (goes to 'pending' — admin approves) */
     async proposeChannel(
         name: string,
