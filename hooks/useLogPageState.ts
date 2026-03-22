@@ -260,6 +260,7 @@ export function useLogPageState() {
 
         // Load archived voyages and career entries in parallel (non-blocking)
         reloadCareerData();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // ── One-time auto-archive of old voyages (>30 days) ──
@@ -285,6 +286,7 @@ export function useLogPageState() {
                     });
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [state.loading, state.entries.length]);
 
     // Reusable career + archive data refresh
@@ -581,6 +583,7 @@ export function useLogPageState() {
         const { voyageId } = deletedVoyage;
         setDeletedVoyage(null);
         await executeVoyageDelete(voyageId);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [deletedVoyage]);
 
     const handleUndoDeleteVoyage = useCallback(() => {
@@ -618,6 +621,7 @@ export function useLogPageState() {
 
         // No shared tracks — proceed directly
         await executeVoyageDelete(voyageId);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [state.deleteVoyageId]);
 
     const executeVoyageDelete = useCallback(

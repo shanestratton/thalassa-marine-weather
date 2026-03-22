@@ -32,6 +32,12 @@ export default defineConfig({
                 'managers/**/*.ts',
             ],
             exclude: ['**/*.test.*', '**/*.spec.*', '**/types.ts', '**/*.d.ts'],
+            thresholds: {
+                lines: 40,
+                functions: 30,
+                branches: 30,
+                statements: 40,
+            },
         },
     },
     resolve: {

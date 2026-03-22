@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { VesselProfile, VoyagePlan } from '../../types';
 import { FuelIcon, WaterIcon, FoodIcon, AlertTriangleIcon, GearIcon } from '../Icons';
+import { GalleyMealPlanner } from './GalleyMealPlanner';
 
 /* ───────────────────────────────────────────────────────────
    Provisioning Standards (ISAF / maritime best-practice)
@@ -82,7 +83,6 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
     const isObserver = vessel.type === 'observer';
     const isSail = vessel.type === 'sail';
     const isPower = vessel.type === 'power';
-    const [showMealPlan, setShowMealPlan] = useState(false);
 
     // Parse distance
     const _distanceNm = parseFloat(voyagePlan.distanceApprox.match(/(\d+\.?\d*)/)?.[0] || '0');
@@ -196,6 +196,49 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
             {/* ═══════════════════════════════════════════════════
                 CREW & VOYAGE SUMMARY HERO
                 ═══════════════════════════════════════════════════ */}
+            <div className="bg-gradient-to-br from-sky-500/10 via-sky-600/5 to-indigo-500/10 border border-sky-500/20 rounded-2xl p-5 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-sky-400/5 rounded-full -translate-y-8 translate-x-8 blur-2xl" />
+                <div className="relative z-10 flex items-center gap-4 flex-wrap">
+                    <div className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3 border border-white/10">
+                        <span className="text-2xl">👥</span>
+                        <div>
+                            <div className="text-2xl font-black text-white">{effectiveCrewCount}</div>
+                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">Crew</div>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3 border border-white/10">
+                        <span className="text-2xl">📅</span>
+                        <div>
+                            <div className="text-2xl font-black text-white">{totalDaysCeil}</div>
+                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">
+                                Day{totalDaysCeil > 1 ? 's' : ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3 border border-white/10">
+                        <span className="text-2xl">🍽️</span>
+                        <div>
+                            <div className="text-2xl font-black text-white">{totalMeals}</div>
+                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">Meals</div>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3 border border-white/10">
+                        <span className="text-2xl">💧</span>
+                        <div>
+                            <div className="text-2xl font-black text-white">
+                                {waterTotal.toFixed(0)}
+                                <span className="text-sm text-gray-400 ml-0.5">L</span>
+                            </div>
+                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">Water</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* ═══════════════════════════════════════════════════
+                THREE RESOURCE CARDS (fuel, water, provisions)
+                ═══════════════════════════════════════════════════ */}
+
             <div className="bg-gradient-to-br from-sky-500/10 via-sky-600/5 to-indigo-500/10 border border-sky-500/20 rounded-2xl p-5 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-sky-400/5 rounded-full -translate-y-8 translate-x-8 blur-2xl" />
                 <div className="relative z-10 flex items-center gap-4 flex-wrap">
@@ -448,119 +491,23 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                             </div>
                         )}
 
-                        {/* Meal plan toggle */}
-                        <button
-                            aria-label="Show Meal Plan"
-                            onClick={() => setShowMealPlan(!showMealPlan)}
-                            className="w-full py-2.5 px-4 bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 rounded-xl text-xs font-bold uppercase tracking-widest text-amber-300 transition-all active:scale-[0.98] flex items-center justify-center gap-2"
-                        >
-                            🍳 {showMealPlan ? 'Hide' : 'Show'} Meal Ideas
-                            <span className="text-[11px] text-amber-400/60 font-normal normal-case">
-                                ({totalDaysCeil} day plan)
-                            </span>
-                        </button>
+                        {/* Meal planner — Spoonacular-powered with static fallback */}
+                        <GalleyMealPlanner
+                            days={totalDaysCeil}
+                            crew={effectiveCrewCount}
+                            fallbackContent={
+                                <StaticMealPlan
+                                    bMeals={bMeals}
+                                    lMeals={lMeals}
+                                    dMeals={dMeals}
+                                    totalDaysCeil={totalDaysCeil}
+                                    effectiveCrewCount={effectiveCrewCount}
+                                />
+                            }
+                        />
                     </div>
                 </div>
             </div>
-
-            {/* ═══════════════════════════════════════════════════
-                MEAL PLAN (expanded)
-                ═══════════════════════════════════════════════════ */}
-            {showMealPlan && (
-                <div className="animate-in fade-in slide-in-from-top-4 duration-300 space-y-4">
-                    <div className="bg-gradient-to-br from-amber-500/5 via-orange-500/5 to-red-500/5 border border-amber-500/20 rounded-2xl p-5 relative overflow-hidden">
-                        <div className="absolute bottom-0 right-0 w-40 h-40 bg-orange-400/5 rounded-full translate-y-12 translate-x-12 blur-3xl" />
-                        <h3 className="text-sm font-bold text-amber-300 uppercase tracking-widest mb-4 flex items-center gap-2">
-                            🍳 Suggested Meal Plan
-                            <span className="text-[11px] text-gray-400 font-normal normal-case ml-auto">
-                                {effectiveCrewCount} crew • {totalDaysCeil} day{totalDaysCeil > 1 ? 's' : ''}
-                            </span>
-                        </h3>
-
-                        <div className="space-y-4 relative z-10">
-                            {Array.from({ length: totalDaysCeil }, (_, dayIdx) => (
-                                <div
-                                    key={dayIdx}
-                                    className="bg-white/5 rounded-xl p-4 border border-white/5 space-y-2.5"
-                                >
-                                    <div className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2">
-                                        <span className="w-6 h-6 bg-amber-500/20 rounded-full flex items-center justify-center text-amber-400 text-[11px] font-black border border-amber-500/30">
-                                            {dayIdx + 1}
-                                        </span>
-                                        Day {dayIdx + 1}
-                                        {dayIdx === 0 && (
-                                            <span className="text-[11px] text-emerald-400 font-normal ml-1">
-                                                (use fresh first)
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                                        {/* Breakfast */}
-                                        <div className="bg-black/20 rounded-lg px-3 py-2 space-y-1">
-                                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">
-                                                Breakfast
-                                            </div>
-                                            <div className="text-xs text-gray-200 flex items-center gap-1.5">
-                                                <span>{bMeals[dayIdx % bMeals.length].emoji}</span>
-                                                {bMeals[dayIdx % bMeals.length].name}
-                                            </div>
-                                            <div className="text-[11px] text-gray-600">
-                                                × {effectiveCrewCount} serves
-                                            </div>
-                                        </div>
-
-                                        {/* Lunch */}
-                                        <div className="bg-black/20 rounded-lg px-3 py-2 space-y-1">
-                                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">
-                                                Lunch
-                                            </div>
-                                            <div className="text-xs text-gray-200 flex items-center gap-1.5">
-                                                <span>{lMeals[dayIdx % lMeals.length].emoji}</span>
-                                                {lMeals[dayIdx % lMeals.length].name}
-                                            </div>
-                                            <div className="text-[11px] text-gray-600">
-                                                × {effectiveCrewCount} serves
-                                            </div>
-                                        </div>
-
-                                        {/* Dinner */}
-                                        <div className="bg-black/20 rounded-lg px-3 py-2 space-y-1">
-                                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">
-                                                Dinner
-                                            </div>
-                                            <div className="text-xs text-gray-200 flex items-center gap-1.5">
-                                                <span>{dMeals[dayIdx % dMeals.length].emoji}</span>
-                                                {dMeals[dayIdx % dMeals.length].name}
-                                            </div>
-                                            <div className="text-[11px] text-gray-600">
-                                                × {effectiveCrewCount} serves
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-
-                        {/* Snack suggestions */}
-                        <div className="mt-4 pt-4 border-t border-white/10">
-                            <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-2">
-                                🍫 Snack Ideas (keep accessible in cockpit)
-                            </div>
-                            <div className="flex flex-wrap gap-1.5">
-                                {SNACK_IDEAS.map((snack, i) => (
-                                    <span
-                                        key={i}
-                                        className="text-[11px] text-gray-300 bg-white/5 border border-white/5 rounded-full px-2.5 py-1 hover:bg-amber-500/10 hover:border-amber-500/20 hover:text-amber-200 transition-colors cursor-default"
-                                    >
-                                        {snack}
-                                    </span>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* ═══════════════════════════════════════════════════
                 GALLEY ESSENTIALS CHECKLIST
@@ -588,3 +535,97 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
         </div>
     );
 };
+
+// ── Static Meal Plan fallback (used when Spoonacular is offline) ──────────
+
+interface StaticMealPlanProps {
+    bMeals: typeof BREAKFAST_IDEAS;
+    lMeals: typeof LUNCH_IDEAS;
+    dMeals: typeof DINNER_IDEAS;
+    totalDaysCeil: number;
+    effectiveCrewCount: number;
+}
+
+const StaticMealPlan: React.FC<StaticMealPlanProps> = ({
+    bMeals,
+    lMeals,
+    dMeals,
+    totalDaysCeil,
+    effectiveCrewCount,
+}) => (
+    <div className="animate-in fade-in slide-in-from-top-4 duration-300 space-y-4">
+        <div className="bg-gradient-to-br from-amber-500/5 via-orange-500/5 to-red-500/5 border border-amber-500/20 rounded-2xl p-5 relative overflow-hidden">
+            <div className="absolute bottom-0 right-0 w-40 h-40 bg-orange-400/5 rounded-full translate-y-12 translate-x-12 blur-3xl" />
+            <h3 className="text-sm font-bold text-amber-300 uppercase tracking-widest mb-4 flex items-center gap-2">
+                🍳 Galley Meal Ideas
+                <span className="text-[11px] text-gray-400 font-normal normal-case ml-auto">
+                    {effectiveCrewCount} crew • {totalDaysCeil} day{totalDaysCeil > 1 ? 's' : ''}
+                </span>
+            </h3>
+
+            <div className="space-y-4 relative z-10">
+                {Array.from({ length: totalDaysCeil }, (_, dayIdx) => (
+                    <div key={dayIdx} className="bg-white/5 rounded-xl p-4 border border-white/5 space-y-2.5">
+                        <div className="text-xs font-bold text-white uppercase tracking-widest flex items-center gap-2">
+                            <span className="w-6 h-6 bg-amber-500/20 rounded-full flex items-center justify-center text-amber-400 text-[11px] font-black border border-amber-500/30">
+                                {dayIdx + 1}
+                            </span>
+                            Day {dayIdx + 1}
+                            {dayIdx === 0 && (
+                                <span className="text-[11px] text-emerald-400 font-normal ml-1">(use fresh first)</span>
+                            )}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <div className="bg-black/20 rounded-lg px-3 py-2 space-y-1">
+                                <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">
+                                    Breakfast
+                                </div>
+                                <div className="text-xs text-gray-200 flex items-center gap-1.5">
+                                    <span>{bMeals[dayIdx % bMeals.length].emoji}</span>
+                                    {bMeals[dayIdx % bMeals.length].name}
+                                </div>
+                                <div className="text-[11px] text-gray-600">× {effectiveCrewCount} serves</div>
+                            </div>
+                            <div className="bg-black/20 rounded-lg px-3 py-2 space-y-1">
+                                <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">
+                                    Lunch
+                                </div>
+                                <div className="text-xs text-gray-200 flex items-center gap-1.5">
+                                    <span>{lMeals[dayIdx % lMeals.length].emoji}</span>
+                                    {lMeals[dayIdx % lMeals.length].name}
+                                </div>
+                                <div className="text-[11px] text-gray-600">× {effectiveCrewCount} serves</div>
+                            </div>
+                            <div className="bg-black/20 rounded-lg px-3 py-2 space-y-1">
+                                <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">
+                                    Dinner
+                                </div>
+                                <div className="text-xs text-gray-200 flex items-center gap-1.5">
+                                    <span>{dMeals[dayIdx % dMeals.length].emoji}</span>
+                                    {dMeals[dayIdx % dMeals.length].name}
+                                </div>
+                                <div className="text-[11px] text-gray-600">× {effectiveCrewCount} serves</div>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-white/10">
+                <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-2">
+                    🍫 Snack Ideas (keep accessible in cockpit)
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                    {SNACK_IDEAS.map((snack, i) => (
+                        <span
+                            key={i}
+                            className="text-[11px] text-gray-300 bg-white/5 border border-white/5 rounded-full px-2.5 py-1 hover:bg-amber-500/10 hover:border-amber-500/20 hover:text-amber-200 transition-colors cursor-default"
+                        >
+                            {snack}
+                        </span>
+                    ))}
+                </div>
+            </div>
+        </div>
+    </div>
+);

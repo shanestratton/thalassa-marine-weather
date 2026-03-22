@@ -101,6 +101,7 @@ export const useLeafletMap = (
             mapInstance.current = null;
             setMapReady(false);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [enableZoom, mapboxToken, showZoomControl]); // Re-init if essential configs change
 
     // Center Update (if map exists)

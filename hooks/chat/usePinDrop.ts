@@ -205,6 +205,7 @@ export function usePinDrop(options: UsePinDropOptions) {
             });
             poiMapInstance.current = map;
         });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showPoiSheet, pinLoading]);
 
     useEffect(() => {

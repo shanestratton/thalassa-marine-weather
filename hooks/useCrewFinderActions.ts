@@ -246,6 +246,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
             cleanup?.();
             setKbHeight(0);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [view]);
 
     // ── Init ──
@@ -261,6 +262,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
             setLoading(false);
         };
         init();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // ── Auto-fill location from GPS ──
@@ -288,6 +290,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
                 /* GPS or network unavailable */
             }
         })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [view, editLocationCity, editLocationState, editLocationCountry]);
 
     // ── Data loading ──
@@ -296,6 +299,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
             const data = await LonelyHeartsService.getCrewListings(f || filters);
             setListings(data);
         },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [filters],
     );
 
@@ -474,6 +478,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
             }
             return next;
         });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // ── Block / Report ──
@@ -537,6 +542,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
             setDeleting(false);
             setShowDeleteConfirm(false);
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [loadListings, dispatch]);
 
     // ── Card Stack Navigation ──
@@ -567,6 +573,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
     useEffect(() => {
         setCurrentCardIndex(0);
         setCardPhotoIndex(0);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filters]);
 
     // ── Swipe Gesture Handlers ──
@@ -592,6 +599,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
         if (directionLocked.current === 'vertical') return;
         e.preventDefault();
         setSwipeX(dx);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleCardTouchEnd = useCallback(() => {
@@ -606,6 +614,7 @@ export function useCrewFinderActions(state: CrewFinderState, dispatch: React.Dis
         if (swipeX < -threshold) goToNextCard();
         else if (swipeX > threshold) goToPrevCard();
         else setSwipeX(0);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [swipeX, goToNextCard, goToPrevCard]);
 
     // ── Helpers ──

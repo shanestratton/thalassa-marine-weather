@@ -56,7 +56,7 @@ export async function scrapeAmsa(mmsis: number[]): Promise<number> {
                 continue;
             }
 
-            const data = await resp.json() as { features?: AmsaVesselRecord[] };
+            const data = (await resp.json()) as { features?: AmsaVesselRecord[] };
             if (!data.features || data.features.length === 0) continue;
 
             const record = data.features[0].attributes;

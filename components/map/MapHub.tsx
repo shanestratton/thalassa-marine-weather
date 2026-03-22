@@ -33,8 +33,7 @@ import { LocationStore } from '../../stores/LocationStore';
 import { useSettings } from '../../context/SettingsContext';
 import { useUI } from '../../context/UIContext';
 import { triggerHaptic } from '../../utils/system';
-import { exportPassageAsGPX, exportBasicPassageGPX } from '../../services/passageGpxExport';
-import { shareGPXFile } from '../../services/gpxService';
+import { PassageBanner } from './PassageBanner';
 import { GpsService } from '../../services/GpsService';
 
 import { type MapHubProps, type WeatherLayer } from './mapConstants';
@@ -54,6 +53,7 @@ import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 import { GhostShip } from './GhostShip';
 import { LayerFABMenu } from './MapHubOverlays';
+import { MapActionFabs } from './MapActionFabs';
 import { ThalassaHelixControl, LegendDock, type HelixLayer } from './ThalassaHelixControl';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 import { PassageDataPanel } from './PassageDataPanel';
@@ -83,7 +83,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const locationDotRef = useRef<mapboxgl.Marker | null>(null);
     const { settings: _settings } = useSettings();
     const { setPage, previousView, currentView } = useUI();
-    const [passageToast, setPassageToast] = useState<string | null>(null);
+
     const [isoProgress, setIsoProgress] = useState<{
         step: number;
         closestNM: number;
@@ -530,301 +530,27 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {!isPinView && passage.showPassage && passage.routeAnalysis && (
                     <GhostShip
                         map={mapRef.current}
-                        routeCoords={
-                            passage.isoResultRef.current?.routeCoordinates ?? null
-                        }
+                        routeCoords={passage.isoResultRef.current?.routeCoordinates ?? null}
                         departureTime={passage.departureTime || new Date().toISOString()}
                         speed={passage.speed}
                         windHour={weather.windHour}
                         windForecastHours={weather.windForecastHoursRef.current}
                         windNowIdx={weather.windNowIdxRef.current}
                         visible={
-                            (weather.activeLayers.has('wind') || weather.activeLayers.has('velocity'))
-                            && passage.showPassage
-                            && !!passage.routeAnalysis
+                            (weather.activeLayers.has('wind') || weather.activeLayers.has('velocity')) &&
+                            passage.showPassage &&
+                            !!passage.routeAnalysis
                         }
                     />
                 )}
 
-                {/* ═══ PRO DATA BAR (Phone / Deck mode during passage) ═══ */}
-                {deviceMode === 'deck' && passage.showPassage && passage.routeAnalysis && !embedded && !isPinView && (
-                    <div className="absolute top-14 left-3 right-3 z-[502] animate-in fade-in slide-in-from-top-2 duration-300">
-                        <div className="bg-slate-950 border border-white/[0.12] rounded-2xl px-3 py-2.5 flex items-center justify-between shadow-2xl shadow-black/50">
-                            <div className="text-center flex-1">
-                                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">
-                                    Distance
-                                </p>
-                                <p className="text-base font-black text-white tabular-nums leading-tight">
-                                    {passage.routeAnalysis.totalDistance.toFixed(0)}
-                                    <span className="text-[11px] text-gray-400"> NM</span>
-                                </p>
-                            </div>
-                            <div className="w-px h-6 bg-white/10" />
-                            <div className="text-center flex-1">
-                                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Time</p>
-                                <p className="text-base font-black text-white tabular-nums leading-tight">
-                                    {passage.routeAnalysis.estimatedDuration < 24
-                                        ? `${passage.routeAnalysis.estimatedDuration.toFixed(1)}h`
-                                        : `${Math.floor(passage.routeAnalysis.estimatedDuration / 24)}d ${Math.round(passage.routeAnalysis.estimatedDuration % 24)}h`}
-                                </p>
-                            </div>
-                            <div className="w-px h-6 bg-white/10" />
-                            <div className="text-center flex-1">
-                                <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">ETA</p>
-                                <p className="text-base font-black text-amber-400 tabular-nums leading-tight">
-                                    {new Date(
-                                        (passage.departureTime
-                                            ? new Date(passage.departureTime)
-                                            : new Date()
-                                        ).getTime() +
-                                            passage.routeAnalysis.estimatedDuration * 3600000,
-                                    ).toLocaleTimeString('en-AU', {
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                        hour12: false,
-                                    })}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* ═══ PASSAGE MODE BANNER ═══ */}
-                {passage.showPassage && !embedded && (
-                    <div className="absolute top-24 left-4 right-4 z-[501] animate-in fade-in slide-in-from-top-2 duration-300">
-                        <div className="bg-slate-950 border border-white/[0.12] rounded-2xl px-4 py-3 shadow-2xl shadow-black/50">
-                            <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2 min-w-0">
-                                    <div className="min-w-0">
-                                        <p className="text-[11px] font-black text-white uppercase tracking-widest">
-                                            Passage Planner
-                                        </p>
-                                        <p className="text-[11px] text-gray-400 truncate">
-                                            {!passage.departure
-                                                ? 'Tap map to set Departure'
-                                                : !passage.arrival
-                                                  ? 'Tap map to set Arrival'
-                                                  : isoProgress
-                                                    ? isoProgress.phase === 'loading-wind'
-                                                        ? '⏳ Loading wind data…'
-                                                        : isoProgress.phase === 'loading-bathy'
-                                                          ? '⏳ Loading depth data…'
-                                                          : `⏳ Routing… ${isoProgress.closestNM} NM to go${isoProgress.totalDistNM ? ` / ${isoProgress.totalDistNM} NM` : ''} • ${((isoProgress.elapsed ?? 0) / 1000).toFixed(0)}s`
-                                                    : passage.routeAnalysis
-                                                      ? `${passage.routeAnalysis.totalDistance.toFixed(0)} NM • ${passage.routeAnalysis.estimatedDuration.toFixed(0)}h`
-                                                      : 'Computing route…'}
-                                        </p>
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={() => {
-                                        passage.setShowPassage(false);
-                                        triggerHaptic('light');
-                                    }}
-                                    className="w-8 h-8 flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] hover:bg-white/10 transition-colors shrink-0 active:scale-95"
-                                    aria-label="Close passage planner"
-                                >
-                                    <svg
-                                        className="w-3.5 h-3.5 text-gray-400"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={2.5}
-                                    >
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
-                            </div>
-                            {passage.departure && (
-                                <div className="mt-1.5 pt-1.5 border-t border-white/5 flex gap-1.5 text-[11px]">
-                                    <span className="px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/15 rounded text-emerald-400/80 font-bold truncate">
-                                        ⬤ {passage.departure.name}
-                                    </span>
-                                    {passage.arrival && (
-                                        <span className="px-1.5 py-0.5 bg-red-500/10 border border-red-500/15 rounded text-red-400/80 font-bold truncate">
-                                            ◉ {passage.arrival.name}
-                                        </span>
-                                    )}
-                                </div>
-                            )}
-                            {/* Action buttons (GPX export + Save) */}
-                            {passage.routeAnalysis && passage.departure && passage.arrival && (
-                                <div className="mt-1.5 pt-1.5 border-t border-white/5">
-                                    {/* Computing indicator */}
-                                    {isoProgress && (
-                                        <div className="flex items-center gap-1.5 mb-1.5 text-[11px] text-amber-400/70">
-                                            <div className="w-2 h-2 border border-amber-400/60 border-t-transparent rounded-full animate-spin" />
-                                            {isoProgress.phase === 'loading-wind'
-                                                ? 'Loading wind data…'
-                                                : isoProgress.phase === 'loading-bathy'
-                                                  ? 'Loading depth data…'
-                                                  : `Routing… ${isoProgress.closestNM} NM to go${isoProgress.totalDistNM ? ` / ${isoProgress.totalDistNM} NM` : ''} • ${((isoProgress.elapsed ?? 0) / 1000).toFixed(0)}s`}
-                                        </div>
-                                    )}
-                                    <div className="flex gap-2">
-                                        <button aria-label="Export"
-                                            onClick={async () => {
-                                                try {
-                                                    let gpx: string;
-                                                    if (
-                                                        passage.isoResultRef.current &&
-                                                        passage.turnWaypointsRef.current.length
-                                                    ) {
-                                                        // Full GPX with weather data from isochrone
-                                                        gpx = exportPassageAsGPX(
-                                                            passage.isoResultRef.current,
-                                                            passage.turnWaypointsRef.current,
-                                                            passage.departure!.name,
-                                                            passage.arrival!.name,
-                                                            passage.departureTime || new Date().toISOString(),
-                                                        );
-                                                    } else {
-                                                        // Fallback: basic GPX from departure/arrival
-                                                        gpx = exportBasicPassageGPX(
-                                                            passage.departure!,
-                                                            passage.arrival!,
-                                                            passage.departureTime || new Date().toISOString(),
-                                                            passage.routeAnalysis?.totalDistance,
-                                                            passage.routeAnalysis?.estimatedDuration,
-                                                        );
-                                                    }
-                                                    await shareGPXFile(
-                                                        gpx,
-                                                        `passage_${passage.departure!.name}_to_${passage.arrival!.name}.gpx`,
-                                                    );
-                                                } catch (err) {
-                                                    log.error('GPX Export failed:', err);
-                                                    setPassageToast('Export failed');
-                                                    setTimeout(() => setPassageToast(null), 2000);
-                                                }
-                                            }}
-                                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-sky-500/15 border border-sky-500/25 text-sky-400 text-[11px] font-black uppercase tracking-wider active:scale-95 transition-transform"
-                                        >
-                                            <svg
-                                                className="w-3 h-3"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                                strokeWidth={2.5}
-                                            >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                                                />
-                                            </svg>
-                                            GPX
-                                        </button>
-                                        <button
-                                            aria-label="Use"
-                                            onClick={async () => {
-                                                // Use ShipLogService for proper DB format, auth, & offline fallback
-                                                try {
-                                                    const { ShipLogService } =
-                                                        await import('../../services/ShipLogService');
-                                                    const dep = passage.departure!;
-                                                    const arr = passage.arrival!;
-                                                    const isoResult = passage.isoResultRef.current;
-                                                    const turnWPs = passage.turnWaypointsRef.current;
-                                                    const totalNM =
-                                                        isoResult?.totalDistanceNM ??
-                                                        passage.routeAnalysis?.totalDistance ??
-                                                        0;
-                                                    const totalHrs =
-                                                        isoResult?.totalDurationHours ??
-                                                        passage.routeAnalysis?.estimatedDuration ??
-                                                        0;
-
-                                                    // Build a VoyagePlan-compatible object
-                                                    // When isochrone data exists, use the first/last turn waypoints
-                                                    // (sea buoy gates) as origin/destination — NOT the port coords.
-                                                    // This saves only the ocean leg (leg 2), avoiding harbour legs that cross land.
-                                                    const hasIsoWPs = isoResult && turnWPs.length >= 2;
-                                                    const firstWP = hasIsoWPs ? turnWPs[0] : null;
-                                                    const lastWP = hasIsoWPs ? turnWPs[turnWPs.length - 1] : null;
-
-                                                    const plan: Record<string, unknown> = {
-                                                        origin:
-                                                            dep.name || `${dep.lat.toFixed(2)}, ${dep.lon.toFixed(2)}`,
-                                                        destination:
-                                                            arr.name || `${arr.lat.toFixed(2)}, ${arr.lon.toFixed(2)}`,
-                                                        originCoordinates: firstWP
-                                                            ? { lat: firstWP.lat, lon: firstWP.lon }
-                                                            : { lat: dep.lat, lon: dep.lon },
-                                                        destinationCoordinates: lastWP
-                                                            ? { lat: lastWP.lat, lon: lastWP.lon }
-                                                            : { lat: arr.lat, lon: arr.lon },
-                                                        waypoints:
-                                                            hasIsoWPs && turnWPs.length > 2
-                                                                ? turnWPs
-                                                                      .slice(1, -1)
-                                                                      .map(
-                                                                          (wp: {
-                                                                              lat: number;
-                                                                              lon: number;
-                                                                              name?: string;
-                                                                              id?: string;
-                                                                              tws?: number;
-                                                                          }) => ({
-                                                                              name: wp.id ?? wp.name,
-                                                                              coordinates: { lat: wp.lat, lon: wp.lon },
-                                                                              windSpeed: wp.tws,
-                                                                              depth_m: undefined,
-                                                                          }),
-                                                                      )
-                                                                : [],
-                                                        distanceApprox: `${totalNM.toFixed(0)} NM`,
-                                                        durationApprox: `${totalHrs.toFixed(0)} hours`,
-                                                        departureDate:
-                                                            passage.departureTime || new Date().toISOString(),
-                                                    };
-
-                                                    const voyageId = await ShipLogService.savePassagePlanToLogbook(
-                                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                                        plan as any,
-                                                    );
-                                                    if (voyageId) {
-                                                        setPassageToast('Route saved to logbook ✓');
-                                                        setTimeout(() => setPassageToast(null), 2000);
-                                                    } else {
-                                                        setPassageToast('Save failed ✗');
-                                                        setTimeout(() => setPassageToast(null), 2000);
-                                                    }
-                                                } catch (err) {
-                                                    log.error('Failed to save planned route:', err);
-                                                    setPassageToast('Save failed ✗');
-                                                    setTimeout(() => setPassageToast(null), 2000);
-                                                }
-                                            }}
-                                            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/25 text-emerald-400 text-[11px] font-black uppercase tracking-wider active:scale-95 transition-transform"
-                                        >
-                                            <svg
-                                                className="w-3 h-3"
-                                                fill="none"
-                                                viewBox="0 0 24 24"
-                                                stroke="currentColor"
-                                                strokeWidth={2.5}
-                                            >
-                                                <path
-                                                    strokeLinecap="round"
-                                                    strokeLinejoin="round"
-                                                    d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"
-                                                />
-                                            </svg>
-                                            Save to Log
-                                        </button>
-                                    </div>
-                                    {/* Toast */}
-                                    {passageToast && (
-                                        <div className="mt-1.5 text-center text-[11px] font-bold text-emerald-400 animate-in fade-in duration-200">
-                                            {passageToast}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
+                <PassageBanner
+                    passage={passage}
+                    isoProgress={isoProgress}
+                    embedded={embedded}
+                    isPinView={isPinView}
+                    deviceMode={deviceMode}
+                />
 
                 {/* ═══ LAYER FAB MENU ═══ */}
                 {!passage.showPassage && !embedded && !isPinView && (
@@ -969,86 +695,35 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* ═══ ACTION FABS ═══ */}
                 {!embedded && !passage.showPassage && !isPinView && (
-                    <div
-                        className="absolute right-4 z-[500] flex flex-row gap-2"
-                        style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}
-                    >
-                        {/* Wind Mode Toggle — hidden for clean wind view */}
-
-                        {/* GRIB Download — hidden for clean wind view */}
-
-                        {/* GRIB Error Tooltip — hidden */}
-
-                        {/* GPS Locate Me — fly to device position (in picker mode: snap back to WX) */}
-                        <button
-                            aria-label="Haptic"
-                            onClick={() => {
-                                triggerHaptic('medium');
-                                GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then((pos) => {
-                                    if (!pos) return;
-                                    const { latitude, longitude } = pos;
-                                    const map = mapRef.current;
-                                    if (map) {
-                                        map.flyTo({ center: [longitude, latitude], zoom: 12, duration: 1200 });
-                                    }
-                                    LocationStore.setFromGPS(latitude, longitude);
-                                    // In picker mode (arrived from WX), select this location and go back
-                                    if (pickerMode) {
-                                        onLocationSelect?.(latitude, longitude);
-                                    }
-                                });
-                            }}
-                            className="w-12 h-12 bg-slate-900/90 border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
-                        >
-                            <svg
-                                className="w-5 h-5 text-emerald-400"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <circle cx="12" cy="12" r="3" />
-                                <path strokeLinecap="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
-                            </svg>
-                        </button>
-
-                        {/* Recenter on weather location */}
-                        <button
-                            aria-label="Ref"
-                            onClick={() => {
-                                if (mapRef.current && weatherCoords) {
-                                    mapRef.current.flyTo({
-                                        center: [weatherCoords.lon, weatherCoords.lat],
-                                        zoom: 10,
-                                        duration: 1000,
-                                    });
-                                    dropPin(mapRef.current, weatherCoords.lat, weatherCoords.lon);
+                    <MapActionFabs
+                        onLocateMe={() => {
+                            triggerHaptic('medium');
+                            GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then((pos) => {
+                                if (!pos) return;
+                                const { latitude, longitude } = pos;
+                                const map = mapRef.current;
+                                if (map) {
+                                    map.flyTo({ center: [longitude, latitude], zoom: 12, duration: 1200 });
                                 }
-                                triggerHaptic('light');
-                            }}
-                            disabled={!weatherCoords}
-                            className="w-12 h-12 bg-slate-900/90 border border-white/[0.08] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
-                        >
-                            <svg
-                                className="w-5 h-5 text-white"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={1.5}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
-                                />
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
-                                />
-                            </svg>
-                        </button>
-                    </div>
+                                LocationStore.setFromGPS(latitude, longitude);
+                                if (pickerMode) {
+                                    onLocationSelect?.(latitude, longitude);
+                                }
+                            });
+                        }}
+                        onRecenter={() => {
+                            if (mapRef.current && weatherCoords) {
+                                mapRef.current.flyTo({
+                                    center: [weatherCoords.lon, weatherCoords.lat],
+                                    zoom: 10,
+                                    duration: 1000,
+                                });
+                                dropPin(mapRef.current, weatherCoords.lat, weatherCoords.lon);
+                            }
+                            triggerHaptic('light');
+                        }}
+                        recenterDisabled={!weatherCoords}
+                    />
                 )}
 
                 {/* ═══ THALASSA HELIX CONTROL ═══ */}
@@ -1059,7 +734,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                         const WEATHER_KEYS: HelixLayer[] = ['pressure', 'wind', 'rain', 'temperature', 'clouds'];
                         const activeWeatherLayers = WEATHER_KEYS.filter((k) =>
                             k === 'wind'
-                                ? weather.activeLayers.has('wind' as WeatherLayer) || weather.activeLayers.has('velocity')
+                                ? weather.activeLayers.has('wind' as WeatherLayer) ||
+                                  weather.activeLayers.has('velocity')
                                 : weather.activeLayers.has(k as WeatherLayer),
                         );
 
@@ -1125,7 +801,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 let bestDist = Infinity;
                                                 for (let i = 0; i < fhrs.length; i++) {
                                                     const d = Math.abs(fhrs[i] - targetForecastHour);
-                                                    if (d < bestDist) { bestDist = d; bestWindIdx = i; }
+                                                    if (d < bestDist) {
+                                                        bestDist = d;
+                                                        bestWindIdx = i;
+                                                    }
                                                 }
                                                 weather.setWindHour(bestWindIdx);
                                             }

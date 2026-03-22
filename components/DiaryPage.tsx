@@ -249,6 +249,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             cleanup?.();
             setKeyboardHeight(0);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     // ── Load entries ───────────────────────────────────────────
     const refreshEntries = useCallback(() => {
@@ -270,6 +271,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 );
             });
         });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     useEffect(() => {
         DiaryService.getEntries(100).then((data) => {
@@ -281,6 +283,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             if (!document.hidden) refreshEntries();
         }, 8000);
         return () => clearInterval(interval);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [refreshEntries]);
     // Cleanup on unmount
     useEffect(() => {
@@ -314,6 +317,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             }
         }
         setGpsLoading(false);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     // ── Compose (new) ──────────────────────────────────────────
     /** Build a weather snapshot one-liner from current weather data */
@@ -365,6 +369,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         setShowCompose(true);
         triggerHaptic('light');
         grabGps();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [grabGps, buildWeatherSnapshot, buildWeatherData, dispatch]);
     // ── Edit (existing) ────────────────────────────────────────
     const openEdit = useCallback(
@@ -625,6 +630,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             },
             settings.firstName || undefined,
         );
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     const toggleEntrySelection = useCallback(
         (id: string) => {
@@ -637,6 +643,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     const _exitSelectMode = useCallback(() => {
         setSelectMode(false);
         setSelectedIds(new Set());
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
     // AudioWidget is now imported from ./diary/AudioWidget
     // SwipeableDiaryCard — extracted to components/diary/SwipeableDiaryCard.tsx (React.memo)

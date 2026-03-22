@@ -1,0 +1,348 @@
+/**
+ * RadioConsolePage.css — Night-vision-safe "Radio Console" styling.
+ *
+ * Design language:
+ *  - Navy (#0a0e1a) background, amber/gold (#e5a100) accents
+ *  - No animations — static, high-contrast for bridge use
+ *  - Large monospace coordinates for immediate readability
+ *  - Subtle scan-line effect for CRT/radio aesthetic
+ */
+
+.radio-console {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: #0a0e1a;
+    color: #e5a100;
+    font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', ui-monospace, monospace;
+    overflow-y: auto;
+    position: relative;
+}
+
+/* Subtle scan-line overlay for CRT aesthetic */
+.radio-console::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.03) 2px,
+        rgba(0, 0, 0, 0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 10;
+}
+
+/* ── Header ─────────────────────────────────────────── */
+.radio-console__header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid rgba(229, 161, 0, 0.15);
+}
+
+.radio-console__back {
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    background: rgba(229, 161, 0, 0.08);
+    border: 1px solid rgba(229, 161, 0, 0.2);
+    color: #e5a100;
+    transition: background 0.15s;
+    flex-shrink: 0;
+}
+.radio-console__back:active {
+    background: rgba(229, 161, 0, 0.2);
+}
+
+.radio-console__title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+}
+.radio-console__title-icon {
+    font-size: 20px;
+    line-height: 1;
+}
+.radio-console__title h1 {
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #e5a100;
+    margin: 0;
+    line-height: 1.2;
+}
+.radio-console__title p {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: rgba(229, 161, 0, 0.5);
+    margin: 0;
+}
+
+.radio-console__gps-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    flex-shrink: 0;
+}
+.radio-console__gps-status.live {
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: #10b981;
+}
+.radio-console__gps-status.stale {
+    background: rgba(229, 161, 0, 0.1);
+    border: 1px solid rgba(229, 161, 0, 0.2);
+    color: #e5a100;
+}
+.radio-console__gps-status.error {
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+}
+
+.radio-console__gps-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+.radio-console__gps-status.live .radio-console__gps-dot {
+    animation: radio-pulse 1.5s ease infinite;
+}
+
+@keyframes radio-pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.3;
+    }
+}
+
+/* ── Vessel Identity ────────────────────────────────── */
+.radio-console__identity {
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid rgba(229, 161, 0, 0.1);
+}
+
+.radio-console__vessel-name {
+    font-size: 24px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    color: #ffffff;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    text-shadow: 0 0 20px rgba(229, 161, 0, 0.3);
+}
+
+.radio-console__id-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.radio-console__id-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: rgba(229, 161, 0, 0.06);
+    border: 1px solid rgba(229, 161, 0, 0.15);
+}
+.radio-console__id-chip.empty {
+    border-style: dashed;
+}
+.radio-console__id-chip .label {
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.15em;
+    color: rgba(229, 161, 0, 0.5);
+    text-transform: uppercase;
+}
+.radio-console__id-chip .value {
+    font-size: 13px;
+    font-weight: 700;
+    color: #e5a100;
+    letter-spacing: 0.08em;
+}
+.radio-console__id-chip.empty .value {
+    font-size: 11px;
+    color: rgba(229, 161, 0, 0.4);
+}
+
+/* ── Position Display ───────────────────────────────── */
+.radio-console__position {
+    padding: 28px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: rgba(229, 161, 0, 0.03);
+    border-bottom: 1px solid rgba(229, 161, 0, 0.1);
+}
+
+.radio-console__coord {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.radio-console__coord-label {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.2em;
+    color: rgba(229, 161, 0, 0.45);
+    width: 32px;
+    flex-shrink: 0;
+}
+
+.radio-console__coord-value {
+    font-size: 36px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    color: #e5a100;
+    line-height: 1;
+    text-shadow: 0 0 30px rgba(229, 161, 0, 0.4);
+}
+
+@media (max-width: 360px) {
+    .radio-console__coord-value {
+        font-size: 28px;
+    }
+}
+
+.radio-console__no-fix {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 32px 0;
+    color: rgba(229, 161, 0, 0.35);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+}
+.radio-console__no-fix svg {
+    animation: radio-pulse 2s ease infinite;
+}
+
+/* ── Metrics Strip ──────────────────────────────────── */
+.radio-console__metrics {
+    display: flex;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(229, 161, 0, 0.1);
+}
+
+.radio-console__metric {
+    flex: 1;
+    text-align: center;
+}
+
+.radio-console__metric-label {
+    display: block;
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.2em;
+    color: rgba(229, 161, 0, 0.4);
+    margin-bottom: 4px;
+}
+
+.radio-console__metric-value {
+    font-size: 22px;
+    font-weight: 900;
+    color: #e5a100;
+    letter-spacing: 0.02em;
+}
+.radio-console__metric-value--time {
+    font-size: 18px;
+    letter-spacing: 0.06em;
+}
+
+.radio-console__metric-unit {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(229, 161, 0, 0.5);
+    margin-left: 2px;
+}
+
+.radio-console__metric-divider {
+    width: 1px;
+    height: 32px;
+    background: rgba(229, 161, 0, 0.12);
+    flex-shrink: 0;
+}
+
+/* ── Action Buttons ─────────────────────────────────── */
+.radio-console__actions {
+    display: flex;
+    gap: 12px;
+    padding: 24px 20px;
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+    margin-top: auto;
+}
+
+.radio-console__btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 16px 20px;
+    border-radius: 14px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    transition: all 0.15s;
+    border: none;
+    cursor: pointer;
+}
+.radio-console__btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+.radio-console__btn:active:not(:disabled) {
+    transform: scale(0.97);
+}
+
+.radio-console__btn--speak {
+    background: linear-gradient(135deg, #e5a100 0%, #c27e00 100%);
+    color: #0a0e1a;
+    box-shadow:
+        0 4px 20px rgba(229, 161, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+.radio-console__btn--speak.speaking {
+    animation: radio-pulse 0.8s ease infinite;
+}
+
+.radio-console__btn--copy {
+    background: rgba(229, 161, 0, 0.08);
+    border: 1px solid rgba(229, 161, 0, 0.25);
+    color: #e5a100;
+}
+.radio-console__btn--copy.copied {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: rgba(16, 185, 129, 0.3);
+    color: #10b981;
+}

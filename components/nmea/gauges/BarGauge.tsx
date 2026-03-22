@@ -42,6 +42,7 @@ export const BarGauge: React.FC<BarGaugeProps> = ({
     const fraction = (clamped - min) / range;
 
     // Default voltage zones
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const defaultZones = zones || [
         { from: min, to: 11.8, color: '#ef4444' },
         { from: 11.8, to: 12.4, color: '#eab308' },

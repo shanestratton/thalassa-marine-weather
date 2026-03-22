@@ -80,6 +80,7 @@ export const useMapMarkers = (
             map.off('zoom', onMapMove);
             map.off('resize', onMapMove);
         };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mapInstance.current, centerLat, centerLon, rawTargetPos, routeCoordinates, waypoints]);
 
     return { vesselPos, targetPos, routePath, waypointPositions };

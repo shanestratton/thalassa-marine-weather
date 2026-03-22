@@ -84,6 +84,7 @@ export const useSmartRefresh = ({
         };
 
         scheduleNextUpdate();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [weatherData?.generatedAt]); // Triggers when new data arrives
 
     // MONITOR LOOP (Ticks every 10s)

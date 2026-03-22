@@ -19,7 +19,7 @@ const log = createLogger('LocalDatabase');
 
 // ── Types ──────────────────────────────────────────────────────
 
-export type MutationType = 'INSERT' | 'UPDATE' | 'DELETE';
+export type MutationType = 'INSERT' | 'UPDATE' | 'DELETE' | 'DELTA';
 
 export interface SyncQueueItem {
     id: string; // UUID for the queue entry itself
@@ -49,6 +49,8 @@ const TABLE_FILES: Record<string, string> = {
     ship_documents: 'vessel_ship_documents.json',
     checklists: 'vessel_checklists.json',
     checklist_runs: 'vessel_checklist_runs.json',
+    recipes: 'vessel_recipes.json',
+    passage_provisions: 'vessel_passage_provisions.json',
 };
 
 const SYNC_QUEUE_FILE = 'vessel_sync_queue.json';
@@ -219,6 +221,44 @@ export async function deleteLocal(tableName: string, id: string): Promise<void> 
     delete cache[tableName][id];
     await flushTable(tableName);
     await enqueueSync(tableName, id, 'DELETE', { id });
+}
+
+/**
+ * Apply a DELTA mutation to a numeric field.
+ * Instead of storing the absolute value, stores only the change (+1, -3, etc.).
+ * This prevents data loss when multiple crew members adjust quantities offline.
+ */
+export async function deltaLocal<T extends { id: string; updated_at?: string }>(
+    tableName: string,
+    id: string,
+    field: string,
+    delta: number,
+): Promise<T | null> {
+    ensureInit();
+    const existing = cache[tableName]?.[id] as T | undefined;
+    if (!existing) return null;
+
+    // Apply delta to the local record
+    const current = ((existing as Record<string, unknown>)[field] as number) || 0;
+    const newValue = Math.max(0, current + delta);
+    const updated = {
+        ...existing,
+        [field]: newValue,
+        updated_at: new Date().toISOString(),
+    };
+
+    cache[tableName][id] = updated;
+    await flushTable(tableName);
+
+    // Queue a DELTA mutation (stores only the delta, not the absolute)
+    await enqueueSync(tableName, id, 'DELTA', {
+        id,
+        field,
+        delta,
+        updated_at: (updated as Record<string, unknown>).updated_at,
+    });
+
+    return updated as T;
 }
 
 /**

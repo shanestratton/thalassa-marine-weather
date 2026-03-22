@@ -32,7 +32,7 @@ jobs:
               continue-on-error: true
 
             - name: Lint
-              run: npx eslint . --max-warnings 100
+              run: npx eslint . --max-warnings 0
 
             - name: TypeScript type check
               run: npx tsc --noEmit
@@ -75,4 +75,3 @@ jobs:
                   name: coverage-report
                   path: coverage/
                   retention-days: 30
-

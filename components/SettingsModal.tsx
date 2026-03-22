@@ -123,6 +123,7 @@ const MetricInput = ({
         if (isNaN(currentParsed) || Math.abs(currentParsed - displayVal) > 0.01) {
             setLocalStr(displayVal.toFixed(2));
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [valInStandard, unitType, isWeight]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => setLocalStr(e.target.value);

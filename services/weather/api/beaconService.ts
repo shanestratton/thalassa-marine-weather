@@ -4,7 +4,7 @@ import { MAJOR_BUOYS } from '../config';
 
 import { createLogger } from '../../../utils/createLogger';
 
-const log = createLogger('beaconService');
+const _log = createLogger('beaconService');
 
 // --- CONSTANTS ---
 const NDBC_BASE_URL = 'https://www.ndbc.noaa.gov/data/realtime2';

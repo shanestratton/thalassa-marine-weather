@@ -340,11 +340,11 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             const base = i * FLOATS_PER_PARTICLE;
             for (let t = 0; t < TRAIL_LENGTH; t++) {
                 const offset = base + t * FLOATS_PER_TRAIL_PT;
-                this.trailData[offset] = px;      // x
-                this.trailData[offset + 1] = py;   // y
-                this.trailData[offset + 2] = 0;    // speed
-                this.trailData[offset + 3] = 0;    // alpha
-                this.trailData[offset + 4] = 0;    // opposition
+                this.trailData[offset] = px; // x
+                this.trailData[offset + 1] = py; // y
+                this.trailData[offset + 2] = 0; // speed
+                this.trailData[offset + 3] = 0; // alpha
+                this.trailData[offset + 4] = 0; // opposition
             }
             this.trailData[base + 3] = 0.85;
             this.particleAges[i] = Math.floor(Math.random() * MAX_AGE);

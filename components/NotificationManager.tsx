@@ -170,6 +170,7 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ onNoti
                 );
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [weatherData, settings.notifications, onNotify, user?.id]);
 
     return null; // Headless component

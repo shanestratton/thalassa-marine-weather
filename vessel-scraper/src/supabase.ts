@@ -51,9 +51,7 @@ export async function upsertMetadata(rows: VesselMetadataRow[]): Promise<number>
     let total = 0;
     for (let i = 0; i < withTimestamp.length; i += 500) {
         const chunk = withTimestamp.slice(i, i + 500);
-        const { error } = await supabase
-            .from('vessel_metadata')
-            .upsert(chunk, { onConflict: 'mmsi' });
+        const { error } = await supabase.from('vessel_metadata').upsert(chunk, { onConflict: 'mmsi' });
 
         if (error) {
             console.error(`[Scraper] Upsert failed (batch ${i}):`, error.message);
@@ -106,7 +104,7 @@ export async function getStaleOrMissingMmsis(maxAgeDays = 7, limit = 500): Promi
     const orderedMmsis: number[] = [];
 
     // Named vessels get priority
-    for (const v of (namedVessels || [])) {
+    for (const v of namedVessels || []) {
         if (!seenMmsis.has(v.mmsi)) {
             orderedMmsis.push(v.mmsi);
             seenMmsis.add(v.mmsi);
@@ -114,7 +112,7 @@ export async function getStaleOrMissingMmsis(maxAgeDays = 7, limit = 500): Promi
     }
 
     // Then fill remaining slots with unnamed vessels
-    for (const v of (allVessels || [])) {
+    for (const v of allVessels || []) {
         if (!seenMmsis.has(v.mmsi)) {
             orderedMmsis.push(v.mmsi);
             seenMmsis.add(v.mmsi);
@@ -136,7 +134,7 @@ export async function getStaleOrMissingMmsis(maxAgeDays = 7, limit = 500): Promi
             .in('mmsi', chunk)
             .gte('last_scraped_at', cutoff);
 
-        for (const e of (existing || [])) {
+        for (const e of existing || []) {
             freshSet.add(e.mmsi);
         }
     }

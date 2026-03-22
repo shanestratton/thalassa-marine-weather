@@ -162,11 +162,13 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 }
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // ── CACHE VERSION CHECK ─────────────────────────────────
     useEffect(() => {
         orchestrator.checkCacheVersion();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // ── INITIALIZATION ──────────────────────────────────────
@@ -175,6 +177,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!versionChecked) return;
         log.info('[WeatherContext] Init starting (settings loaded, version checked)');
         orchestrator.loadCacheAndInit();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [settingsLoading, versionChecked]);
 
     // ── PERSISTENCE ─────────────────────────────────────────
@@ -207,6 +210,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ) => {
             await orchestrator.fetchWeather(location, { force, coords, showOverlay, silent });
         },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [],
     );
 
@@ -485,6 +489,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }, LIVE_OVERLAY_INTERVAL);
 
         return () => clearInterval(liveTimer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // ── Model Change Effect ─────────────────────────────────

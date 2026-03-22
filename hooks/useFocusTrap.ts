@@ -21,9 +21,7 @@ const FOCUSABLE_SELECTOR = [
     '[tabindex]:not([tabindex="-1"])',
 ].join(', ');
 
-export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(
-    isActive: boolean,
-): React.RefObject<T | null> {
+export function useFocusTrap<T extends HTMLElement = HTMLDivElement>(isActive: boolean): React.RefObject<T | null> {
     const containerRef = useRef<T | null>(null);
     const previousFocusRef = useRef<HTMLElement | null>(null);
 

@@ -179,7 +179,8 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
                     >
                         {this.state.error?.message || 'Unknown Error'}
                     </div>
-                    <button aria-label="Add"
+                    <button
+                        aria-label="Add"
                         onClick={() => {
                             localStorage.clear();
                             window.location.reload();

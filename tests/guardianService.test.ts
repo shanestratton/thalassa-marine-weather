@@ -51,11 +51,10 @@ vi.mock('../stores/LocationStore', () => ({
     },
 }));
 
- 
 let GuardianService: any;
- 
+
 let HAIL_MESSAGES: any;
- 
+
 let WEATHER_TEMPLATES: any;
 
 beforeEach(async () => {
@@ -226,17 +225,17 @@ describe('GuardianService — Report Suspicious', () => {
 describe('GuardianService — Constants', () => {
     it('has preset hail messages', () => {
         expect(HAIL_MESSAGES.length).toBeGreaterThanOrEqual(5);
-         
+
         expect((HAIL_MESSAGES[0] as any).emoji).toBeDefined();
-         
+
         expect((HAIL_MESSAGES[0] as any).text).toBeDefined();
     });
 
     it('has preset weather templates', () => {
         expect(WEATHER_TEMPLATES.length).toBeGreaterThanOrEqual(4);
-         
+
         expect((WEATHER_TEMPLATES[0] as any).emoji).toBeDefined();
-         
+
         expect((WEATHER_TEMPLATES[0] as any).text).toBeDefined();
     });
 });

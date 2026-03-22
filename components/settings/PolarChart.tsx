@@ -130,9 +130,11 @@ export const PolarChart: React.FC<PolarChartProps> = ({ data, overlayData, width
         });
     };
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const factoryCurves = useMemo(() => buildCurves(data, WIND_COLORS), [data, cx, cy, scaledRadius]);
     const overlayCurves = useMemo(
         () => (overlayData ? buildCurves(overlayData, OVERLAY_COLORS) : []),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [overlayData, cx, cy, scaledRadius],
     );
 

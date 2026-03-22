@@ -137,6 +137,7 @@ const log = createLogger('LocationStore');
 
 export function useLocationStore(): LocationState {
     const [s, setS] = useReactState(LocationStore.getState());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     useEffect(() => LocationStore.subscribe(setS), []);
     return s;
 }

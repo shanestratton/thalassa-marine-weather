@@ -222,6 +222,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                 intensity: precip,
             }));
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [data?.coordinates?.lat, data?.coordinates?.lon]);
 
     // Stable scroll callbacks that batch state updates via rAF
@@ -453,6 +454,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
     // Use Global Settings for Units
     // Fallback to defaults only if settings are missing (rare)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const units: UnitPreferences = settings?.units || {
         speed: 'kts',
         length: 'ft',

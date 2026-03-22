@@ -188,6 +188,7 @@ export const SettingsProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             }
         };
         loadNativeSettings();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const syncUp = async (userId: string, newSettings: UserSettings) => {

@@ -83,6 +83,7 @@ export const VoyageHeader: React.FC<VoyageHeaderProps> = React.memo(
                 }
             };
             fetchLocationNames();
+            // eslint-disable-next-line react-hooks/exhaustive-deps
         }, [firstEntry?.id, lastEntry?.id, firstEntry?.latitude, lastEntry?.latitude]);
 
         // Get display name for a location

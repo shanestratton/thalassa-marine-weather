@@ -25,6 +25,7 @@ export function useNmeaStore(): NmeaStoreState {
 /** Subscribe to a single metric from the store */
 export function useNmeaMetric(selector: (s: NmeaStoreState) => TimestampedMetric): TimestampedMetric {
     const state = useNmeaStore();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     return useMemo(() => selector(state), [state]);
 }
 

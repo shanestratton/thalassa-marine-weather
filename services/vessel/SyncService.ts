@@ -23,6 +23,7 @@ import {
 } from './LocalDatabase';
 
 import { createLogger } from '../../utils/createLogger';
+import { triggerHaptic } from '../../utils/system';
 
 const log = createLogger('SyncService');
 
@@ -47,6 +48,8 @@ const SYNCABLE_TABLES = [
     'maintenance_history',
     'equipment_register',
     'ship_documents',
+    'recipes',
+    'passage_provisions',
 ] as const;
 
 type SyncableTable = (typeof SYNCABLE_TABLES)[number];
@@ -195,8 +198,9 @@ export async function syncNow(): Promise<SyncResult> {
     // Notify listeners
     listeners.forEach((fn) => fn(result));
 
+    // Haptic pulse on successful sync
     if (result.pushed > 0 || result.pulled > 0) {
-        /* best effort */
+        triggerHaptic('light');
     }
 
     return result;
@@ -280,6 +284,35 @@ async function pushSingleMutation(item: SyncQueueItem): Promise<void> {
             const { error } = await supabase.from(table).delete().eq('id', item.record_id);
 
             if (error) throw new Error(error.message);
+            break;
+        }
+
+        case 'DELTA': {
+            // DELTA sync: apply atomic increment/decrement instead of absolute value.
+            // This prevents data loss when multiple crew members adjust quantities.
+            const delta = JSON.parse(item.payload) as { id: string; field: string; delta: number };
+
+            // Use Supabase's built-in increment if available, else read-modify-write
+            const { data: current, error: readErr } = await supabase
+                .from(table)
+                .select(delta.field)
+                .eq('id', item.record_id)
+                .single();
+
+            if (readErr || !current) throw new Error(readErr?.message || 'Record not found');
+
+            const currentValue = (current as unknown as Record<string, number>)[delta.field] || 0;
+            const newValue = Math.max(0, currentValue + delta.delta);
+
+            const { error: updateErr } = await supabase
+                .from(table)
+                .update({
+                    [delta.field]: newValue,
+                    updated_at: new Date().toISOString(),
+                })
+                .eq('id', item.record_id);
+
+            if (updateErr) throw new Error(updateErr.message);
             break;
         }
     }

@@ -1,13 +1,12 @@
 import React, { Suspense, useState, useEffect, useRef } from 'react';
 import { useWeather } from './context/WeatherContext';
-// vessel services loaded dynamically in useEffect below
 import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
 import { useAppController } from './hooks/useAppController';
+import { useAppBootstrap } from './hooks/useAppBootstrap';
 import { Dashboard } from './components/Dashboard';
 import { SearchIcon, WindIcon, MapIcon, ShipWheelIcon, StarIcon, ChatIcon } from './components/Icons';
 import { SkeletonDashboard } from './components/SkeletonLoader';
-const ForecastSheet = lazyRetry(() => import('./components/ForecastSheet').then((m) => ({ default: m.ForecastSheet })));
 import { NotificationManager } from './components/NotificationManager';
 import { ProcessOverlay } from './components/ProcessOverlay';
 import { PullToRefresh } from './components/PullToRefresh';
@@ -15,89 +14,23 @@ import { NavButton } from './components/NavButton';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemStatusButton } from './components/SystemStatusButton';
 import { ToastPortal, toast } from './components/Toast';
-import { PushToast, pushForegroundToast } from './components/PushToast';
+import { PushToast } from './components/PushToast';
 import { PageTransition } from './components/ui/PageTransition';
 import { checkDisclaimerAccepted } from './modules/LegalGuard';
 import { DisclaimerOverlay } from './modules/DisclaimerOverlay';
-// ChatService and PushNotificationService loaded dynamically in useEffects below
-
-// --- LAZY LOAD HEAVY COMPONENTS ---
 import { lazyRetry } from './utils/lazyRetry';
+import { VIEW_REGISTRY, VESSEL_VIEWS, PULL_REFRESH_DISABLED_VIEWS, type ViewContext } from './viewRegistry';
 
-const VoyagePlanner = lazyRetry(
-    () => import('./components/RoutePlanner').then((module) => ({ default: module.RoutePlanner })),
-    'RoutePlanner',
-);
-const SettingsView = lazyRetry(
-    () => import('./components/SettingsModal').then((module) => ({ default: module.SettingsView })),
-    'SettingsView',
-);
+// Only components NOT in the registry are lazy-loaded here
+const ForecastSheet = lazyRetry(() => import('./components/ForecastSheet').then((m) => ({ default: m.ForecastSheet })));
 const UpgradeModal = lazyRetry(
     () => import('./components/UpgradeModal').then((module) => ({ default: module.UpgradeModal })),
     'UpgradeModal',
 );
-const VesselHub = lazyRetry(
-    () => import('./components/VesselHub').then((module) => ({ default: module.VesselHub })),
-    'VesselHub',
-);
-const InventoryPage = lazyRetry(
-    () => import('./components/vessel/InventoryList').then((m) => ({ default: m.InventoryList })),
-    'InventoryList',
-);
-const MaintenancePage = lazyRetry(
-    () => import('./components/vessel/MaintenanceHub').then((m) => ({ default: m.MaintenanceHub })),
-    'MaintenanceHub',
-);
-const EquipmentPage = lazyRetry(
-    () => import('./components/vessel/EquipmentList').then((m) => ({ default: m.EquipmentList })),
-    'EquipmentList',
-);
-const DocumentsPage = lazyRetry(
-    () => import('./components/vessel/DocumentsHub').then((m) => ({ default: m.DocumentsHub })),
-    'DocumentsHub',
-);
-const NmeaGatewayPage = lazyRetry(
-    () => import('./components/vessel/NmeaPage').then((m) => ({ default: m.NmeaPage })),
-    'NmeaPage',
-);
-const PolarPage = lazyRetry(
-    () => import('./components/vessel/PolarPage').then((m) => ({ default: m.PolarPage })),
-    'PolarPage',
-);
-
 const MapHub = lazyRetry(() => import('./components/map/MapHub').then((m) => ({ default: m.MapHub })), 'MapHub');
 const OnboardingWizard = lazyRetry(
     () => import('./components/OnboardingWizard').then((module) => ({ default: module.OnboardingWizard })),
     'OnboardingWizard',
-);
-const WarningDetails = lazyRetry(
-    () => import('./components/WarningDetails').then((module) => ({ default: module.WarningDetails })),
-    'WarningDetails',
-);
-const AnchorWatchPage = lazyRetry(
-    () => import('./components/AnchorWatchPage').then((module) => ({ default: module.AnchorWatchPage })),
-    'AnchorWatchPage',
-);
-const ChatPage = lazyRetry(
-    () => import('./components/ChatPage').then((module) => ({ default: module.ChatPage })),
-    'ChatPage',
-);
-const LogPage = lazyRetry(() => import('./pages/LogPage').then((module) => ({ default: module.LogPage })), 'LogPage');
-const DiaryPage = lazyRetry(
-    () => import('./components/DiaryPage').then((module) => ({ default: module.DiaryPage })),
-    'DiaryPage',
-);
-const CrewPage = lazyRetry(
-    () => import('./components/CrewManagement').then((m) => ({ default: m.CrewManagement })),
-    'CrewManagement',
-);
-const ChecklistsPage = lazyRetry(
-    () => import('./components/vessel/ChecklistsPage').then((m) => ({ default: m.ChecklistsPage })),
-    'ChecklistsPage',
-);
-const GuardianPage = lazyRetry(
-    () => import('./components/GuardianPage').then((m) => ({ default: m.GuardianPage })),
-    'GuardianPage',
 );
 const IOSInstallPrompt = lazyRetry(
     () => import('./components/IOSInstallPrompt').then((m) => ({ default: m.IOSInstallPrompt })),
@@ -113,73 +46,20 @@ const App: React.FC = () => {
     const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData } = useWeather();
     const { settings, togglePro, updateSettings, loading: settingsLoading } = useSettings();
     const { currentView, previousView, setPage, isOffline, transitionDirection } = useUI();
-    const isVesselView =
-        currentView === 'vessel' ||
-        currentView === 'details' ||
-        currentView === 'voyage' ||
-        currentView === 'compass' ||
-        currentView === 'inventory' ||
-        currentView === 'maintenance' ||
-        currentView === 'polars' ||
-        currentView === 'nmea' ||
-        currentView === 'equipment' ||
-        currentView === 'documents' ||
-        currentView === 'diary' ||
-        currentView === 'route' ||
-        currentView === 'crew' ||
-        currentView === 'checklists' ||
-        currentView === 'guardian';
+    const isVesselView = VESSEL_VIEWS.has(currentView);
+
+    // Resolve the active view config from the registry (null for dashboard/map)
+    const activeViewConfig = VIEW_REGISTRY[currentView] ?? null;
 
     // --- LEGAL DISCLAIMER GATE ---
     const [disclaimerAccepted, setDisclaimerAccepted] = useState(() => checkDisclaimerAccepted());
 
-    // Unread DM count for Chat tab badge
-    const [chatUnread, setChatUnread] = useState(0);
     // Track if map was opened from WX page (auto-return) vs tab bar (stay on map)
     const mapFromWxRef = useRef(false);
     const [mapPickerActive, setMapPickerActive] = useState(false);
-    useEffect(() => {
-        let timer: ReturnType<typeof setInterval> | null = null;
-        import('./services/ChatService').then(({ ChatService }) => {
-            const poll = () =>
-                ChatService.getUnreadDMCount()
-                    .then((n) => setChatUnread(n))
-                    .catch(() => {
-                        /* Non-critical — badge count is best-effort */
-                    });
-            poll();
-            timer = setInterval(poll, 30000);
-        });
-        return () => {
-            if (timer) clearInterval(timer);
-        };
-    }, []);
-    // Clear badge when viewing chat
-    useEffect(() => {
-        if (currentView === 'chat') setChatUnread(0);
-    }, [currentView]);
 
-    // --- GLOBAL KEYBOARD SCROLL ---
-    // Ensures ALL inputs scroll above the iOS keyboard automatically.
-    // With KeyboardResize.None, the keyboard overlays the webview — we must scroll manually.
-    useEffect(() => {
-        import('./utils/keyboardScroll').then(({ initGlobalKeyboardScroll }) => {
-            initGlobalKeyboardScroll();
-        });
-    }, []);
-
-    // --- GLOBAL UNHANDLED REJECTION HANDLER ---
-    // Catches unhandled async errors and sends them to Sentry
-    useEffect(() => {
-        const handler = (event: PromiseRejectionEvent) => {
-            event.preventDefault();
-            import('./services/sentry').then(({ captureException }) => {
-                captureException(event.reason instanceof Error ? event.reason : new Error(String(event.reason)));
-            });
-        };
-        window.addEventListener('unhandledrejection', handler);
-        return () => window.removeEventListener('unhandledrejection', handler);
-    }, []);
+    // ── Bootstrap: chat badge, push notifications, keyboard, DB sync, etc. ──
+    const { chatUnread } = useAppBootstrap();
 
     // 2. APP LOGIC / CONTROLLER
     const {
@@ -203,141 +83,6 @@ const App: React.FC = () => {
     } = useAppController();
 
     const isFavorite = weatherData ? settings.savedLocations.includes(weatherData.locationName) : false;
-
-    // Early restore: re-establish anchor watch GPS + geofence on app boot,
-    // even if user opens dashboard first (AnchorWatchPage is lazy-loaded).
-    useEffect(() => {
-        import('./services/AnchorWatchService')
-            .then((m) => m.AnchorWatchService.restoreWatchState())
-            .catch(() => {
-                /* Non-critical */
-            });
-    }, []);
-
-    // NMEA auto-start DISABLED — connection is now explicit via the NMEA page.\n    // Previously this would silently connect to any saved host:port on every app boot,\n    // even when not on the boat, wasting battery and causing confusing reconnect loops.
-
-    // Initialize local-first database and start background sync engine.
-    useEffect(() => {
-        let stopSync: (() => void) | null = null;
-        import('./services/vessel').then(({ initLocalDatabase, startSyncEngine, stopSyncEngine }) => {
-            initLocalDatabase()
-                .then(() => startSyncEngine())
-                .catch((e) => console.error('[App] Local DB init failed:', e));
-            stopSync = stopSyncEngine;
-        });
-        return () => {
-            stopSync?.();
-        };
-    }, []);
-
-    // Wire Push Notification callbacks for in-app handling + deep navigation
-    useEffect(() => {
-        import('./services/PushNotificationService').then(({ PushNotificationService }) => {
-            // Rich in-app toast when push arrives while app is in foreground
-            PushNotificationService.onForegroundPush = (notification) => {
-                pushForegroundToast(notification);
-            };
-
-            // Navigate to the correct page when user taps a push notification
-            PushNotificationService.onNotificationTap = (data) => {
-                const type = data.notification_type as string;
-                switch (type) {
-                    case 'dm':
-                        setPage('chat');
-                        break;
-                    case 'weather_alert':
-                        setPage('dashboard');
-                        break;
-                    case 'anchor_alarm':
-                        setPage('map');
-                        break;
-                    case 'bolo_alert':
-                    case 'suspicious_alert':
-                    case 'drag_warning':
-                    case 'geofence_alert':
-                    case 'hail':
-                        setPage('guardian');
-                        break;
-                    default:
-                        setPage('dashboard');
-                        break;
-                }
-            };
-        });
-
-        return () => {
-            import('./services/PushNotificationService').then(({ PushNotificationService }) => {
-                PushNotificationService.onForegroundPush = null;
-                PushNotificationService.onNotificationTap = null;
-            });
-        };
-    }, [setPage]);
-
-    // Clear badge count when app comes to foreground
-    useEffect(() => {
-        let listener: { remove: () => void } | null = null;
-        import('@capacitor/app')
-            .then(({ App }) => {
-                App.addListener('appStateChange', ({ isActive }) => {
-                    if (isActive) {
-                        import('./services/PushNotificationService').then(({ PushNotificationService }) => {
-                            PushNotificationService.clearBadge();
-                        });
-                    }
-                }).then((l) => {
-                    listener = l;
-                });
-            })
-            .catch(() => {
-                /* web: no Capacitor App plugin */
-            });
-
-        // Also clear on initial mount
-        import('./services/PushNotificationService').then(({ PushNotificationService }) => {
-            PushNotificationService.clearBadge();
-        });
-
-        return () => {
-            listener?.remove();
-        };
-    }, []);
-
-    // Listen for cross-component tab navigation requests (e.g. pin drops in DMs → map)
-    useEffect(() => {
-        const onNavigateTab = (e: Event) => {
-            const { tab } = (e as CustomEvent).detail;
-            if (tab) setPage(tab);
-        };
-        window.addEventListener('thalassa:navigate-tab', onNavigateTab);
-        return () => window.removeEventListener('thalassa:navigate-tab', onNavigateTab);
-    }, [setPage]);
-
-    // Global keyboard dismiss — mimics native iOS behaviour.
-    // Tapping outside an input/textarea/select blurs the active element,
-    // which dismisses the on-screen keyboard.
-    // Exception: don't dismiss when scrolling inside a modal sheet.
-    useEffect(() => {
-        const dismissKeyboard = (e: TouchEvent) => {
-            const active = document.activeElement as HTMLElement | null;
-            if (!active) return;
-            const tag = active.tagName;
-            if (tag !== 'INPUT' && tag !== 'TEXTAREA' && tag !== 'SELECT') return;
-
-            const target = e.target as HTMLElement;
-            // Don't blur if they tapped another input (keyboard stays for the new field)
-            const targetTag = target.tagName;
-            if (targetTag === 'INPUT' || targetTag === 'TEXTAREA' || targetTag === 'SELECT') return;
-            // Don't blur if they tapped inside a label (could be toggling a checkbox/radio)
-            if (target.closest('label')) return;
-            // Don't blur if they're scrolling inside a modal sheet
-            if (target.closest('[data-modal-sheet]')) return;
-
-            active.blur();
-        };
-
-        document.addEventListener('touchstart', dismissKeyboard, { passive: true });
-        return () => document.removeEventListener('touchstart', dismissKeyboard);
-    }, []);
 
     // Compute display mode BEFORE any early returns — needed by useEffect below
     const isLight = effectiveMode === 'light';
@@ -458,7 +203,7 @@ const App: React.FC = () => {
                         role="status"
                         aria-live="polite"
                     >
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 backdrop-blur-md border border-white/10 text-[10px] text-white/50 font-medium uppercase tracking-widest">
+                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 backdrop-blur-md border border-white/10 text-[11px] text-white/50 font-medium uppercase tracking-widest">
                             <div
                                 className="w-1.5 h-1.5 rounded-full bg-orange-400/80 animate-pulse"
                                 aria-hidden="true"
@@ -535,76 +280,59 @@ const App: React.FC = () => {
                             </div>
                         </div>
 
-                        {currentView !== 'details' &&
-                            currentView !== 'compass' &&
-                            currentView !== 'chat' &&
-                            currentView !== 'voyage' &&
-                            currentView !== 'polars' &&
-                            currentView !== 'nmea' &&
-                            currentView !== 'vessel' &&
-                            currentView !== 'inventory' &&
-                            currentView !== 'maintenance' &&
-                            currentView !== 'equipment' &&
-                            currentView !== 'documents' &&
-                            currentView !== 'diary' &&
-                            currentView !== 'route' &&
-                            currentView !== 'crew' &&
-                            currentView !== 'checklists' &&
-                            currentView !== 'guardian' &&
-                            currentView !== 'settings' && (
-                                <div
-                                    className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}
-                                >
-                                    <div className="relative flex-grow md:w-96 group h-full">
-                                        <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
-                                            <input
-                                                type="text"
-                                                value={query}
-                                                readOnly
-                                                placeholder="Select via Map..."
-                                                aria-label="Current location"
-                                                className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default ${isOffline ? 'bg-slate-900/40 border border-white/5 opacity-80' : 'bg-slate-900/60 border border-white/10'}`}
+                        {/* Search bar — only shown on dashboard (non-registered views without explicit flag) */}
+                        {!activeViewConfig && currentView !== 'map' && (
+                            <div
+                                className={`flex items-center gap-3 w-full md:w-auto ${isMobileLandscape ? 'h-8' : 'h-12'} pointer-events-auto`}
+                            >
+                                <div className="relative flex-grow md:w-96 group h-full">
+                                    <form onSubmit={(e) => e.preventDefault()} className="relative w-full h-full">
+                                        <input
+                                            type="text"
+                                            value={query}
+                                            readOnly
+                                            placeholder="Select via Map..."
+                                            aria-label="Current location"
+                                            className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default ${isOffline ? 'bg-slate-900/40 border border-white/5 opacity-80' : 'bg-slate-900/60 border border-white/10'}`}
+                                            onClick={() => {
+                                                mapFromWxRef.current = true;
+                                                setMapPickerActive(true);
+                                                setPage('map');
+                                            }}
+                                        />
+                                        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400 bg-sky-500/10 p-1 rounded-md">
+                                            <SearchIcon className="w-4 h-4" />
+                                        </div>
+                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                onClick={toggleFavorite}
+                                                aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                                                className="p-1.5 rounded-full hover:bg-white/10 text-gray-300 hover:text-yellow-400 transition-colors"
+                                            >
+                                                <StarIcon
+                                                    className={`w-4 h-4 ${isFavorite ? 'text-yellow-400' : ''}`}
+                                                    filled={isFavorite}
+                                                />
+                                            </button>
+                                            <div className="w-px h-4 bg-white/20 mx-1"></div>
+                                            <button
+                                                type="button"
                                                 onClick={() => {
                                                     mapFromWxRef.current = true;
                                                     setMapPickerActive(true);
                                                     setPage('map');
                                                 }}
-                                            />
-                                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400 bg-sky-500/10 p-1 rounded-md">
-                                                <SearchIcon className="w-4 h-4" />
-                                            </div>
-                                            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                                                <button
-                                                    type="button"
-                                                    onClick={toggleFavorite}
-                                                    aria-label={
-                                                        isFavorite ? 'Remove from favorites' : 'Add to favorites'
-                                                    }
-                                                    className="p-1.5 rounded-full hover:bg-white/10 text-gray-300 hover:text-yellow-400 transition-colors"
-                                                >
-                                                    <StarIcon
-                                                        className={`w-4 h-4 ${isFavorite ? 'text-yellow-400' : ''}`}
-                                                        filled={isFavorite}
-                                                    />
-                                                </button>
-                                                <div className="w-px h-4 bg-white/20 mx-1"></div>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        mapFromWxRef.current = true;
-                                                        setMapPickerActive(true);
-                                                        setPage('map');
-                                                    }}
-                                                    className="p-1.5 hover:bg-white/10 rounded-full text-gray-300 hover:text-emerald-400 transition-colors"
-                                                    aria-label="Open map"
-                                                >
-                                                    <MapIcon className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                        </form>
-                                    </div>
+                                                className="p-1.5 hover:bg-white/10 rounded-full text-gray-300 hover:text-emerald-400 transition-colors"
+                                                aria-label="Open map"
+                                            >
+                                                <MapIcon className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    </form>
                                 </div>
-                            )}
+                            </div>
+                        )}
                     </header>
                 )}
 
@@ -614,25 +342,7 @@ const App: React.FC = () => {
                 {currentView !== 'map' ? (
                     <PullToRefresh
                         onRefresh={() => refreshData()}
-                        disabled={
-                            currentView === 'dashboard' ||
-                            currentView === 'voyage' ||
-                            currentView === 'details' ||
-                            currentView === 'compass' ||
-                            currentView === 'chat' ||
-                            currentView === 'route' ||
-                            currentView === 'polars' ||
-                            currentView === 'diary' ||
-                            currentView === 'inventory' ||
-                            currentView === 'nmea' ||
-                            currentView === 'maintenance' ||
-                            currentView === 'equipment' ||
-                            currentView === 'documents' ||
-                            currentView === 'crew' ||
-                            currentView === 'checklists' ||
-                            currentView === 'guardian' ||
-                            currentView === 'vessel'
-                        }
+                        disabled={currentView === 'dashboard' || PULL_REFRESH_DISABLED_VIEWS.has(currentView)}
                     >
                         <main
                             id="main-content"
@@ -648,6 +358,7 @@ const App: React.FC = () => {
                                             onSwipeBack={() => setPage('vessel')}
                                         >
                                             <div className="h-full overflow-y-auto overflow-x-hidden">
+                                                {/* Dashboard — special case with error/loading states */}
                                                 {currentView === 'dashboard' && (
                                                     <>
                                                         {error ? (
@@ -656,7 +367,8 @@ const App: React.FC = () => {
                                                                     Error
                                                                 </h3>
                                                                 <p className="text-white/80">{error}</p>
-                                                                <button aria-label="Retry"
+                                                                <button
+                                                                    aria-label="Retry"
                                                                     onClick={() =>
                                                                         fetchWeather(
                                                                             query || settings.defaultLocation || '',
@@ -698,125 +410,27 @@ const App: React.FC = () => {
                                                     </>
                                                 )}
 
-                                                {currentView === 'voyage' && (
-                                                    <ErrorBoundary boundaryName="VoyagePlanner">
-                                                        <VoyagePlanner
-                                                            onTriggerUpgrade={() => setIsUpgradeOpen(true)}
-                                                        />
-                                                    </ErrorBoundary>
-                                                )}
-
-                                                {currentView === 'settings' && (
-                                                    <ErrorBoundary boundaryName="Settings">
-                                                        <SettingsView
-                                                            settings={settings}
-                                                            onSave={updateSettings}
-                                                            onLocationSelect={handleFavoriteSelect}
-                                                            onBack={() => setPage('vessel')}
-                                                        />
-                                                    </ErrorBoundary>
-                                                )}
-
-                                                {currentView === 'warnings' && (
-                                                    <ErrorBoundary boundaryName="Warnings">
-                                                        <WarningDetails alerts={weatherData?.alerts || []} />
-                                                    </ErrorBoundary>
-                                                )}
-
-                                                {currentView === 'chat' && (
-                                                    <ErrorBoundary boundaryName="Chat">
-                                                        <ChatPage />
-                                                    </ErrorBoundary>
-                                                )}
-
-                                                {currentView === 'vessel' && (
-                                                    <ErrorBoundary boundaryName="VesselHub">
-                                                        <VesselHub
-                                                            onNavigate={setPage}
-                                                            settings={settings as unknown as Record<string, unknown>}
-                                                            onSave={(u) =>
-                                                                updateSettings(u as Partial<typeof settings>)
-                                                            }
-                                                        />
-                                                    </ErrorBoundary>
-                                                )}
-
-                                                {/* Vessel sub-pages — full-screen push on all devices */}
-                                                {isVesselView && currentView !== 'vessel' && (
-                                                    <>
-                                                        {currentView === 'details' && (
-                                                            <ErrorBoundary boundaryName="LogPage">
-                                                                <LogPage onBack={() => setPage('vessel')} />
+                                                {/* Registry-driven views — all non-dashboard/non-map pages */}
+                                                {activeViewConfig &&
+                                                    (() => {
+                                                        const ViewComponent = activeViewConfig.component;
+                                                        const viewCtx: ViewContext = {
+                                                            setPage,
+                                                            setIsUpgradeOpen,
+                                                            settings: settings as unknown as Record<string, unknown>,
+                                                            updateSettings: updateSettings as unknown as (
+                                                                u: Record<string, unknown>,
+                                                            ) => void,
+                                                            handleFavoriteSelect,
+                                                            weatherAlerts: weatherData?.alerts || [],
+                                                        };
+                                                        const viewProps = activeViewConfig.getProps?.(viewCtx) ?? {};
+                                                        return (
+                                                            <ErrorBoundary boundaryName={activeViewConfig.boundaryName}>
+                                                                <ViewComponent {...viewProps} />
                                                             </ErrorBoundary>
-                                                        )}
-                                                        {currentView === 'compass' && (
-                                                            <ErrorBoundary boundaryName="AnchorWatch">
-                                                                <AnchorWatchPage onBack={() => setPage('vessel')} />
-                                                            </ErrorBoundary>
-                                                        )}
-                                                        {currentView === 'inventory' && (
-                                                            <ErrorBoundary boundaryName="Inventory">
-                                                                <InventoryPage onBack={() => setPage('vessel')} />
-                                                            </ErrorBoundary>
-                                                        )}
-                                                        {currentView === 'maintenance' && (
-                                                            <ErrorBoundary boundaryName="Maintenance">
-                                                                <MaintenancePage onBack={() => setPage('vessel')} />
-                                                            </ErrorBoundary>
-                                                        )}
-                                                        {currentView === 'polars' && (
-                                                            <ErrorBoundary boundaryName="Polars">
-                                                                <PolarPage
-                                                                    onBack={() => setPage('vessel')}
-                                                                    onNavigateToNmea={() => setPage('nmea')}
-                                                                />
-                                                            </ErrorBoundary>
-                                                        )}
-                                                        {currentView === 'nmea' && (
-                                                            <ErrorBoundary boundaryName="NmeaGateway">
-                                                                <NmeaGatewayPage onBack={() => setPage('vessel')} />
-                                                            </ErrorBoundary>
-                                                        )}
-                                                        {currentView === 'equipment' && (
-                                                            <ErrorBoundary boundaryName="Equipment">
-                                                                <EquipmentPage onBack={() => setPage('vessel')} />
-                                                            </ErrorBoundary>
-                                                        )}
-                                                        {currentView === 'documents' && (
-                                                            <ErrorBoundary boundaryName="Documents">
-                                                                <DocumentsPage onBack={() => setPage('vessel')} />
-                                                            </ErrorBoundary>
-                                                        )}
-                                                        {currentView === 'diary' && (
-                                                            <ErrorBoundary boundaryName="Diary">
-                                                                <DiaryPage onBack={() => setPage('vessel')} />
-                                                            </ErrorBoundary>
-                                                        )}
-                                                        {currentView === 'route' && (
-                                                            <ErrorBoundary boundaryName="RoutePlanner">
-                                                                <VoyagePlanner
-                                                                    onTriggerUpgrade={() => setIsUpgradeOpen(true)}
-                                                                    onBack={() => setPage('vessel')}
-                                                                />
-                                                            </ErrorBoundary>
-                                                        )}
-                                                        {currentView === 'crew' && (
-                                                            <ErrorBoundary boundaryName="Crew">
-                                                                <CrewPage onBack={() => setPage('vessel')} />
-                                                            </ErrorBoundary>
-                                                        )}
-                                                        {currentView === 'checklists' && (
-                                                            <ErrorBoundary boundaryName="Checklists">
-                                                                <ChecklistsPage onBack={() => setPage('vessel')} />
-                                                            </ErrorBoundary>
-                                                        )}
-                                                        {currentView === 'guardian' && (
-                                                            <ErrorBoundary boundaryName="Guardian">
-                                                                <GuardianPage onBack={() => setPage('vessel')} />
-                                                            </ErrorBoundary>
-                                                        )}
-                                                    </>
-                                                )}
+                                                        );
+                                                    })()}
                                             </div>
                                         </PageTransition>
                                     </div>

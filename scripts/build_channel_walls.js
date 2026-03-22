@@ -1,11 +1,11 @@
 /**
  * Build Channel Walls from IALA Marks
- * 
+ *
  * Takes nav_markers.geojson and creates virtual channel walls:
  * 1. Extracts port (red) and starboard (green) lateral marks
  * 2. Sorts by nearest-neighbor for clean channel lines
  * 3. Outputs thalassa_obstacles.geojson for MarinaGridRouter
- * 
+ *
  * Usage: node build_channel_walls.js [markers_file] [danger_file]
  */
 
@@ -85,7 +85,7 @@ function sortBuoysToChains(buoys, sideName) {
 
     if (currentChain.length >= 2) chains.push(currentChain);
 
-    console.log(`  ${sideName}: ${chains.length} chains (${chains.map(c => c.length + ' marks').join(', ')})`);
+    console.log(`  ${sideName}: ${chains.length} chains (${chains.map((c) => c.length + ' marks').join(', ')})`);
     return chains;
 }
 
@@ -98,19 +98,27 @@ const starboardChains = sortBuoysToChains(starboardBuoys, 'Starboard');
 const allFeatures = [...otherObstacles];
 
 for (let i = 0; i < portChains.length; i++) {
-    const coords = portChains[i].map(b => b.geometry.coordinates);
-    allFeatures.push(turf.lineString(coords, {
-        name: `Port Wall ${i + 1}`, side: 'port',
-        marks: portChains[i].length, type: 'virtual_channel_wall',
-    }));
+    const coords = portChains[i].map((b) => b.geometry.coordinates);
+    allFeatures.push(
+        turf.lineString(coords, {
+            name: `Port Wall ${i + 1}`,
+            side: 'port',
+            marks: portChains[i].length,
+            type: 'virtual_channel_wall',
+        }),
+    );
 }
 
 for (let i = 0; i < starboardChains.length; i++) {
-    const coords = starboardChains[i].map(b => b.geometry.coordinates);
-    allFeatures.push(turf.lineString(coords, {
-        name: `Starboard Wall ${i + 1}`, side: 'starboard',
-        marks: starboardChains[i].length, type: 'virtual_channel_wall',
-    }));
+    const coords = starboardChains[i].map((b) => b.geometry.coordinates);
+    allFeatures.push(
+        turf.lineString(coords, {
+            name: `Starboard Wall ${i + 1}`,
+            side: 'starboard',
+            marks: starboardChains[i].length,
+            type: 'virtual_channel_wall',
+        }),
+    );
 }
 
 // ── Load danger polygons if available ───────────────────────────

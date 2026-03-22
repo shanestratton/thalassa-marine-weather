@@ -19,7 +19,8 @@ export const VoyageChoiceDialog: React.FC<VoyageChoiceDialogProps> = React.memo(
                 </p>
 
                 <div className="space-y-3">
-                    <button aria-label="Join"
+                    <button
+                        aria-label="Join"
                         onClick={onContinue}
                         className="w-full py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
                     >
@@ -40,7 +41,8 @@ export const VoyageChoiceDialog: React.FC<VoyageChoiceDialogProps> = React.memo(
                         Continue Last Voyage
                     </button>
 
-                    <button aria-label="Add"
+                    <button
+                        aria-label="Add"
                         onClick={onNewVoyage}
                         className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
                     >
@@ -50,7 +52,8 @@ export const VoyageChoiceDialog: React.FC<VoyageChoiceDialogProps> = React.memo(
                         Start New Voyage
                     </button>
 
-                    <button aria-label="Cancel"
+                    <button
+                        aria-label="Cancel"
                         onClick={onCancel}
                         className="w-full py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold transition-colors"
                     >
@@ -80,13 +83,15 @@ export const StopVoyageDialog: React.FC<StopVoyageDialogProps> = React.memo(({ o
                 This will finalize your voyage log. You won&apos;t be able to add more entries to this voyage.
             </p>
             <div className="flex gap-3">
-                <button aria-label="Save"
+                <button
+                    aria-label="Save"
                     onClick={onCancel}
                     className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-xl font-bold transition-colors"
                 >
                     Cancel
                 </button>
-                <button aria-label="Save"
+                <button
+                    aria-label="Save"
                     onClick={onConfirm}
                     className="flex-1 py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold transition-colors"
                 >

@@ -862,16 +862,16 @@ function generatePressureHeatmap(
     // Windy-inspired: intense magenta/red for deep lows → cyan/blue for highs
     const colorStops: [number, number, number, number, number][] = [
         // [pressure_hPa, R, G, B, A]
-        [960, 180, 30, 30, 220],   // Intense red — extreme cyclone
-        [975, 200, 40, 100, 210],  // Deep magenta — severe low
-        [985, 210, 60, 150, 200],  // Hot magenta — cyclone
-        [995, 180, 80, 200, 185],  // Purple-magenta — moderate low
+        [960, 180, 30, 30, 220], // Intense red — extreme cyclone
+        [975, 200, 40, 100, 210], // Deep magenta — severe low
+        [985, 210, 60, 150, 200], // Hot magenta — cyclone
+        [995, 180, 80, 200, 185], // Purple-magenta — moderate low
         [1005, 120, 100, 210, 170], // Blue-violet — mild low
-        [1012, 80, 160, 220, 140],  // Ocean blue — standard (anchor)
-        [1018, 60, 190, 230, 150],  // Bright cyan — neutral-high
-        [1025, 50, 140, 220, 165],  // Deep blue — moderate high
-        [1035, 40, 100, 200, 180],  // Royal blue — strong high
-        [1045, 30, 60, 160, 190],   // Deep navy — extreme high
+        [1012, 80, 160, 220, 140], // Ocean blue — standard (anchor)
+        [1018, 60, 190, 230, 150], // Bright cyan — neutral-high
+        [1025, 50, 140, 220, 165], // Deep blue — moderate high
+        [1035, 40, 100, 200, 180], // Royal blue — strong high
+        [1045, 30, 60, 160, 190], // Deep navy — extreme high
     ];
 
     // Clamp range to observed data (with padding)
