@@ -167,7 +167,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
     return (
         <div
-            className="w-full h-full flex flex-col px-4 pt-4 overflow-y-auto animate-in fade-in duration-300 vessel-hub-no-scrollbar"
+            className="w-full h-full flex flex-col px-4 pt-4 overflow-hidden animate-in fade-in duration-300 vessel-hub-no-scrollbar"
             style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
         >
             {/* ═══════════════════════════════════════════ */}
@@ -422,7 +422,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
             {/* ═══════════════════════════════════════════ */}
             {/* ZONE 3: APP ADMINISTRATION */}
             {/* ═══════════════════════════════════════════ */}
-            <div className="mt-2">
+            <div className="mt-auto">
                 <div className="flex items-center gap-2 mb-3">
                     <div className="w-1 h-4 rounded-full bg-gray-500" />
                     <span className="text-[11px] font-black text-gray-400 uppercase tracking-[0.2em]">
