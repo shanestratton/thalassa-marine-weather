@@ -21,13 +21,26 @@ import { getShoppingList, type ShoppingListSummary } from '../../services/Shoppi
 import { triggerHaptic } from '../../utils/system';
 import { scaleIngredient } from '../../services/GalleyRecipeService';
 
+import { type PassageStatus } from '../../services/PassagePlanService';
+
 interface GalleyCardProps {
     onOpenCookingMode?: (meal: MealPlan) => void;
+    /** Passage permissions — if omitted, all child cards are visible (owner mode) */
+    passageStatus?: PassageStatus;
 }
 
-export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode }) => {
+export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passageStatus }) => {
+    // Default: owner sees everything
+    const perms = passageStatus ?? {
+        visible: true,
+        isOwner: true,
+        canViewMeals: true,
+        canViewChat: true,
+        canViewRoute: true,
+        canViewChecklist: true,
+    };
     const [expanded, setExpanded] = useState(false);
-    const [activeTab, setActiveTab] = useState<'food' | 'chat'>('food');
+    const [activeTab, setActiveTab] = useState<'' | 'food' | 'chat' | 'route' | 'checklist'>('food');
     const [activeMeals, setActiveMeals] = useState<MealPlan[]>([]);
     const [shoppingSummary, setShoppingSummary] = useState<ShoppingListSummary | null>(null);
     const [galleyMessages, setGalleyMessages] = useState<{ id: string; text: string; sender: string; time: string }[]>(
@@ -112,7 +125,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode }) => 
                 onClick={handleToggle}
                 className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all ${
                     expanded
-                        ? 'bg-gradient-to-r from-amber-500/10 to-orange-500/10 border-amber-500/20'
+                        ? 'bg-gradient-to-r from-sky-500/10 to-indigo-500/10 border-sky-500/20'
                         : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]'
                 }`}
                 aria-expanded={expanded}
@@ -123,10 +136,10 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode }) => 
                 </div>
                 <div className="flex-1 text-left">
                     <p className="text-xs font-bold text-white">Passage Planning</p>
-                    <p className="text-[10px] text-amber-400/70">
+                    <p className="text-[10px] text-sky-400/70">
                         {activeMeals.length > 0
                             ? `${activeMeals.length} meal${activeMeals.length !== 1 ? 's' : ''} planned`
-                            : 'No active meals'}
+                            : 'Meals · Chat · Route · Checklist'}
                         {reservedCount > 0 && ` · ${reservedCount} reserved`}
                     </p>
                 </div>
@@ -141,115 +154,239 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode }) => 
                 </svg>
             </button>
 
-            {/* ── Expanded Content ── */}
+            {/* ── Expanded Content: 4 Child Cards ── */}
             {expanded && (
-                <div className="mt-2 rounded-2xl bg-white/[0.02] border border-white/[0.06] overflow-hidden animate-in slide-in-from-top-2 duration-200">
-                    {/* Tab switcher */}
-                    <div className="flex border-b border-white/[0.06]">
-                        <button
-                            onClick={() => setActiveTab('food')}
-                            className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-[0.15em] transition-colors ${
-                                activeTab === 'food'
-                                    ? 'text-amber-400 border-b-2 border-amber-400'
-                                    : 'text-gray-500 hover:text-gray-300'
-                            }`}
+                <div className="mt-2 space-y-2 animate-in slide-in-from-top-2 duration-200">
+                    {/* ── 1. Meal Planner ── */}
+                    {perms.canViewMeals && (
+                        <ChildCard
+                            icon="🍽️"
+                            title="Meal Planner"
+                            subtitle={
+                                activeMeals.length > 0
+                                    ? `${activeMeals.length} meal${activeMeals.length !== 1 ? 's' : ''} planned`
+                                    : 'No active meals'
+                            }
+                            color="amber"
+                            defaultOpen={activeTab === 'food'}
+                            onToggle={() => setActiveTab(activeTab === 'food' ? '' : 'food')}
+                            isOpen={activeTab === 'food'}
                         >
-                            🍽️ Food
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('chat')}
-                            className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-[0.15em] transition-colors ${
-                                activeTab === 'chat'
-                                    ? 'text-sky-400 border-b-2 border-sky-400'
-                                    : 'text-gray-500 hover:text-gray-300'
-                            }`}
-                        >
-                            💬 Galley Chat
-                        </button>
-                    </div>
-
-                    {/* ── Tab A: Chef's Plate ── */}
-                    {activeTab === 'food' && (
-                        <div className="max-h-[420px] overflow-y-auto">
-                            {activeMeals.length === 0 ? (
-                                <QuickMealForm
-                                    onScheduled={() => {
-                                        const reserved = getMealsByStatus('reserved');
-                                        const cooking = getMealsByStatus('cooking');
-                                        setActiveMeals([...cooking, ...reserved]);
-                                    }}
-                                />
-                            ) : (
-                                activeMeals.map((meal) => {
-                                    const baseServings = meal.servings_planned || 4;
-                                    return (
-                                        <ChefPlate
-                                            key={meal.id}
-                                            meal={meal}
-                                            baseServings={baseServings}
-                                            cooking={cookingMealId === meal.id}
-                                            onCook={() => handleCookNow(meal)}
-                                            shoppingSummary={shoppingSummary}
-                                        />
-                                    );
-                                })
-                            )}
-                        </div>
-                    )}
-
-                    {/* ── Tab B: Galley Chat ── */}
-                    {activeTab === 'chat' && (
-                        <div className="flex flex-col max-h-[280px]">
-                            {/* Messages */}
-                            <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-[120px]">
-                                {galleyMessages.length === 0 ? (
-                                    <div className="text-center py-4">
-                                        <span className="text-2xl">💬</span>
-                                        <p className="text-[11px] text-gray-500 mt-1">
-                                            Coordinate meal prep with the crew
-                                        </p>
-                                    </div>
+                            <div className="max-h-[420px] overflow-y-auto">
+                                {activeMeals.length === 0 ? (
+                                    <QuickMealForm
+                                        onScheduled={() => {
+                                            const reserved = getMealsByStatus('reserved');
+                                            const cooking = getMealsByStatus('cooking');
+                                            setActiveMeals([...cooking, ...reserved]);
+                                        }}
+                                    />
                                 ) : (
-                                    galleyMessages.map((msg) => (
-                                        <div key={msg.id} className="flex items-start gap-2">
-                                            <div className="w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center text-[10px] text-amber-400 font-bold flex-shrink-0">
-                                                {msg.sender[0]}
-                                            </div>
-                                            <div className="flex-1">
-                                                <div className="flex items-baseline gap-2">
-                                                    <span className="text-[11px] font-bold text-white">
-                                                        {msg.sender}
-                                                    </span>
-                                                    <span className="text-[9px] text-gray-600">{msg.time}</span>
-                                                </div>
-                                                <p className="text-xs text-gray-300 leading-relaxed">{msg.text}</p>
-                                            </div>
-                                        </div>
-                                    ))
+                                    activeMeals.map((meal) => {
+                                        const baseServings = meal.servings_planned || 4;
+                                        return (
+                                            <ChefPlate
+                                                key={meal.id}
+                                                meal={meal}
+                                                baseServings={baseServings}
+                                                cooking={cookingMealId === meal.id}
+                                                onCook={() => handleCookNow(meal)}
+                                                shoppingSummary={shoppingSummary}
+                                            />
+                                        );
+                                    })
                                 )}
                             </div>
+                        </ChildCard>
+                    )}
 
-                            {/* Compose */}
-                            <div className="border-t border-white/[0.06] p-2 flex gap-2">
-                                <input
-                                    value={galleyInput}
-                                    onChange={(e) => setGalleyInput(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleSendGalleyMsg()}
-                                    placeholder="Message the galley crew…"
-                                    className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
-                                />
-                                <button
-                                    onClick={handleSendGalleyMsg}
-                                    disabled={!galleyInput.trim()}
-                                    className="px-3 py-2 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-400 font-bold disabled:opacity-30 hover:bg-amber-500/20 transition-colors"
-                                >
-                                    Send
-                                </button>
+                    {/* ── 2. Group Chat ── */}
+                    {perms.canViewChat && (
+                        <ChildCard
+                            icon="💬"
+                            title="Group Chat"
+                            subtitle={
+                                galleyMessages.length > 0
+                                    ? `${galleyMessages.length} message${galleyMessages.length !== 1 ? 's' : ''}`
+                                    : 'Coordinate with crew'
+                            }
+                            color="sky"
+                            defaultOpen={false}
+                            onToggle={() => setActiveTab(activeTab === 'chat' ? '' : 'chat')}
+                            isOpen={activeTab === 'chat'}
+                        >
+                            <div className="flex flex-col max-h-[280px]">
+                                {/* Messages */}
+                                <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-[120px]">
+                                    {galleyMessages.length === 0 ? (
+                                        <div className="text-center py-4">
+                                            <span className="text-2xl">💬</span>
+                                            <p className="text-[11px] text-gray-500 mt-1">
+                                                Coordinate meal prep with the crew
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        galleyMessages.map((msg) => (
+                                            <div key={msg.id} className="flex items-start gap-2">
+                                                <div className="w-6 h-6 rounded-full bg-sky-500/20 flex items-center justify-center text-[10px] text-sky-400 font-bold flex-shrink-0">
+                                                    {msg.sender[0]}
+                                                </div>
+                                                <div className="flex-1">
+                                                    <div className="flex items-baseline gap-2">
+                                                        <span className="text-[11px] font-bold text-white">
+                                                            {msg.sender}
+                                                        </span>
+                                                        <span className="text-[9px] text-gray-600">{msg.time}</span>
+                                                    </div>
+                                                    <p className="text-xs text-gray-300 leading-relaxed">{msg.text}</p>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+
+                                {/* Compose */}
+                                <div className="border-t border-white/[0.06] p-2 flex gap-2">
+                                    <input
+                                        value={galleyInput}
+                                        onChange={(e) => setGalleyInput(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleSendGalleyMsg()}
+                                        placeholder="Message the crew…"
+                                        className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-sky-500/30"
+                                    />
+                                    <button
+                                        onClick={handleSendGalleyMsg}
+                                        disabled={!galleyInput.trim()}
+                                        className="px-3 py-2 bg-sky-500/10 border border-sky-500/20 rounded-lg text-xs text-sky-400 font-bold disabled:opacity-30 hover:bg-sky-500/20 transition-colors"
+                                    >
+                                        Send
+                                    </button>
+                                </div>
                             </div>
-                        </div>
+                        </ChildCard>
+                    )}
+
+                    {/* ── 3. Passage Route ── */}
+                    {perms.canViewRoute && (
+                        <ChildCard
+                            icon="🗺️"
+                            title="Passage Route"
+                            subtitle="Plan your route"
+                            color="emerald"
+                            defaultOpen={false}
+                            onToggle={() => setActiveTab(activeTab === 'route' ? '' : 'route')}
+                            isOpen={activeTab === 'route'}
+                        >
+                            <div className="p-4 text-center">
+                                <span className="text-3xl">🗺️</span>
+                                <p className="text-sm font-bold text-white mt-2">Passage Route</p>
+                                <p className="text-[11px] text-gray-500 mt-1">
+                                    Set waypoints, plan your passage, and view weather routing
+                                </p>
+                                <div className="mt-3 px-4">
+                                    <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                                        <span className="text-base">📍</span>
+                                        <div className="flex-1 text-left">
+                                            <p className="text-[11px] text-gray-400">
+                                                Use the Route Planner from the main menu to set your passage route. Your
+                                                active route will appear here.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </ChildCard>
+                    )}
+
+                    {/* ── 4. Checklist ── */}
+                    {perms.canViewChecklist && (
+                        <ChildCard
+                            icon="✅"
+                            title="Checklist"
+                            subtitle="Pre-departure checks"
+                            color="violet"
+                            defaultOpen={false}
+                            onToggle={() => setActiveTab(activeTab === 'checklist' ? '' : 'checklist')}
+                            isOpen={activeTab === 'checklist'}
+                        >
+                            <div className="p-4 text-center">
+                                <span className="text-3xl">✅</span>
+                                <p className="text-sm font-bold text-white mt-2">Pre-Departure Checklist</p>
+                                <p className="text-[11px] text-gray-500 mt-1">
+                                    Run through your safety and departure checks before casting off
+                                </p>
+                                <div className="mt-3 px-4">
+                                    <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                                        <span className="text-base">📋</span>
+                                        <div className="flex-1 text-left">
+                                            <p className="text-[11px] text-gray-400">
+                                                Manage your checklists from the Vessel Hub. Your active checklist will
+                                                appear here for quick access.
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </ChildCard>
                     )}
                 </div>
             )}
+        </div>
+    );
+};
+
+// ── Collapsible Child Card ──
+const COLOR_MAP: Record<string, { bg: string; border: string; text: string; iconBg: string }> = {
+    amber: { bg: 'bg-amber-500/10', border: 'border-amber-500/20', text: 'text-amber-400', iconBg: 'bg-amber-500/15' },
+    sky: { bg: 'bg-sky-500/10', border: 'border-sky-500/20', text: 'text-sky-400', iconBg: 'bg-sky-500/15' },
+    emerald: {
+        bg: 'bg-emerald-500/10',
+        border: 'border-emerald-500/20',
+        text: 'text-emerald-400',
+        iconBg: 'bg-emerald-500/15',
+    },
+    violet: {
+        bg: 'bg-violet-500/10',
+        border: 'border-violet-500/20',
+        text: 'text-violet-400',
+        iconBg: 'bg-violet-500/15',
+    },
+};
+
+const ChildCard: React.FC<{
+    icon: string;
+    title: string;
+    subtitle: string;
+    color: string;
+    isOpen: boolean;
+    onToggle: () => void;
+    defaultOpen?: boolean;
+    children: React.ReactNode;
+}> = ({ icon, title, subtitle, color, isOpen, onToggle, children }) => {
+    const c = COLOR_MAP[color] || COLOR_MAP.amber;
+    return (
+        <div
+            className={`rounded-2xl border overflow-hidden transition-all ${isOpen ? c.border + ' ' + c.bg : 'border-white/[0.06] bg-white/[0.02]'}`}
+        >
+            <button onClick={onToggle} className="w-full flex items-center gap-3 p-3 text-left" aria-expanded={isOpen}>
+                <div className={`p-1.5 rounded-lg ${c.iconBg} flex-shrink-0`}>
+                    <span className="text-sm">{icon}</span>
+                </div>
+                <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-bold text-white">{title}</p>
+                    <p className={`text-[10px] ${c.text} opacity-70`}>{subtitle}</p>
+                </div>
+                <svg
+                    className={`w-3.5 h-3.5 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+            </button>
+            {isOpen && <div className="border-t border-white/[0.06]">{children}</div>}
         </div>
     );
 };

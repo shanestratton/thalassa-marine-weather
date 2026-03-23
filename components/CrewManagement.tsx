@@ -17,6 +17,8 @@ import {
     type SharedRegister,
     type CrewMember,
     ALL_REGISTERS,
+    VESSEL_REGISTERS,
+    PASSAGE_REGISTERS,
     REGISTER_LABELS,
     REGISTER_ICONS,
     inviteCrew,
@@ -628,59 +630,50 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 />
                             </div>
 
-                            {/* Register selection */}
-                            <div>
-                                <label className="text-[11px] uppercase font-bold text-gray-400 mb-2 ml-1 block tracking-wide">
-                                    Share These Registers
-                                </label>
-                                <div className="grid grid-cols-2 gap-2">
-                                    {ALL_REGISTERS.map((reg) => {
-                                        const selected = inviteRegisters.includes(reg);
-                                        return (
-                                            <button
-                                                aria-label="Register"
-                                                key={reg}
-                                                type="button"
-                                                onClick={() => toggleRegister(reg, inviteRegisters, setInviteRegisters)}
-                                                className={`p-3 rounded-xl border text-left transition-all active:scale-95 ${
-                                                    selected
-                                                        ? 'bg-sky-500/15 border-sky-500/40 shadow-lg shadow-sky-500/5'
-                                                        : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]'
-                                                }`}
-                                            >
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-lg">{REGISTER_ICONS[reg]}</span>
-                                                    <div>
-                                                        <p
-                                                            className={`text-xs font-bold ${selected ? 'text-sky-300' : 'text-white'}`}
-                                                        >
-                                                            {REGISTER_LABELS[reg]}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                                {/* Checkbox indicator */}
-                                                <div
-                                                    className={`mt-2 w-4 h-4 rounded-md border-2 flex items-center justify-center ${selected ? 'bg-sky-500 border-sky-500' : 'border-white/20'}`}
-                                                >
-                                                    {selected && (
-                                                        <svg
-                                                            className="w-2.5 h-2.5 text-white"
-                                                            fill="none"
-                                                            viewBox="0 0 24 24"
-                                                            stroke="currentColor"
-                                                            strokeWidth={3}
-                                                        >
-                                                            <path
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                                d="M4.5 12.75l6 6 9-13.5"
-                                                            />
-                                                        </svg>
-                                                    )}
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
+                            {/* Register selection — grouped */}
+                            <div className="space-y-4">
+                                {/* Vessel Registers */}
+                                <div>
+                                    <label className="text-[11px] uppercase font-bold text-gray-400 mb-2 ml-1 block tracking-wide">
+                                        Vessel Registers
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {VESSEL_REGISTERS.map((reg) => {
+                                            const selected = inviteRegisters.includes(reg);
+                                            return (
+                                                <RegisterButton
+                                                    key={reg}
+                                                    reg={reg}
+                                                    selected={selected}
+                                                    onToggle={() =>
+                                                        toggleRegister(reg, inviteRegisters, setInviteRegisters)
+                                                    }
+                                                />
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                {/* Passage Planning */}
+                                <div>
+                                    <label className="text-[11px] uppercase font-bold text-sky-400 mb-2 ml-1 block tracking-wide">
+                                        🧭 Passage Planning
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {PASSAGE_REGISTERS.map((reg) => {
+                                            const selected = inviteRegisters.includes(reg);
+                                            return (
+                                                <RegisterButton
+                                                    key={reg}
+                                                    reg={reg}
+                                                    selected={selected}
+                                                    onToggle={() =>
+                                                        toggleRegister(reg, inviteRegisters, setInviteRegisters)
+                                                    }
+                                                />
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             </div>
 
@@ -807,3 +800,41 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         </div>
     );
 });
+
+// ── Reusable register toggle button ──
+const RegisterButton: React.FC<{
+    reg: SharedRegister;
+    selected: boolean;
+    onToggle: () => void;
+}> = ({ reg, selected, onToggle }) => (
+    <button
+        aria-label="Register"
+        type="button"
+        onClick={onToggle}
+        className={`p-3 rounded-xl border text-left transition-all active:scale-95 ${
+            selected
+                ? 'bg-sky-500/15 border-sky-500/40 shadow-lg shadow-sky-500/5'
+                : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]'
+        }`}
+    >
+        <div className="flex items-center gap-2">
+            <span className="text-lg">{REGISTER_ICONS[reg]}</span>
+            <p className={`text-xs font-bold ${selected ? 'text-sky-300' : 'text-white'}`}>{REGISTER_LABELS[reg]}</p>
+        </div>
+        <div
+            className={`mt-2 w-4 h-4 rounded-md border-2 flex items-center justify-center ${selected ? 'bg-sky-500 border-sky-500' : 'border-white/20'}`}
+        >
+            {selected && (
+                <svg
+                    className="w-2.5 h-2.5 text-white"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={3}
+                >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+            )}
+        </div>
+    </button>
+);

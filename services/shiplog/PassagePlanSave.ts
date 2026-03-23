@@ -158,6 +158,14 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
             log.warn('Auto-create voyage from passage plan failed (non-critical):', e);
         }
 
+        // Activate the passage plan so the Passage Planning card appears
+        try {
+            const { setPassagePlanActive } = await import('../PassagePlanService');
+            setPassagePlanActive(voyageId);
+        } catch {
+            /* non-critical */
+        }
+
         return voyageId;
     } catch (err) {
         log.error('savePassagePlanToLogbook error:', err);

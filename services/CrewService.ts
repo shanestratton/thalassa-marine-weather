@@ -18,9 +18,30 @@ const log = createLogger('CrewService');
 // ── Types ──────────────────────────────────────────────────────
 
 /** Registers that can be shared with crew */
-export type SharedRegister = 'stores' | 'equipment' | 'maintenance' | 'documents' | 'galley';
+export type SharedRegister =
+    | 'stores'
+    | 'equipment'
+    | 'maintenance'
+    | 'documents'
+    | 'galley'
+    | 'passage_meals'
+    | 'passage_chat'
+    | 'passage_route'
+    | 'passage_checklist';
 
-export const ALL_REGISTERS: SharedRegister[] = ['stores', 'equipment', 'maintenance', 'documents', 'galley'];
+/** Vessel-level registers (Ship's Office) */
+export const VESSEL_REGISTERS: SharedRegister[] = ['stores', 'equipment', 'maintenance', 'documents', 'galley'];
+
+/** Passage Planning child card registers */
+export const PASSAGE_REGISTERS: SharedRegister[] = [
+    'passage_meals',
+    'passage_chat',
+    'passage_route',
+    'passage_checklist',
+];
+
+/** All registers combined */
+export const ALL_REGISTERS: SharedRegister[] = [...VESSEL_REGISTERS, ...PASSAGE_REGISTERS];
 
 export const REGISTER_LABELS: Record<SharedRegister, string> = {
     stores: "Ship's Stores",
@@ -28,6 +49,10 @@ export const REGISTER_LABELS: Record<SharedRegister, string> = {
     maintenance: 'R&M',
     documents: 'Documents',
     galley: 'Galley & Meals',
+    passage_meals: 'Meal Planner',
+    passage_chat: 'Group Chat',
+    passage_route: 'Passage Route',
+    passage_checklist: 'Checklist',
 };
 
 export const REGISTER_ICONS: Record<SharedRegister, string> = {
@@ -36,6 +61,10 @@ export const REGISTER_ICONS: Record<SharedRegister, string> = {
     maintenance: '🔧',
     documents: '📄',
     galley: '🍳',
+    passage_meals: '🍽️',
+    passage_chat: '💬',
+    passage_route: '🗺️',
+    passage_checklist: '✅',
 };
 
 /** Granular JSONB permissions (synced to vessel_crew.permissions) */
@@ -46,6 +75,12 @@ export interface CrewPermissions {
     can_view_nav: boolean;
     can_view_weather: boolean;
     can_edit_log: boolean;
+    // Passage Planning child card permissions
+    can_view_passage: boolean;
+    can_view_passage_meals: boolean;
+    can_view_passage_chat: boolean;
+    can_view_passage_route: boolean;
+    can_view_passage_checklist: boolean;
 }
 
 export const DEFAULT_PERMISSIONS: CrewPermissions = {
@@ -55,6 +90,11 @@ export const DEFAULT_PERMISSIONS: CrewPermissions = {
     can_view_nav: false,
     can_view_weather: false,
     can_edit_log: false,
+    can_view_passage: false,
+    can_view_passage_meals: false,
+    can_view_passage_chat: false,
+    can_view_passage_route: false,
+    can_view_passage_checklist: false,
 };
 
 export type CrewRole = 'co-skipper' | 'navigator' | 'deckhand' | 'punter';
@@ -67,6 +107,11 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<CrewRole, CrewPermissions> = {
         can_view_nav: true,
         can_view_weather: true,
         can_edit_log: true,
+        can_view_passage: true,
+        can_view_passage_meals: true,
+        can_view_passage_chat: true,
+        can_view_passage_route: true,
+        can_view_passage_checklist: true,
     },
     navigator: {
         can_view_stores: true,
@@ -75,6 +120,11 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<CrewRole, CrewPermissions> = {
         can_view_nav: true,
         can_view_weather: true,
         can_edit_log: true,
+        can_view_passage: true,
+        can_view_passage_meals: false,
+        can_view_passage_chat: true,
+        can_view_passage_route: true,
+        can_view_passage_checklist: true,
     },
     deckhand: {
         can_view_stores: true,
@@ -83,6 +133,11 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<CrewRole, CrewPermissions> = {
         can_view_nav: false,
         can_view_weather: false,
         can_edit_log: false,
+        can_view_passage: true,
+        can_view_passage_meals: true,
+        can_view_passage_chat: true,
+        can_view_passage_route: false,
+        can_view_passage_checklist: true,
     },
     punter: {
         can_view_stores: false,
@@ -91,6 +146,11 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<CrewRole, CrewPermissions> = {
         can_view_nav: false,
         can_view_weather: false,
         can_edit_log: false,
+        can_view_passage: false,
+        can_view_passage_meals: false,
+        can_view_passage_chat: false,
+        can_view_passage_route: false,
+        can_view_passage_checklist: false,
     },
 };
 

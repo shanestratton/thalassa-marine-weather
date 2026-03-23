@@ -53,6 +53,7 @@ import { SkeletonChannelList, SkeletonMessageList } from './ui/Skeleton';
 import { ChatErrorBoundary } from './chat/ChatErrorBoundary';
 import { MaritimeIntelCard } from './chat/MaritimeIntelCard';
 import { GalleyCard } from './chat/GalleyCard';
+import { type PassageStatus, getPassageStatus, getPassageStatusSync } from '../services/PassagePlanService';
 import { WelcomeBanner } from './chat/WelcomeBanner';
 import { AuthBanner } from './chat/AuthBanner';
 import { triggerHaptic } from '../utils/system';
@@ -121,6 +122,16 @@ export const ChatPage: React.FC = React.memo(() => {
     // Loading — must be declared before hooks since they receive setLoading
     const [loading, setLoading] = useState(true);
     const [loadingStatus, _setLoadingStatus] = useState<string | null>(null); // Connecting to Crew Talk…
+
+    // Passage Planning visibility
+    const [passageStatus, setPassageStatus] = useState<PassageStatus>(getPassageStatusSync());
+    useEffect(() => {
+        getPassageStatus()
+            .then(setPassageStatus)
+            .catch(() => {
+                /* use sync fallback */
+            });
+    }, []);
 
     // --- Extracted Hooks ---
     const chatMessages = useChatMessages({ setView: setView as (v: string) => void, setNavDirection, setLoading });
@@ -730,7 +741,9 @@ export const ChatPage: React.FC = React.memo(() => {
                     {view === 'channels' && !loading && <MaritimeIntelCard />}
 
                     {/* ══════ PASSAGE PLANNING CARD ══════ */}
-                    {view === 'channels' && !loading && <GalleyCard />}
+                    {view === 'channels' && !loading && passageStatus.visible && (
+                        <GalleyCard passageStatus={passageStatus} />
+                    )}
 
                     {/* ══════ CHANNEL LIST ══════ */}
                     {view === 'channels' && !loading && (
