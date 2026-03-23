@@ -26,12 +26,12 @@ describe('CastOffPanel', () => {
     beforeEach(() => vi.clearAllMocks());
 
     it('renders without crashing', () => {
-        const { container } = render(<CastOffPanel onBack={vi.fn()} />);
+        const { container } = render(<CastOffPanel onClose={vi.fn()} />);
         expect(container).toBeDefined();
     });
 
     it('renders content', () => {
-        const { container } = render(<CastOffPanel onBack={vi.fn()} />);
+        const { container } = render(<CastOffPanel onClose={vi.fn()} />);
         expect(container.innerHTML.length).toBeGreaterThan(0);
     });
 });
