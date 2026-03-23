@@ -24,6 +24,7 @@ import {
     inviteCrew,
     getMyCrew,
     removeCrew,
+    disbandGroup,
     updateCrewPermissions,
     getMyInvites,
     getMyMemberships,
@@ -83,6 +84,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // Cast Off state
     const [showCastOff, setShowCastOff] = useState(false);
     const [activeVoyageName, setActiveVoyageName] = useState<string | null>(null);
+
+    // Disband group
+    const [showDisbandConfirm, setShowDisbandConfirm] = useState(false);
+    const [disbandConfirmText, setDisbandConfirmText] = useState('');
+    const [disbanding, setDisbanding] = useState(false);
 
     // Check auth + get user email
     const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -176,6 +182,25 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             } else {
                 setMemberships((prev) => [...prev, member]);
             }
+        }
+    };
+
+    // ── Disband Group ──
+    const handleDisbandGroup = async () => {
+        setDisbanding(true);
+        const result = await disbandGroup();
+        setDisbanding(false);
+        setShowDisbandConfirm(false);
+        setDisbandConfirmText('');
+
+        if (result.success) {
+            triggerHaptic('heavy');
+            toast.success(
+                `Group disbanded — ${result.removedCount} member${result.removedCount !== 1 ? 's' : ''} removed`,
+            );
+            setMyCrew([]);
+        } else {
+            toast.error('Failed to disband group');
         }
     };
 
@@ -555,6 +580,16 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                     ))}
                                 </div>
                             )}
+
+                            {/* ── Disband Group — danger zone ── */}
+                            {visibleCrew.length > 0 && (
+                                <button
+                                    onClick={() => setShowDisbandConfirm(true)}
+                                    className="w-full mt-4 py-3 px-4 rounded-xl border border-red-500/20 bg-red-500/5 text-red-400 text-xs font-bold hover:bg-red-500/10 transition-colors active:scale-[0.98]"
+                                >
+                                    🚨 Disband Entire Group
+                                </button>
+                            )}
                         </div>
 
                         {/* ── How It Works — shown at bottom when NOT empty ── */}
@@ -783,6 +818,54 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 onUndo={handleUndoDelete}
                 onDismiss={handleDismissDelete}
             />
+
+            {/* ── DISBAND GROUP CONFIRMATION ── */}
+            <ModalSheet
+                isOpen={showDisbandConfirm}
+                onClose={() => {
+                    setShowDisbandConfirm(false);
+                    setDisbandConfirmText('');
+                }}
+                title="Disband Group"
+            >
+                <div className="space-y-4">
+                    <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
+                        <p className="text-sm text-red-300 font-bold mb-2">⚠️ This action cannot be undone</p>
+                        <p className="text-[11px] text-red-300/70 leading-relaxed">
+                            This will permanently remove{' '}
+                            <strong>
+                                all {visibleCrew.length} crew member{visibleCrew.length !== 1 ? 's' : ''}
+                            </strong>{' '}
+                            from your group. They will lose access to all shared registers and passage planning modules.
+                        </p>
+                    </div>
+
+                    <div>
+                        <label className="text-[11px] uppercase font-bold text-gray-400 mb-2 block tracking-wide">
+                            Type DISBAND to confirm
+                        </label>
+                        <input
+                            value={disbandConfirmText}
+                            onChange={(e) => setDisbandConfirmText(e.target.value.toUpperCase())}
+                            placeholder="DISBAND"
+                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-red-500/40"
+                        />
+                    </div>
+
+                    <button
+                        aria-label="Confirm Disband"
+                        onClick={handleDisbandGroup}
+                        disabled={disbandConfirmText !== 'DISBAND' || disbanding}
+                        className={`w-full py-3.5 rounded-xl font-bold text-sm transition-all active:scale-95 ${
+                            disbandConfirmText === 'DISBAND' && !disbanding
+                                ? 'bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-500/20'
+                                : 'bg-white/[0.04] text-gray-500 cursor-not-allowed'
+                        }`}
+                    >
+                        {disbanding ? 'Disbanding…' : '🚨 Disband Entire Group'}
+                    </button>
+                </div>
+            </ModalSheet>
 
             {/* ── CAST OFF PANEL ── */}
             {showCastOff && (

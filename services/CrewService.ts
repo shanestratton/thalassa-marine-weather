@@ -491,6 +491,44 @@ export async function leaveVessel(membershipId: string): Promise<boolean> {
     }
 }
 
+/**
+ * Disband the entire crew group — removes ALL crew members belonging to the current user.
+ * Only the group owner (captain) should call this.
+ * Also clears the local passage plan status.
+ */
+export async function disbandGroup(): Promise<{ success: boolean; removedCount: number }> {
+    if (!supabase) return { success: false, removedCount: 0 };
+
+    try {
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return { success: false, removedCount: 0 };
+
+        // Get count first for reporting
+        const { data: members } = await supabase.from('vessel_crew').select('id').eq('owner_id', user.id);
+
+        const count = members?.length || 0;
+
+        // Delete all crew owned by this user
+        const { error } = await supabase.from('vessel_crew').delete().eq('owner_id', user.id);
+
+        if (error) return { success: false, removedCount: 0 };
+
+        // Clear passage plan status
+        try {
+            const { clearPassagePlan } = await import('./PassagePlanService');
+            clearPassagePlan();
+        } catch {
+            /* non-critical */
+        }
+
+        return { success: true, removedCount: count };
+    } catch (e) {
+        return { success: false, removedCount: 0 };
+    }
+}
+
 // ── Utilities ──────────────────────────────────────────────────
 
 /**
