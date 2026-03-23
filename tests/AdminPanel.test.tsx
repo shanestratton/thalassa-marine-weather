@@ -9,6 +9,9 @@ vi.mock('../services/ChatService', () => ({
     ChatService: {
         listAllUsersWithRoles: vi.fn().mockResolvedValue([]),
         getChannelsFresh: vi.fn().mockResolvedValue([]),
+        getChannels: vi.fn().mockResolvedValue([]),
+        getJoinRequests: vi.fn().mockResolvedValue([]),
+        getPendingChannels: vi.fn().mockResolvedValue([]),
         updateRole: vi.fn().mockResolvedValue(undefined),
         deleteChannel: vi.fn().mockResolvedValue(undefined),
         getPendingJoinRequests: vi.fn().mockResolvedValue([]),

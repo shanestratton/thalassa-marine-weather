@@ -547,7 +547,37 @@
 <a name='L482'></a><a href='#L482'>482</a>
 <a name='L483'></a><a href='#L483'>483</a>
 <a name='L484'></a><a href='#L484'>484</a>
-<a name='L485'></a><a href='#L485'>485</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L485'></a><a href='#L485'>485</a>
+<a name='L486'></a><a href='#L486'>486</a>
+<a name='L487'></a><a href='#L487'>487</a>
+<a name='L488'></a><a href='#L488'>488</a>
+<a name='L489'></a><a href='#L489'>489</a>
+<a name='L490'></a><a href='#L490'>490</a>
+<a name='L491'></a><a href='#L491'>491</a>
+<a name='L492'></a><a href='#L492'>492</a>
+<a name='L493'></a><a href='#L493'>493</a>
+<a name='L494'></a><a href='#L494'>494</a>
+<a name='L495'></a><a href='#L495'>495</a>
+<a name='L496'></a><a href='#L496'>496</a>
+<a name='L497'></a><a href='#L497'>497</a>
+<a name='L498'></a><a href='#L498'>498</a>
+<a name='L499'></a><a href='#L499'>499</a>
+<a name='L500'></a><a href='#L500'>500</a>
+<a name='L501'></a><a href='#L501'>501</a>
+<a name='L502'></a><a href='#L502'>502</a>
+<a name='L503'></a><a href='#L503'>503</a>
+<a name='L504'></a><a href='#L504'>504</a>
+<a name='L505'></a><a href='#L505'>505</a>
+<a name='L506'></a><a href='#L506'>506</a>
+<a name='L507'></a><a href='#L507'>507</a>
+<a name='L508'></a><a href='#L508'>508</a>
+<a name='L509'></a><a href='#L509'>509</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -803,9 +833,13 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -847,6 +881,8 @@
 <span class="cline-any cline-yes">2985x</span>
 <span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -863,6 +899,8 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-yes">7x</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -895,6 +933,16 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1082,7 +1130,13 @@ import { DEFAULT_ISOCHRONE_CONFIG } from './isochrone/types';
 import { haversineNm, initialBearing, projectPosition, calcTWA, R_NM, toRad, toDeg } from './isochrone/geodesy';
 import { createPolarSpeedLookup } from './isochrone/polar';
 import { pruneWavefrontWithFallbacks } from './isochrone/pruning';
-import { isSegmentNavigable, segmentCrossesLand, pushRouteOffshore, eliminateCrossings, nudgeWaypointsOffshore } from './isochrone/landAvoidance';
+import {
+    isSegmentNavigable,
+    segmentCrossesLand,
+    pushRouteOffshore,
+    eliminateCrossings,
+    nudgeWaypointsOffshore,
+} from './isochrone/landAvoidance';
 import { backtrack, smoothRoute } from './isochrone/smoothing';
 &nbsp;
 const log = createLogger('IsoRoute');
@@ -1285,11 +1339,15 @@ export async function computeIsochrones(
         }
         <span class="missing-if-branch" title="if path not taken" >I</span>if (!depthFilterDisabled &amp;&amp; stepsWithoutProgress &gt;= STALL_THRESHOLD_STEPS) {
 <span class="cstat-no" title="statement not covered" >            depthFilterDisabled = true;</span>
-<span class="cstat-no" title="statement not covered" >            log.info(`[Isochrone] Stall T1 at step ${step} — disabling reef filter (best: ${Math.round(bestDistanceSoFar)} NM)`);</span>
+<span class="cstat-no" title="statement not covered" >            log.info(</span>
+                `[Isochrone] Stall T1 at step ${step} — disabling reef filter (best: ${Math.round(bestDistanceSoFar)} NM)`,
+            );
         }
         <span class="missing-if-branch" title="if path not taken" >I</span>if (!allBathyDisabled &amp;&amp; stepsWithoutProgress &gt;= 30) {
 <span class="cstat-no" title="statement not covered" >            allBathyDisabled = true;</span>
-<span class="cstat-no" title="statement not covered" >            log.info(`[Isochrone] Stall T2 at step ${step} — disabling ALL bathy checks (best: ${Math.round(bestDistanceSoFar)} NM)`);</span>
+<span class="cstat-no" title="statement not covered" >            log.info(</span>
+                `[Isochrone] Stall T2 at step ${step} — disabling ALL bathy checks (best: ${Math.round(bestDistanceSoFar)} NM)`,
+            );
         }
 &nbsp;
         // ── Depth filtering ──
@@ -1330,7 +1388,9 @@ export async function computeIsochrones(
         for (const entry of endpointValid) {
             if (entry.distToDest &lt;= ARRIVAL_THRESHOLD_NM) {
                 <span class="missing-if-branch" title="if path not taken" >I</span>if (bathyGrid) {
-<span class="cstat-no" title="statement not covered" >                    if (segmentCrossesLand(bathyGrid, entry.node.lat, entry.node.lon, destination.lat, destination.lon)) {</span>
+<span class="cstat-no" title="statement not covered" >                    if (</span>
+                        segmentCrossesLand(bathyGrid, entry.node.lat, entry.node.lon, destination.lat, destination.lon)
+                    ) {
 <span class="cstat-no" title="statement not covered" >                        if (!closestArrivalCandidate || entry.distToDest &lt; closestArrivalCandidate.distToDest) {</span>
 <span class="cstat-no" title="statement not covered" >                            closestArrivalCandidate = entry;</span>
                         }
@@ -1346,7 +1406,9 @@ export async function computeIsochrones(
             nonArrivalCandidates.push(entry);
         }
         <span class="missing-if-branch" title="if path not taken" >I</span>if (!arrivedThisStep &amp;&amp; closestArrivalCandidate) {
-<span class="cstat-no" title="statement not covered" >            log.info(`[Isochrone] Arrival fallback: accepting candidate at ${closestArrivalCandidate.distToDest.toFixed(1)} NM`);</span>
+<span class="cstat-no" title="statement not covered" >            log.info(</span>
+                `[Isochrone] Arrival fallback: accepting candidate at ${closestArrivalCandidate.distToDest.toFixed(1)} NM`,
+            );
 <span class="cstat-no" title="statement not covered" >            arrivalNode = { ...closestArrivalCandidate.node, lat: destination.lat, lon: destination.lon };</span>
 <span class="cstat-no" title="statement not covered" >            arrivalIsochroneIdx = step;</span>
 <span class="cstat-no" title="statement not covered" >            arrivedThisStep = true;</span>
@@ -1378,7 +1440,17 @@ export async function computeIsochrones(
 <span class="cstat-no" title="statement not covered" >                    if (parentIdx !== null &amp;&amp; parentIdx &lt; currentFront.length) {</span>
                         const parent = <span class="cstat-no" title="statement not covered" >currentFront[parentIdx];</span>
                         const stepDist = <span class="cstat-no" title="statement not covered" >node.distance - parent.distance;</span>
-<span class="cstat-no" title="statement not covered" >                        if (!isSegmentNavigable(bathyGrid, parent.lat, parent.lon, node.lat, node.lon, stepDist, depthFilterDisabled)) {</span>
+<span class="cstat-no" title="statement not covered" >                        if (</span>
+                            !isSegmentNavigable(
+                                bathyGrid,
+                                parent.lat,
+                                parent.lon,
+                                node.lat,
+                                node.lon,
+                                stepDist,
+                                depthFilterDisabled,
+                            )
+                        ) {
 <span class="cstat-no" title="statement not covered" >                            continue;</span>
                         }
                     }
@@ -1522,7 +1594,7 @@ export const _testableInternals = {
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-23T10:52:00.700Z
+                at 2026-03-23T20:12:57.071Z
             </div>
         <script src="../prettify.js"></script>
         <script>

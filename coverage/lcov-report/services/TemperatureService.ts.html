@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/9</span>
+                <span class='fraction'>9/9</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">90% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/10</span>
+                <span class='fraction'>9/10</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>1/1</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/7</span>
+                <span class='fraction'>7/7</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -98,28 +98,28 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">8x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">8x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">/**
  * CALCULATE AUSTRALIAN APPARENT TEMPERATURE (BOM Standard)
@@ -127,28 +127,28 @@
  * @param humidity - Relative Humidity (0-100)
  * @param windKts - Wind Speed in Knots
  */
-export const calculateFeelsLike = <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >(t</span>empC: number, humidity: number, windKts: number): number =&gt; {</span>
+export const calculateFeelsLike = (tempC: number, humidity: number, windKts: number): number =&gt; {
     // If missing data, return the raw temp (better than - -)
-<span class="cstat-no" title="statement not covered" >    if (tempC === undefined || humidity === undefined) <span class="cstat-no" title="statement not covered" >return tempC || 0;</span></span>
+    if (tempC === undefined || humidity === undefined) return tempC || <span class="branch-1 cbranch-no" title="branch not covered" >0;</span>
 &nbsp;
     // 1. Convert Wind to m/s (BOM formula requires m/s)
-    const <span class="cstat-no" title="statement not covered" >windMs = (windKts || 0) * 0.514444;</span>
+    const windMs = (windKts || 0) * 0.514444;
 &nbsp;
     // 2. Calculate Water Vapour Pressure (e) [hPa]
     // This measures the "muggy" factor. High humidity pushes this number up.
     // Formula: e = (rh/100) * 6.105 * exp(17.27 * T / (237.7 + T))
-    const e = (<span class="cstat-no" title="statement not covered" >humidity / 100) * 6.105 * Math.exp((17.27 * tempC) / (237.7 + tempC));</span>
+    const e = (humidity / 100) * 6.105 * Math.exp((17.27 * tempC) / (237.7 + tempC));
 &nbsp;
     // 3. The Australian Formula
     // AT = Ta + 0.33×e − 0.70×ws − 4.00
-    let apparentTemp = <span class="cstat-no" title="statement not covered" >tempC + 0.33 * e - 0.7 * windMs - 4.0;</span>
+    let apparentTemp = tempC + 0.33 * e - 0.7 * windMs - 4.0;
 &nbsp;
     // 4. SANITY CHECK (The "Mad Woman" Clamp)
     // Prevents the number from crashing if a gust hits 35kts.
     // We don't let it drop more than 5 degrees below actual unless it's freezing.
-<span class="cstat-no" title="statement not covered" >    if (apparentTemp &lt; tempC - 5) <span class="cstat-no" title="statement not covered" >apparentTemp = tempC - 5;</span></span>
+    if (apparentTemp &lt; tempC - 5) apparentTemp = tempC - 5;
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    return Math.round(apparentTemp);</span>
+    return Math.round(apparentTemp);
 };
 &nbsp;</pre></td></tr></table></pre>
 
@@ -157,7 +157,7 @@ export const calculateFeelsLike = <span class="cstat-no" title="statement not co
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-23T10:52:00.700Z
+                at 2026-03-23T20:12:57.071Z
             </div>
         <script src="../prettify.js"></script>
         <script>
