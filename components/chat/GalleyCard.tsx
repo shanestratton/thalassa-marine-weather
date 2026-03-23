@@ -19,7 +19,7 @@ import {
 import { getStoresAvailability } from '../../services/MealPlanService';
 import { getShoppingList, type ShoppingListSummary } from '../../services/ShoppingListService';
 import { triggerHaptic } from '../../utils/system';
-import { scaleIngredient } from '../../services/GalleyRecipeService';
+import { scaleIngredient, getRecipeImageUrl } from '../../services/GalleyRecipeService';
 
 import { type PassageStatus } from '../../services/PassagePlanService';
 
@@ -559,7 +559,7 @@ function getStorageLocation(aisle: string): string {
     return 'Galley';
 }
 
-/** The "Chef's Plate" — premium recipe card */
+/** The "Chef's Plate" — Phase 6.1 Visual-First recipe card */
 const ChefPlate: React.FC<{
     meal: MealPlan;
     baseServings: number;
@@ -568,6 +568,9 @@ const ChefPlate: React.FC<{
     shoppingSummary: ShoppingListSummary | null;
 }> = ({ meal, baseServings, cooking, onCook, shoppingSummary }) => {
     const [crewCount, setCrewCount] = useState(baseServings);
+    const [imgLoaded, setImgLoaded] = useState(false);
+    const [prepStarted, setPrepStarted] = useState(meal.status === 'cooking');
+    const [addedItems, setAddedItems] = useState<Set<string>>(new Set());
     const ratio = crewCount / baseServings;
 
     // Scale ingredients in real-time
@@ -576,17 +579,30 @@ const ChefPlate: React.FC<{
         scaledAmount: Math.round(scaleIngredient(ing.amount, ing.scalable, baseServings, crewCount) * 10) / 10,
     }));
 
-    // Stores status
-    const shortfallCount = shoppingSummary?.remaining || 0;
-    const storesReady = shortfallCount === 0;
+    // Get stores availability for per-ingredient shortfall
+    const storesAvail = getStoresAvailability();
+    const storesMap = new Map(storesAvail.map((s) => [s.item_name.toLowerCase(), s]));
 
-    // Prep time estimate (rough: 30 min base + 15 min per 2 extra serves)
-    const prepHours =
-        meal.title.toLowerCase().includes('smoked') || meal.title.toLowerCase().includes('brisket')
-            ? 12
-            : meal.title.toLowerCase().includes('roast')
-              ? 4
-              : 1;
+    // Shortfall count
+    const shortfallIngredients = scaledIngredients.filter((ing) => {
+        const store = storesMap.get(ing.name.toLowerCase());
+        return !store || store.available < ing.scaledAmount;
+    });
+
+    // Recipe image — cache-first
+    const recipeImageUrl = getRecipeImageUrl(
+        meal.spoonacular_id,
+        meal.spoonacular_id ? `https://img.spoonacular.com/recipes/${meal.spoonacular_id}-556x370.jpg` : '',
+    );
+
+    // Prep time estimate
+    const readyInLabel = (() => {
+        const title = meal.title.toLowerCase();
+        if (title.includes('smoked') || title.includes('brisket')) return '12-Hour Slow Smoke';
+        if (title.includes('roast')) return '4-Hour Roast';
+        if (title.includes('stew') || title.includes('braise')) return '3-Hour Braise';
+        return `${Math.max(30, (meal.ingredients?.length || 4) * 8)} Min`;
+    })();
 
     const shareText = [
         `🍽️ ${meal.title}`,
@@ -596,74 +612,117 @@ const ChefPlate: React.FC<{
         '📦 Ingredients:',
         ...scaledIngredients.map((i) => `${getIngredientEmoji(i.aisle)} ${i.scaledAmount} ${i.unit} ${i.name}`),
         '',
-        `⏱️ Prep: ${prepHours}${prepHours >= 2 ? ' Hours' : ' Hour'}`,
-        `🔧 Stores: ${storesReady ? 'READY' : `SHORTFALL (${shortfallCount} ITEMS)`}`,
+        `⏱️ ${readyInLabel}`,
+        `🔧 Stores: ${shortfallIngredients.length === 0 ? 'READY' : `SHORTFALL (${shortfallIngredients.length} ITEMS)`}`,
         '',
         'via SupaSpoon™',
     ].join('\n');
 
+    // ── Start Prep broadcast ──
+    const handleStartPrep = async () => {
+        setPrepStarted(true);
+        triggerHaptic('heavy');
+
+        // Start cooking lifecycle
+        await startCooking(meal.id);
+
+        // Broadcast to galley chat
+        const broadcastMsg = {
+            id: Date.now().toString(),
+            text: `🔥 Started preparing: ${meal.title}!\n👥 ${crewCount} serves · ⏱️ ${readyInLabel}`,
+            sender: '⚓ Galley Bot',
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        };
+
+        try {
+            const existingRaw = localStorage.getItem('thalassa_galley_chat');
+            const existing = existingRaw ? JSON.parse(existingRaw) : [];
+            const updated = [...existing, broadcastMsg].slice(-50);
+            localStorage.setItem('thalassa_galley_chat', JSON.stringify(updated));
+        } catch {
+            /* full */
+        }
+
+        // Dispatch event so galley chat tab updates
+        window.dispatchEvent(new CustomEvent('thalassa:galley-prep', { detail: { meal: meal.title, crewCount } }));
+    };
+
+    // ── Add shortfall to provision list ──
+    const handleAddToList = async (ing: (typeof scaledIngredients)[0]) => {
+        const { addShortfallItem } = await import('../../services/MealPlanService');
+        const store = storesMap.get(ing.name.toLowerCase());
+        const shortfall = store ? Math.max(0, ing.scaledAmount - store.available) : ing.scaledAmount;
+        const success = await addShortfallItem(ing.name, shortfall, ing.unit, meal.title, meal.voyage_id);
+        if (success) {
+            setAddedItems((prev) => new Set(prev).add(ing.name.toLowerCase()));
+            triggerHaptic('medium');
+        }
+    };
+
     return (
-        <div className="space-y-0">
-            {/* 1. Hero Shot */}
-            <div className="relative h-40 overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-br from-amber-900/80 via-orange-800/60 to-red-900/80" />
-                <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMjAiIGN5PSIyMCIgcj0iMSIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjAzKSIvPjwvc3ZnPg==')] opacity-50" />
-                <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
-                    <p className="text-lg font-black text-white leading-tight">{meal.title}</p>
-                    <p className="text-[11px] text-amber-300/80 mt-0.5">
-                        {meal.planned_date} · {meal.meal_slot}
-                    </p>
+        <div className="rounded-2xl overflow-hidden border border-white/[0.06] bg-slate-950">
+            {/* ═══════ 1. HERO IMAGE (top 40%) ═══════ */}
+            <div className="relative h-52 overflow-hidden">
+                {/* Recipe photo — edge-to-edge */}
+                {recipeImageUrl && (
+                    <img
+                        src={recipeImageUrl}
+                        alt={meal.title}
+                        loading="lazy"
+                        onLoad={() => setImgLoaded(true)}
+                        className={`absolute inset-0 w-full h-full object-cover transition-all duration-700 ${
+                            imgLoaded ? 'opacity-100 scale-100 blur-0' : 'opacity-0 scale-105 blur-sm'
+                        }`}
+                    />
+                )}
+                {/* Placeholder gradient while loading */}
+                <div
+                    className={`absolute inset-0 bg-gradient-to-br from-amber-900/80 via-orange-800/60 to-red-900/80 transition-opacity duration-700 ${
+                        imgLoaded ? 'opacity-0' : 'opacity-100'
+                    }`}
+                />
+
+                {/* Bottom shadow gradient for text legibility */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
+
+                {/* Title + Ready In overlay */}
+                <div className="absolute bottom-0 left-0 right-0 p-4">
+                    <p className="text-lg font-black text-white leading-tight drop-shadow-lg">{meal.title}</p>
+                    <div className="flex items-center gap-2 mt-1.5">
+                        <span className="px-2 py-0.5 rounded-full bg-white/15 backdrop-blur-sm text-[10px] font-bold text-amber-200 border border-white/10">
+                            ⏱️ {readyInLabel}
+                        </span>
+                        <span className="text-[11px] text-white/60">
+                            {meal.planned_date} · {meal.meal_slot}
+                        </span>
+                    </div>
                 </div>
+
                 {/* SupaSpoon watermark */}
                 <div className="absolute top-3 right-3 px-2 py-1 rounded-md bg-black/40 backdrop-blur-sm">
-                    <span className="text-[9px] font-bold text-white/50 tracking-widest uppercase">SupaSpoon™</span>
+                    <span className="text-[9px] font-bold text-white/40 tracking-widest uppercase">SupaSpoon™</span>
                 </div>
+
                 {/* Status badge */}
                 <div className="absolute top-3 left-3">
                     <span
                         className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase backdrop-blur-sm ${
-                            meal.status === 'cooking'
+                            prepStarted
                                 ? 'bg-orange-500/30 text-orange-300 border border-orange-500/30'
-                                : 'bg-amber-500/20 text-amber-300 border border-amber-500/20'
+                                : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/20'
                         }`}
                     >
-                        {meal.status}
+                        {prepStarted ? '🔥 Cooking' : '📋 Reserved'}
                     </span>
                 </div>
             </div>
 
-            {/* 2. Status Bar */}
-            <div className="flex">
-                <div className="flex-1 p-3 bg-slate-900 border-b border-r border-white/[0.06] flex items-center gap-2">
-                    <span className="text-base">⏱️</span>
-                    <div>
-                        <p className="text-[10px] text-gray-500 uppercase tracking-widest">Preparation</p>
-                        <p className="text-sm font-black text-white">
-                            {prepHours} {prepHours >= 2 ? 'Hours' : 'Hour'}
-                        </p>
-                    </div>
-                </div>
-                <div
-                    className={`flex-1 p-3 border-b border-white/[0.06] flex items-center gap-2 ${
-                        storesReady ? 'bg-emerald-950/30' : 'bg-red-950/30'
-                    }`}
-                >
-                    <span className="text-base">{storesReady ? '✅' : '⚠️'}</span>
-                    <div>
-                        <p className="text-[10px] text-gray-500 uppercase tracking-widest">Stores</p>
-                        <p className={`text-sm font-black ${storesReady ? 'text-emerald-400' : 'text-red-400'}`}>
-                            {storesReady ? 'READY' : `SHORTFALL (${shortfallCount})`}
-                        </p>
-                    </div>
-                </div>
-            </div>
-
-            {/* 3. Crew Slider */}
-            <div className="p-4 bg-slate-950 border-b border-white/[0.06]">
+            {/* ═══════ 2. CREW SCALER (right below hero) ═══════ */}
+            <div className="p-4 bg-slate-950/80 border-b border-white/[0.06]">
                 <div className="flex items-center justify-between">
                     <div>
-                        <p className="text-[10px] text-gray-500 uppercase tracking-widest">Crew Count</p>
-                        <p className="text-xs text-gray-400 mt-0.5">Ingredients scale live</p>
+                        <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Crew Count</p>
+                        <p className="text-[10px] text-gray-600 mt-0.5">Ingredients scale live</p>
                     </div>
                     <div className="flex items-center gap-3">
                         <button
@@ -671,7 +730,7 @@ const ChefPlate: React.FC<{
                                 setCrewCount((c) => Math.max(1, c - 1));
                                 triggerHaptic('light');
                             }}
-                            className="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white hover:bg-white/[0.1] transition-colors active:scale-90"
+                            className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white hover:bg-white/[0.1] transition-all active:scale-90"
                         >
                             <svg
                                 className="w-4 h-4"
@@ -683,7 +742,11 @@ const ChefPlate: React.FC<{
                                 <path strokeLinecap="round" d="M5 12h14" />
                             </svg>
                         </button>
-                        <span className="text-2xl font-black text-amber-400 w-8 text-center tabular-nums">
+                        <span
+                            className={`text-3xl font-black w-10 text-center tabular-nums transition-colors duration-300 ${
+                                crewCount !== baseServings ? 'text-amber-400' : 'text-white'
+                            }`}
+                        >
                             {crewCount}
                         </span>
                         <button
@@ -691,7 +754,7 @@ const ChefPlate: React.FC<{
                                 setCrewCount((c) => Math.min(20, c + 1));
                                 triggerHaptic('light');
                             }}
-                            className="w-9 h-9 rounded-lg bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white hover:bg-white/[0.1] transition-colors active:scale-90"
+                            className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white hover:bg-white/[0.1] transition-all active:scale-90"
                         >
                             <svg
                                 className="w-4 h-4"
@@ -706,42 +769,117 @@ const ChefPlate: React.FC<{
                     </div>
                 </div>
                 {crewCount !== baseServings && (
-                    <p className="text-[10px] text-amber-400/60 mt-2">
+                    <p className="text-[10px] text-amber-400/60 mt-2 text-right">
                         Scaled from {baseServings} → {crewCount} serves (×{ratio.toFixed(1)})
                     </p>
                 )}
             </div>
 
-            {/* 4. Ingredient Toggles */}
-            <div className="p-4 space-y-1.5">
-                {scaledIngredients.map((ing, i) => (
-                    <div
-                        key={i}
-                        className="flex items-center gap-3 p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] hover:bg-white/[0.04] transition-colors"
-                    >
-                        <span className="text-base w-6 text-center flex-shrink-0">{getIngredientEmoji(ing.aisle)}</span>
-                        <div className="flex-1 min-w-0">
-                            <p className="text-xs font-bold text-white truncate">
-                                {ing.scaledAmount} {ing.unit} {ing.name}
-                            </p>
-                            <p className="text-[10px] text-gray-500">📍 {getStorageLocation(ing.aisle)}</p>
-                        </div>
-                        {ing.scalable && crewCount !== baseServings && (
-                            <span className="text-[9px] text-amber-400/50 flex-shrink-0">was {ing.amount}</span>
-                        )}
+            {/* ═══════ 3. STORES STATUS BAR ═══════ */}
+            <div className="flex">
+                <div className="flex-1 p-3 bg-slate-900 border-b border-r border-white/[0.06] flex items-center gap-2">
+                    <span className="text-base">📦</span>
+                    <div>
+                        <p className="text-[10px] text-gray-500 uppercase tracking-widest">Ingredients</p>
+                        <p className="text-sm font-black text-white">{scaledIngredients.length}</p>
                     </div>
-                ))}
+                </div>
+                <div
+                    className={`flex-1 p-3 border-b border-white/[0.06] flex items-center gap-2 ${
+                        shortfallIngredients.length === 0 ? 'bg-emerald-950/30' : 'bg-red-950/30'
+                    }`}
+                >
+                    <span className="text-base">{shortfallIngredients.length === 0 ? '✅' : '⚠️'}</span>
+                    <div>
+                        <p className="text-[10px] text-gray-500 uppercase tracking-widest">Stores</p>
+                        <p
+                            className={`text-sm font-black ${shortfallIngredients.length === 0 ? 'text-emerald-400' : 'text-red-400'}`}
+                        >
+                            {shortfallIngredients.length === 0 ? 'READY' : `SHORTFALL (${shortfallIngredients.length})`}
+                        </p>
+                    </div>
+                </div>
             </div>
 
-            {/* Actions: Cook Now + Share */}
+            {/* ═══════ 4. INGREDIENT LIST with per-item shortfall ═══════ */}
+            <div className="p-4 space-y-1.5">
+                {scaledIngredients.map((ing, i) => {
+                    const store = storesMap.get(ing.name.toLowerCase());
+                    const available = store?.available ?? 0;
+                    const hasEnough = available >= ing.scaledAmount;
+                    const isLow = store && !hasEnough;
+                    const isMissing = !store;
+                    const alreadyAdded = addedItems.has(ing.name.toLowerCase());
+
+                    return (
+                        <div
+                            key={i}
+                            className={`flex items-center gap-3 p-2.5 rounded-xl border transition-colors ${
+                                hasEnough
+                                    ? 'bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.04]'
+                                    : 'bg-red-500/[0.04] border-red-500/10'
+                            }`}
+                        >
+                            {/* Status indicator */}
+                            <span className="text-base w-6 text-center flex-shrink-0">
+                                {hasEnough ? '✅' : isLow ? '⚠️' : '🔴'}
+                            </span>
+
+                            {/* Ingredient info */}
+                            <div className="flex-1 min-w-0">
+                                <p className="text-xs font-bold text-white truncate">
+                                    {ing.scaledAmount} {ing.unit} {ing.name}
+                                </p>
+                                <p className="text-[10px] text-gray-500">
+                                    {hasEnough
+                                        ? `📍 ${getStorageLocation(ing.aisle)} · ${available} on hand`
+                                        : isMissing
+                                          ? 'Not in stores'
+                                          : `Only ${available} ${ing.unit} on hand`}
+                                </p>
+                            </div>
+
+                            {/* Scale indicator */}
+                            {ing.scalable && crewCount !== baseServings && (
+                                <span className="text-[9px] text-amber-400/50 flex-shrink-0 hidden sm:block">
+                                    was {ing.amount}
+                                </span>
+                            )}
+
+                            {/* ADD TO LIST button for shortfalls */}
+                            {!hasEnough && !alreadyAdded && (
+                                <button
+                                    onClick={() => handleAddToList(ing)}
+                                    className="flex-shrink-0 px-2 py-1 rounded-lg bg-red-500/15 border border-red-500/25 text-[9px] font-bold text-red-300 uppercase tracking-wider hover:bg-red-500/25 transition-all active:scale-95"
+                                >
+                                    + List
+                                </button>
+                            )}
+                            {alreadyAdded && <span className="text-[9px] text-emerald-400 flex-shrink-0">✓ Added</span>}
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* ═══════ 5. ACTIONS: Start Prep + Share ═══════ */}
             <div className="px-4 pb-4 flex gap-2">
-                <button
-                    onClick={onCook}
-                    disabled={cooking}
-                    className="flex-1 py-3 bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold uppercase tracking-widest text-amber-300 hover:from-amber-500/25 hover:to-orange-500/25 transition-all active:scale-[0.97] disabled:opacity-40"
-                >
-                    {cooking ? '⏳ Subtracting from Stores…' : '🔥 Cook Now'}
-                </button>
+                {!prepStarted ? (
+                    <button
+                        onClick={handleStartPrep}
+                        disabled={cooking}
+                        className="flex-1 py-3.5 bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold uppercase tracking-widest text-amber-300 hover:from-amber-500/25 hover:to-orange-500/25 transition-all active:scale-[0.97] disabled:opacity-40 shadow-lg shadow-amber-500/5"
+                    >
+                        {cooking ? '⏳ Starting…' : '🔥 Start Prep'}
+                    </button>
+                ) : (
+                    <button
+                        onClick={onCook}
+                        disabled={cooking}
+                        className="flex-1 py-3.5 bg-gradient-to-r from-emerald-500/15 to-teal-500/15 border border-emerald-500/20 rounded-xl text-[11px] font-bold uppercase tracking-widest text-emerald-300 hover:from-emerald-500/25 hover:to-teal-500/25 transition-all active:scale-[0.97] disabled:opacity-40"
+                    >
+                        {cooking ? '⏳ Subtracting from Stores…' : '✅ Complete Meal'}
+                    </button>
+                )}
                 <button
                     onClick={() => {
                         if (navigator.share) {

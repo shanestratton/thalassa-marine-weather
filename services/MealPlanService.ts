@@ -337,3 +337,43 @@ export function getVoyageDateRange(startDate: string, days: number): string[] {
     }
     return dates;
 }
+
+// ── Shortfall Helper ───────────────────────────────────────────────────────
+
+/**
+ * Add a single ingredient shortfall to passage provisions.
+ * Called from ChefPlate "ADD TO LIST" button per ingredient.
+ */
+export async function addShortfallItem(
+    ingredientName: string,
+    requiredQty: number,
+    unit: string,
+    recipeTitle: string,
+    voyageId: string | null,
+): Promise<boolean> {
+    try {
+        const { insertLocal: ins, generateUUID: uuid } = await import('./vessel/LocalDatabase');
+        const now = new Date().toISOString();
+
+        await ins('passage_provisions', {
+            id: uuid(),
+            passage_name: voyageId || 'Current Passage',
+            recipe_title: recipeTitle,
+            ingredient_name: ingredientName,
+            required_qty: Math.round(requiredQty * 10) / 10,
+            unit,
+            scalable: true,
+            store_item_id: null,
+            store_item_name: null,
+            on_hand_qty: 0,
+            shortfall_qty: Math.round(requiredQty * 10) / 10,
+            status: 'needed',
+            created_at: now,
+        });
+
+        triggerHaptic('medium');
+        return true;
+    } catch {
+        return false;
+    }
+}

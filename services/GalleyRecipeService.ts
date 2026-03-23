@@ -167,9 +167,69 @@ function setCache(key: string, plan: GalleyPlan): void {
 // ── Recipe Persistence ─────────────────────────────────────────────────────
 
 const RECIPE_TABLE = 'recipes';
+const IMG_CACHE_PREFIX = 'thalassa_recipe_img_';
+
+// ── Image Caching ──────────────────────────────────────────────────────────
+
+/**
+ * Cache a recipe image as a base64 data URI in localStorage.
+ * Returns the data URI on success, or the original URL on failure.
+ */
+export async function cacheRecipeImage(imageUrl: string, recipeId: number): Promise<string> {
+    if (!imageUrl) return imageUrl;
+
+    // Already cached?
+    const cached = getCachedImage(recipeId);
+    if (cached) return cached;
+
+    try {
+        const resp = await fetch(imageUrl);
+        if (!resp.ok) return imageUrl;
+        const blob = await resp.blob();
+
+        return new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const dataUri = reader.result as string;
+                try {
+                    localStorage.setItem(`${IMG_CACHE_PREFIX}${recipeId}`, dataUri);
+                } catch {
+                    /* localStorage full — still return the data URI for this session */
+                }
+                resolve(dataUri);
+            };
+            reader.onerror = () => resolve(imageUrl);
+            reader.readAsDataURL(blob);
+        });
+    } catch {
+        return imageUrl; // Network error — use original URL
+    }
+}
+
+/** Get a cached recipe image (synchronous). Returns null if not cached. */
+export function getCachedImage(recipeId: number): string | null {
+    try {
+        return localStorage.getItem(`${IMG_CACHE_PREFIX}${recipeId}`) || null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Get the best available image URL for a recipe (cache-first).
+ * Returns cached base64 data URI if available, else the network URL.
+ */
+export function getRecipeImageUrl(spoonacularId: number | null, fallbackUrl: string): string {
+    if (spoonacularId) {
+        const cached = getCachedImage(spoonacularId);
+        if (cached) return cached;
+    }
+    return fallbackUrl || `https://img.spoonacular.com/recipes/${spoonacularId}-556x370.jpg`;
+}
 
 /**
  * Persist a Spoonacular recipe into LocalDatabase for offline access.
+ * Also caches the recipe image for offline rendering.
  */
 export async function persistRecipe(meal: GalleyMeal): Promise<StoredRecipe> {
     // Check if already stored
@@ -193,6 +253,14 @@ export async function persistRecipe(meal: GalleyMeal): Promise<StoredRecipe> {
     };
 
     await insertLocal(RECIPE_TABLE, record);
+
+    // Fire-and-forget: cache the recipe image for offline use
+    if (meal.image && meal.id) {
+        cacheRecipeImage(meal.image, meal.id).catch(() => {
+            /* non-critical */
+        });
+    }
+
     return record;
 }
 
