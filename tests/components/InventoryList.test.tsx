@@ -39,12 +39,12 @@ describe('InventoryList', () => {
     beforeEach(() => vi.clearAllMocks());
 
     it('renders without crashing', () => {
-        const { container } = render(<InventoryList onBack={vi.fn()} onOpenScanner={vi.fn()} />);
+        const { container } = render(<InventoryList onBack={vi.fn()} />);
         expect(container).toBeDefined();
     });
 
     it('renders content', () => {
-        const { container } = render(<InventoryList onBack={vi.fn()} onOpenScanner={vi.fn()} />);
+        const { container } = render(<InventoryList onBack={vi.fn()} />);
         expect(container.innerHTML.length).toBeGreaterThan(0);
     });
 });

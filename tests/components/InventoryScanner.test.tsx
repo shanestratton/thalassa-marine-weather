@@ -25,12 +25,12 @@ describe('InventoryScanner', () => {
     beforeEach(() => vi.clearAllMocks());
 
     it('renders without crashing', () => {
-        const { container } = render(<InventoryScanner onBack={vi.fn()} onItemAdded={vi.fn()} />);
+        const { container } = render(<InventoryScanner onClose={vi.fn()} onItemSaved={vi.fn()} />);
         expect(container).toBeDefined();
     });
 
     it('renders content', () => {
-        const { container } = render(<InventoryScanner onBack={vi.fn()} onItemAdded={vi.fn()} />);
+        const { container } = render(<InventoryScanner onClose={vi.fn()} onItemSaved={vi.fn()} />);
         expect(container.innerHTML.length).toBeGreaterThan(0);
     });
 });
