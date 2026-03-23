@@ -569,6 +569,7 @@ const ChefPlate: React.FC<{
 }> = ({ meal, baseServings, cooking, onCook, shoppingSummary }) => {
     const [crewCount, setCrewCount] = useState(baseServings);
     const [imgLoaded, setImgLoaded] = useState(false);
+    const [imgError, setImgError] = useState(false);
     const [prepStarted, setPrepStarted] = useState(meal.status === 'cooking');
     const [addedItems, setAddedItems] = useState<Set<string>>(new Set());
     const ratio = crewCount / baseServings;
@@ -590,10 +591,24 @@ const ChefPlate: React.FC<{
     });
 
     // Recipe image — cache-first
-    const recipeImageUrl = getRecipeImageUrl(
-        meal.spoonacular_id,
-        meal.spoonacular_id ? `https://img.spoonacular.com/recipes/${meal.spoonacular_id}-556x370.jpg` : '',
-    );
+    // Filter out fake spoonacular IDs (QuickMealForm uses Date.now() which is 13+ digits)
+    const realSpoonacularId = meal.spoonacular_id && meal.spoonacular_id < 10_000_000 ? meal.spoonacular_id : null;
+    const recipeImageUrl = realSpoonacularId
+        ? getRecipeImageUrl(realSpoonacularId, `https://img.spoonacular.com/recipes/${realSpoonacularId}-556x370.jpg`)
+        : '';
+    const showImage = recipeImageUrl && !imgError;
+
+    // Detect meal emoji from title
+    const mealEmoji = (() => {
+        const t = meal.title;
+        const match = t.match(/^(\p{Emoji_Presentation}|\p{Emoji}\uFE0F?)/u);
+        if (match && match[0].trim()) return match[0];
+        const slot = meal.meal_slot;
+        if (slot === 'breakfast') return '🍳';
+        if (slot === 'lunch') return '🥗';
+        if (slot === 'dinner') return '🍽️';
+        return '🍴';
+    })();
 
     // Prep time estimate
     const readyInLabel = (() => {
@@ -664,23 +679,33 @@ const ChefPlate: React.FC<{
             {/* ═══════ 1. HERO IMAGE (top 40%) ═══════ */}
             <div className="relative h-52 overflow-hidden">
                 {/* Recipe photo — edge-to-edge */}
-                {recipeImageUrl && (
+                {showImage && (
                     <img
                         src={recipeImageUrl}
                         alt={meal.title}
                         loading="lazy"
                         onLoad={() => setImgLoaded(true)}
+                        onError={() => setImgError(true)}
                         className={`absolute inset-0 w-full h-full object-cover transition-all duration-700 ${
                             imgLoaded ? 'opacity-100 scale-100 blur-0' : 'opacity-0 scale-105 blur-sm'
                         }`}
                     />
                 )}
-                {/* Placeholder gradient while loading */}
+                {/* Premium gradient fallback — always visible until image loads */}
                 <div
-                    className={`absolute inset-0 bg-gradient-to-br from-amber-900/80 via-orange-800/60 to-red-900/80 transition-opacity duration-700 ${
-                        imgLoaded ? 'opacity-0' : 'opacity-100'
+                    className={`absolute inset-0 bg-gradient-to-br from-amber-900/90 via-orange-800/70 to-red-900/90 transition-opacity duration-700 ${
+                        imgLoaded && showImage ? 'opacity-0' : 'opacity-100'
                     }`}
-                />
+                >
+                    {/* Decorative pattern */}
+                    <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAiIGhlaWdodD0iNDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iMjAiIGN5PSIyMCIgcj0iMSIgZmlsbD0icmdiYSgyNTUsMjU1LDI1NSwwLjAzKSIvPjwvc3ZnPg==')] opacity-50" />
+                    {/* Centered meal emoji when no photo */}
+                    {(!showImage || !imgLoaded) && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-6xl opacity-30 select-none">{mealEmoji}</span>
+                        </div>
+                    )}
+                </div>
 
                 {/* Bottom shadow gradient for text legibility */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent" />
