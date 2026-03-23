@@ -136,6 +136,7 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
         );
 
         // Fire-and-forget: auto-create a draft voyage from this passage plan
+        // and activate it so the Passage Planning card appears
         try {
             const { createVoyage } = await import('../VoyageService');
             const departureName = typeof plan.origin === 'string' ? plan.origin.split(',')[0].trim() : 'Departure';
@@ -151,19 +152,14 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
             });
             if (v) {
                 log.info(`✓ Auto-created draft voyage "${voyageName}" from passage plan`);
+                // Activate using the Supabase voyage ID (not the logbook entry ID)
+                const { setActivePassage } = await import('../PassagePlanService');
+                setActivePassage(v.id);
             } else {
                 log.warn(`Auto-create voyage skipped: ${vErr}`);
             }
         } catch (e) {
             log.warn('Auto-create voyage from passage plan failed (non-critical):', e);
-        }
-
-        // Activate the passage plan so the Passage Planning card appears
-        try {
-            const { setPassagePlanActive } = await import('../PassagePlanService');
-            setPassagePlanActive(voyageId);
-        } catch {
-            /* non-critical */
         }
 
         return voyageId;

@@ -12,7 +12,9 @@ import { ChatService } from '../services/ChatService';
 import { useSettings } from '../context/SettingsContext';
 import { triggerHaptic } from '../utils/system';
 import { supabase } from '../services/supabase';
-import { getPendingInviteCount } from '../services/CrewService';
+import { getPendingInviteCount, getMyCrew } from '../services/CrewService';
+import { getDraftVoyages, type Voyage } from '../services/VoyageService';
+import { setActivePassage, getActivePassageId } from '../services/PassagePlanService';
 import { lazyRetry } from '../utils/lazyRetry';
 const AdminPanel = lazyRetry(
     () => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })),
@@ -79,6 +81,24 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
             }
         });
     }, []);
+
+    // ── Draft passage plans ──
+    const [draftVoyages, setDraftVoyages] = useState<Voyage[]>([]);
+    const [selectedPassageId, setSelectedPassageId] = useState<string>(getActivePassageId() || '');
+    const [passageCrewCount, setPassageCrewCount] = useState(0);
+
+    useEffect(() => {
+        getDraftVoyages().then(setDraftVoyages);
+    }, []);
+
+    // When selected passage changes, update crew count
+    useEffect(() => {
+        if (selectedPassageId) {
+            getMyCrew(selectedPassageId).then((c) => setPassageCrewCount(c.length));
+        } else {
+            setPassageCrewCount(0);
+        }
+    }, [selectedPassageId]);
 
     const anchorSublabel =
         anchorStatus === 'alarm' ? '⚠️ DRAG ALARM' : anchorStatus === 'armed' ? `Armed — ${anchorRadius}m` : 'Disarmed';
@@ -391,40 +411,93 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         )}
                     </div>
 
-                    <button
-                        aria-label="Haptic"
-                        onClick={() => {
-                            triggerHaptic('light');
-                            onNavigate('crew');
-                        }}
-                        className="w-full bg-gradient-to-br from-violet-500/15 to-fuchsia-500/15 border border-violet-500/20 rounded-xl p-4 text-left group hover:scale-[1.02] transition-all active:scale-[0.98] flex items-center gap-3"
-                    >
-                        <div className="p-2 rounded-lg bg-white/5 group-hover:bg-white/10 transition-colors relative">
-                            <svg
-                                className="w-4 h-4 text-violet-400"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={1.5}
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"
-                                />
-                            </svg>
-                            {pendingCrewInvites > 0 && (
-                                <div className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full border-2 border-[#0f172a]" />
+                    <div className="bg-gradient-to-br from-violet-500/10 to-fuchsia-500/10 border border-violet-500/20 rounded-xl p-4 space-y-3">
+                        {/* Passage selector dropdown */}
+                        <div>
+                            <label className="text-[10px] uppercase font-bold text-violet-400/60 tracking-wider mb-1.5 block">
+                                🧭 Active Passage
+                            </label>
+                            {draftVoyages.length > 0 ? (
+                                <select
+                                    value={selectedPassageId}
+                                    onChange={(e) => {
+                                        const id = e.target.value;
+                                        setSelectedPassageId(id);
+                                        if (id) {
+                                            setActivePassage(id);
+                                            triggerHaptic('light');
+                                        }
+                                    }}
+                                    className="w-full bg-white/[0.06] border border-white/[0.12] rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/40 appearance-none cursor-pointer"
+                                    style={{
+                                        backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23a78bfa'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`,
+                                        backgroundRepeat: 'no-repeat',
+                                        backgroundPosition: 'right 0.75rem center',
+                                        backgroundSize: '1rem',
+                                    }}
+                                >
+                                    <option value="" style={{ background: '#1e293b' }}>
+                                        Select a passage…
+                                    </option>
+                                    {draftVoyages.map((v) => (
+                                        <option key={v.id} value={v.id} style={{ background: '#1e293b' }}>
+                                            {v.voyage_name ||
+                                                `${v.departure_port || '?'} → ${v.destination_port || '?'}`}
+                                        </option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <div className="bg-white/[0.03] border border-dashed border-white/[0.08] rounded-lg p-3 text-center">
+                                    <p className="text-[11px] text-gray-400">
+                                        No draft passages yet. Plan a route from the <strong>Route Planner</strong> to
+                                        create one.
+                                    </p>
+                                </div>
                             )}
                         </div>
-                        <div className="flex-1">
-                            <h4 className="text-xs font-black text-white tracking-wide">Welcome Aboard</h4>
-                            <p className="text-[11px] font-bold uppercase tracking-widest mt-0.5 text-violet-400">
-                                {pendingCrewInvites > 0 ? `${pendingCrewInvites} Pending` : 'Join Passage'}
-                            </p>
-                        </div>
-                        <ChevronRight />
-                    </button>
+
+                        {/* Selected passage info + crew link */}
+                        {selectedPassageId && (
+                            <button
+                                aria-label="Manage Crew"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('crew');
+                                }}
+                                className="w-full flex items-center gap-3 p-3 rounded-lg bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.06] transition-all active:scale-[0.98] text-left"
+                            >
+                                <div className="p-2 rounded-lg bg-violet-500/15">
+                                    <svg
+                                        className="w-4 h-4 text-violet-400"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={1.5}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"
+                                        />
+                                    </svg>
+                                    {pendingCrewInvites > 0 && (
+                                        <div className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full border-2 border-[#0f172a]" />
+                                    )}
+                                </div>
+                                <div className="flex-1">
+                                    <h4 className="text-xs font-black text-white tracking-wide">Crew Management</h4>
+                                    <p className="text-[11px] font-bold uppercase tracking-widest mt-0.5 text-violet-400">
+                                        {passageCrewCount > 0
+                                            ? `${passageCrewCount} crew member${passageCrewCount !== 1 ? 's' : ''}`
+                                            : pendingCrewInvites > 0
+                                              ? `${pendingCrewInvites} Pending`
+                                              : 'Invite Crew'}
+                                    </p>
+                                </div>
+                                <ChevronRight />
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
             {/* end scrollable area */}

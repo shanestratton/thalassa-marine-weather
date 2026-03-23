@@ -131,6 +131,18 @@ export const ChatPage: React.FC = React.memo(() => {
             .catch(() => {
                 /* use sync fallback */
             });
+
+        // Re-check when passage selection changes (from VesselHub dropdown)
+        const handlePassageChange = () => {
+            // Sync check first for immediate UI response
+            setPassageStatus(getPassageStatusSync());
+            // Then async verify
+            getPassageStatus()
+                .then(setPassageStatus)
+                .catch(() => {});
+        };
+        window.addEventListener('thalassa:passage-changed', handlePassageChange);
+        return () => window.removeEventListener('thalassa:passage-changed', handlePassageChange);
     }, []);
 
     // --- Extracted Hooks ---

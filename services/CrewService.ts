@@ -166,6 +166,8 @@ export interface CrewMember {
     permissions: CrewPermissions;
     status: CrewInviteStatus;
     role: CrewRole;
+    /** The voyage this crew member belongs to (null = legacy/global) */
+    voyage_id: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -228,6 +230,7 @@ export async function lookupUserByEmail(email: string): Promise<{
 export async function inviteCrew(
     crewEmail: string,
     registers: SharedRegister[],
+    voyageId?: string,
 ): Promise<{ success: boolean; error?: string }> {
     if (!supabase) return { success: false, error: 'Not connected' };
 
@@ -250,13 +253,14 @@ export async function inviteCrew(
             };
         }
 
-        // Check if already invited
-        const { data: existing } = await supabase
+        // Check if already invited (scope to voyage if provided)
+        let existingQuery = supabase
             .from('vessel_crew')
             .select('id, status')
             .eq('owner_id', user.id)
-            .eq('crew_user_id', lookup.user_id!)
-            .single();
+            .eq('crew_user_id', lookup.user_id!);
+        if (voyageId) existingQuery = existingQuery.eq('voyage_id', voyageId);
+        const { data: existing } = await existingQuery.single();
 
         if (existing) {
             if (existing.status === 'accepted') {
@@ -288,6 +292,7 @@ export async function inviteCrew(
             shared_registers: registers,
             status: 'pending',
             role: 'crew',
+            ...(voyageId ? { voyage_id: voyageId } : {}),
         });
 
         if (insertError) return { success: false, error: insertError.message };
@@ -299,8 +304,9 @@ export async function inviteCrew(
 
 /**
  * Get all crew members (as captain — shows people you've shared with).
+ * If voyageId is provided, only returns crew for that specific passage.
  */
-export async function getMyCrew(): Promise<CrewMember[]> {
+export async function getMyCrew(voyageId?: string): Promise<CrewMember[]> {
     if (!supabase) return [];
 
     try {
@@ -309,11 +315,17 @@ export async function getMyCrew(): Promise<CrewMember[]> {
         } = await supabase.auth.getUser();
         if (!user) return [];
 
-        const { data, error } = await supabase
+        let query = supabase
             .from('vessel_crew')
             .select('*')
             .eq('owner_id', user.id)
             .order('created_at', { ascending: false });
+
+        if (voyageId) {
+            query = query.eq('voyage_id', voyageId);
+        }
+
+        const { data, error } = await query;
 
         if (error) {
             log.error('[CrewService] getMyCrew error:', error.message);
@@ -493,10 +505,10 @@ export async function leaveVessel(membershipId: string): Promise<boolean> {
 
 /**
  * Disband the entire crew group — removes ALL crew members belonging to the current user.
- * Only the group owner (captain) should call this.
+ * If voyageId is provided, only removes crew for that specific passage.
  * Also clears the local passage plan status.
  */
-export async function disbandGroup(): Promise<{ success: boolean; removedCount: number }> {
+export async function disbandGroup(voyageId?: string): Promise<{ success: boolean; removedCount: number }> {
     if (!supabase) return { success: false, removedCount: 0 };
 
     try {
@@ -506,12 +518,16 @@ export async function disbandGroup(): Promise<{ success: boolean; removedCount: 
         if (!user) return { success: false, removedCount: 0 };
 
         // Get count first for reporting
-        const { data: members } = await supabase.from('vessel_crew').select('id').eq('owner_id', user.id);
+        let countQuery = supabase.from('vessel_crew').select('id').eq('owner_id', user.id);
+        if (voyageId) countQuery = countQuery.eq('voyage_id', voyageId);
+        const { data: members } = await countQuery;
 
         const count = members?.length || 0;
 
-        // Delete all crew owned by this user
-        const { error } = await supabase.from('vessel_crew').delete().eq('owner_id', user.id);
+        // Delete crew
+        let deleteQuery = supabase.from('vessel_crew').delete().eq('owner_id', user.id);
+        if (voyageId) deleteQuery = deleteQuery.eq('voyage_id', voyageId);
+        const { error } = await deleteQuery;
 
         if (error) return { success: false, removedCount: 0 };
 

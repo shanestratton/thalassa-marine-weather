@@ -1,9 +1,11 @@
 /**
- * PassagePlanService — Checks if the current user has an active passage plan
- * and returns their per-child-card permissions.
+ * PassagePlanService — Multi-passage aware.
  *
- * Uses localStorage for offline caching + Supabase for authoritative state.
- * The passage owner always sees all cards.
+ * Tracks which draft voyage is currently selected and returns
+ * per-child-card permissions for the Passage Planning card.
+ *
+ * Uses localStorage for the selected voyage + offline caching,
+ * and Supabase for crew membership checks.
  */
 
 import { supabase } from './supabase';
@@ -12,12 +14,18 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('PassagePlanService');
 
-const CACHE_KEY = 'thalassa_passage_status';
+// ── Constants ───────────────────────────────────────────────────
+const SELECTED_PASSAGE_KEY = 'thalassa_selected_passage';
+const STATUS_CACHE_KEY = 'thalassa_passage_perms_cache';
+
+// ── Types ───────────────────────────────────────────────────────
 
 /** What the UI needs to know about passage access */
 export interface PassageStatus {
     /** Whether the user can see the Passage Planning card at all */
     visible: boolean;
+    /** The selected voyage ID (null if none selected) */
+    voyageId: string | null;
     /** Whether the user is the owner/creator of the passage */
     isOwner: boolean;
     /** Per-child-card visibility */
@@ -27,17 +35,19 @@ export interface PassageStatus {
     canViewChecklist: boolean;
 }
 
-const ALL_VISIBLE: PassageStatus = {
+const ALL_VISIBLE = (voyageId: string): PassageStatus => ({
     visible: true,
+    voyageId,
     isOwner: true,
     canViewMeals: true,
     canViewChat: true,
     canViewRoute: true,
     canViewChecklist: true,
-};
+});
 
 const HIDDEN: PassageStatus = {
     visible: false,
+    voyageId: null,
     isOwner: false,
     canViewMeals: false,
     canViewChat: false,
@@ -45,63 +55,100 @@ const HIDDEN: PassageStatus = {
     canViewChecklist: false,
 };
 
-/**
- * Check if the current user has an active passage plan saved locally.
- * This is set when they save a passage via the Route Planner.
- */
-export function hasLocalPassagePlan(): boolean {
-    try {
-        const raw = localStorage.getItem(CACHE_KEY);
-        if (!raw) return false;
-        const data = JSON.parse(raw);
-        return data?.active === true;
-    } catch {
-        return false;
-    }
-}
+// ── Active Passage Selection ────────────────────────────────────
 
-/**
- * Mark that the current user has saved an active passage plan.
- * Called by PassagePlanSave when a route is saved.
- */
-export function setPassagePlanActive(voyageId: string): void {
+/** Set the currently selected passage (called from Welcome Aboard dropdown). */
+export function setActivePassage(voyageId: string): void {
     try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify({ active: true, voyageId, timestamp: Date.now() }));
+        localStorage.setItem(SELECTED_PASSAGE_KEY, voyageId);
     } catch {
         /* storage full */
     }
+    // Dispatch event so ChatPage can react
+    window.dispatchEvent(new CustomEvent('thalassa:passage-changed', { detail: { voyageId } }));
 }
 
-/** Clear the local passage plan status (e.g., when voyage ends). */
+/** Get the currently selected passage ID (synchronous). */
+export function getActivePassageId(): string | null {
+    try {
+        return localStorage.getItem(SELECTED_PASSAGE_KEY) || null;
+    } catch {
+        return null;
+    }
+}
+
+/** Clear the selected passage (e.g., voyage completed or disbanded). */
 export function clearPassagePlan(): void {
     try {
-        localStorage.removeItem(CACHE_KEY);
+        localStorage.removeItem(SELECTED_PASSAGE_KEY);
+        localStorage.removeItem(STATUS_CACHE_KEY);
     } catch {
         /* ignore */
     }
+    window.dispatchEvent(new CustomEvent('thalassa:passage-changed', { detail: { voyageId: null } }));
 }
+
+// ── Backward compat aliases ─────────────────────────────────────
+/** @deprecated Use setActivePassage instead */
+export function setPassagePlanActive(voyageId: string): void {
+    setActivePassage(voyageId);
+}
+
+/** @deprecated Use getActivePassageId instead */
+export function hasLocalPassagePlan(): boolean {
+    return !!getActivePassageId();
+}
+
+// ── Passage Status ──────────────────────────────────────────────
 
 /**
  * Get the full passage status for the current user.
  *
  * Priority:
- * 1. If user has a local saved passage → they're the owner → all visible
- * 2. If user has an accepted crew membership with passage permissions → show permitted cards
+ * 1. If user has a selected passage and owns that voyage → all visible
+ * 2. If user has accepted crew membership with passage permissions → show permitted cards
  * 3. Otherwise → hidden
  */
 export async function getPassageStatus(): Promise<PassageStatus> {
-    // 1. Check if owner (saved a passage locally)
-    if (hasLocalPassagePlan()) {
-        return ALL_VISIBLE;
+    const voyageId = getActivePassageId();
+
+    // No passage selected → hidden
+    if (!voyageId) {
+        // Still check crew memberships — they might be invited to someone else's passage
+        return checkCrewMemberships();
     }
 
-    // 2. Check crew memberships for passage permissions
+    // Check if user owns this voyage
+    if (supabase) {
+        try {
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
+            if (user) {
+                const { data } = await supabase.from('voyages').select('user_id').eq('id', voyageId).maybeSingle();
+
+                if (data?.user_id === user.id) {
+                    const status = ALL_VISIBLE(voyageId);
+                    cacheStatus(status);
+                    return status;
+                }
+            }
+        } catch (e) {
+            log.warn('Failed to check voyage ownership:', e);
+        }
+    }
+
+    // Check crew memberships
+    return checkCrewMemberships();
+}
+
+/** Check if user has passage access via crew membership. */
+async function checkCrewMemberships(): Promise<PassageStatus> {
     if (!supabase) return getCachedStatus();
 
     try {
         const memberships = await getMyMemberships();
 
-        // Find any membership that grants passage access
         for (const m of memberships) {
             const perms: CrewPermissions = {
                 ...DEFAULT_PERMISSIONS,
@@ -111,6 +158,7 @@ export async function getPassageStatus(): Promise<PassageStatus> {
             if (perms.can_view_passage) {
                 const status: PassageStatus = {
                     visible: true,
+                    voyageId: m.voyage_id || null,
                     isOwner: false,
                     canViewMeals: perms.can_view_passage_meals,
                     canViewChat: perms.can_view_passage_chat,
@@ -118,13 +166,11 @@ export async function getPassageStatus(): Promise<PassageStatus> {
                     canViewChecklist: perms.can_view_passage_checklist,
                 };
 
-                // Cache for offline use
                 cacheStatus(status);
                 return status;
             }
         }
 
-        // No passage access
         cacheStatus(HIDDEN);
         return HIDDEN;
     } catch (e) {
@@ -133,15 +179,17 @@ export async function getPassageStatus(): Promise<PassageStatus> {
     }
 }
 
-/** Synchronous check — uses cached status from localStorage. */
+/** Synchronous check — uses localStorage cache. */
 export function getPassageStatusSync(): PassageStatus {
-    if (hasLocalPassagePlan()) return ALL_VISIBLE;
+    const voyageId = getActivePassageId();
+    if (voyageId) {
+        // Assume owner if they selected it locally (async will verify)
+        return ALL_VISIBLE(voyageId);
+    }
     return getCachedStatus();
 }
 
 // ── Cache helpers ────────────────────────────────────────────────
-
-const STATUS_CACHE_KEY = 'thalassa_passage_perms_cache';
 
 function cacheStatus(status: PassageStatus): void {
     try {
