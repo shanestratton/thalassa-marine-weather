@@ -48,6 +48,7 @@ vi.mock('../services/AnchorWatchService', () => ({
         isWatching: vi.fn().mockReturnValue(false),
         startWatch: vi.fn(),
         stopWatch: vi.fn(),
+        restoreWatchState: vi.fn().mockResolvedValue(false),
         getConfig: vi.fn().mockReturnValue({ radius: 30, lat: -33.8, lon: 151.2 }),
         subscribe: vi.fn().mockReturnValue(vi.fn()),
     },

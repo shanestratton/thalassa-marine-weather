@@ -19,8 +19,18 @@ import {
 // ── Constants & Defaults ─────────────────────────────────────
 
 describe('CrewService constants', () => {
-    it('ALL_REGISTERS contains all 5 registers', () => {
-        expect(ALL_REGISTERS).toEqual(['stores', 'equipment', 'maintenance', 'documents', 'galley']);
+    it('ALL_REGISTERS contains all registers', () => {
+        expect(ALL_REGISTERS).toEqual([
+            'stores',
+            'equipment',
+            'maintenance',
+            'documents',
+            'galley',
+            'passage_meals',
+            'passage_chat',
+            'passage_route',
+            'passage_checklist',
+        ]);
     });
 
     it('REGISTER_LABELS has an entry for every register', () => {

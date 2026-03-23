@@ -1404,7 +1404,22 @@
 <a name='L1339'></a><a href='#L1339'>1339</a>
 <a name='L1340'></a><a href='#L1340'>1340</a>
 <a name='L1341'></a><a href='#L1341'>1341</a>
-<a name='L1342'></a><a href='#L1342'>1342</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L1342'></a><a href='#L1342'>1342</a>
+<a name='L1343'></a><a href='#L1343'>1343</a>
+<a name='L1344'></a><a href='#L1344'>1344</a>
+<a name='L1345'></a><a href='#L1345'>1345</a>
+<a name='L1346'></a><a href='#L1346'>1346</a>
+<a name='L1347'></a><a href='#L1347'>1347</a>
+<a name='L1348'></a><a href='#L1348'>1348</a>
+<a name='L1349'></a><a href='#L1349'>1349</a>
+<a name='L1350'></a><a href='#L1350'>1350</a>
+<a name='L1351'></a><a href='#L1351'>1351</a>
+<a name='L1352'></a><a href='#L1352'>1352</a>
+<a name='L1353'></a><a href='#L1353'>1353</a>
+<a name='L1354'></a><a href='#L1354'>1354</a>
+<a name='L1355'></a><a href='#L1355'>1355</a>
+<a name='L1356'></a><a href='#L1356'>1356</a>
+<a name='L1357'></a><a href='#L1357'>1357</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -1449,21 +1464,37 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -2743,8 +2774,7 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-yes">3x</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">/**
  * @filesize-justified Service class already using chat/constants sub-module. Core orchestrator pattern.
  */
@@ -2784,10 +2814,26 @@ export type {
 export { DEFAULT_CHANNELS, PIN_DROP_PREFIX, parsePinDrop } from './chat/constants';
 &nbsp;
 // ── Internal imports from sub-modules ────────────────────────────
-import type { ChatChannel, ChatMessage, DirectMessage, ChatRole, UserRoleEntry, JoinRequest, DMConversation, QueuedMessage } from './chat/types';
+import type {
+    ChatChannel,
+    ChatMessage,
+    DirectMessage,
+    ChatRole,
+    UserRoleEntry,
+    JoinRequest,
+    DMConversation,
+    QueuedMessage,
+} from './chat/types';
 import {
-    CHANNELS_TABLE, MESSAGES_TABLE, DM_TABLE, ROLES_TABLE, DM_BLOCKS_TABLE,
-    PLATFORM_OWNER_EMAIL, CHANNELS_CACHE_KEY, OFFLINE_QUEUE_KEY, PIN_DROP_PREFIX,
+    CHANNELS_TABLE,
+    MESSAGES_TABLE,
+    DM_TABLE,
+    ROLES_TABLE,
+    DM_BLOCKS_TABLE,
+    PLATFORM_OWNER_EMAIL,
+    CHANNELS_CACHE_KEY,
+    OFFLINE_QUEUE_KEY,
+    PIN_DROP_PREFIX,
 } from './chat/constants';
 &nbsp;
 const log = createLogger('Chat');
@@ -4085,7 +4131,6 @@ class ChatServiceClass {
 &nbsp;
 // Singleton
 export const ChatService = new ChatServiceClass();
-&nbsp;
 &nbsp;</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
@@ -4093,7 +4138,7 @@ export const ChatService = new ChatServiceClass();
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-03-23T10:52:00.700Z
+                at 2026-03-23T20:12:57.071Z
             </div>
         <script src="../prettify.js"></script>
         <script>
