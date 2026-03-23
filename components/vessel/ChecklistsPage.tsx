@@ -1,4 +1,7 @@
 /**
+ * @filesize-justified SwipeableItemCard shares state with parent. Single-page component with tightly coupled CRUD logic.
+ */
+/**
  * ChecklistsPage — Pre-departure and operational checklists.
  *
  * Features:

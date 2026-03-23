@@ -1,3 +1,6 @@
+/**
+ * @filesize-justified Single React.memo component — monolithic render with no natural sub-component boundaries.
+ */
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { TideGraph } from './TideAndVessel';
 // MapHub removed from essential mode — uses static image to prevent GPU heating

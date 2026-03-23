@@ -264,7 +264,7 @@ export async function generateGalleyPlan(days: number, crew: number): Promise<Ga
             // Fetch full recipe details for ingredients
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const mealIds = (data.meals || []).slice(0, 3).map((m: any) => m.id);
-            let recipeDetails: Record<number, RecipeIngredient[]> = {};
+            const recipeDetails: Record<number, RecipeIngredient[]> = {};
 
             if (mealIds.length > 0) {
                 try {

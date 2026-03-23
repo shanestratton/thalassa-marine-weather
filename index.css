@@ -2236,3 +2236,24 @@ body,
         transform: translateX(-50%);
     }
 }
+
+/* ══════════════════════════════════════════════════════════════
+   ACCESSIBILITY: Reduced Motion
+   ──────────────────────────────────────────────────────────────
+   Global blanket rule: disable ALL animations and transitions
+   when the user's OS setting prefers reduced motion.
+   Individual animations above that already have targeted
+   reduced-motion rules will be caught by this global rule too.
+   WCAG 2.1 SC 2.3.3 — Animation from Interactions.
+   ══════════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}

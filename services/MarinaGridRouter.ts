@@ -12,7 +12,12 @@
  * connections instead of O(N²), and raw math for A* heuristics.
  */
 
-import * as turf from '@turf/turf';
+import buffer from '@turf/buffer';
+import bbox from '@turf/bbox';
+import { pointGrid } from '@turf/point-grid';
+import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
+import { lineString } from '@turf/helpers';
+import bezierSpline from '@turf/bezier-spline';
 import type { Feature, Polygon, MultiPolygon, FeatureCollection, Point } from 'geojson';
 
 import { createLogger } from '../utils/createLogger';
@@ -120,7 +125,7 @@ export async function routeThroughMarina(
         bufferedObstacles = obstacles.features
             .map((f) => {
                 try {
-                    return turf.buffer(f, OBSTACLE_BUFFER_M, { units: 'meters' }) as Feature<Polygon | MultiPolygon>;
+                    return buffer(f, OBSTACLE_BUFFER_M, { units: 'meters' }) as Feature<Polygon | MultiPolygon>;
                 } catch (e) {
                     log.warn('[MarinaGrid]', e);
                     return null;
@@ -130,16 +135,16 @@ export async function routeThroughMarina(
     }
 
     // 2. Generate point grid inside marina bounds
-    const bbox = turf.bbox(marinaBounds);
-    const grid = turf.pointGrid(bbox, GRID_SPACING_M, { units: 'meters' });
+    const bb = bbox(marinaBounds);
+    const grid = pointGrid(bb, GRID_SPACING_M, { units: 'meters' });
 
     // 3. Filter out points inside obstacles or outside marina bounds
     const safePoints: Feature<Point>[] = [];
     for (const pt of grid.features) {
-        if (!turf.booleanPointInPolygon(pt, marinaBounds)) continue;
+        if (!booleanPointInPolygon(pt, marinaBounds)) continue;
         let blocked = false;
         for (const obs of bufferedObstacles) {
-            if (turf.booleanPointInPolygon(pt, obs)) {
+            if (booleanPointInPolygon(pt, obs)) {
                 blocked = true;
                 break;
             }
@@ -222,8 +227,8 @@ export async function routeThroughMarina(
     let smoothCoords: [number, number][];
     try {
         if (rawCoords.length >= 3) {
-            const line = turf.lineString(rawCoords);
-            const smooth = turf.bezierSpline(line, { resolution: 10000, sharpness: 0.85 });
+            const line = lineString(rawCoords);
+            const smooth = bezierSpline(line, { resolution: 10000, sharpness: 0.85 });
             smoothCoords = smooth.geometry.coordinates as [number, number][];
         } else {
             smoothCoords = rawCoords;

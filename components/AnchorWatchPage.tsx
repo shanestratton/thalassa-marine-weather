@@ -1,4 +1,7 @@
 /**
+ * @filesize-justified 3 view modes (setup/watching/shore) sharing 15+ state variables. Splitting would require a context or prop-drilling.
+ */
+/**
  * AnchorWatchPage — Premium anchor watch UI
  *
  * States:

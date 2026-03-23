@@ -1,3 +1,6 @@
+/**
+ * @filesize-justified 6 co-located widgets sharing Card, Icons, and utility imports. Extracting would duplicate import trees without reducing complexity.
+ */
 import React, { useEffect, useRef, useCallback } from 'react';
 import { createLogger } from '../../utils/createLogger';
 

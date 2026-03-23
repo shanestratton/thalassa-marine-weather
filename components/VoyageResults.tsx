@@ -2,13 +2,10 @@ import React from 'react';
 import { useSettings } from '../context/SettingsContext';
 import { createLogger } from '../utils/createLogger';
 
-const log = createLogger('VoyageResults');
-import { toast } from './Toast';
+const _log = createLogger('VoyageResults');
+import { toast as _toast } from './Toast';
 import { VoyagePlan, DeepAnalysisReport, VesselProfile } from '../types';
 import {
-    SailBoatIcon,
-    PowerBoatIcon,
-    MapPinIcon,
     RouteIcon,
     CheckIcon,
     BellIcon,
@@ -21,12 +18,10 @@ import {
     ClockIcon,
     AlertTriangleIcon,
     FlagIcon,
-    PhoneIcon as _PhoneIcon,
     ServerIcon,
-    ShareIcon,
+    MapPinIcon as _MapPinIcon,
+    ShareIcon as _ShareIcon,
 } from './Icons';
-import { calculateDistance } from '../utils/math';
-import { fmtLat, fmtLon, fmtCoord } from '../utils/coords';
 import { ResourceCalculator } from './passage/ResourceCalculator';
 import { EmergencyPlan } from './passage/EmergencyPlan';
 import { AccordionSection } from './passage/AccordionSection';
@@ -35,20 +30,14 @@ import { ModelComparisonCard } from './passage/ModelComparisonCard';
 import { CustomsClearanceCard } from './passage/CustomsClearanceCard';
 import type { MultiModelResult } from '../services/weather/MultiModelWeatherService';
 
-// --- MICRO COMPONENTS ---
+// --- Extracted sub-components ---
+import { VoyageOverviewCard } from './voyage-results/VoyageOverviewCard';
+import { VoyageLogTable } from './voyage-results/VoyageLogTable';
+import { RouteNodeGrid } from './voyage-results/RouteNodeGrid';
+import { DeepAnalysisSection as _DeepAnalysisSection } from './voyage-results/DeepAnalysisSection';
+import { ExportButtons } from './voyage-results/DeepAnalysisSection';
 
-const getStatusClasses = (status?: string) => {
-    switch (status) {
-        case 'SAFE':
-            return 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400';
-        case 'CAUTION':
-            return 'bg-amber-500/10 border-amber-500/30 text-amber-400';
-        case 'UNSAFE':
-            return 'bg-red-500/10 border-red-500/30 text-red-400';
-        default:
-            return 'bg-slate-800 border-white/10 text-gray-400';
-    }
-};
+// getStatusClasses() moved to voyage-results/VoyageOverviewCard.tsx
 
 const _SystemSwitch = React.memo<{ label: string; checked: boolean; onChange: () => void }>(
     ({ label, checked, onChange }) => (
@@ -165,176 +154,20 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
         // Gemini crow-fly estimates look like "750 NM" with no routing reasoning
         // The safest heuristic: if routeReasoning contains 'Weather-optimized' or 'Weather-adjusted',
         // the route has been analyzed by the actual router
-        const isRouteAnalyzed =
-            voyagePlan.routeReasoning?.includes('Weather-') || voyagePlan.routeReasoning?.includes('mesh nodes');
+        const isRouteAnalyzed = !!(
+            voyagePlan.routeReasoning?.includes('Weather-') || voyagePlan.routeReasoning?.includes('mesh nodes')
+        );
 
         return (
             <div className="max-w-7xl mx-auto w-full animate-in fade-in slide-in-from-bottom-8 duration-700 pb-12 flex-1 flex flex-col gap-3">
-                {/* ═══════════════════════════════════════════════════════════════════
-                VOYAGE OVERVIEW CARD — Always visible hero card (not collapsible)
-                ═══════════════════════════════════════════════════════════════════ */}
-                <div className="w-full bg-slate-900 border border-white/10 rounded-2xl p-0 relative overflow-hidden shadow-2xl flex flex-col">
-                    {/* Background Decorations */}
-                    <div className="absolute top-0 right-0 w-96 h-96 bg-sky-500/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
-
-                    {/* Header: Route — Departing (left) → Arriving (right) */}
-                    <div className="p-6 md:p-8 pb-0 flex items-center gap-4 relative z-10">
-                        {/* Origin — Left */}
-                        <div className="flex flex-col min-w-0 flex-1">
-                            <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mb-1">
-                                Departing
-                            </span>
-                            <span className="text-xl md:text-3xl font-bold text-white tracking-tight truncate">
-                                {voyagePlan.origin && typeof voyagePlan.origin === 'string'
-                                    ? voyagePlan.origin.split(',')[0]
-                                    : 'Unknown'}
-                            </span>
-                            <span className="text-[11px] text-gray-400 font-mono mt-1">
-                                {fmtCoord(voyagePlan.originCoordinates?.lat, voyagePlan.originCoordinates?.lon, 2)}
-                            </span>
-                        </div>
-
-                        {/* Nautical Route Connector */}
-                        <div className="flex flex-col items-center justify-center shrink-0 gap-0.5 py-2 min-w-[80px] md:min-w-[140px]">
-                            <div className="w-full flex items-center gap-0">
-                                <div className="h-px flex-1 bg-gradient-to-r from-transparent via-sky-500/40 to-sky-500/60" />
-                                <div className="p-1.5 bg-sky-500/10 border border-sky-500/30 rounded-full shadow-[0_0_8px_rgba(56,189,248,0.15)]">
-                                    {vessel?.type === 'power' ? (
-                                        <PowerBoatIcon className="w-3.5 h-3.5 text-sky-400" />
-                                    ) : (
-                                        <SailBoatIcon className="w-3.5 h-3.5 text-sky-400" />
-                                    )}
-                                </div>
-                                <div className="h-px flex-1 bg-gradient-to-r from-sky-500/60 via-sky-500/40 to-transparent" />
-                            </div>
-                            <span className="text-[11px] text-sky-400/70 font-bold uppercase tracking-[0.15em] mt-0.5">
-                                {voyagePlan.departureDate}
-                            </span>
-                        </div>
-
-                        {/* Destination — Right */}
-                        <div className="flex flex-col text-right items-end min-w-0 flex-1">
-                            <span className="text-[11px] text-gray-400 font-bold uppercase tracking-widest mb-1">
-                                Arriving
-                            </span>
-                            <span className="text-xl md:text-3xl font-bold text-white tracking-tight truncate">
-                                {voyagePlan.destination && typeof voyagePlan.destination === 'string'
-                                    ? voyagePlan.destination.split(',')[0]
-                                    : 'Unknown'}
-                            </span>
-                            <span className="text-[11px] text-gray-400 font-mono mt-1">
-                                {fmtCoord(
-                                    voyagePlan.destinationCoordinates?.lat,
-                                    voyagePlan.destinationCoordinates?.lon,
-                                    2,
-                                )}
-                            </span>
-                        </div>
-                    </div>
-
-                    {/* Stats Stack — Vertical */}
-                    <div className="px-6 md:px-8 pb-6 flex flex-col gap-2.5 relative z-10">
-                        {/* Distance */}
-                        <div className="bg-white/5 rounded-xl px-4 py-3 border border-white/5 flex items-center justify-between group hover:bg-white/10 transition-colors">
-                            <div className="flex items-center gap-3 text-gray-400 group-hover:text-sky-300 transition-colors">
-                                <div className="p-1.5 bg-sky-500/10 rounded-lg">
-                                    <RouteIcon className="w-4 h-4 text-sky-400" />
-                                </div>
-                                <span className="text-xs font-bold uppercase tracking-widest text-gray-300">
-                                    Distance
-                                </span>
-                            </div>
-                            <div className="text-right">
-                                {isRouteAnalyzed ? (
-                                    <>
-                                        <span className="text-lg font-bold text-white">
-                                            {voyagePlan.distanceApprox}
-                                        </span>
-                                        <span className="text-[11px] text-gray-400 block">Nautical Miles</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <span className="text-lg font-bold text-amber-300/80 animate-pulse">
-                                            Routing...
-                                        </span>
-                                        <span className="text-[11px] text-gray-400 block">Awaiting route analysis</span>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Duration */}
-                        <div className="bg-white/5 rounded-xl px-4 py-3 border border-white/5 flex items-center justify-between group hover:bg-white/10 transition-colors">
-                            <div className="flex items-center gap-3 text-gray-400 group-hover:text-sky-300 transition-colors">
-                                <div className="p-1.5 bg-sky-500/10 rounded-lg">
-                                    <ClockIcon className="w-4 h-4 text-sky-400" />
-                                </div>
-                                <span className="text-xs font-bold uppercase tracking-widest text-gray-300">
-                                    Duration
-                                </span>
-                            </div>
-                            <div className="text-right">
-                                {isRouteAnalyzed ? (
-                                    <>
-                                        <span className="text-lg font-bold text-white">
-                                            {voyagePlan.durationApprox}
-                                        </span>
-                                        <span className="text-[11px] text-gray-400 block">Estimated Time</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <span className="text-lg font-bold text-amber-300/80 animate-pulse">
-                                            Routing...
-                                        </span>
-                                        <span className="text-[11px] text-gray-400 block">Awaiting route analysis</span>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-
-                        {/* Max Conditions */}
-                        <div className="bg-white/5 rounded-xl px-4 py-3 border border-white/5 flex items-center justify-between group hover:bg-white/10 transition-colors">
-                            <div className="flex items-center gap-3 text-gray-400 group-hover:text-amber-300 transition-colors">
-                                <div className="p-1.5 bg-amber-500/10 rounded-lg">
-                                    <WindIcon className="w-4 h-4 text-amber-400" />
-                                </div>
-                                <span className="text-xs font-bold uppercase tracking-widest text-gray-300">
-                                    Max Conditions
-                                </span>
-                            </div>
-                            <div className="text-right flex items-baseline gap-3">
-                                <div>
-                                    <span className="text-lg font-bold text-white">
-                                        {voyagePlan.suitability?.maxWindEncountered ?? '--'}
-                                    </span>
-                                    <span className="text-[11px] text-gray-400 ml-0.5">kts</span>
-                                </div>
-                                <div className="text-[11px] text-sky-300 font-medium border-l border-white/10 pl-3">
-                                    {displayWave(voyagePlan.suitability?.maxWaveEncountered)} {waveLabel} seas
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Viability Status */}
-                        <div
-                            className={`rounded-xl px-4 py-3 border flex items-center justify-between ${getStatusClasses(voyagePlan.suitability?.status)}`}
-                        >
-                            <div className="flex items-center gap-3 opacity-90">
-                                <div className="p-1.5 bg-current/10 rounded-lg opacity-60">
-                                    <DiamondIcon className="w-4 h-4" />
-                                </div>
-                                <div>
-                                    <span className="text-lg font-black uppercase tracking-wide">
-                                        {voyagePlan.suitability?.status}
-                                    </span>
-                                    <span className="text-[11px] opacity-70 block leading-tight">
-                                        {voyagePlan.suitability?.reasoning || 'Route analyzed.'}
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                {/* VOYAGE OVERVIEW CARD */}
+                <VoyageOverviewCard
+                    voyagePlan={voyagePlan}
+                    vessel={vessel}
+                    isRouteAnalyzed={isRouteAnalyzed}
+                    displayWave={displayWave}
+                    waveLabel={waveLabel}
+                />
                 {/* LIABILITY DISCLAIMER — Right under the passage plan card */}
                 <div className="w-full p-4 bg-amber-950/20 border border-amber-900/30 rounded-xl flex items-start gap-4 shadow-lg">
                     <div className="p-2 bg-amber-900/30 rounded-full text-amber-500 shrink-0 mt-0.5">
@@ -467,165 +300,13 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                         defaultOpen={false}
                         badge={`${(voyagePlan.waypoints?.length || 0) + 2} waypoints`}
                     >
-                        <div className="overflow-x-auto -mx-5 px-5">
-                            <table className="w-full text-left border-collapse">
-                                <thead>
-                                    <tr className="text-[11px] text-gray-400 uppercase tracking-widest border-b border-white/10">
-                                        <th className="pb-3 pl-2 font-bold">Waypoint / ETA</th>
-                                        <th className="pb-3 font-bold">Position</th>
-                                        <th className="pb-3 font-bold">Depth</th>
-                                        <th className="pb-3 font-bold">Wind</th>
-                                        <th className="pb-3 font-bold">Sea State</th>
-                                        <th className="pb-3 font-bold">Notes</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="text-xs md:text-sm font-mono text-gray-300">
-                                    {/* Origin Row */}
-                                    <tr className="border-b border-white/5 group hover:bg-white/5 transition-colors">
-                                        <td className="py-3.5 pl-2">
-                                            <div className="font-bold text-white">DEPARTURE</div>
-                                            <div className="text-[11px] text-gray-400">T+00:00</div>
-                                        </td>
-                                        <td className="py-3.5">
-                                            <div className="text-white">
-                                                {voyagePlan.origin && typeof voyagePlan.origin === 'string'
-                                                    ? voyagePlan.origin.split(',')[0]
-                                                    : 'Origin'}
-                                            </div>
-                                            <div className="text-[11px] text-gray-400 opacity-60">
-                                                {fmtCoord(
-                                                    voyagePlan.originCoordinates?.lat,
-                                                    voyagePlan.originCoordinates?.lon,
-                                                )}
-                                            </div>
-                                        </td>
-                                        <td className="py-3.5 text-gray-400 italic">--</td>
-                                        <td className="py-3.5 text-gray-400 italic">--</td>
-                                        <td className="py-3.5 text-gray-400 italic">--</td>
-                                        <td className="py-3.5 text-gray-400 max-w-[200px] truncate">
-                                            Departure: {voyagePlan.departureDate}
-                                        </td>
-                                    </tr>
-
-                                    {/* Waypoints */}
-                                    {voyagePlan.waypoints.map((wp, i) => {
-                                        const prevLat =
-                                            i === 0
-                                                ? voyagePlan.originCoordinates?.lat || 0
-                                                : voyagePlan.waypoints[i - 1].coordinates?.lat || 0;
-                                        const prevLon =
-                                            i === 0
-                                                ? voyagePlan.originCoordinates?.lon || 0
-                                                : voyagePlan.waypoints[i - 1].coordinates?.lon || 0;
-                                        const distKm =
-                                            wp.coordinates && prevLat
-                                                ? calculateDistance(
-                                                      prevLat,
-                                                      prevLon,
-                                                      wp.coordinates.lat,
-                                                      wp.coordinates.lon,
-                                                  )
-                                                : 0;
-                                        const distNm = distKm * 0.539957;
-                                        const _hours = distNm / (vessel.cruisingSpeed || 5);
-
-                                        return (
-                                            <tr
-                                                key={i}
-                                                className="border-b border-white/5 group hover:bg-white/5 transition-colors"
-                                            >
-                                                <td className="py-3.5 pl-2">
-                                                    <div className="font-bold text-sky-400">
-                                                        WP-{String(i + 1).padStart(2, '0')}
-                                                    </div>
-                                                    <div className="text-[11px] text-gray-400">{wp.name}</div>
-                                                </td>
-                                                <td className="py-3.5">
-                                                    {wp.coordinates ? (
-                                                        <>
-                                                            <div>{fmtLat(wp.coordinates.lat)}</div>
-                                                            <div className="opacity-60">
-                                                                {fmtLon(wp.coordinates.lon)}
-                                                            </div>
-                                                        </>
-                                                    ) : (
-                                                        '--'
-                                                    )}
-                                                </td>
-                                                <td className="py-3.5">
-                                                    {wp.depth_m !== undefined ? (
-                                                        <div
-                                                            className={`flex items-center gap-1 font-mono text-xs ${wp.depth_m < 10 ? 'text-red-400' : wp.depth_m < 30 ? 'text-amber-400' : 'text-sky-400'}`}
-                                                        >
-                                                            ⚓ {wp.depth_m}m
-                                                        </div>
-                                                    ) : (
-                                                        <span className="text-gray-400 italic">--</span>
-                                                    )}
-                                                </td>
-                                                <td className="py-3.5">
-                                                    <div className="flex items-center gap-1.5 text-sky-300">
-                                                        <WindIcon className="w-3.5 h-3.5" /> {wp.windSpeed ?? '--'}kt
-                                                    </div>
-                                                </td>
-                                                <td className="py-3.5">
-                                                    <div className="flex items-center gap-1.5 text-sky-300">
-                                                        <WaveIcon className="w-3.5 h-3.5" />{' '}
-                                                        {displayWave(wp.waveHeight)}
-                                                        {waveLabel}
-                                                    </div>
-                                                </td>
-                                                <td className="py-3.5">
-                                                    <div className="flex flex-col gap-1">
-                                                        {(wp.windSpeed || 0) > 20 && (
-                                                            <span className="text-[11px] font-bold text-amber-400 px-1.5 py-0.5 bg-amber-500/10 rounded w-fit border border-amber-500/20">
-                                                                HIGH WIND
-                                                            </span>
-                                                        )}
-                                                        {(wp.waveHeight || 0) > (waveUnit === 'm' ? 1.2 : 4) && (
-                                                            <span className="text-[11px] font-bold text-sky-400 px-1.5 py-0.5 bg-sky-500/10 rounded w-fit border border-sky-500/20">
-                                                                ROUGH SEAS
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-
-                                    {/* Destination Row */}
-                                    <tr className="group hover:bg-white/5 transition-colors">
-                                        <td className="py-3.5 pl-2">
-                                            <div className="font-bold text-white">ARRIVAL</div>
-                                            <div className="text-[11px] text-gray-400">
-                                                {isRouteAnalyzed
-                                                    ? `Est. ${voyagePlan.durationApprox}`
-                                                    : 'Duration pending...'}
-                                            </div>
-                                        </td>
-                                        <td className="py-3.5">
-                                            <div className="text-white">
-                                                {voyagePlan.destination && typeof voyagePlan.destination === 'string'
-                                                    ? voyagePlan.destination.split(',')[0]
-                                                    : 'Destination'}
-                                            </div>
-                                            <div className="text-[11px] text-gray-400 opacity-60">
-                                                {fmtCoord(
-                                                    voyagePlan.destinationCoordinates?.lat,
-                                                    voyagePlan.destinationCoordinates?.lon,
-                                                )}
-                                            </div>
-                                        </td>
-                                        <td className="py-3.5 text-gray-400 italic">--</td>
-                                        <td className="py-3.5 text-gray-400 italic">--</td>
-                                        <td className="py-3.5 text-gray-400 italic">--</td>
-                                        <td className="py-3.5 text-emerald-400 font-bold text-xs uppercase tracking-wider">
-                                            Destination Reach
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
+                        <VoyageLogTable
+                            voyagePlan={voyagePlan}
+                            vessel={vessel}
+                            isRouteAnalyzed={isRouteAnalyzed}
+                            displayWave={displayWave}
+                            waveLabel={waveLabel}
+                        />
                     </AccordionSection>
                     {/* SUGGESTED ROUTE PLAN */}
                     <AccordionSection
@@ -636,88 +317,13 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                         defaultOpen={false}
                         badge={isRouteAnalyzed ? `${voyagePlan.waypoints?.length || 0} nodes` : 'Computing...'}
                     >
-                        {!isRouteAnalyzed ? (
-                            <div className="flex flex-col items-center justify-center py-10 opacity-70 border-2 border-dashed border-amber-500/20 rounded-xl bg-amber-500/5">
-                                <div className="animate-pulse flex flex-col items-center gap-3">
-                                    <RouteIcon className="w-10 h-10 text-amber-400/60" />
-                                    <span className="text-sm font-bold text-amber-300/80 uppercase tracking-widest">
-                                        Computing Route...
-                                    </span>
-                                    <span className="text-xs text-gray-400 max-w-xs text-center">
-                                        Waypoints will appear once weather routing analysis completes
-                                    </span>
-                                </div>
-                            </div>
-                        ) : voyagePlan.waypoints && voyagePlan.waypoints.length > 0 ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                                {voyagePlan.waypoints.map((wp, i) => (
-                                    <div
-                                        key={i}
-                                        className="flex gap-3 relative group cursor-pointer select-none bg-white/5 hover:bg-white/10 border border-white/5 hover:border-sky-500/30 rounded-xl p-4 transition-all"
-                                        onClick={() => setIsMapOpen(true)}
-                                    >
-                                        {/* Node Number Badge */}
-                                        <div className="absolute -top-2 -right-2 w-6 h-6 bg-slate-800 border border-white/10 rounded-full flex items-center justify-center text-[11px] font-mono text-gray-400 shadow-lg group-hover:border-sky-500/50 group-hover:text-sky-400 transition-colors">
-                                            {i + 1}
-                                        </div>
-
-                                        {/* Serial Icon */}
-                                        <div className="mt-1">
-                                            <div className="w-8 h-8 rounded-full bg-slate-900 border-2 border-sky-500/30 flex items-center justify-center shrink-0 shadow-lg shadow-sky-900/10 group-hover:scale-110 transition-transform">
-                                                <div className="w-2.5 h-2.5 bg-sky-500 rounded-full"></div>
-                                            </div>
-                                        </div>
-
-                                        <div className="flex-1 min-w-0">
-                                            <h4 className="text-sm font-bold text-white tracking-wide truncate mb-1 pr-4">
-                                                {wp.name}
-                                            </h4>
-                                            <span className="text-[11px] font-mono text-gray-400 block mb-2">
-                                                {fmtCoord(wp.coordinates?.lat, wp.coordinates?.lon)}
-                                            </span>
-
-                                            {/* Conditions Mini-Grid */}
-                                            <div className="grid grid-cols-2 gap-2">
-                                                {wp.windSpeed !== undefined && (
-                                                    <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
-                                                        <WindIcon className="w-3 h-3 text-sky-400" />
-                                                        <span className="text-[11px] text-gray-300 font-medium">
-                                                            {wp.windSpeed}kt
-                                                        </span>
-                                                    </div>
-                                                )}
-                                                {wp.waveHeight !== undefined && (
-                                                    <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
-                                                        <WaveIcon className="w-3 h-3 text-sky-400" />
-                                                        <span className="text-[11px] text-gray-300 font-medium">
-                                                            {displayWave(wp.waveHeight)}
-                                                            {waveLabel}
-                                                        </span>
-                                                    </div>
-                                                )}
-                                                {wp.depth_m !== undefined && (
-                                                    <div className="bg-black/20 rounded px-2 py-1 flex items-center gap-1.5">
-                                                        <span
-                                                            className={`text-[11px] font-mono font-bold ${wp.depth_m < 10 ? 'text-red-400' : wp.depth_m < 30 ? 'text-amber-400' : 'text-sky-400'}`}
-                                                        >
-                                                            ⚓ {wp.depth_m}m
-                                                        </span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        ) : (
-                            <div className="flex flex-col items-center justify-center py-10 opacity-50 border-2 border-dashed border-white/10 rounded-xl bg-white/5">
-                                <RouteIcon className="w-10 h-10 text-gray-400 mb-3" />
-                                <span className="text-sm font-bold text-gray-400 uppercase tracking-widest">
-                                    Direct Route
-                                </span>
-                                <span className="text-xs text-gray-400 mt-1">No intermediate stops required</span>
-                            </div>
-                        )}
+                        <RouteNodeGrid
+                            voyagePlan={voyagePlan}
+                            isRouteAnalyzed={isRouteAnalyzed}
+                            setIsMapOpen={setIsMapOpen}
+                            displayWave={displayWave}
+                            waveLabel={waveLabel}
+                        />
                     </AccordionSection>
                     {/* DEEP VOYAGE ANALYSIS */}
                     <AccordionSection
@@ -962,56 +568,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                         </AccordionSection>
                     )}
                     {/* EXPORT & SAVE BUTTONS */}
-                    <div className="grid grid-cols-2 gap-3">
-                        <button
-                            aria-label="Passage Brief"
-                            onClick={async () => {
-                                const { printPassageBrief } = await import('../utils/pdfExport');
-                                printPassageBrief({ voyagePlan, vessel });
-                            }}
-                            className="bg-gradient-to-r from-sky-500/10 to-sky-600/10 border border-sky-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-sky-500/20 hover:to-sky-600/20 transition-all"
-                        >
-                            <ShareIcon className="w-5 h-5 text-sky-400 group-hover:scale-110 transition-transform" />
-                            <span className="text-[11px] font-bold text-sky-300 uppercase tracking-widest text-center">
-                                Export Passage Brief
-                            </span>
-                        </button>
-                        <button
-                            aria-label="Ship Log Service"
-                            onClick={async () => {
-                                try {
-                                    const { ShipLogService } = await import('../services/ShipLogService');
-                                    const voyageId = await ShipLogService.savePassagePlanToLogbook(voyagePlan);
-                                    if (voyageId) {
-                                        // Show success via a brief visual cue (the button will flash)
-                                        const btn = document.getElementById('save-route-btn');
-                                        if (btn) {
-                                            btn.textContent = '✓ Saved!';
-                                            btn.classList.add('text-emerald-300');
-                                            setTimeout(() => {
-                                                btn.textContent = 'Save to Log';
-                                                btn.classList.remove('text-emerald-300');
-                                            }, 2000);
-                                        }
-                                    } else {
-                                        toast.error('Failed to save route. Please ensure you are logged in.');
-                                    }
-                                } catch (err) {
-                                    log.error('[SaveRoute]', err);
-                                    toast.error('Error saving route to logbook.');
-                                }
-                            }}
-                            className="bg-gradient-to-r from-purple-500/10 to-purple-600/10 border border-purple-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-purple-500/20 hover:to-purple-600/20 transition-all"
-                        >
-                            <MapPinIcon className="w-5 h-5 text-purple-400 group-hover:scale-110 transition-transform" />
-                            <span
-                                id="save-route-btn"
-                                className="text-[11px] font-bold text-purple-300 uppercase tracking-widest text-center"
-                            >
-                                Save to Log
-                            </span>
-                        </button>
-                    </div>
+                    <ExportButtons voyagePlan={voyagePlan} vessel={vessel} />
                 </div>
             </div>
         );

@@ -63,7 +63,9 @@ export async function syncIdentity(): Promise<VesselIdentity | null> {
         if (!user) return getCachedIdentity();
 
         // Try to load as owner first
-        let { data, error } = await supabase.from('vessel_identity').select('*').eq('owner_id', user.id).maybeSingle();
+        const result = await supabase.from('vessel_identity').select('*').eq('owner_id', user.id).maybeSingle();
+        let data = result.data;
+        const error = result.error;
 
         if (error) {
             log.warn('[VesselIdentity] Sync pull error:', error.message);

@@ -1,71 +1,19 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User } from '@supabase/supabase-js';
-import { supabase } from '../services/supabase';
-import { PushNotificationService } from '../services/PushNotificationService';
-import { setUser as setSentryUser } from '../services/sentry';
+/**
+ * AuthContext — Bridge layer (delegates to Zustand authStore).
+ *
+ * Keeps the Provider + useAuth() API so existing consumers work.
+ * New code should import from `stores/authStore` directly.
+ */
 
-interface AuthContextType {
-    user: User | null;
-    logout: () => Promise<void>;
-}
+import React from 'react';
+import { useAuthStore } from '../stores/authStore';
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [user, setUser] = useState<User | null>(null);
-
-    useEffect(() => {
-        if (!supabase) return;
-
-        // Initialize push notification listeners (once, early)
-        PushNotificationService.initialize();
-
-        // Check active session
-        supabase.auth.getSession().then(({ data: { session } }) => {
-            const u = session?.user ?? null;
-            setUser(u);
-            if (u) {
-                // User already logged in — register push token
-                PushNotificationService.setUser(u.id);
-                PushNotificationService.requestPermissionAndRegister();
-                setSentryUser({ id: u.id, email: u.email });
-            }
-        });
-
-        // Listen for auth changes (login/logout)
-        const {
-            data: { subscription },
-        } = supabase.auth.onAuthStateChange((_event, session) => {
-            const u = session?.user ?? null;
-            setUser(u);
-            if (u) {
-                PushNotificationService.setUser(u.id);
-                PushNotificationService.requestPermissionAndRegister();
-                setSentryUser({ id: u.id, email: u.email });
-            } else {
-                PushNotificationService.clearUser();
-                setSentryUser(null);
-            }
-        });
-
-        return () => subscription.unsubscribe();
-    }, []);
-
-    const logout = async () => {
-        if (!supabase) return;
-        await PushNotificationService.clearUser();
-        setSentryUser(null);
-        await supabase.auth.signOut();
-        setUser(null);
-    };
-
-    return <AuthContext.Provider value={{ user, logout }}>{children}</AuthContext.Provider>;
+/** @deprecated Use `useAuthStore()` directly */
+export const useAuth = () => {
+    return useAuthStore();
 };
 
-export const useAuth = () => {
-    const context = useContext(AuthContext);
-    if (context === undefined) {
-        throw new Error('useAuth must be used within an AuthProvider');
-    }
-    return context;
+/** No-op provider — store self-initializes at module load */
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    return React.createElement(React.Fragment, null, children);
 };

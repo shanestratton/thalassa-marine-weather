@@ -1,3 +1,6 @@
+/**
+ * @filesize-justified WebGL2 shader class — vertex/fragment shaders + GPU buffer management are tightly coupled by design.
+ */
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
 

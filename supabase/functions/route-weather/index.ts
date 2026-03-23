@@ -1,3 +1,6 @@
+/**
+ * @filesize-justified Supabase Edge Function — separate deploy unit, not part of client bundle.
+ */
 // deno-lint-ignore-file
 declare const Deno: {
     serve: (handler: (req: Request) => Promise<Response> | Response) => void;

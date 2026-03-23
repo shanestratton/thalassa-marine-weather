@@ -163,7 +163,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     </div>
                 `;
 
-                const mapboxgl = window.mapboxgl || window.maplibregl;
+                const mapboxgl = window.mapboxgl;
                 if (mapboxgl?.Marker) {
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     const marker = new (mapboxgl as any).Marker({ element: el }).setLngLat([lon, lat]).addTo(map);
@@ -645,7 +645,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             </div>
                         `;
 
-                        const mapboxglLib = window.mapboxgl || window.maplibregl;
+                        const mapboxglLib = window.mapboxgl;
                         if (mapboxglLib?.Marker) {
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             const marker = new (mapboxglLib as any).Marker({ element: el })

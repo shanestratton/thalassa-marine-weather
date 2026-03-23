@@ -6,6 +6,11 @@ import { sanitizeText } from '../utils/inputValidation';
 import { toast } from './Toast';
 import { VesselDetailsStep } from './onboarding/VesselDetailsStep';
 import { UnitPreferencesStep } from './onboarding/UnitPreferencesStep';
+import { WelcomeStep } from './onboarding/WelcomeStep';
+import { QuickTipsStep } from './onboarding/QuickTipsStep';
+import { HomePortStep } from './onboarding/HomePortStep';
+import { VesselTypeStep } from './onboarding/VesselTypeStep';
+import { DisplayPrefsStep } from './onboarding/DisplayPrefsStep';
 import {
     UserSettings,
     VesselProfile,
@@ -18,22 +23,9 @@ import {
     WeatherModel,
     PolarData,
 } from '../types';
-import {
-    BoatIcon,
-    SailBoatIcon,
-    PowerBoatIcon,
-    ArrowRightIcon,
-    CheckIcon,
-    CompassIcon,
-    EyeIcon,
-    SearchIcon,
-    MapPinIcon,
-    MapIcon,
-    XIcon,
-} from './Icons';
+import { ArrowRightIcon } from './Icons';
 import { reverseGeocode, parseLocation } from '../services/weatherService';
 import { fetchWeatherByStrategy } from '../services/weather';
-import { WeatherMap } from './WeatherMap';
 import { getSystemUnits } from '../utils';
 import { GpsService } from '../services/GpsService';
 import { Capacitor } from '@capacitor/core';
@@ -458,56 +450,6 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
             {/* Ambient Background Glow */}
             <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-sky-500/10 rounded-full blur-[120px] pointer-events-none"></div>
             <div className="absolute bottom-[-10%] right-[-5%] w-[500px] h-[500px] bg-purple-500/10 rounded-full blur-[100px] pointer-events-none"></div>
-            {/* Map Modal for Selection */}
-            {showMap && (
-                <div className="fixed inset-0 z-[150] bg-slate-900 animate-in fade-in zoom-in-95 flex flex-col">
-                    <div className="flex-1 relative">
-                        <WeatherMap
-                            locationName={tempLocation?.name || 'Select Home Port'}
-                            lat={tempLocation?.lat}
-                            lon={tempLocation?.lon}
-                            onLocationSelect={handleMapSelect}
-                            enableZoom={true}
-                            minimal={false} // Enables interaction
-                            initialLayer="buoys" // Default to Buoys for easy selection
-                            hideLayerControls={true} // HIDE TAB CONTROLS
-                            mapboxToken={process.env.MAPBOX_ACCESS_TOKEN}
-                            restrictBounds={false} // Unlocked for global selection
-                        />
-
-                        {/* Overlay Controls */}
-                        <div className="absolute top-4 right-4 z-[160]">
-                            <button
-                                aria-label="Show Map"
-                                onClick={() => setShowMap(false)}
-                                className="p-3 bg-slate-900/90 text-white rounded-full shadow-xl border border-white/20 hover:bg-slate-800 transition-colors"
-                            >
-                                <XIcon className="w-6 h-6" />
-                            </button>
-                        </div>
-
-                        {/* Confirmation Overlay */}
-                        <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-[160] w-full max-w-sm px-4">
-                            {tempLocation ? (
-                                <button
-                                    aria-label="Map Selection"
-                                    onClick={confirmMapSelection}
-                                    className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-3 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 animate-in slide-in-from-bottom-4 transition-all hover:scale-105"
-                                >
-                                    <MapPinIcon className="w-5 h-5" />
-                                    {tempLocation.name === 'Identifying...'
-                                        ? 'Resolving Location...'
-                                        : `Confirm: ${tempLocation.name}`}
-                                </button>
-                            ) : (
-                                <div className="bg-slate-900/90 text-white text-xs px-4 py-2 rounded-full border border-white/10 pointer-events-none shadow-lg text-center">
-                                    Tap any location or buoy to select
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
 
             <div className="w-full max-w-lg relative">
                 {/* BACK BUTTON */}
@@ -522,293 +464,35 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                     </button>
                 )}
 
-                {/* STEP 1: WELCOME - PREMIUM UPGRADE */}
-                {step === 1 && (
-                    <div className="text-center animate-in fade-in slide-in-from-bottom-8 duration-700 relative">
-                        <div className="absolute inset-0 bg-gradient-to-b from-sky-500/20 to-transparent blur-3xl rounded-full pointer-events-none transform -translate-y-10"></div>
+                {/* STEP 1: WELCOME */}
+                {step === 1 && <WelcomeStep onNext={handleNext} />}
 
-                        <div className="w-24 h-24 bg-gradient-to-br from-sky-400 to-sky-600 rounded-2xl mx-auto mb-8 flex items-center justify-center shadow-[0_20px_50px_rgba(14,165,233,0.3)] ring-4 ring-white/10 relative z-10">
-                            <BoatIcon className="w-12 h-12 text-white fill-white" />
-                        </div>
-
-                        <h1 className="text-3xl font-black text-white mb-6 tracking-tight drop-shadow-xl">
-                            Thalassa
-                            <span className="block text-2xl font-light text-sky-400 mt-2 tracking-widest uppercase">
-                                Marine Weather
-                            </span>
-                        </h1>
-
-                        <p className="text-lg text-slate-300 mb-12 max-w-sm mx-auto leading-relaxed font-light">
-                            Professional-grade forecasting for the modern mariner. Precision tools for safety and
-                            performance.
-                        </p>
-
-                        <button
-                            aria-label="Next"
-                            onClick={handleNext}
-                            className="group bg-white text-slate-950 font-bold py-4 px-12 rounded-2xl hover:bg-sky-50 transition-all transform hover:scale-105 hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] flex items-center gap-3 mx-auto relative overflow-hidden"
-                        >
-                            <span className="relative z-10">Initialize System</span>
-                            <ArrowRightIcon className="w-5 h-5 relative z-10 group-hover:translate-x-1 transition-transform" />
-                            <div className="absolute inset-0 bg-gradient-to-r from-sky-100 to-white opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                        </button>
-                    </div>
-                )}
-
-                {/* STEP 2: QUICK TIPS — Matching step 1 premium aesthetic */}
-                {step === 2 && (
-                    <div className="text-center animate-in fade-in slide-in-from-bottom-8 duration-700 relative">
-                        <div className="absolute inset-0 bg-gradient-to-b from-sky-500/20 to-transparent blur-3xl rounded-full pointer-events-none transform -translate-y-10"></div>
-
-                        <h1 className="text-3xl font-black text-white mb-3 tracking-tight drop-shadow-xl relative z-10">
-                            Quick Tips
-                        </h1>
-                        <p className="text-base text-slate-300 mb-8 max-w-sm mx-auto leading-relaxed font-light relative z-10">
-                            A few gestures to get you started
-                        </p>
-
-                        <div className="space-y-3 mb-8 relative z-10">
-                            {/* Tip 1: Swipe Forecast */}
-                            <div className="relative overflow-hidden rounded-2xl bg-white/[0.04] border border-white/[0.08] p-4 backdrop-blur-sm hover:border-white/[0.15] transition-all">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center text-xl shrink-0 shadow-[0_8px_24px_rgba(14,165,233,0.25)] ring-2 ring-white/10">
-                                        👆
-                                    </div>
-                                    <div className="min-w-0 text-left">
-                                        <h4 className="text-sm font-bold text-white tracking-wide">
-                                            Swipe for Forecast
-                                        </h4>
-                                        <p className="text-xs text-slate-400 leading-relaxed mt-0.5">
-                                            Swipe left/right on the weather cards to scrub through hours. Swipe up/down
-                                            to change days.
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Tip 2: Essential vs Full */}
-                            <div className="relative overflow-hidden rounded-2xl bg-white/[0.04] border border-white/[0.08] p-4 backdrop-blur-sm hover:border-white/[0.15] transition-all">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center text-xl shrink-0 shadow-[0_8px_24px_rgba(14,165,233,0.25)] ring-2 ring-white/10">
-                                        🔄
-                                    </div>
-                                    <div className="min-w-0 text-left">
-                                        <h4 className="text-sm font-bold text-white tracking-wide">
-                                            Essential &amp; Full Views
-                                        </h4>
-                                        <p className="text-xs text-slate-400 leading-relaxed mt-0.5">
-                                            Toggle between a quick glance and detailed marine data using the chevron
-                                            button in the header.
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Tip 3: Passage Planner */}
-                            <div className="relative overflow-hidden rounded-2xl bg-white/[0.04] border border-white/[0.08] p-4 backdrop-blur-sm hover:border-white/[0.15] transition-all">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center text-xl shrink-0 shadow-[0_8px_24px_rgba(14,165,233,0.25)] ring-2 ring-white/10">
-                                        🗺️
-                                    </div>
-                                    <div className="min-w-0 text-left">
-                                        <h4 className="text-sm font-bold text-white tracking-wide">Passage Planner</h4>
-                                        <p className="text-xs text-slate-400 leading-relaxed mt-0.5">
-                                            Plan routes, check conditions, and export GPX tracks from the Ship's Office
-                                            &gt; Passages tab.
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Tip 4: Crew Talk */}
-                            <div className="relative overflow-hidden rounded-2xl bg-white/[0.04] border border-white/[0.08] p-4 backdrop-blur-sm hover:border-white/[0.15] transition-all">
-                                <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center text-xl shrink-0 shadow-[0_8px_24px_rgba(14,165,233,0.25)] ring-2 ring-white/10">
-                                        💬
-                                    </div>
-                                    <div className="min-w-0 text-left">
-                                        <h4 className="text-sm font-bold text-white tracking-wide">
-                                            Crew Talk Community
-                                        </h4>
-                                        <p className="text-xs text-slate-400 leading-relaxed mt-0.5">
-                                            Join channels, share pins and voyage tracks, and connect with sailors
-                                            worldwide via Cloud.
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <button
-                            aria-label="Next"
-                            onClick={handleNext}
-                            className="group bg-white text-slate-950 font-bold py-4 px-12 rounded-2xl hover:bg-sky-50 transition-all transform hover:scale-105 hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] flex items-center gap-3 mx-auto relative overflow-hidden"
-                        >
-                            <span className="relative z-10">Next</span>
-                            <ArrowRightIcon className="w-5 h-5 relative z-10 group-hover:translate-x-1 transition-transform" />
-                            <div className="absolute inset-0 bg-gradient-to-r from-sky-100 to-white opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                        </button>
-                    </div>
-                )}
+                {/* STEP 2: QUICK TIPS */}
+                {step === 2 && <QuickTipsStep onNext={handleNext} />}
 
                 {/* STEP 3: HOME PORT */}
                 {step === 3 && (
-                    <div className="animate-in fade-in slide-in-from-right-8 duration-500">
-                        <div className="text-center mb-8">
-                            <div className="w-16 h-16 bg-white/5 rounded-full mx-auto mb-4 flex items-center justify-center border border-white/10">
-                                <MapPinIcon className="w-8 h-8 text-sky-400" />
-                            </div>
-                            <h2 className="text-2xl font-bold text-white mb-2">About You & Home Port</h2>
-                            <p className="text-sm text-gray-400">Tell us your name and where you sail from.</p>
-                        </div>
-
-                        <div className="space-y-4">
-                            {/* Name fields */}
-                            <div className="grid grid-cols-2 gap-3">
-                                <input
-                                    type="text"
-                                    value={firstName}
-                                    onChange={(e) => setFirstName(e.target.value)}
-                                    placeholder="First Name"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-600"
-                                />
-                                <input
-                                    type="text"
-                                    value={lastName}
-                                    onChange={(e) => setLastName(e.target.value)}
-                                    placeholder="Last Name"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-600"
-                                />
-                            </div>
-
-                            <div className="relative flex items-center gap-4 py-1">
-                                <div className="h-px bg-white/10 flex-1"></div>
-                                <span className="text-[11px] text-gray-600 font-bold uppercase">Home Port</span>
-                                <div className="h-px bg-white/10 flex-1"></div>
-                            </div>
-                            <div className="relative">
-                                <input
-                                    type="text"
-                                    value={homePort}
-                                    onChange={(e) => setHomePort(e.target.value)}
-                                    placeholder="e.g. Newport, RI"
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-12 py-4 text-white focus:border-sky-500 outline-none text-lg font-medium transition-colors"
-                                />
-                                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">
-                                    <SearchIcon className="w-5 h-5" />
-                                </div>
-                            </div>
-
-                            <div className="relative flex items-center gap-4 py-2">
-                                <div className="h-px bg-white/10 flex-1"></div>
-                                <span className="text-xs text-gray-400 font-bold uppercase">Or</span>
-                                <div className="h-px bg-white/10 flex-1"></div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-3">
-                                <button
-                                    aria-label="Locate"
-                                    onClick={handleLocate}
-                                    className="bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-300 font-bold py-4 rounded-xl transition-all flex flex-col items-center justify-center gap-2 group"
-                                >
-                                    {isLocating ? (
-                                        <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin"></div>
-                                    ) : (
-                                        <>
-                                            <CompassIcon
-                                                rotation={0}
-                                                className="w-5 h-5 group-hover:scale-110 transition-transform"
-                                            />
-                                            <span className="text-xs">Use GPS</span>
-                                        </>
-                                    )}
-                                </button>
-                                <button
-                                    aria-label="Show Map"
-                                    onClick={() => setShowMap(true)}
-                                    className="bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/30 text-purple-300 font-bold py-4 rounded-xl transition-all flex flex-col items-center justify-center gap-2 group"
-                                >
-                                    <MapIcon className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                                    <span className="text-xs">Pick on Map</span>
-                                </button>
-                            </div>
-                        </div>
-
-                        <button
-                            aria-label="Next"
-                            onClick={handleNext}
-                            disabled={!homePort}
-                            className={`w-full mt-8 font-bold py-4 rounded-xl transition-all ${homePort ? 'bg-sky-500 hover:bg-sky-400 text-white shadow-lg' : 'bg-white/5 text-gray-400 cursor-not-allowed'}`}
-                        >
-                            Next
-                        </button>
-                    </div>
+                    <HomePortStep
+                        homePort={homePort}
+                        onHomePortChange={setHomePort}
+                        isLocating={isLocating}
+                        showMap={showMap}
+                        onShowMap={setShowMap}
+                        tempLocation={tempLocation}
+                        onLocate={handleLocate}
+                        onMapSelect={handleMapSelect}
+                        onConfirmMapSelection={confirmMapSelection}
+                        firstName={firstName}
+                        onFirstNameChange={setFirstName}
+                        lastName={lastName}
+                        onLastNameChange={setLastName}
+                        onNext={handleNext}
+                    />
                 )}
 
                 {/* STEP 4: VESSEL TYPE */}
                 {step === 4 && (
-                    <div className="animate-in fade-in slide-in-from-right-8 duration-500">
-                        <h2 className="text-2xl font-bold text-white mb-6 text-center">
-                            What brings you to the water?
-                        </h2>
-                        <div className="grid grid-cols-1 gap-4 mb-8">
-                            <button
-                                aria-label="Vessel Type"
-                                onClick={() => setVesselType('sail')}
-                                className={`p-6 rounded-2xl border transition-all flex items-center gap-4 group ${vesselType === 'sail' ? 'bg-sky-500/20 border-sky-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
-                            >
-                                <div
-                                    className={`p-3 rounded-full ${vesselType === 'sail' ? 'bg-sky-500 text-white' : 'bg-white/10 text-gray-400'}`}
-                                >
-                                    <SailBoatIcon className="w-8 h-8" />
-                                </div>
-                                <div className="text-left">
-                                    <span className="block text-lg font-bold text-white">Sailing</span>
-                                    <span className="text-sm text-gray-400">Wind-powered vessel</span>
-                                </div>
-                                {vesselType === 'sail' && <CheckIcon className="w-6 h-6 text-sky-500 ml-auto" />}
-                            </button>
-                            <button
-                                aria-label="Vessel Type"
-                                onClick={() => setVesselType('power')}
-                                className={`p-6 rounded-2xl border transition-all flex items-center gap-4 group ${vesselType === 'power' ? 'bg-sky-500/20 border-sky-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
-                            >
-                                <div
-                                    className={`p-3 rounded-full ${vesselType === 'power' ? 'bg-sky-500 text-white' : 'bg-white/10 text-gray-400'}`}
-                                >
-                                    <PowerBoatIcon className="w-8 h-8" />
-                                </div>
-                                <div className="text-left">
-                                    <span className="block text-lg font-bold text-white">Power Boating</span>
-                                    <span className="text-sm text-gray-400">Motor yacht or cruiser</span>
-                                </div>
-                                {vesselType === 'power' && <CheckIcon className="w-6 h-6 text-sky-500 ml-auto" />}
-                            </button>
-                            <button
-                                aria-label="Vessel Type"
-                                onClick={() => setVesselType('observer')}
-                                className={`p-6 rounded-2xl border transition-all flex items-center gap-4 group ${vesselType === 'observer' ? 'bg-sky-500/20 border-sky-500' : 'bg-white/5 border-white/10 hover:bg-white/10'}`}
-                            >
-                                <div
-                                    className={`p-3 rounded-full ${vesselType === 'observer' ? 'bg-sky-500 text-white' : 'bg-white/10 text-gray-400'}`}
-                                >
-                                    <EyeIcon className="w-8 h-8" />
-                                </div>
-                                <div className="text-left">
-                                    <span className="block text-lg font-bold text-white">Observation</span>
-                                    <span className="text-sm text-gray-400">Surfing, fishing, or coastal watching</span>
-                                </div>
-                                {vesselType === 'observer' && <CheckIcon className="w-6 h-6 text-sky-500 ml-auto" />}
-                            </button>
-                        </div>
-                        <button
-                            aria-label="Next"
-                            onClick={handleNext}
-                            className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
-                        >
-                            Next
-                        </button>
-                    </div>
+                    <VesselTypeStep vesselType={vesselType} onVesselTypeChange={setVesselType} onNext={handleNext} />
                 )}
 
                 {step === 5 && (
@@ -875,104 +559,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
 
                 {/* STEP 7: DISPLAY PREFERENCES */}
                 {step === 7 && (
-                    <div className="animate-in fade-in slide-in-from-right-8 duration-500">
-                        <h2 className="text-2xl font-bold text-white mb-6 text-center">Display Preferences</h2>
-
-                        <div className="space-y-6 mb-8">
-                            {/* Always On */}
-                            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <h3 className="text-sm font-bold text-white mb-1">Always On Display</h3>
-                                        <p className="text-xs text-gray-400 leading-relaxed">
-                                            Keep the screen awake while the app is open. Ideal for cockpit or helm use.
-                                        </p>
-                                    </div>
-                                    <button
-                                        aria-label="Pref Always On"
-                                        onClick={() => setPrefAlwaysOn(!prefAlwaysOn)}
-                                        className={`relative w-12 h-7 rounded-full transition-all duration-300 shrink-0 ml-4 ${
-                                            prefAlwaysOn ? 'bg-sky-500' : 'bg-white/15'
-                                        }`}
-                                    >
-                                        <div
-                                            className={`absolute top-0.5 w-6 h-6 rounded-full bg-white shadow-md transition-all duration-300 ${
-                                                prefAlwaysOn ? 'left-[22px]' : 'left-0.5'
-                                            }`}
-                                        />
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Screen Orientation */}
-                            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
-                                <h3 className="text-sm font-bold text-white mb-1">Screen Orientation</h3>
-                                <p className="text-xs text-gray-400 mb-4">
-                                    Lock your screen orientation, or let it rotate freely.
-                                </p>
-                                <div className="grid grid-cols-3 gap-2">
-                                    {[
-                                        { value: 'auto' as const, label: 'Auto', icon: '🔄', desc: 'Rotates freely' },
-                                        {
-                                            value: 'portrait' as const,
-                                            label: 'Portrait',
-                                            icon: '📱',
-                                            desc: 'Recommended',
-                                            recommended: true,
-                                        },
-                                        {
-                                            value: 'landscape' as const,
-                                            label: 'Landscape',
-                                            icon: '🖥️',
-                                            desc: 'Wide view',
-                                        },
-                                    ].map((opt) => {
-                                        const isActive = prefOrientation === opt.value;
-                                        return (
-                                            <button
-                                                aria-label="Pref Orientation"
-                                                key={opt.value}
-                                                onClick={() => setPrefOrientation(opt.value)}
-                                                className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all duration-300 active:scale-95 ${
-                                                    isActive
-                                                        ? 'bg-gradient-to-br from-sky-500/20 to-sky-600/20 border-sky-500/40 shadow-lg shadow-sky-500/20'
-                                                        : 'bg-white/5 border-transparent hover:bg-white/10 hover:border-white/10'
-                                                }`}
-                                            >
-                                                <span className="text-2xl">{opt.icon}</span>
-                                                <span
-                                                    className={`text-xs font-black uppercase tracking-wider ${
-                                                        isActive ? 'text-white' : 'text-gray-400'
-                                                    }`}
-                                                >
-                                                    {opt.label}
-                                                </span>
-                                                <span
-                                                    className={`text-[11px] ${
-                                                        isActive
-                                                            ? 'text-white/70'
-                                                            : opt.recommended
-                                                              ? 'text-emerald-400/70'
-                                                              : 'text-gray-400'
-                                                    }`}
-                                                >
-                                                    {opt.desc}
-                                                </span>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        </div>
-
-                        <button
-                            aria-label="Finish"
-                            onClick={handleFinish}
-                            className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20"
-                        >
-                            Launch Dashboard
-                        </button>
-                    </div>
+                    <DisplayPrefsStep
+                        prefAlwaysOn={prefAlwaysOn}
+                        onAlwaysOnChange={setPrefAlwaysOn}
+                        prefOrientation={prefOrientation}
+                        onOrientationChange={setPrefOrientation}
+                        onFinish={handleFinish}
+                    />
                 )}
 
                 {/* Progress Dots */}

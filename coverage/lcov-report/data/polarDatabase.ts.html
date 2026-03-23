@@ -1,0 +1,1726 @@
+
+<!doctype html>
+<html lang="en">
+
+<head>
+    <title>Code coverage report for data/polarDatabase.ts</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../prettify.css" />
+    <link rel="stylesheet" href="../base.css" />
+    <link rel="shortcut icon" type="image/x-icon" href="../favicon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style type='text/css'>
+        .coverage-summary .sorter {
+            background-image: url(../sort-arrow-sprite.png);
+        }
+    </style>
+</head>
+    
+<body>
+<div class='wrapper'>
+    <div class='pad1'>
+        <h1><a href="../index.html">All files</a> / <a href="index.html">data</a> polarDatabase.ts</h1>
+        <div class='clearfix'>
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Statements</span>
+                <span class='fraction'>29/29</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">91.66% </span>
+                <span class="quiet">Branches</span>
+                <span class='fraction'>11/12</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Functions</span>
+                <span class='fraction'>8/8</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">100% </span>
+                <span class="quiet">Lines</span>
+                <span class='fraction'>26/26</span>
+            </div>
+        
+            
+        </div>
+        <p class="quiet">
+            Press <em>n</em> or <em>j</em> to go to the next uncovered block, <em>b</em>, <em>p</em> or <em>k</em> for the previous block.
+        </p>
+        <template id="filterTemplate">
+            <div class="quiet">
+                Filter:
+                <input type="search" id="fileSearch">
+            </div>
+        </template>
+    </div>
+    <div class='status-line high'></div>
+    <pre><table class="coverage">
+<tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
+<a name='L2'></a><a href='#L2'>2</a>
+<a name='L3'></a><a href='#L3'>3</a>
+<a name='L4'></a><a href='#L4'>4</a>
+<a name='L5'></a><a href='#L5'>5</a>
+<a name='L6'></a><a href='#L6'>6</a>
+<a name='L7'></a><a href='#L7'>7</a>
+<a name='L8'></a><a href='#L8'>8</a>
+<a name='L9'></a><a href='#L9'>9</a>
+<a name='L10'></a><a href='#L10'>10</a>
+<a name='L11'></a><a href='#L11'>11</a>
+<a name='L12'></a><a href='#L12'>12</a>
+<a name='L13'></a><a href='#L13'>13</a>
+<a name='L14'></a><a href='#L14'>14</a>
+<a name='L15'></a><a href='#L15'>15</a>
+<a name='L16'></a><a href='#L16'>16</a>
+<a name='L17'></a><a href='#L17'>17</a>
+<a name='L18'></a><a href='#L18'>18</a>
+<a name='L19'></a><a href='#L19'>19</a>
+<a name='L20'></a><a href='#L20'>20</a>
+<a name='L21'></a><a href='#L21'>21</a>
+<a name='L22'></a><a href='#L22'>22</a>
+<a name='L23'></a><a href='#L23'>23</a>
+<a name='L24'></a><a href='#L24'>24</a>
+<a name='L25'></a><a href='#L25'>25</a>
+<a name='L26'></a><a href='#L26'>26</a>
+<a name='L27'></a><a href='#L27'>27</a>
+<a name='L28'></a><a href='#L28'>28</a>
+<a name='L29'></a><a href='#L29'>29</a>
+<a name='L30'></a><a href='#L30'>30</a>
+<a name='L31'></a><a href='#L31'>31</a>
+<a name='L32'></a><a href='#L32'>32</a>
+<a name='L33'></a><a href='#L33'>33</a>
+<a name='L34'></a><a href='#L34'>34</a>
+<a name='L35'></a><a href='#L35'>35</a>
+<a name='L36'></a><a href='#L36'>36</a>
+<a name='L37'></a><a href='#L37'>37</a>
+<a name='L38'></a><a href='#L38'>38</a>
+<a name='L39'></a><a href='#L39'>39</a>
+<a name='L40'></a><a href='#L40'>40</a>
+<a name='L41'></a><a href='#L41'>41</a>
+<a name='L42'></a><a href='#L42'>42</a>
+<a name='L43'></a><a href='#L43'>43</a>
+<a name='L44'></a><a href='#L44'>44</a>
+<a name='L45'></a><a href='#L45'>45</a>
+<a name='L46'></a><a href='#L46'>46</a>
+<a name='L47'></a><a href='#L47'>47</a>
+<a name='L48'></a><a href='#L48'>48</a>
+<a name='L49'></a><a href='#L49'>49</a>
+<a name='L50'></a><a href='#L50'>50</a>
+<a name='L51'></a><a href='#L51'>51</a>
+<a name='L52'></a><a href='#L52'>52</a>
+<a name='L53'></a><a href='#L53'>53</a>
+<a name='L54'></a><a href='#L54'>54</a>
+<a name='L55'></a><a href='#L55'>55</a>
+<a name='L56'></a><a href='#L56'>56</a>
+<a name='L57'></a><a href='#L57'>57</a>
+<a name='L58'></a><a href='#L58'>58</a>
+<a name='L59'></a><a href='#L59'>59</a>
+<a name='L60'></a><a href='#L60'>60</a>
+<a name='L61'></a><a href='#L61'>61</a>
+<a name='L62'></a><a href='#L62'>62</a>
+<a name='L63'></a><a href='#L63'>63</a>
+<a name='L64'></a><a href='#L64'>64</a>
+<a name='L65'></a><a href='#L65'>65</a>
+<a name='L66'></a><a href='#L66'>66</a>
+<a name='L67'></a><a href='#L67'>67</a>
+<a name='L68'></a><a href='#L68'>68</a>
+<a name='L69'></a><a href='#L69'>69</a>
+<a name='L70'></a><a href='#L70'>70</a>
+<a name='L71'></a><a href='#L71'>71</a>
+<a name='L72'></a><a href='#L72'>72</a>
+<a name='L73'></a><a href='#L73'>73</a>
+<a name='L74'></a><a href='#L74'>74</a>
+<a name='L75'></a><a href='#L75'>75</a>
+<a name='L76'></a><a href='#L76'>76</a>
+<a name='L77'></a><a href='#L77'>77</a>
+<a name='L78'></a><a href='#L78'>78</a>
+<a name='L79'></a><a href='#L79'>79</a>
+<a name='L80'></a><a href='#L80'>80</a>
+<a name='L81'></a><a href='#L81'>81</a>
+<a name='L82'></a><a href='#L82'>82</a>
+<a name='L83'></a><a href='#L83'>83</a>
+<a name='L84'></a><a href='#L84'>84</a>
+<a name='L85'></a><a href='#L85'>85</a>
+<a name='L86'></a><a href='#L86'>86</a>
+<a name='L87'></a><a href='#L87'>87</a>
+<a name='L88'></a><a href='#L88'>88</a>
+<a name='L89'></a><a href='#L89'>89</a>
+<a name='L90'></a><a href='#L90'>90</a>
+<a name='L91'></a><a href='#L91'>91</a>
+<a name='L92'></a><a href='#L92'>92</a>
+<a name='L93'></a><a href='#L93'>93</a>
+<a name='L94'></a><a href='#L94'>94</a>
+<a name='L95'></a><a href='#L95'>95</a>
+<a name='L96'></a><a href='#L96'>96</a>
+<a name='L97'></a><a href='#L97'>97</a>
+<a name='L98'></a><a href='#L98'>98</a>
+<a name='L99'></a><a href='#L99'>99</a>
+<a name='L100'></a><a href='#L100'>100</a>
+<a name='L101'></a><a href='#L101'>101</a>
+<a name='L102'></a><a href='#L102'>102</a>
+<a name='L103'></a><a href='#L103'>103</a>
+<a name='L104'></a><a href='#L104'>104</a>
+<a name='L105'></a><a href='#L105'>105</a>
+<a name='L106'></a><a href='#L106'>106</a>
+<a name='L107'></a><a href='#L107'>107</a>
+<a name='L108'></a><a href='#L108'>108</a>
+<a name='L109'></a><a href='#L109'>109</a>
+<a name='L110'></a><a href='#L110'>110</a>
+<a name='L111'></a><a href='#L111'>111</a>
+<a name='L112'></a><a href='#L112'>112</a>
+<a name='L113'></a><a href='#L113'>113</a>
+<a name='L114'></a><a href='#L114'>114</a>
+<a name='L115'></a><a href='#L115'>115</a>
+<a name='L116'></a><a href='#L116'>116</a>
+<a name='L117'></a><a href='#L117'>117</a>
+<a name='L118'></a><a href='#L118'>118</a>
+<a name='L119'></a><a href='#L119'>119</a>
+<a name='L120'></a><a href='#L120'>120</a>
+<a name='L121'></a><a href='#L121'>121</a>
+<a name='L122'></a><a href='#L122'>122</a>
+<a name='L123'></a><a href='#L123'>123</a>
+<a name='L124'></a><a href='#L124'>124</a>
+<a name='L125'></a><a href='#L125'>125</a>
+<a name='L126'></a><a href='#L126'>126</a>
+<a name='L127'></a><a href='#L127'>127</a>
+<a name='L128'></a><a href='#L128'>128</a>
+<a name='L129'></a><a href='#L129'>129</a>
+<a name='L130'></a><a href='#L130'>130</a>
+<a name='L131'></a><a href='#L131'>131</a>
+<a name='L132'></a><a href='#L132'>132</a>
+<a name='L133'></a><a href='#L133'>133</a>
+<a name='L134'></a><a href='#L134'>134</a>
+<a name='L135'></a><a href='#L135'>135</a>
+<a name='L136'></a><a href='#L136'>136</a>
+<a name='L137'></a><a href='#L137'>137</a>
+<a name='L138'></a><a href='#L138'>138</a>
+<a name='L139'></a><a href='#L139'>139</a>
+<a name='L140'></a><a href='#L140'>140</a>
+<a name='L141'></a><a href='#L141'>141</a>
+<a name='L142'></a><a href='#L142'>142</a>
+<a name='L143'></a><a href='#L143'>143</a>
+<a name='L144'></a><a href='#L144'>144</a>
+<a name='L145'></a><a href='#L145'>145</a>
+<a name='L146'></a><a href='#L146'>146</a>
+<a name='L147'></a><a href='#L147'>147</a>
+<a name='L148'></a><a href='#L148'>148</a>
+<a name='L149'></a><a href='#L149'>149</a>
+<a name='L150'></a><a href='#L150'>150</a>
+<a name='L151'></a><a href='#L151'>151</a>
+<a name='L152'></a><a href='#L152'>152</a>
+<a name='L153'></a><a href='#L153'>153</a>
+<a name='L154'></a><a href='#L154'>154</a>
+<a name='L155'></a><a href='#L155'>155</a>
+<a name='L156'></a><a href='#L156'>156</a>
+<a name='L157'></a><a href='#L157'>157</a>
+<a name='L158'></a><a href='#L158'>158</a>
+<a name='L159'></a><a href='#L159'>159</a>
+<a name='L160'></a><a href='#L160'>160</a>
+<a name='L161'></a><a href='#L161'>161</a>
+<a name='L162'></a><a href='#L162'>162</a>
+<a name='L163'></a><a href='#L163'>163</a>
+<a name='L164'></a><a href='#L164'>164</a>
+<a name='L165'></a><a href='#L165'>165</a>
+<a name='L166'></a><a href='#L166'>166</a>
+<a name='L167'></a><a href='#L167'>167</a>
+<a name='L168'></a><a href='#L168'>168</a>
+<a name='L169'></a><a href='#L169'>169</a>
+<a name='L170'></a><a href='#L170'>170</a>
+<a name='L171'></a><a href='#L171'>171</a>
+<a name='L172'></a><a href='#L172'>172</a>
+<a name='L173'></a><a href='#L173'>173</a>
+<a name='L174'></a><a href='#L174'>174</a>
+<a name='L175'></a><a href='#L175'>175</a>
+<a name='L176'></a><a href='#L176'>176</a>
+<a name='L177'></a><a href='#L177'>177</a>
+<a name='L178'></a><a href='#L178'>178</a>
+<a name='L179'></a><a href='#L179'>179</a>
+<a name='L180'></a><a href='#L180'>180</a>
+<a name='L181'></a><a href='#L181'>181</a>
+<a name='L182'></a><a href='#L182'>182</a>
+<a name='L183'></a><a href='#L183'>183</a>
+<a name='L184'></a><a href='#L184'>184</a>
+<a name='L185'></a><a href='#L185'>185</a>
+<a name='L186'></a><a href='#L186'>186</a>
+<a name='L187'></a><a href='#L187'>187</a>
+<a name='L188'></a><a href='#L188'>188</a>
+<a name='L189'></a><a href='#L189'>189</a>
+<a name='L190'></a><a href='#L190'>190</a>
+<a name='L191'></a><a href='#L191'>191</a>
+<a name='L192'></a><a href='#L192'>192</a>
+<a name='L193'></a><a href='#L193'>193</a>
+<a name='L194'></a><a href='#L194'>194</a>
+<a name='L195'></a><a href='#L195'>195</a>
+<a name='L196'></a><a href='#L196'>196</a>
+<a name='L197'></a><a href='#L197'>197</a>
+<a name='L198'></a><a href='#L198'>198</a>
+<a name='L199'></a><a href='#L199'>199</a>
+<a name='L200'></a><a href='#L200'>200</a>
+<a name='L201'></a><a href='#L201'>201</a>
+<a name='L202'></a><a href='#L202'>202</a>
+<a name='L203'></a><a href='#L203'>203</a>
+<a name='L204'></a><a href='#L204'>204</a>
+<a name='L205'></a><a href='#L205'>205</a>
+<a name='L206'></a><a href='#L206'>206</a>
+<a name='L207'></a><a href='#L207'>207</a>
+<a name='L208'></a><a href='#L208'>208</a>
+<a name='L209'></a><a href='#L209'>209</a>
+<a name='L210'></a><a href='#L210'>210</a>
+<a name='L211'></a><a href='#L211'>211</a>
+<a name='L212'></a><a href='#L212'>212</a>
+<a name='L213'></a><a href='#L213'>213</a>
+<a name='L214'></a><a href='#L214'>214</a>
+<a name='L215'></a><a href='#L215'>215</a>
+<a name='L216'></a><a href='#L216'>216</a>
+<a name='L217'></a><a href='#L217'>217</a>
+<a name='L218'></a><a href='#L218'>218</a>
+<a name='L219'></a><a href='#L219'>219</a>
+<a name='L220'></a><a href='#L220'>220</a>
+<a name='L221'></a><a href='#L221'>221</a>
+<a name='L222'></a><a href='#L222'>222</a>
+<a name='L223'></a><a href='#L223'>223</a>
+<a name='L224'></a><a href='#L224'>224</a>
+<a name='L225'></a><a href='#L225'>225</a>
+<a name='L226'></a><a href='#L226'>226</a>
+<a name='L227'></a><a href='#L227'>227</a>
+<a name='L228'></a><a href='#L228'>228</a>
+<a name='L229'></a><a href='#L229'>229</a>
+<a name='L230'></a><a href='#L230'>230</a>
+<a name='L231'></a><a href='#L231'>231</a>
+<a name='L232'></a><a href='#L232'>232</a>
+<a name='L233'></a><a href='#L233'>233</a>
+<a name='L234'></a><a href='#L234'>234</a>
+<a name='L235'></a><a href='#L235'>235</a>
+<a name='L236'></a><a href='#L236'>236</a>
+<a name='L237'></a><a href='#L237'>237</a>
+<a name='L238'></a><a href='#L238'>238</a>
+<a name='L239'></a><a href='#L239'>239</a>
+<a name='L240'></a><a href='#L240'>240</a>
+<a name='L241'></a><a href='#L241'>241</a>
+<a name='L242'></a><a href='#L242'>242</a>
+<a name='L243'></a><a href='#L243'>243</a>
+<a name='L244'></a><a href='#L244'>244</a>
+<a name='L245'></a><a href='#L245'>245</a>
+<a name='L246'></a><a href='#L246'>246</a>
+<a name='L247'></a><a href='#L247'>247</a>
+<a name='L248'></a><a href='#L248'>248</a>
+<a name='L249'></a><a href='#L249'>249</a>
+<a name='L250'></a><a href='#L250'>250</a>
+<a name='L251'></a><a href='#L251'>251</a>
+<a name='L252'></a><a href='#L252'>252</a>
+<a name='L253'></a><a href='#L253'>253</a>
+<a name='L254'></a><a href='#L254'>254</a>
+<a name='L255'></a><a href='#L255'>255</a>
+<a name='L256'></a><a href='#L256'>256</a>
+<a name='L257'></a><a href='#L257'>257</a>
+<a name='L258'></a><a href='#L258'>258</a>
+<a name='L259'></a><a href='#L259'>259</a>
+<a name='L260'></a><a href='#L260'>260</a>
+<a name='L261'></a><a href='#L261'>261</a>
+<a name='L262'></a><a href='#L262'>262</a>
+<a name='L263'></a><a href='#L263'>263</a>
+<a name='L264'></a><a href='#L264'>264</a>
+<a name='L265'></a><a href='#L265'>265</a>
+<a name='L266'></a><a href='#L266'>266</a>
+<a name='L267'></a><a href='#L267'>267</a>
+<a name='L268'></a><a href='#L268'>268</a>
+<a name='L269'></a><a href='#L269'>269</a>
+<a name='L270'></a><a href='#L270'>270</a>
+<a name='L271'></a><a href='#L271'>271</a>
+<a name='L272'></a><a href='#L272'>272</a>
+<a name='L273'></a><a href='#L273'>273</a>
+<a name='L274'></a><a href='#L274'>274</a>
+<a name='L275'></a><a href='#L275'>275</a>
+<a name='L276'></a><a href='#L276'>276</a>
+<a name='L277'></a><a href='#L277'>277</a>
+<a name='L278'></a><a href='#L278'>278</a>
+<a name='L279'></a><a href='#L279'>279</a>
+<a name='L280'></a><a href='#L280'>280</a>
+<a name='L281'></a><a href='#L281'>281</a>
+<a name='L282'></a><a href='#L282'>282</a>
+<a name='L283'></a><a href='#L283'>283</a>
+<a name='L284'></a><a href='#L284'>284</a>
+<a name='L285'></a><a href='#L285'>285</a>
+<a name='L286'></a><a href='#L286'>286</a>
+<a name='L287'></a><a href='#L287'>287</a>
+<a name='L288'></a><a href='#L288'>288</a>
+<a name='L289'></a><a href='#L289'>289</a>
+<a name='L290'></a><a href='#L290'>290</a>
+<a name='L291'></a><a href='#L291'>291</a>
+<a name='L292'></a><a href='#L292'>292</a>
+<a name='L293'></a><a href='#L293'>293</a>
+<a name='L294'></a><a href='#L294'>294</a>
+<a name='L295'></a><a href='#L295'>295</a>
+<a name='L296'></a><a href='#L296'>296</a>
+<a name='L297'></a><a href='#L297'>297</a>
+<a name='L298'></a><a href='#L298'>298</a>
+<a name='L299'></a><a href='#L299'>299</a>
+<a name='L300'></a><a href='#L300'>300</a>
+<a name='L301'></a><a href='#L301'>301</a>
+<a name='L302'></a><a href='#L302'>302</a>
+<a name='L303'></a><a href='#L303'>303</a>
+<a name='L304'></a><a href='#L304'>304</a>
+<a name='L305'></a><a href='#L305'>305</a>
+<a name='L306'></a><a href='#L306'>306</a>
+<a name='L307'></a><a href='#L307'>307</a>
+<a name='L308'></a><a href='#L308'>308</a>
+<a name='L309'></a><a href='#L309'>309</a>
+<a name='L310'></a><a href='#L310'>310</a>
+<a name='L311'></a><a href='#L311'>311</a>
+<a name='L312'></a><a href='#L312'>312</a>
+<a name='L313'></a><a href='#L313'>313</a>
+<a name='L314'></a><a href='#L314'>314</a>
+<a name='L315'></a><a href='#L315'>315</a>
+<a name='L316'></a><a href='#L316'>316</a>
+<a name='L317'></a><a href='#L317'>317</a>
+<a name='L318'></a><a href='#L318'>318</a>
+<a name='L319'></a><a href='#L319'>319</a>
+<a name='L320'></a><a href='#L320'>320</a>
+<a name='L321'></a><a href='#L321'>321</a>
+<a name='L322'></a><a href='#L322'>322</a>
+<a name='L323'></a><a href='#L323'>323</a>
+<a name='L324'></a><a href='#L324'>324</a>
+<a name='L325'></a><a href='#L325'>325</a>
+<a name='L326'></a><a href='#L326'>326</a>
+<a name='L327'></a><a href='#L327'>327</a>
+<a name='L328'></a><a href='#L328'>328</a>
+<a name='L329'></a><a href='#L329'>329</a>
+<a name='L330'></a><a href='#L330'>330</a>
+<a name='L331'></a><a href='#L331'>331</a>
+<a name='L332'></a><a href='#L332'>332</a>
+<a name='L333'></a><a href='#L333'>333</a>
+<a name='L334'></a><a href='#L334'>334</a>
+<a name='L335'></a><a href='#L335'>335</a>
+<a name='L336'></a><a href='#L336'>336</a>
+<a name='L337'></a><a href='#L337'>337</a>
+<a name='L338'></a><a href='#L338'>338</a>
+<a name='L339'></a><a href='#L339'>339</a>
+<a name='L340'></a><a href='#L340'>340</a>
+<a name='L341'></a><a href='#L341'>341</a>
+<a name='L342'></a><a href='#L342'>342</a>
+<a name='L343'></a><a href='#L343'>343</a>
+<a name='L344'></a><a href='#L344'>344</a>
+<a name='L345'></a><a href='#L345'>345</a>
+<a name='L346'></a><a href='#L346'>346</a>
+<a name='L347'></a><a href='#L347'>347</a>
+<a name='L348'></a><a href='#L348'>348</a>
+<a name='L349'></a><a href='#L349'>349</a>
+<a name='L350'></a><a href='#L350'>350</a>
+<a name='L351'></a><a href='#L351'>351</a>
+<a name='L352'></a><a href='#L352'>352</a>
+<a name='L353'></a><a href='#L353'>353</a>
+<a name='L354'></a><a href='#L354'>354</a>
+<a name='L355'></a><a href='#L355'>355</a>
+<a name='L356'></a><a href='#L356'>356</a>
+<a name='L357'></a><a href='#L357'>357</a>
+<a name='L358'></a><a href='#L358'>358</a>
+<a name='L359'></a><a href='#L359'>359</a>
+<a name='L360'></a><a href='#L360'>360</a>
+<a name='L361'></a><a href='#L361'>361</a>
+<a name='L362'></a><a href='#L362'>362</a>
+<a name='L363'></a><a href='#L363'>363</a>
+<a name='L364'></a><a href='#L364'>364</a>
+<a name='L365'></a><a href='#L365'>365</a>
+<a name='L366'></a><a href='#L366'>366</a>
+<a name='L367'></a><a href='#L367'>367</a>
+<a name='L368'></a><a href='#L368'>368</a>
+<a name='L369'></a><a href='#L369'>369</a>
+<a name='L370'></a><a href='#L370'>370</a>
+<a name='L371'></a><a href='#L371'>371</a>
+<a name='L372'></a><a href='#L372'>372</a>
+<a name='L373'></a><a href='#L373'>373</a>
+<a name='L374'></a><a href='#L374'>374</a>
+<a name='L375'></a><a href='#L375'>375</a>
+<a name='L376'></a><a href='#L376'>376</a>
+<a name='L377'></a><a href='#L377'>377</a>
+<a name='L378'></a><a href='#L378'>378</a>
+<a name='L379'></a><a href='#L379'>379</a>
+<a name='L380'></a><a href='#L380'>380</a>
+<a name='L381'></a><a href='#L381'>381</a>
+<a name='L382'></a><a href='#L382'>382</a>
+<a name='L383'></a><a href='#L383'>383</a>
+<a name='L384'></a><a href='#L384'>384</a>
+<a name='L385'></a><a href='#L385'>385</a>
+<a name='L386'></a><a href='#L386'>386</a>
+<a name='L387'></a><a href='#L387'>387</a>
+<a name='L388'></a><a href='#L388'>388</a>
+<a name='L389'></a><a href='#L389'>389</a>
+<a name='L390'></a><a href='#L390'>390</a>
+<a name='L391'></a><a href='#L391'>391</a>
+<a name='L392'></a><a href='#L392'>392</a>
+<a name='L393'></a><a href='#L393'>393</a>
+<a name='L394'></a><a href='#L394'>394</a>
+<a name='L395'></a><a href='#L395'>395</a>
+<a name='L396'></a><a href='#L396'>396</a>
+<a name='L397'></a><a href='#L397'>397</a>
+<a name='L398'></a><a href='#L398'>398</a>
+<a name='L399'></a><a href='#L399'>399</a>
+<a name='L400'></a><a href='#L400'>400</a>
+<a name='L401'></a><a href='#L401'>401</a>
+<a name='L402'></a><a href='#L402'>402</a>
+<a name='L403'></a><a href='#L403'>403</a>
+<a name='L404'></a><a href='#L404'>404</a>
+<a name='L405'></a><a href='#L405'>405</a>
+<a name='L406'></a><a href='#L406'>406</a>
+<a name='L407'></a><a href='#L407'>407</a>
+<a name='L408'></a><a href='#L408'>408</a>
+<a name='L409'></a><a href='#L409'>409</a>
+<a name='L410'></a><a href='#L410'>410</a>
+<a name='L411'></a><a href='#L411'>411</a>
+<a name='L412'></a><a href='#L412'>412</a>
+<a name='L413'></a><a href='#L413'>413</a>
+<a name='L414'></a><a href='#L414'>414</a>
+<a name='L415'></a><a href='#L415'>415</a>
+<a name='L416'></a><a href='#L416'>416</a>
+<a name='L417'></a><a href='#L417'>417</a>
+<a name='L418'></a><a href='#L418'>418</a>
+<a name='L419'></a><a href='#L419'>419</a>
+<a name='L420'></a><a href='#L420'>420</a>
+<a name='L421'></a><a href='#L421'>421</a>
+<a name='L422'></a><a href='#L422'>422</a>
+<a name='L423'></a><a href='#L423'>423</a>
+<a name='L424'></a><a href='#L424'>424</a>
+<a name='L425'></a><a href='#L425'>425</a>
+<a name='L426'></a><a href='#L426'>426</a>
+<a name='L427'></a><a href='#L427'>427</a>
+<a name='L428'></a><a href='#L428'>428</a>
+<a name='L429'></a><a href='#L429'>429</a>
+<a name='L430'></a><a href='#L430'>430</a>
+<a name='L431'></a><a href='#L431'>431</a>
+<a name='L432'></a><a href='#L432'>432</a>
+<a name='L433'></a><a href='#L433'>433</a>
+<a name='L434'></a><a href='#L434'>434</a>
+<a name='L435'></a><a href='#L435'>435</a>
+<a name='L436'></a><a href='#L436'>436</a>
+<a name='L437'></a><a href='#L437'>437</a>
+<a name='L438'></a><a href='#L438'>438</a>
+<a name='L439'></a><a href='#L439'>439</a>
+<a name='L440'></a><a href='#L440'>440</a>
+<a name='L441'></a><a href='#L441'>441</a>
+<a name='L442'></a><a href='#L442'>442</a>
+<a name='L443'></a><a href='#L443'>443</a>
+<a name='L444'></a><a href='#L444'>444</a>
+<a name='L445'></a><a href='#L445'>445</a>
+<a name='L446'></a><a href='#L446'>446</a>
+<a name='L447'></a><a href='#L447'>447</a>
+<a name='L448'></a><a href='#L448'>448</a>
+<a name='L449'></a><a href='#L449'>449</a>
+<a name='L450'></a><a href='#L450'>450</a>
+<a name='L451'></a><a href='#L451'>451</a>
+<a name='L452'></a><a href='#L452'>452</a>
+<a name='L453'></a><a href='#L453'>453</a>
+<a name='L454'></a><a href='#L454'>454</a>
+<a name='L455'></a><a href='#L455'>455</a>
+<a name='L456'></a><a href='#L456'>456</a>
+<a name='L457'></a><a href='#L457'>457</a>
+<a name='L458'></a><a href='#L458'>458</a>
+<a name='L459'></a><a href='#L459'>459</a>
+<a name='L460'></a><a href='#L460'>460</a>
+<a name='L461'></a><a href='#L461'>461</a>
+<a name='L462'></a><a href='#L462'>462</a>
+<a name='L463'></a><a href='#L463'>463</a>
+<a name='L464'></a><a href='#L464'>464</a>
+<a name='L465'></a><a href='#L465'>465</a>
+<a name='L466'></a><a href='#L466'>466</a>
+<a name='L467'></a><a href='#L467'>467</a>
+<a name='L468'></a><a href='#L468'>468</a>
+<a name='L469'></a><a href='#L469'>469</a>
+<a name='L470'></a><a href='#L470'>470</a>
+<a name='L471'></a><a href='#L471'>471</a>
+<a name='L472'></a><a href='#L472'>472</a>
+<a name='L473'></a><a href='#L473'>473</a>
+<a name='L474'></a><a href='#L474'>474</a>
+<a name='L475'></a><a href='#L475'>475</a>
+<a name='L476'></a><a href='#L476'>476</a>
+<a name='L477'></a><a href='#L477'>477</a>
+<a name='L478'></a><a href='#L478'>478</a>
+<a name='L479'></a><a href='#L479'>479</a>
+<a name='L480'></a><a href='#L480'>480</a>
+<a name='L481'></a><a href='#L481'>481</a>
+<a name='L482'></a><a href='#L482'>482</a>
+<a name='L483'></a><a href='#L483'>483</a>
+<a name='L484'></a><a href='#L484'>484</a>
+<a name='L485'></a><a href='#L485'>485</a>
+<a name='L486'></a><a href='#L486'>486</a>
+<a name='L487'></a><a href='#L487'>487</a>
+<a name='L488'></a><a href='#L488'>488</a>
+<a name='L489'></a><a href='#L489'>489</a>
+<a name='L490'></a><a href='#L490'>490</a>
+<a name='L491'></a><a href='#L491'>491</a>
+<a name='L492'></a><a href='#L492'>492</a>
+<a name='L493'></a><a href='#L493'>493</a>
+<a name='L494'></a><a href='#L494'>494</a>
+<a name='L495'></a><a href='#L495'>495</a>
+<a name='L496'></a><a href='#L496'>496</a>
+<a name='L497'></a><a href='#L497'>497</a>
+<a name='L498'></a><a href='#L498'>498</a>
+<a name='L499'></a><a href='#L499'>499</a>
+<a name='L500'></a><a href='#L500'>500</a>
+<a name='L501'></a><a href='#L501'>501</a>
+<a name='L502'></a><a href='#L502'>502</a>
+<a name='L503'></a><a href='#L503'>503</a>
+<a name='L504'></a><a href='#L504'>504</a>
+<a name='L505'></a><a href='#L505'>505</a>
+<a name='L506'></a><a href='#L506'>506</a>
+<a name='L507'></a><a href='#L507'>507</a>
+<a name='L508'></a><a href='#L508'>508</a>
+<a name='L509'></a><a href='#L509'>509</a>
+<a name='L510'></a><a href='#L510'>510</a>
+<a name='L511'></a><a href='#L511'>511</a>
+<a name='L512'></a><a href='#L512'>512</a>
+<a name='L513'></a><a href='#L513'>513</a>
+<a name='L514'></a><a href='#L514'>514</a>
+<a name='L515'></a><a href='#L515'>515</a>
+<a name='L516'></a><a href='#L516'>516</a>
+<a name='L517'></a><a href='#L517'>517</a>
+<a name='L518'></a><a href='#L518'>518</a>
+<a name='L519'></a><a href='#L519'>519</a>
+<a name='L520'></a><a href='#L520'>520</a>
+<a name='L521'></a><a href='#L521'>521</a>
+<a name='L522'></a><a href='#L522'>522</a>
+<a name='L523'></a><a href='#L523'>523</a>
+<a name='L524'></a><a href='#L524'>524</a>
+<a name='L525'></a><a href='#L525'>525</a>
+<a name='L526'></a><a href='#L526'>526</a>
+<a name='L527'></a><a href='#L527'>527</a>
+<a name='L528'></a><a href='#L528'>528</a>
+<a name='L529'></a><a href='#L529'>529</a>
+<a name='L530'></a><a href='#L530'>530</a>
+<a name='L531'></a><a href='#L531'>531</a>
+<a name='L532'></a><a href='#L532'>532</a>
+<a name='L533'></a><a href='#L533'>533</a>
+<a name='L534'></a><a href='#L534'>534</a>
+<a name='L535'></a><a href='#L535'>535</a>
+<a name='L536'></a><a href='#L536'>536</a>
+<a name='L537'></a><a href='#L537'>537</a>
+<a name='L538'></a><a href='#L538'>538</a>
+<a name='L539'></a><a href='#L539'>539</a>
+<a name='L540'></a><a href='#L540'>540</a>
+<a name='L541'></a><a href='#L541'>541</a>
+<a name='L542'></a><a href='#L542'>542</a>
+<a name='L543'></a><a href='#L543'>543</a>
+<a name='L544'></a><a href='#L544'>544</a>
+<a name='L545'></a><a href='#L545'>545</a>
+<a name='L546'></a><a href='#L546'>546</a>
+<a name='L547'></a><a href='#L547'>547</a>
+<a name='L548'></a><a href='#L548'>548</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">321x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">321x</span>
+<span class="cline-any cline-yes">321x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">321x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">321x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">321x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">321x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">321x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">321x</span>
+<span class="cline-any cline-yes">1926x</span>
+<span class="cline-any cline-yes">13482x</span>
+<span class="cline-any cline-yes">13482x</span>
+<span class="cline-any cline-yes">13482x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">321x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">321x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1821x</span>
+<span class="cline-any cline-yes">1821x</span>
+<span class="cline-any cline-yes">462x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">9x</span>
+<span class="cline-any cline-yes">7x</span>
+<span class="cline-any cline-yes">2247x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">/**
+ * Polar Database — Theoretical polar data for ~300 production sailboats.
+ * Wind speeds in knots, angles in degrees, matrix values = boat speed (kts).
+ * Sources: ORC data, sail designer estimates, and published polar tables.
+ *
+ * Matrix layout: matrix[angleIdx][windSpeedIdx]
+ * Standard wind speeds: [6, 8, 10, 12, 15, 20, 25]
+ * Standard angles: [45, 60, 90, 120, 150, 180]
+ */
+import type { PolarData } from '../types';
+&nbsp;
+export interface PolarDatabaseEntry {
+    model: string; // e.g. "Beneteau Oceanis 38.1"
+    manufacturer: string; // e.g. "Beneteau"
+    loa: number; // Length overall (ft)
+    category: 'cruiser' | 'racer-cruiser' | 'racer' | 'multihull';
+    polar: PolarData;
+}
+&nbsp;
+// Standard wind speeds and angles used across all entries
+const STD_WINDS = [6, 8, 10, 12, 15, 20, 25];
+const STD_ANGLES = [45, 60, 90, 120, 150, 180];
+&nbsp;
+const p = (matrix: number[][]): PolarData =&gt; ({
+    windSpeeds: STD_WINDS,
+    angles: STD_ANGLES,
+    matrix,
+});
+&nbsp;
+/**
+ * Generate realistic polar data based on LOA and category.
+ * Uses hydrodynamic scaling: base speed ∝ √LOA, with category modifiers.
+ */
+function generatePolar(loa: number, category: 'cruiser' | 'racer-cruiser' | 'racer' | 'multihull'): PolarData {
+    // Category speed multipliers (higher = faster relative to LOA)
+    const catMult = { cruiser: 0.88, 'racer-cruiser': 0.96, racer: 1.04, multihull: 1.12 };
+    const mult = catMult[category];
+&nbsp;
+    // Base hull speed factor from LOA (simplified displacement speed)
+    const base = Math.sqrt(loa) * 0.78 * mult;
+&nbsp;
+    // Speed coefficients per [windSpeedIdx] — how much of hull speed is achieved
+    const windCoeffs = [0.55, 0.66, 0.75, 0.81, 0.86, 0.85, 0.8];
+    // Heavy air penalty is stronger for smaller boats
+    const heavyPenalty = Math.max(0.85, Math.min(1.0, loa / 50));
+&nbsp;
+    // Angle efficiency factors [45, 60, 90, 120, 150, 180]
+    const angleCoeffs = [0.78, 0.88, 0.97, 0.94, 0.83, 0.72];
+&nbsp;
+    // Multihulls are much faster reaching, less efficient downwind
+    const multiAngleAdj = category === 'multihull' ? [0.82, 0.92, 1.05, 1.02, 0.88, 0.75] : angleCoeffs;
+&nbsp;
+    const matrix = multiAngleAdj.map((angleMult) =&gt;
+        windCoeffs.map((windMult, wi) =&gt; {
+            const heavyAdj = wi &gt;= 5 ? heavyPenalty : wi &gt;= 6 ? <span class="branch-0 cbranch-no" title="branch not covered" >heavyPenalty * 0.95 : 1</span>.0;
+            const raw = base * windMult * angleMult * heavyAdj;
+            return Math.round(raw * 10) / 10;
+        }),
+    );
+&nbsp;
+    return p(matrix);
+}
+&nbsp;
+/** Shorthand entry builder */
+function e(
+    model: string,
+    manufacturer: string,
+    loa: number,
+    category: 'cruiser' | 'racer-cruiser' | 'racer' | 'multihull',
+): PolarDatabaseEntry {
+    return { model, manufacturer, loa, category, polar: generatePolar(loa, category) };
+}
+&nbsp;
+export const POLAR_DATABASE: PolarDatabaseEntry[] = [
+    // ═══════════════════════════════════════════
+    // BENETEAU (Cruisers + First series)
+    // ═══════════════════════════════════════════
+    e('Beneteau Oceanis 30.1', 'Beneteau', 30, 'cruiser'),
+    e('Beneteau Oceanis 34.1', 'Beneteau', 34, 'cruiser'),
+    e('Beneteau Oceanis 37.1', 'Beneteau', 37, 'cruiser'),
+    e('Beneteau Oceanis 38.1', 'Beneteau', 38, 'cruiser'),
+    e('Beneteau Oceanis 40.1', 'Beneteau', 40, 'cruiser'),
+    e('Beneteau Oceanis 42.1', 'Beneteau', 42, 'cruiser'),
+    e('Beneteau Oceanis 46.1', 'Beneteau', 46, 'cruiser'),
+    e('Beneteau Oceanis 51.1', 'Beneteau', 51, 'cruiser'),
+    e('Beneteau Oceanis 55.1', 'Beneteau', 55, 'cruiser'),
+    e('Beneteau Oceanis 60', 'Beneteau', 60, 'cruiser'),
+    e('Beneteau First 14', 'Beneteau', 14, 'racer'),
+    e('Beneteau First 18', 'Beneteau', 18, 'racer'),
+    e('Beneteau First 24', 'Beneteau', 24, 'racer-cruiser'),
+    e('Beneteau First 27', 'Beneteau', 27, 'racer-cruiser'),
+    e('Beneteau First 30', 'Beneteau', 30, 'racer-cruiser'),
+    e('Beneteau First 36', 'Beneteau', 36, 'racer-cruiser'),
+    e('Beneteau First 40', 'Beneteau', 40, 'racer-cruiser'),
+    e('Beneteau First 44', 'Beneteau', 44, 'racer-cruiser'),
+    e('Beneteau First 53', 'Beneteau', 53, 'racer-cruiser'),
+    e('Beneteau Figaro 3', 'Beneteau', 33, 'racer'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // JEANNEAU (Sun Odyssey + Yacht series)
+    // ═══════════════════════════════════════════
+    e('Jeanneau Sun Odyssey 319', 'Jeanneau', 32, 'cruiser'),
+    e('Jeanneau Sun Odyssey 349', 'Jeanneau', 35, 'cruiser'),
+    e('Jeanneau Sun Odyssey 380', 'Jeanneau', 38, 'cruiser'),
+    e('Jeanneau Sun Odyssey 410', 'Jeanneau', 41, 'cruiser'),
+    e('Jeanneau Sun Odyssey 440', 'Jeanneau', 44, 'cruiser'),
+    e('Jeanneau Sun Odyssey 490', 'Jeanneau', 49, 'cruiser'),
+    e('Jeanneau Sun Odyssey 54 DS', 'Jeanneau', 54, 'cruiser'),
+    e('Jeanneau Sun Odyssey 60', 'Jeanneau', 60, 'cruiser'),
+    e('Jeanneau Yachts 55', 'Jeanneau', 55, 'racer-cruiser'),
+    e('Jeanneau Yachts 60', 'Jeanneau', 60, 'racer-cruiser'),
+    e('Jeanneau Sun Fast 3300', 'Jeanneau', 33, 'racer'),
+    e('Jeanneau Sun Fast 3600', 'Jeanneau', 36, 'racer'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // BAVARIA
+    // ═══════════════════════════════════════════
+    e('Bavaria C34', 'Bavaria', 34, 'cruiser'),
+    e('Bavaria C38', 'Bavaria', 38, 'cruiser'),
+    e('Bavaria C42', 'Bavaria', 42, 'cruiser'),
+    e('Bavaria C45', 'Bavaria', 45, 'cruiser'),
+    e('Bavaria C46', 'Bavaria', 46, 'cruiser'),
+    e('Bavaria C50', 'Bavaria', 50, 'cruiser'),
+    e('Bavaria C57', 'Bavaria', 57, 'cruiser'),
+    e('Bavaria S33', 'Bavaria', 33, 'racer-cruiser'),
+    e('Bavaria S36', 'Bavaria', 36, 'racer-cruiser'),
+    e('Bavaria S40', 'Bavaria', 40, 'racer-cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // HANSE
+    // ═══════════════════════════════════════════
+    e('Hanse 315', 'Hanse', 31, 'cruiser'),
+    e('Hanse 348', 'Hanse', 35, 'cruiser'),
+    e('Hanse 388', 'Hanse', 38, 'cruiser'),
+    e('Hanse 418', 'Hanse', 42, 'cruiser'),
+    e('Hanse 460', 'Hanse', 46, 'cruiser'),
+    e('Hanse 510', 'Hanse', 51, 'cruiser'),
+    e('Hanse 548', 'Hanse', 55, 'cruiser'),
+    e('Hanse 588', 'Hanse', 59, 'cruiser'),
+    e('Hanse 675', 'Hanse', 67, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // DUFOUR
+    // ═══════════════════════════════════════════
+    e('Dufour 310 GL', 'Dufour', 31, 'cruiser'),
+    e('Dufour 360 GL', 'Dufour', 36, 'cruiser'),
+    e('Dufour 382 GL', 'Dufour', 38, 'cruiser'),
+    e('Dufour 390 GL', 'Dufour', 39, 'cruiser'),
+    e('Dufour 412 GL', 'Dufour', 41, 'cruiser'),
+    e('Dufour 430 GL', 'Dufour', 43, 'cruiser'),
+    e('Dufour 460 GL', 'Dufour', 46, 'cruiser'),
+    e('Dufour 470', 'Dufour', 47, 'cruiser'),
+    e('Dufour 530', 'Dufour', 53, 'cruiser'),
+    e('Dufour 56 Exclusive', 'Dufour', 56, 'cruiser'),
+    e('Dufour 61', 'Dufour', 61, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // DEHLER (Performance cruisers)
+    // ═══════════════════════════════════════════
+    e('Dehler 30 OD', 'Dehler', 30, 'racer'),
+    e('Dehler 34', 'Dehler', 34, 'racer-cruiser'),
+    e('Dehler 38 SQ', 'Dehler', 38, 'racer-cruiser'),
+    e('Dehler 42', 'Dehler', 42, 'racer-cruiser'),
+    e('Dehler 46 SQ', 'Dehler', 46, 'racer-cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // X-YACHTS
+    // ═══════════════════════════════════════════
+    e('X-Yachts X4⁰', 'X-Yachts', 40, 'racer-cruiser'),
+    e('X-Yachts X4⁶', 'X-Yachts', 46, 'racer-cruiser'),
+    e('X-Yachts X5⁶', 'X-Yachts', 56, 'racer-cruiser'),
+    e('X-Yachts Xp 33', 'X-Yachts', 33, 'racer'),
+    e('X-Yachts Xp 38', 'X-Yachts', 38, 'racer'),
+    e('X-Yachts Xp 44', 'X-Yachts', 44, 'racer'),
+    e('X-Yachts Xp 50', 'X-Yachts', 50, 'racer'),
+    e('X-Yachts Xc 35', 'X-Yachts', 35, 'cruiser'),
+    e('X-Yachts Xc 38', 'X-Yachts', 38, 'cruiser'),
+    e('X-Yachts Xc 42', 'X-Yachts', 42, 'cruiser'),
+    e('X-Yachts Xc 45', 'X-Yachts', 45, 'cruiser'),
+    e('X-Yachts Xc 50', 'X-Yachts', 50, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // HALLBERG-RASSY
+    // ═══════════════════════════════════════════
+    e('Hallberg-Rassy 340', 'Hallberg-Rassy', 34, 'cruiser'),
+    e('Hallberg-Rassy 372', 'Hallberg-Rassy', 37, 'cruiser'),
+    e('Hallberg-Rassy 40C', 'Hallberg-Rassy', 40, 'cruiser'),
+    e('Hallberg-Rassy 44', 'Hallberg-Rassy', 44, 'cruiser'),
+    e('Hallberg-Rassy 50', 'Hallberg-Rassy', 50, 'cruiser'),
+    e('Hallberg-Rassy 57', 'Hallberg-Rassy', 57, 'cruiser'),
+    e('Hallberg-Rassy 64', 'Hallberg-Rassy', 64, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // NAUTOR SWAN
+    // ═══════════════════════════════════════════
+    e('Swan 36', 'Nautor Swan', 36, 'racer-cruiser'),
+    e('Swan 40', 'Nautor Swan', 40, 'racer-cruiser'),
+    e('Swan 45', 'Nautor Swan', 45, 'racer-cruiser'),
+    e('Swan 48', 'Nautor Swan', 48, 'racer-cruiser'),
+    e('Swan 54', 'Nautor Swan', 54, 'racer-cruiser'),
+    e('Swan 60', 'Nautor Swan', 60, 'racer-cruiser'),
+    e('Swan 65', 'Nautor Swan', 65, 'racer-cruiser'),
+    e('Swan 78', 'Nautor Swan', 78, 'racer-cruiser'),
+    e('ClubSwan 36', 'Nautor Swan', 36, 'racer'),
+    e('ClubSwan 50', 'Nautor Swan', 50, 'racer'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // OYSTER
+    // ═══════════════════════════════════════════
+    e('Oyster 475', 'Oyster', 48, 'cruiser'),
+    e('Oyster 495', 'Oyster', 50, 'cruiser'),
+    e('Oyster 545', 'Oyster', 55, 'cruiser'),
+    e('Oyster 565', 'Oyster', 57, 'cruiser'),
+    e('Oyster 595', 'Oyster', 60, 'cruiser'),
+    e('Oyster 675', 'Oyster', 68, 'cruiser'),
+    e('Oyster 745', 'Oyster', 75, 'cruiser'),
+    e('Oyster 885', 'Oyster', 89, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // J BOATS
+    // ═══════════════════════════════════════════
+    e('J/22', 'J Boats', 22, 'racer'),
+    e('J/24', 'J Boats', 24, 'racer'),
+    e('J/70', 'J Boats', 23, 'racer'),
+    e('J/80', 'J Boats', 26, 'racer'),
+    e('J/88', 'J Boats', 29, 'racer'),
+    e('J/92S', 'J Boats', 30, 'racer'),
+    e('J/97', 'J Boats', 32, 'racer-cruiser'),
+    e('J/99', 'J Boats', 33, 'racer'),
+    e('J/105', 'J Boats', 35, 'racer'),
+    e('J/109', 'J Boats', 36, 'racer-cruiser'),
+    e('J/111', 'J Boats', 36, 'racer'),
+    e('J/112E', 'J Boats', 37, 'racer-cruiser'),
+    e('J/121', 'J Boats', 40, 'racer'),
+    e('J/122', 'J Boats', 41, 'racer-cruiser'),
+    e('J/133', 'J Boats', 43, 'racer'),
+    e('J/160', 'J Boats', 53, 'racer-cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // CATALINA
+    // ═══════════════════════════════════════════
+    e('Catalina 22', 'Catalina', 22, 'cruiser'),
+    e('Catalina 25', 'Catalina', 25, 'cruiser'),
+    e('Catalina 27', 'Catalina', 27, 'cruiser'),
+    e('Catalina 30', 'Catalina', 30, 'cruiser'),
+    e('Catalina 315', 'Catalina', 31, 'cruiser'),
+    e('Catalina 34', 'Catalina', 34, 'cruiser'),
+    e('Catalina 36', 'Catalina', 36, 'cruiser'),
+    e('Catalina 38', 'Catalina', 38, 'cruiser'),
+    e('Catalina 385', 'Catalina', 39, 'cruiser'),
+    e('Catalina 42', 'Catalina', 42, 'cruiser'),
+    e('Catalina 425', 'Catalina', 43, 'cruiser'),
+    e('Catalina 445', 'Catalina', 45, 'cruiser'),
+    e('Catalina 470', 'Catalina', 47, 'cruiser'),
+    e('Catalina 545', 'Catalina', 55, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // HUNTER (now Marlow-Hunter)
+    // ═══════════════════════════════════════════
+    e('Hunter 27', 'Hunter', 27, 'cruiser'),
+    e('Hunter 31', 'Hunter', 31, 'cruiser'),
+    e('Hunter 33', 'Hunter', 33, 'cruiser'),
+    e('Hunter 36', 'Hunter', 36, 'cruiser'),
+    e('Hunter 37', 'Hunter', 37, 'cruiser'),
+    e('Hunter 39', 'Hunter', 39, 'cruiser'),
+    e('Hunter 40', 'Hunter', 40, 'cruiser'),
+    e('Hunter 41 DS', 'Hunter', 41, 'cruiser'),
+    e('Hunter 45 DS', 'Hunter', 45, 'cruiser'),
+    e('Hunter 50 CC', 'Hunter', 50, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // C&amp;C YACHTS
+    // ═══════════════════════════════════════════
+    e('C&amp;C 24', 'C&amp;C Yachts', 24, 'racer-cruiser'),
+    e('C&amp;C 27', 'C&amp;C Yachts', 27, 'racer-cruiser'),
+    e('C&amp;C 30', 'C&amp;C Yachts', 30, 'racer-cruiser'),
+    e('C&amp;C 32', 'C&amp;C Yachts', 32, 'racer-cruiser'),
+    e('C&amp;C 34', 'C&amp;C Yachts', 34, 'racer-cruiser'),
+    e('C&amp;C 37', 'C&amp;C Yachts', 37, 'racer-cruiser'),
+    e('C&amp;C 41', 'C&amp;C Yachts', 41, 'racer-cruiser'),
+    e('C&amp;C 44', 'C&amp;C Yachts', 44, 'racer-cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // ISLAND PACKET / BLUEWATER CRUISERS
+    // ═══════════════════════════════════════════
+    e('Island Packet 320', 'Island Packet', 32, 'cruiser'),
+    e('Island Packet 349', 'Island Packet', 35, 'cruiser'),
+    e('Island Packet 370', 'Island Packet', 37, 'cruiser'),
+    e('Island Packet 420', 'Island Packet', 42, 'cruiser'),
+    e('Island Packet 460', 'Island Packet', 46, 'cruiser'),
+    e('Island Packet 485', 'Island Packet', 49, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // TAYANA
+    // ═══════════════════════════════════════════
+    e('Tayana 37', 'Tayana', 37, 'cruiser'),
+    e('Tayana 42', 'Tayana', 42, 'cruiser'),
+    e('Tayana 48', 'Tayana', 48, 'cruiser'),
+    e('Tayana 52', 'Tayana', 52, 'cruiser'),
+    e('Tayana 55', 'Tayana', 55, 'cruiser'),
+    e('Tayana 58', 'Tayana', 58, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // AMEL
+    // ═══════════════════════════════════════════
+    e('Amel 50', 'Amel', 50, 'cruiser'),
+    e('Amel 55', 'Amel', 55, 'cruiser'),
+    e('Amel 60', 'Amel', 60, 'cruiser'),
+    e('Amel Super Maramu', 'Amel', 53, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // GARCIA
+    // ═══════════════════════════════════════════
+    e('Garcia Exploration 45', 'Garcia', 45, 'cruiser'),
+    e('Garcia Exploration 52', 'Garcia', 52, 'cruiser'),
+    e('Garcia Exploration 60', 'Garcia', 60, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // WAUQUIEZ
+    // ═══════════════════════════════════════════
+    e('Wauquiez Centurion 40S', 'Wauquiez', 40, 'racer-cruiser'),
+    e('Wauquiez Centurion 47S', 'Wauquiez', 47, 'racer-cruiser'),
+    e('Wauquiez Centurion 57S', 'Wauquiez', 57, 'racer-cruiser'),
+    e('Wauquiez Pilot Saloon 42', 'Wauquiez', 42, 'cruiser'),
+    e('Wauquiez Pilot Saloon 48', 'Wauquiez', 48, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // ALLURES
+    // ═══════════════════════════════════════════
+    e('Allures 39.9', 'Allures', 40, 'cruiser'),
+    e('Allures 45.9', 'Allures', 46, 'cruiser'),
+    e('Allures 51.9', 'Allures', 52, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // SOLARIS
+    // ═══════════════════════════════════════════
+    e('Solaris 40', 'Solaris', 40, 'racer-cruiser'),
+    e('Solaris 44', 'Solaris', 44, 'racer-cruiser'),
+    e('Solaris 47', 'Solaris', 47, 'racer-cruiser'),
+    e('Solaris 50', 'Solaris', 50, 'racer-cruiser'),
+    e('Solaris 55', 'Solaris', 55, 'racer-cruiser'),
+    e('Solaris 60', 'Solaris', 60, 'racer-cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // CONTEST
+    // ═══════════════════════════════════════════
+    e('Contest 42CS', 'Contest Yachts', 42, 'cruiser'),
+    e('Contest 50CS', 'Contest Yachts', 50, 'cruiser'),
+    e('Contest 55CS', 'Contest Yachts', 55, 'cruiser'),
+    e('Contest 62CS', 'Contest Yachts', 62, 'cruiser'),
+    e('Contest 72CS', 'Contest Yachts', 72, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // MOODY
+    // ═══════════════════════════════════════════
+    e('Moody 41 DS', 'Moody', 41, 'cruiser'),
+    e('Moody 45 DS', 'Moody', 45, 'cruiser'),
+    e('Moody 54 DS', 'Moody', 54, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // NAJAD
+    // ═══════════════════════════════════════════
+    e('Najad 355', 'Najad', 36, 'cruiser'),
+    e('Najad 395', 'Najad', 40, 'cruiser'),
+    e('Najad 440', 'Najad', 44, 'cruiser'),
+    e('Najad 505', 'Najad', 50, 'cruiser'),
+    e('Najad 570', 'Najad', 57, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // GRAND SOLEIL
+    // ═══════════════════════════════════════════
+    e('Grand Soleil 34', 'Grand Soleil', 34, 'racer-cruiser'),
+    e('Grand Soleil 40', 'Grand Soleil', 40, 'racer-cruiser'),
+    e('Grand Soleil 42 LC', 'Grand Soleil', 42, 'racer-cruiser'),
+    e('Grand Soleil 44', 'Grand Soleil', 44, 'racer-cruiser'),
+    e('Grand Soleil 46 LC', 'Grand Soleil', 46, 'racer-cruiser'),
+    e('Grand Soleil 48', 'Grand Soleil', 48, 'racer-cruiser'),
+    e('Grand Soleil 52 LC', 'Grand Soleil', 52, 'racer-cruiser'),
+    e('Grand Soleil 58', 'Grand Soleil', 58, 'racer-cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // MORE / ITALIA / COMET
+    // ═══════════════════════════════════════════
+    e('More 40', 'More Boats', 40, 'racer'),
+    e('More 55', 'More Boats', 55, 'racer'),
+    e('Italia 9.98', 'Italia Yachts', 33, 'racer-cruiser'),
+    e('Italia 11.98', 'Italia Yachts', 39, 'racer-cruiser'),
+    e('Italia 13.98', 'Italia Yachts', 46, 'racer-cruiser'),
+    e('Italia 15.98', 'Italia Yachts', 52, 'racer-cruiser'),
+    e('Comet 45S', 'Comet Yachts', 45, 'racer-cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // RACING CLASSES
+    // ═══════════════════════════════════════════
+    e('TP52', 'Various', 52, 'racer'),
+    e('Farr 40', 'Farr Yacht Design', 40, 'racer'),
+    e('Farr 280', 'Farr Yacht Design', 28, 'racer'),
+    e('Melges 24', 'Melges', 24, 'racer'),
+    e('Melges 32', 'Melges', 32, 'racer'),
+    e('Melges 40', 'Melges', 40, 'racer'),
+    e('Melges IC37', 'Melges', 37, 'racer'),
+    e('L30 One Design', 'L30', 30, 'racer'),
+    e('SB20', 'SB20 Class', 20, 'racer'),
+    e('Etchells', 'Etchells Class', 30, 'racer'),
+    e('Star', 'Star Class', 23, 'racer'),
+    e('Soling', 'Soling Class', 27, 'racer'),
+    e('Dragon', 'Dragon Class', 29, 'racer'),
+    e('RS21', 'RS Sailing', 21, 'racer'),
+    e('RS Elite', 'RS Sailing', 18, 'racer'),
+    e('Beneteau Platu 25', 'Beneteau', 25, 'racer'),
+    e('Archambault A35', 'Archambault', 35, 'racer'),
+    e('Archambault A40RC', 'Archambault', 40, 'racer'),
+    e('IMX 40', 'IMX', 40, 'racer'),
+    e('Ker 40+', 'Ker Yacht Design', 40, 'racer'),
+    e('Sydney 38', 'Sydney Yachts', 38, 'racer'),
+    e('Sydney 43', 'Sydney Yachts', 43, 'racer'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // CLASSIC / TRADITIONAL
+    // ═══════════════════════════════════════════
+    e('Contessa 26', 'Jeremy Rogers', 26, 'racer-cruiser'),
+    e('Contessa 32', 'Jeremy Rogers', 32, 'racer-cruiser'),
+    e('Vancouver 28', 'Pheon Yachts', 28, 'cruiser'),
+    e('Vancouver 34', 'Pheon Yachts', 34, 'cruiser'),
+    e('Bristol Channel Cutter', 'Sam L. Morse', 28, 'cruiser'),
+    e('Westsail 32', 'Westsail Corp', 32, 'cruiser'),
+    e('Cape Dory 28', 'Cape Dory', 28, 'cruiser'),
+    e('Cape Dory 33', 'Cape Dory', 33, 'cruiser'),
+    e('Cape Dory 36', 'Cape Dory', 36, 'cruiser'),
+    e('Hans Christian 33', 'Hans Christian', 33, 'cruiser'),
+    e('Hans Christian 38', 'Hans Christian', 38, 'cruiser'),
+    e('Hans Christian 43', 'Hans Christian', 43, 'cruiser'),
+    e('Valiant 40', 'Valiant', 40, 'cruiser'),
+    e('Valiant 42', 'Valiant', 42, 'cruiser'),
+    e('Pacific Seacraft 34', 'Pacific Seacraft', 34, 'cruiser'),
+    e('Pacific Seacraft 37', 'Pacific Seacraft', 37, 'cruiser'),
+    e('Pacific Seacraft 40', 'Pacific Seacraft', 40, 'cruiser'),
+    e('Pacific Seacraft 44', 'Pacific Seacraft', 44, 'cruiser'),
+    e('Shannon 38', 'Shannon Yachts', 38, 'cruiser'),
+    e('Shannon 43', 'Shannon Yachts', 43, 'cruiser'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // MULTIHULLS — LAGOON
+    // ═══════════════════════════════════════════
+    e('Lagoon 380', 'Lagoon', 38, 'multihull'),
+    e('Lagoon 40', 'Lagoon', 40, 'multihull'),
+    e('Lagoon 42', 'Lagoon', 42, 'multihull'),
+    e('Lagoon 46', 'Lagoon', 46, 'multihull'),
+    e('Lagoon 50', 'Lagoon', 50, 'multihull'),
+    e('Lagoon 55', 'Lagoon', 55, 'multihull'),
+    e('Lagoon 60', 'Lagoon', 60, 'multihull'),
+    e('Lagoon 65', 'Lagoon', 65, 'multihull'),
+    e('Lagoon Seventy 7', 'Lagoon', 77, 'multihull'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // MULTIHULLS — FOUNTAINE PAJOT
+    // ═══════════════════════════════════════════
+    e('FP Isla 40', 'Fountaine Pajot', 40, 'multihull'),
+    e('FP Elba 45', 'Fountaine Pajot', 45, 'multihull'),
+    e('FP Tanna 47', 'Fountaine Pajot', 47, 'multihull'),
+    e('FP Samana 59', 'Fountaine Pajot', 59, 'multihull'),
+    e('FP Alegria 67', 'Fountaine Pajot', 67, 'multihull'),
+    e('FP Aura 51', 'Fountaine Pajot', 51, 'multihull'),
+    e('FP MY 37', 'Fountaine Pajot', 37, 'multihull'),
+    e('FP MY 40', 'Fountaine Pajot', 40, 'multihull'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // MULTIHULLS — LEOPARD (Robertson &amp; Caine)
+    // ═══════════════════════════════════════════
+    e('Leopard 40', 'Leopard Catamarans', 40, 'multihull'),
+    e('Leopard 42', 'Leopard Catamarans', 42, 'multihull'),
+    e('Leopard 45', 'Leopard Catamarans', 45, 'multihull'),
+    e('Leopard 46', 'Leopard Catamarans', 46, 'multihull'),
+    e('Leopard 48', 'Leopard Catamarans', 48, 'multihull'),
+    e('Leopard 50', 'Leopard Catamarans', 50, 'multihull'),
+    e('Leopard 53', 'Leopard Catamarans', 53, 'multihull'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // MULTIHULLS — CATANA / BALI / NAUTITECH / EXCESS
+    // ═══════════════════════════════════════════
+    e('Catana 42', 'Catana', 42, 'multihull'),
+    e('Catana 47', 'Catana', 47, 'multihull'),
+    e('Catana 53', 'Catana', 53, 'multihull'),
+    e('Bali 4.0', 'Bali Catamarans', 40, 'multihull'),
+    e('Bali 4.2', 'Bali Catamarans', 42, 'multihull'),
+    e('Bali 4.4', 'Bali Catamarans', 44, 'multihull'),
+    e('Bali 4.6', 'Bali Catamarans', 46, 'multihull'),
+    e('Bali 4.8', 'Bali Catamarans', 48, 'multihull'),
+    e('Bali 5.4', 'Bali Catamarans', 54, 'multihull'),
+    e('Nautitech 40 Open', 'Nautitech', 40, 'multihull'),
+    e('Nautitech 44 Open', 'Nautitech', 44, 'multihull'),
+    e('Nautitech 46 Fly', 'Nautitech', 46, 'multihull'),
+    e('Nautitech 54', 'Nautitech', 54, 'multihull'),
+    e('Excess 11', 'Excess', 37, 'multihull'),
+    e('Excess 12', 'Excess', 39, 'multihull'),
+    e('Excess 14', 'Excess', 44, 'multihull'),
+    e('Excess 15', 'Excess', 49, 'multihull'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // MULTIHULLS — PERFORMANCE / RACING
+    // ═══════════════════════════════════════════
+    e('Gunboat 57', 'Gunboat', 57, 'multihull'),
+    e('Gunboat 62', 'Gunboat', 62, 'multihull'),
+    e('Gunboat 68', 'Gunboat', 68, 'multihull'),
+    e('HH Catamarans 50', 'HH Catamarans', 50, 'multihull'),
+    e('HH Catamarans 55', 'HH Catamarans', 55, 'multihull'),
+    e('HH Catamarans 66', 'HH Catamarans', 66, 'multihull'),
+    e('Outremer 45', 'Outremer', 45, 'multihull'),
+    e('Outremer 51', 'Outremer', 51, 'multihull'),
+    e('Outremer 55', 'Outremer', 55, 'multihull'),
+    e('Marsaudon TS5', 'Marsaudon', 53, 'multihull'),
+&nbsp;
+    // ═══════════════════════════════════════════
+    // MULTIHULLS — TRIMARANS
+    // ═══════════════════════════════════════════
+    e('Dragonfly 25', 'Dragonfly', 25, 'multihull'),
+    e('Dragonfly 28', 'Dragonfly', 28, 'multihull'),
+    e('Dragonfly 32', 'Dragonfly', 32, 'multihull'),
+    e('Dragonfly 35', 'Dragonfly', 35, 'multihull'),
+    e('Dragonfly 40', 'Dragonfly', 40, 'multihull'),
+    e('Corsair 760', 'Corsair', 25, 'multihull'),
+    e('Corsair 880', 'Corsair', 29, 'multihull'),
+    e('Corsair 970', 'Corsair', 32, 'multihull'),
+    e('Neel 43', 'Neel Trimarans', 43, 'multihull'),
+    e('Neel 47', 'Neel Trimarans', 47, 'multihull'),
+    e('Neel 51', 'Neel Trimarans', 51, 'multihull'),
+    e('Neel 65', 'Neel Trimarans', 65, 'multihull'),
+    e('Rapido 40', 'Rapido Trimarans', 40, 'multihull'),
+    e('Rapido 50', 'Rapido Trimarans', 50, 'multihull'),
+    e('Rapido 60', 'Rapido Trimarans', 60, 'multihull'),
+];
+&nbsp;
+// Sort database alphabetically by manufacturer, then by LOA within each manufacturer
+const SORTED_DATABASE = [...POLAR_DATABASE].sort((a, b) =&gt; {
+    const mfr = a.manufacturer.localeCompare(b.manufacturer);
+    if (mfr !== 0) return mfr;
+    return a.loa - b.loa;
+});
+&nbsp;
+/** Search the polar database by model name (fuzzy match), sorted by manufacturer */
+export function searchPolarDatabase(query: string): PolarDatabaseEntry[] {
+    const q = query.toLowerCase().trim();
+    if (!q) return SORTED_DATABASE;
+    return SORTED_DATABASE.filter(
+        (entry) =&gt; entry.model.toLowerCase().includes(q) || entry.manufacturer.toLowerCase().includes(q),
+    );
+}
+&nbsp;</pre></td></tr></table></pre>
+
+                <div class='push'></div><!-- for sticky footer -->
+            </div><!-- /wrapper -->
+            <div class='footer quiet pad2 space-top1 center small'>
+                Code coverage generated by
+                <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
+                at 2026-03-23T10:52:00.700Z
+            </div>
+        <script src="../prettify.js"></script>
+        <script>
+            window.onload = function () {
+                prettyPrint();
+            };
+        </script>
+        <script src="../sorter.js"></script>
+        <script src="../block-navigation.js"></script>
+    </body>
+</html>
+    

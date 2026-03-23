@@ -2,9 +2,9 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('ThalassaMap');
-import Map, { ViewStateChangeEvent, NavigationControl, MapRef } from 'react-map-gl/maplibre';
-import type { StyleSpecification } from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
+import Map, { ViewStateChangeEvent, NavigationControl, MapRef } from 'react-map-gl/mapbox';
+import type { StyleSpecification } from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
 import { WindParticleLayer } from './WindParticleLayer';
 import { WindStore } from '../../stores/WindStore';
 import { LocationStore } from '../../stores/LocationStore';
@@ -46,6 +46,7 @@ interface ThalassaMapProps {
  */
 export function getGribBoundsFromMap(mapRef: MapRef): GribBounds {
     const bounds = mapRef.getMap().getBounds();
+    if (!bounds) return { north: 90, south: -90, east: 180, west: -180 };
     return {
         north: bounds.getNorth(),
         south: bounds.getSouth(),
@@ -96,7 +97,7 @@ const OFFLINE_STYLE: StyleSpecification = {
     glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
 };
 
-function findFirstLabelLayerId(map: maplibregl.Map): string | undefined {
+function findFirstLabelLayerId(map: mapboxgl.Map): string | undefined {
     const layers = map.getStyle()?.layers;
     if (!layers) return undefined;
     for (const layer of layers) {

@@ -1,3 +1,6 @@
+/**
+ * @filesize-justified Pure static data file (customs/immigration database). No logic to extract.
+ */
 // Extracted from CustomsClearanceCard.tsx for architecture cleanliness
 /* ═══════════════════════════════════════════════════════════════
    COUNTRY CLEARANCE DATABASE

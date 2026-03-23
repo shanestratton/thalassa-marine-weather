@@ -42,7 +42,16 @@ function loadSentry(): Promise<SentryModule> {
 
                 beforeSend(event) {
                     const message = event.exception?.values?.[0]?.value || '';
-                    if (message.includes('readonly property')) return null;
+                    if (message.includes('readonly property')) {
+                        // Log as breadcrumb instead of discarding silently —
+                        // helps crash investigations see if readonly errors preceded a real crash
+                        mod.addBreadcrumb({
+                            category: 'security',
+                            message: 'Suppressed iOS readonly TypeError',
+                            level: 'debug',
+                        });
+                        return null;
+                    }
                     if (message.includes('ResizeObserver')) return null;
                     if (message.includes('Failed to fetch') && !navigator.onLine) return null;
                     return event;

@@ -19,6 +19,7 @@
       media-src 'self' blob: data:;
       worker-src 'self' blob:;
       frame-src 'none';
+      frame-ancestors 'none';
       base-uri 'self';"
         />
         <link rel="manifest" href="/manifest.json" />
@@ -143,31 +144,24 @@
                 animation: pulse-ring 2s infinite;
             }
         </style>
+        <!-- Importmap: runtime dependencies only, pinned to exact versions -->
         <script type="importmap">
             {
                 "imports": {
-                    "react-dom/": "https://esm.sh/react-dom@^18.3.1/",
-                    "react/": "https://esm.sh/react@^18.3.1/",
-                    "react": "https://esm.sh/react@^18.3.1",
-                    "@google/genai": "https://esm.sh/@google/genai@^1.33.0",
-                    "recharts": "https://esm.sh/recharts@^3.6.0",
-                    "vite": "https://esm.sh/vite@^7.3.0",
-                    "@dnd-kit/core": "https://esm.sh/@dnd-kit/core@^6.3.1",
-                    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-                    "@dnd-kit/sortable": "https://esm.sh/@dnd-kit/sortable@^10.0.0",
-                    "@dnd-kit/utilities": "https://esm.sh/@dnd-kit/utilities@^3.2.2",
-                    "path": "https://esm.sh/path@^0.12.7",
-                    "zod": "https://esm.sh/zod@^3.22.4",
-                    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@^2.88.0",
-                    "@capacitor/core": "https://esm.sh/@capacitor/core@^8.0.0",
-                    "@capacitor/cli": "https://esm.sh/@capacitor/cli@^8.0.0",
-                    "@capacitor/haptics": "https://esm.sh/@capacitor/haptics@^8.0.0",
-                    "vitest/": "https://esm.sh/vitest@^4.0.16/",
-                    "vitest": "https://esm.sh/vitest@^4.0.16",
-                    "@testing-library/react": "https://esm.sh/@testing-library/react@^16.3.1",
-                    "@testing-library/jest-dom": "https://esm.sh/@testing-library/jest-dom@^6.9.1",
-                    "@playwright/test": "https://esm.sh/@playwright/test@^1.57.0",
-                    "url": "https://esm.sh/url@^0.11.4"
+                    "react-dom/": "https://esm.sh/react-dom@18.3.1/",
+                    "react/": "https://esm.sh/react@18.3.1/",
+                    "react": "https://esm.sh/react@18.3.1",
+                    "@google/genai": "https://esm.sh/@google/genai@1.33.0",
+                    "@dnd-kit/core": "https://esm.sh/@dnd-kit/core@6.3.1",
+                    "@dnd-kit/sortable": "https://esm.sh/@dnd-kit/sortable@10.0.0",
+                    "@dnd-kit/utilities": "https://esm.sh/@dnd-kit/utilities@3.2.2",
+                    "path": "https://esm.sh/path@0.12.7",
+                    "zod": "https://esm.sh/zod@3.22.4",
+                    "@supabase/supabase-js": "https://esm.sh/@supabase/supabase-js@2.88.0",
+                    "@capacitor/core": "https://esm.sh/@capacitor/core@8.0.0",
+                    "@capacitor/cli": "https://esm.sh/@capacitor/cli@8.0.0",
+                    "@capacitor/haptics": "https://esm.sh/@capacitor/haptics@8.0.0",
+                    "url": "https://esm.sh/url@0.11.4"
                 }
             }
         </script>
@@ -182,19 +176,34 @@
         >
             Skip to main content
         </a>
-        <div id="root" role="main"></div>
+        <div id="root"></div>
         <!-- iOS WKWebView: Suppress harmless "readonly property" TypeError during scroll events.
        React 18's event delegation sets cancelBubble/returnValue on native events, which are
        readonly in WebKit for scroll/touch events. The scroll still works; this just silences
-       the console error that fires on every scroll gesture. -->
+       the console error that fires on every scroll gesture.
+       Security: Only suppresses TypeError, logs breadcrumbs, alerts on excessive count. -->
         <script>
-            window.addEventListener('error', function (e) {
-                if (e.message && e.message.indexOf('readonly property') !== -1) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    return true;
-                }
-            });
+            (function () {
+                var readonlySuppressCount = 0;
+                window.addEventListener('error', function (e) {
+                    if (
+                        e.error instanceof TypeError &&
+                        e.message &&
+                        e.message.indexOf('readonly property') !== -1
+                    ) {
+                        readonlySuppressCount++;
+                        if (readonlySuppressCount <= 5 || readonlySuppressCount % 100 === 0) {
+                            console.debug('[SecurityGuard] Suppressed iOS readonly TypeError #' + readonlySuppressCount);
+                        }
+                        if (readonlySuppressCount === 100) {
+                            console.warn('[SecurityGuard] 100+ readonly TypeErrors suppressed this session — investigate.');
+                        }
+                        e.preventDefault();
+                        e.stopPropagation();
+                        return true;
+                    }
+                });
+            })();
         </script>
         <script type="module" src="/index.tsx"></script>
     </body>

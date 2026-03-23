@@ -1,4 +1,7 @@
 /**
+ * @filesize-justified Single hook managing tightly-coupled passage planning state (route, waypoints, weather, timing).
+ */
+/**
  * usePassagePlanner — Passage route computation and UI state.
  *
  * Encapsulates:

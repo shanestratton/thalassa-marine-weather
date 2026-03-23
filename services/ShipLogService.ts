@@ -1,4 +1,7 @@
 /**
+ * @filesize-justified Service class with 6 sub-modules (shiplog/helpers, EntrySave, OfflineQueue, EntryCrud, GpsTrackBuffer, waterDetection). Core orchestrator cannot be further decomposed.
+ */
+/**
  * Ship's Log Service
  * Automatic GPS-based logging for maritime navigation
  *
@@ -206,7 +209,9 @@ class ShipLogServiceClass {
     }
 
     /**
-     * Initialize the service and restore state from storage
+     * Initialize the ship log service. Sets up GPS listeners, app lifecycle
+     * handlers, and restores persisted tracking state from Preferences.
+     * Safe to call multiple times — subsequent calls are no-ops.
      */
     async initialize(): Promise<void> {
         try {
@@ -271,13 +276,9 @@ class ShipLogServiceClass {
     }
 
     /**
-     * Auto-start tracking if the user has opted in via Settings.
-     * Called from App.tsx after initialize() completes.
-     *
-     * Logic:
-     * - If already tracking → no-op
-     * - If a previous voyage ended < 6 hours ago → resume it
-     * - Otherwise → start a new voyage
+     * Automatically resume tracking if the user has auto-track enabled
+     * and there's a non-stale voyage in progress.
+     * @param autoTrackEnabled - Whether the user's settings allow auto-tracking
      */
     async autoStartIfEnabled(autoTrackEnabled: boolean): Promise<void> {
         if (!autoTrackEnabled) return;
@@ -458,12 +459,12 @@ class ShipLogServiceClass {
     }
 
     /**
-     * Start automatic GPS tracking
-     * @param resume - If true, resume existing voyage. If false, start new voyage.
-     * @param continueVoyageId - Optional: specify a voyage ID to continue
-     *
-     * HARDENED ORDERING: GPS engine starts BEFORE state is committed.
-     * If requestStart() fails, state rolls back and error propagates to UI.
+     * Begin GPS tracking for a new or resumed voyage.
+     * Creates a voyage ID, aligns to the next quarter-hour, and starts
+     * the position logging interval. On native, activates background GPS
+     * via Transistorsoft; on web, uses navigator.geolocation.watchPosition.
+     * @param resume - If true, continues the current voyage rather than starting fresh
+     * @param continueVoyageId - Optional voyage ID to resume (e.g. after app restart)
      */
     async startTracking(resume: boolean = false, continueVoyageId?: string): Promise<void> {
         if (this.trackingState.isTracking) {
@@ -905,11 +906,10 @@ class ShipLogServiceClass {
     }
 
     /**
-     * GPS HEALTH STATUS — Public API for UI indicators.
-     * Returns the current GPS fix quality:
-     *   'locked'  — fresh fix received within 60s (green)
-     *   'stale'   — last fix is 60s–300s old (amber)
-     *   'none'    — no fix ever received, or older than 5min (red)
+     * Returns the current GPS fix quality.
+     * - `'locked'` — fresh fix within the last 60 seconds
+     * - `'stale'`  — cached fix older than 60 seconds
+     * - `'none'`   — no fix available at all
      */
     getGpsStatus(): 'locked' | 'stale' | 'none' {
         const pos = this.lastBgLocation || (this.isNative ? BgGeoManager.getLastPosition() : null);

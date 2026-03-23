@@ -1,0 +1,48 @@
+version: 2
+
+updates:
+    # npm dependencies
+    - package-ecosystem: 'npm'
+      directory: '/'
+      schedule:
+          interval: 'weekly'
+          day: 'monday'
+      target-branch: 'main'
+      open-pull-requests-limit: 10
+      labels:
+          - 'dependencies'
+      groups:
+          # Group minor and patch updates to reduce PR noise
+          minor-and-patch:
+              update-types:
+                  - 'minor'
+                  - 'patch'
+          # Capacitor ecosystem — update together
+          capacitor:
+              patterns:
+                  - '@capacitor/*'
+          # Testing tools — update together
+          testing:
+              patterns:
+                  - 'vitest'
+                  - '@vitest/*'
+                  - '@testing-library/*'
+                  - '@playwright/*'
+                  - 'playwright'
+          # React ecosystem
+          react:
+              patterns:
+                  - 'react'
+                  - 'react-dom'
+                  - '@types/react'
+                  - '@types/react-dom'
+
+    # GitHub Actions versions
+    - package-ecosystem: 'github-actions'
+      directory: '/'
+      schedule:
+          interval: 'weekly'
+          day: 'monday'
+      labels:
+          - 'ci'
+          - 'dependencies'

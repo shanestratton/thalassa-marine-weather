@@ -1,4 +1,7 @@
 /**
+ * @filesize-justified SwipeableEquipmentCard + EquipmentDetail share state/constants with parent. Extracting would require excessive prop threading.
+ */
+/**
  * EquipmentList — Searchable Equipment Register with category filters.
  *
  * Features:

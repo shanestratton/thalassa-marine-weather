@@ -1,76 +1,35 @@
 /**
- * ThemeContext — Dynamic Theme Provider
- * ─────────────────────────────────────────────────────────────────
- * Provides the active theme tokens based on EnvironmentService state.
- * Components use `useTheme()` to get environment-aware theme tokens.
+ * ThemeContext — Bridge layer (delegates to Zustand themeStore).
  *
- * Usage:
- *   import { useTheme } from '../context/ThemeContext';
- *   const t = useTheme();
- *   <div className={t.card.base}>...</div>
- *
- * The returned `t` has the SAME shape as the static `t` from theme.ts,
- * so migration is just changing the import.
+ * Keeps the Provider + useTheme() API so existing consumers work unchanged.
+ * New code should import `useThemeStore` from `stores/themeStore` directly.
  */
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { EnvironmentService } from '../services/EnvironmentService';
-import { getThemeForEnvironment, offshoreTheme } from '../theme';
+import React from 'react';
+import { useThemeStore } from '../stores/themeStore';
 import type { ThemeTokens } from '../theme';
 import type { Environment } from '../services/EnvironmentService';
 
-// ── Context ─────────────────────────────────────────────────────
-
-const ThemeContext = createContext<ThemeTokens>(offshoreTheme);
-
-// ── Provider ────────────────────────────────────────────────────
-
-interface ThemeProviderProps {
-    children: React.ReactNode;
-}
-
-export function ThemeProvider({ children }: ThemeProviderProps) {
-    const [theme, setTheme] = useState<ThemeTokens>(() => {
-        // Initialize from EnvironmentService's restored state
-        const state = EnvironmentService.getState();
-        return getThemeForEnvironment(state.current);
-    });
-
-    const [environment, setEnvironment] = useState<Environment>(() => EnvironmentService.getState().current);
-
-    useEffect(() => {
-        const unsub = EnvironmentService.onStateChange((state) => {
-            setEnvironment(state.current);
-            setTheme(getThemeForEnvironment(state.current));
-        });
-        return unsub;
-    }, []);
-
-    return (
-        <ThemeContext.Provider value={theme}>
-            {/* Root CSS class for CSS-level theming */}
-            <div className={`theme-${environment} contents`} data-theme={environment}>
-                {children}
-            </div>
-        </ThemeContext.Provider>
-    );
-}
-
-// ── Hook ────────────────────────────────────────────────────────
-
-/**
- * Get the current theme tokens (environment-aware).
- * Returns the same shape as the static `t` export from theme.ts.
- */
+/** @deprecated Use `useThemeStore(s => s.theme)` instead */
 export function useTheme(): ThemeTokens {
-    return useContext(ThemeContext);
+    return useThemeStore((s) => s.theme);
+}
+
+/** @deprecated Use `useThemeStore(s => s.environment)` instead */
+export function useEnvironment(): Environment {
+    return useThemeStore((s) => s.environment);
 }
 
 /**
- * Get the current environment ('onshore' | 'offshore').
- * Convenience hook for components that need to branch on environment.
+ * ThemeProvider — Thin wrapper. Adds the root CSS class for theme-level styling.
+ * Still needed for the `theme-${environment}` class on the DOM node.
  */
-export function useEnvironment(): Environment {
-    const theme = useContext(ThemeContext);
-    return theme.environment;
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+    const environment = useThemeStore((s) => s.environment);
+
+    return React.createElement(
+        'div',
+        { className: `theme-${environment} contents`, 'data-theme': environment },
+        children,
+    );
 }
