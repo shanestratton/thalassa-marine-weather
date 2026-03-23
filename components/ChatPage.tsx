@@ -1,4 +1,7 @@
 /**
+ * @filesize-justified Page orchestrator with shared animation state, lazy imports, and view routing. Sub-views are already lazy-loaded.
+ */
+/**
  * ChatPage — "Crew Talk"
  * Best-in-class community chat with channels, PMs, and anti-toxicity design.
  *
@@ -50,6 +53,8 @@ import { SkeletonChannelList, SkeletonMessageList } from './ui/Skeleton';
 import { ChatErrorBoundary } from './chat/ChatErrorBoundary';
 import { MaritimeIntelCard } from './chat/MaritimeIntelCard';
 import { GalleyCard } from './chat/GalleyCard';
+import { WelcomeBanner } from './chat/WelcomeBanner';
+import { AuthBanner } from './chat/AuthBanner';
 import { triggerHaptic } from '../utils/system';
 import { AuthModal } from './AuthModal';
 import { supabase } from '../services/supabase';
@@ -62,7 +67,7 @@ import { useTrackSharing } from '../hooks/chat/useTrackSharing';
 import { useChatProfile } from '../hooks/chat/useChatProfile';
 import { useChatProposals } from '../hooks/chat/useChatProposals';
 
-import { CREW_RANKS } from './chat/chatUtils';
+import { CREW_RANKS as _CREW_RANKS } from './chat/chatUtils';
 
 // --- TYPES ---
 type ChatView =
@@ -595,55 +600,7 @@ export const ChatPage: React.FC = React.memo(() => {
             />
 
             {/* ═══════════ WELCOME BANNER ═══════════ */}
-            {isFirstVisit && view === 'channels' && (
-                <div className="mx-4 mt-3 fade-slide-down" role="banner" aria-label="Welcome to Crew Talk">
-                    <div className="relative p-5 rounded-2xl overflow-hidden">
-                        {/* Premium glassmorphism bg */}
-                        <div className="absolute inset-0 bg-gradient-to-br from-sky-500/[0.08] via-indigo-500/[0.05] to-purple-500/[0.06] border border-sky-400/15 rounded-2xl" />
-                        <div className="absolute inset-0 backdrop-blur-sm" />
-                        <div className="relative">
-                            <div className="flex items-start justify-between mb-3">
-                                <div>
-                                    <p className="text-base font-bold text-sky-300">Welcome aboard, sailor! 🌊</p>
-                                    <p className="text-xs text-white/50 mt-0.5">Your crew is ready to help</p>
-                                </div>
-                                <button
-                                    onClick={dismissWelcome}
-                                    aria-label="Dismiss welcome message"
-                                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/40 hover:text-white/70 text-sm transition-all min-w-[44px] min-h-[44px]"
-                                >
-                                    ✕
-                                </button>
-                            </div>
-                            <div className="space-y-2.5">
-                                <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.04]">
-                                    <span className="text-lg">📢</span>
-                                    <p className="text-xs text-white/60">
-                                        Tap the <span className="text-amber-400 font-semibold">horn</span> to mark your
-                                        message as a question — the crew will help
-                                    </p>
-                                </div>
-                                <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.04]">
-                                    <span className="text-lg">📍</span>
-                                    <p className="text-xs text-white/60">
-                                        Use <span className="text-sky-400 font-semibold">➕</span> to drop pins, share
-                                        POIs, or send voyage tracks
-                                    </p>
-                                </div>
-                                <div className="flex items-center gap-3 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.04]">
-                                    <span className="text-lg">⭐</span>
-                                    <p className="text-xs text-white/60">
-                                        Help others to rank up:{' '}
-                                        {CREW_RANKS.slice(0, 4)
-                                            .map((r) => `${r.badge}`)
-                                            .join(' → ')}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {isFirstVisit && view === 'channels' && <WelcomeBanner onDismiss={dismissWelcome} />}
 
             {/* Hidden file input */}
             <input
@@ -745,49 +702,35 @@ export const ChatPage: React.FC = React.memo(() => {
 
                     {/* ══════ SIGN-IN BANNER (dismissible) ══════ */}
                     {view === 'channels' && !loading && !chatIsAuthed && chatAuthBanner && (
-                        <div className="mx-4 mt-3 mb-1 p-3 rounded-xl bg-violet-500/[0.06] border border-violet-500/15 flex items-center gap-3">
-                            <div className="p-1.5 rounded-lg bg-violet-500/10">
-                                <span className="text-lg">👥</span>
-                            </div>
-                            <div className="flex-1">
-                                <p className="text-xs font-bold text-white">Sign In Required</p>
-                                <p className="text-[10px] text-gray-400">Sign in to share registers with crew</p>
-                            </div>
-                            <button
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    setShowChatAuth(true);
-                                }}
-                                className="px-3 py-1.5 bg-white text-slate-900 text-[11px] font-bold rounded-lg hover:bg-gray-100 transition-all active:scale-95"
-                            >
-                                Sign In
-                            </button>
-                            <button
-                                onClick={() => {
-                                    setChatAuthBanner(false);
-                                    localStorage.setItem('thalassa_chat_auth_dismissed', '1');
-                                }}
-                                className="p-1 text-gray-500 hover:text-gray-300 transition-colors"
-                                aria-label="Dismiss"
-                            >
-                                <svg
-                                    className="w-4 h-4"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={2}
-                                >
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
+                        <AuthBanner
+                            onSignIn={() => setShowChatAuth(true)}
+                            onDismiss={() => {
+                                setChatAuthBanner(false);
+                                localStorage.setItem('thalassa_chat_auth_dismissed', '1');
+                            }}
+                        />
                     )}
 
-                    {/* ══════ GALLEY & PROVISIONS CARD ══════ */}
-                    {view === 'channels' && !loading && <GalleyCard />}
+                    {/* ══════ ADMIN PANEL ══════ */}
+                    {view === 'admin_panel' && !loading && (
+                        <AdminPanel
+                            isOpen={true}
+                            onClose={() => setView('channels')}
+                            onChannelDeleted={(id) => {
+                                setChannels((prev) => prev.filter((c) => c.id !== id));
+                            }}
+                            onChannelApproved={async () => {
+                                const fresh = await ChatService.getChannelsFresh();
+                                if (fresh.length > 0) setChannels(fresh);
+                            }}
+                        />
+                    )}
 
-                    {/* ══════ MARITIME INTEL CARD ══════ */}
+                    {/* ══════ MARITIME INTEL CARD (news ticker) ══════ */}
                     {view === 'channels' && !loading && <MaritimeIntelCard />}
+
+                    {/* ══════ PASSAGE PLANNING CARD ══════ */}
+                    {view === 'channels' && !loading && <GalleyCard />}
 
                     {/* ══════ CHANNEL LIST ══════ */}
                     {view === 'channels' && !loading && (
@@ -816,21 +759,6 @@ export const ChatPage: React.FC = React.memo(() => {
                             memberChannelIds={memberChannelIds}
                             proposalParentId={proposalParentId}
                             setProposalParentId={setProposalParentId}
-                        />
-                    )}
-
-                    {/* ══════ ADMIN PANEL ══════ */}
-                    {view === 'admin_panel' && !loading && (
-                        <AdminPanel
-                            isOpen={true}
-                            onClose={() => setView('channels')}
-                            onChannelDeleted={(id) => {
-                                setChannels((prev) => prev.filter((c) => c.id !== id));
-                            }}
-                            onChannelApproved={async () => {
-                                const fresh = await ChatService.getChannelsFresh();
-                                if (fresh.length > 0) setChannels(fresh);
-                            }}
                         />
                     )}
 

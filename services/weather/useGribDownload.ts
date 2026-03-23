@@ -9,7 +9,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
-import type { MapRef } from 'react-map-gl/maplibre';
+import type { MapRef } from 'react-map-gl/mapbox';
 import { getGribBoundsFromMap, type GribBounds } from '../../components/map/ThalassaMap';
 import { ResumableGribFetcher } from './ResumableGribFetcher';
 import { decodeWindBinary, type DecodedWindField } from './decodeWindBinary';

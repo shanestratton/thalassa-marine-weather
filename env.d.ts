@@ -31,8 +31,7 @@ interface ThalassaWindow {
     /** Pin drop coordinates shared between ChatMessageList → MapHub */
     __thalassaPinView?: { lat: number; lng: number };
     /** MapLibre GL instance (set by map components) */
-    maplibregl?: typeof import('maplibre-gl');
-    mapboxgl?: typeof import('maplibre-gl');
+    mapboxgl?: typeof import('mapbox-gl');
     /** Leaflet instance (set by TrackMapViewer) */
     L?: typeof import('leaflet');
     /** Wind particle debug info */

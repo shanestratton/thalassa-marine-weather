@@ -1,0 +1,49 @@
+name: Lighthouse CI
+
+on:
+    pull_request:
+        branches: [main, master]
+
+concurrency:
+    group: lighthouse-${{ github.ref }}
+    cancel-in-progress: true
+
+permissions:
+    contents: read
+    pull-requests: write
+
+jobs:
+    lighthouse:
+        name: Lighthouse Audit
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: 'npm'
+
+            - name: Install dependencies
+              run: npm ci --legacy-peer-deps
+
+            - name: Build
+              run: npx vite build
+
+            - name: Run Lighthouse CI
+              uses: treosh/lighthouse-ci-action@v12
+              with:
+                  configPath: './lighthouserc.json'
+                  uploadArtifacts: true
+                  temporaryPublicStorage: true
+
+            - name: Upload Lighthouse report
+              if: always()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: lighthouse-report
+                  path: .lighthouseci/
+                  retention-days: 14

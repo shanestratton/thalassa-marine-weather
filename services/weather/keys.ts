@@ -1,5 +1,22 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { getErrorMessage } from '../../utils/logger';
+import { rateLimiter } from '../../utils/rateLimiter';
+
+/**
+ * Check rate limit for an API before making a request.
+ * Returns true if the request is allowed, false if rate-limited.
+ *
+ * @example
+ *   if (!checkRateLimit('stormglass')) {
+ *       console.warn('Stormglass rate limit exceeded');
+ *       return null;
+ *   }
+ */
+export function checkRateLimit(api: string): boolean {
+    return rateLimiter.acquire(api);
+}
+
+export { rateLimiter };
 
 /**
  * API Key Resolution

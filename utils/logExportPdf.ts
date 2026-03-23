@@ -1,4 +1,7 @@
 /**
+ * @filesize-justified Single sequential PDF generator function. Already imports logExportHelpers. Splitting would create artificial boundaries in a linear rendering pipeline.
+ */
+/**
  * Ship's Log Export — PDF Rendering
  * Generates the Deck Log PDF using jsPDF
  */

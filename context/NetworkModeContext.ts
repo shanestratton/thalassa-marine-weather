@@ -1,50 +1,21 @@
 /**
- * NetworkModeContext — Tracks whether the app is operating over
- * cellular/Wi-Fi or a constrained satellite link (Iridium GO, etc.).
+ * NetworkModeContext — Bridge layer (delegates to Zustand networkModeStore).
  *
- * Satellite mode enforces download area limits and enables the
- * ResumableGribFetcher's retry logic with longer delays.
+ * Keeps the Provider + useNetworkMode() API so existing consumers work.
+ * New code should import from `stores/networkModeStore` directly.
  */
 
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React from 'react';
+import { useNetworkModeStore } from '../stores/networkModeStore';
 
-export type NetworkMode = 'standard' | 'satellite';
+export type { NetworkMode } from '../stores/networkModeStore';
 
-interface NetworkModeContextValue {
-    mode: NetworkMode;
-    isSatelliteMode: boolean;
-    setMode: (mode: NetworkMode) => void;
-    toggleMode: () => void;
-    /** Max bounding box area in square degrees for satellite downloads */
-    maxSatelliteAreaDeg2: number;
+/** @deprecated Use `useNetworkModeStore()` directly */
+export function useNetworkMode() {
+    return useNetworkModeStore();
 }
 
-const NetworkModeCtx = createContext<NetworkModeContextValue>({
-    mode: 'standard',
-    isSatelliteMode: false,
-    setMode: () => {},
-    toggleMode: () => {},
-    maxSatelliteAreaDeg2: 400,
-});
-
+/** No-op provider — store is global, no React tree needed */
 export const NetworkModeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [mode, setMode] = useState<NetworkMode>('standard');
-
-    const toggleMode = useCallback(() => {
-        setMode((prev) => (prev === 'standard' ? 'satellite' : 'standard'));
-    }, []);
-
-    const value: NetworkModeContextValue = {
-        mode,
-        isSatelliteMode: mode === 'satellite',
-        setMode,
-        toggleMode,
-        maxSatelliteAreaDeg2: 400,
-    };
-
-    return React.createElement(NetworkModeCtx.Provider, { value }, children);
+    return React.createElement(React.Fragment, null, children);
 };
-
-export function useNetworkMode(): NetworkModeContextValue {
-    return useContext(NetworkModeCtx);
-}

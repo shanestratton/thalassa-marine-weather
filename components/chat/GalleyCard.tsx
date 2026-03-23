@@ -1,5 +1,5 @@
 /**
- * GalleyCard — Collapsible "Galley & Provisions" card for the Chat screen.
+ * GalleyCard — Collapsible "Passage Planning" card for the Chat screen.
  *
  * Minimised by default to keep chat clear. Expands to reveal:
  *   A) The Food Thing: Active meal, recipe info, scaling, Cook Now
@@ -116,13 +116,13 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode }) => 
                         : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]'
                 }`}
                 aria-expanded={expanded}
-                aria-label="Galley & Provisions"
+                aria-label="Passage Planning"
             >
-                <div className="p-2 rounded-xl bg-amber-500/10 flex-shrink-0">
-                    <span className="text-base">🍳</span>
+                <div className="p-2 rounded-xl bg-sky-500/10 flex-shrink-0">
+                    <span className="text-base">🧭</span>
                 </div>
                 <div className="flex-1 text-left">
-                    <p className="text-xs font-bold text-white">Galley &amp; Provisions</p>
+                    <p className="text-xs font-bold text-white">Passage Planning</p>
                     <p className="text-[10px] text-amber-400/70">
                         {activeMeals.length > 0
                             ? `${activeMeals.length} meal${activeMeals.length !== 1 ? 's' : ''} planned`

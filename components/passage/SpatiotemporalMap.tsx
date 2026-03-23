@@ -16,9 +16,9 @@ import React, { useRef, useCallback, useEffect, useState, useMemo } from 'react'
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('SpatiotemporalMap');
-import Map, { Source, Layer, Marker, MapRef } from 'react-map-gl/maplibre';
-import type { StyleSpecification, LngLatBoundsLike } from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
+import Map, { Source, Layer, Marker, MapRef } from 'react-map-gl/mapbox';
+import type { StyleSpecification, LngLatBoundsLike } from 'mapbox-gl';
+import 'mapbox-gl/dist/mapbox-gl.css';
 import type { TrackPoint, GhostShipState } from '../../types/spatiotemporal';
 import { WindParticleLayer } from '../map/WindParticleLayer';
 import { WindStore } from '../../stores/WindStore';

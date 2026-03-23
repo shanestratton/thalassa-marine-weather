@@ -1,4 +1,7 @@
 /**
+ * @filesize-justified Service class already using chat/constants sub-module. Core orchestrator pattern.
+ */
+/**
  * Chat Service — "Crew Talk"
  * Community chat with channels, PMs, moderation, and Supabase Realtime.
  *
@@ -8,6 +11,10 @@
  * - No message editing — encourages considered posting
  * - Mods can soft-delete, mute, and pin
  * - PMs require mutual channel activity
+ *
+ * Sub-modules:
+ *   - chat/types.ts     — Type definitions
+ *   - chat/constants.ts — Table names, config, default channels, pin drop helpers
  */
 
 import { createLogger } from '../utils/createLogger';
@@ -15,192 +22,44 @@ import { supabase } from './supabase';
 import { Preferences } from '@capacitor/preferences';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { moderateMessage } from './ContentModerationService';
+
+// ── Re-export all public types and constants ─────────────────────
+export type {
+    ChatChannel,
+    ChatMessage,
+    DirectMessage,
+    ChatRole,
+    UserRole,
+    UserRoleEntry,
+    JoinRequest,
+    DMConversation,
+} from './chat/types';
+export { DEFAULT_CHANNELS, PIN_DROP_PREFIX, parsePinDrop } from './chat/constants';
+
+// ── Internal imports from sub-modules ────────────────────────────
+import type {
+    ChatChannel,
+    ChatMessage,
+    DirectMessage,
+    ChatRole,
+    UserRoleEntry,
+    JoinRequest,
+    DMConversation,
+    QueuedMessage,
+} from './chat/types';
+import {
+    CHANNELS_TABLE,
+    MESSAGES_TABLE,
+    DM_TABLE,
+    ROLES_TABLE,
+    DM_BLOCKS_TABLE,
+    PLATFORM_OWNER_EMAIL,
+    CHANNELS_CACHE_KEY,
+    OFFLINE_QUEUE_KEY,
+    PIN_DROP_PREFIX,
+} from './chat/constants';
+
 const log = createLogger('Chat');
-
-// --- TABLES ---
-const CHANNELS_TABLE = 'chat_channels';
-const MESSAGES_TABLE = 'chat_messages';
-const DM_TABLE = 'chat_direct_messages';
-const ROLES_TABLE = 'chat_roles';
-
-// --- PLATFORM OWNER (founding admin — cannot be demoted, blocked, or muted) ---
-const PLATFORM_OWNER_EMAIL = 'shane.stratton@gmail.com';
-const DM_BLOCKS_TABLE = 'dm_blocks';
-const CHANNELS_CACHE_KEY = 'thalassa_chat_channels_v1';
-
-// --- TYPES ---
-
-export interface ChatChannel {
-    id: string;
-    name: string;
-    description: string;
-    region: string | null;
-    icon: string;
-    is_global: boolean;
-    is_private: boolean;
-    owner_id: string | null;
-    parent_id: string | null;
-    created_at: string;
-}
-
-export interface ChatMessage {
-    id: string;
-    channel_id: string;
-    user_id: string;
-    display_name: string;
-    message: string;
-    is_question: boolean;
-    helpful_count: number;
-    is_pinned: boolean;
-    deleted_at: string | null;
-    created_at: string;
-}
-
-export interface DirectMessage {
-    id: string;
-    sender_id: string;
-    recipient_id: string;
-    sender_name: string;
-    message: string;
-    read: boolean;
-    created_at: string;
-}
-
-export type ChatRole = 'admin' | 'moderator' | 'member';
-
-export interface UserRole {
-    user_id: string;
-    role: ChatRole;
-    muted_until: string | null;
-    is_blocked: boolean;
-}
-
-export interface UserRoleEntry {
-    user_id: string;
-    display_name: string;
-    avatar_url: string | null;
-    vessel_name: string | null;
-    role: ChatRole;
-    muted_until: string | null;
-    is_blocked: boolean;
-}
-
-export interface JoinRequest {
-    id: string;
-    channel_id: string;
-    channel_name?: string;
-    user_id: string;
-    display_name?: string;
-    avatar_url?: string | null;
-    message: string;
-    status: 'pending' | 'approved' | 'rejected';
-    reviewed_by: string | null;
-    created_at: string;
-}
-
-export interface DMConversation {
-    user_id: string;
-    display_name: string;
-    last_message: string;
-    last_at: string;
-    unread_count: number;
-}
-
-// --- OFFLINE QUEUE ---
-const OFFLINE_QUEUE_KEY = 'chat_offline_queue';
-
-interface QueuedMessage {
-    type: 'channel' | 'dm';
-    channel_id?: string;
-    recipient_id?: string;
-    message: string;
-    is_question?: boolean;
-    timestamp: string;
-}
-
-// --- PRE-SEEDED CHANNELS ---
-export const DEFAULT_CHANNELS: Omit<ChatChannel, 'id' | 'created_at'>[] = [
-    {
-        name: 'Neighbourhood Watch',
-        description: 'Maritime safety alerts, suspicious activity, and community watch',
-        region: null,
-        icon: '🛡️',
-        is_global: true,
-        is_private: false,
-        owner_id: null,
-        parent_id: null,
-    },
-    {
-        name: 'Marketplace',
-        description: 'Buy, sell, and trade gear, boats, and services',
-        region: null,
-        icon: '🏪',
-        is_global: true,
-        is_private: false,
-        owner_id: null,
-        parent_id: null,
-    },
-    {
-        name: 'Find Crew',
-        description: 'Looking for crew or a berth? Connect here',
-        region: null,
-        icon: '👥',
-        is_global: true,
-        is_private: false,
-        owner_id: null,
-        parent_id: null,
-    },
-    {
-        name: 'General',
-        description: 'Open chat for all sailors',
-        region: null,
-        icon: '🌊',
-        is_global: true,
-        is_private: false,
-        owner_id: null,
-        parent_id: null,
-    },
-    {
-        name: 'Anchorages',
-        description: 'Share and discover anchorage spots',
-        region: null,
-        icon: '⚓',
-        is_global: true,
-        is_private: false,
-        owner_id: null,
-        parent_id: null,
-    },
-    {
-        name: 'Fishing',
-        description: 'Catches, spots, and techniques',
-        region: null,
-        icon: '🐟',
-        is_global: true,
-        is_private: false,
-        owner_id: null,
-        parent_id: null,
-    },
-    {
-        name: 'Repairs & Gear',
-        description: 'Maintenance tips, gear reviews, workshop recs',
-        region: null,
-        icon: '🔧',
-        is_global: true,
-        is_private: false,
-        owner_id: null,
-        parent_id: null,
-    },
-    {
-        name: 'Weather Talk',
-        description: 'Conditions, forecasts, and sea state discussion',
-        region: null,
-        icon: '🌤',
-        is_global: true,
-        is_private: false,
-        owner_id: null,
-        parent_id: null,
-    },
-];
 
 // --- SERVICE ---
 
@@ -218,6 +77,11 @@ class ChatServiceClass {
 
     // --- INIT ---
 
+    /**
+     * Initialize the chat service. Authenticates with Supabase, loads the
+     * user's role/mute status, and syncs any offline-queued messages.
+     * Idempotent — subsequent calls return the cached init promise.
+     */
     async initialize(): Promise<void> {
         // Cache init — don't re-auth on every tab switch
         if (this.initPromise) return this.initPromise;
@@ -287,6 +151,11 @@ class ChatServiceClass {
 
     // --- CHANNELS ---
 
+    /**
+     * Fetch available channels. Returns cached channels instantly from
+     * localStorage and kicks off a background refresh from Supabase.
+     * @returns Array of chat channels with member counts
+     */
     async getChannels(): Promise<ChatChannel[]> {
         // 1. Return cached channels instantly (localStorage survives restarts)
         try {
@@ -363,6 +232,15 @@ class ChatServiceClass {
         return ((data || []) as ChatMessage[]).reverse();
     }
 
+    /**
+     * Send a message to a channel. Runs content moderation, applies
+     * mute/block checks, and falls back to offline queue if Supabase
+     * is unreachable.
+     * @param channelId - Target channel UUID
+     * @param text - Message body (trimmed, max 2000 chars enforced)
+     * @param isQuestion - If true, message gets 🆘 priority and floats to top
+     * @returns The sent message, or null on failure
+     */
     async sendMessage(channelId: string, text: string, isQuestion = false): Promise<ChatMessage | null> {
         if (!supabase) {
             await this.queueOffline({
@@ -456,6 +334,13 @@ class ChatServiceClass {
 
     // --- REALTIME SUBSCRIPTIONS ---
 
+    /**
+     * Subscribe to real-time messages on a channel via Supabase Realtime.
+     * Returns an unsubscribe function for cleanup.
+     * @param channelId - Channel to subscribe to
+     * @param onMessage - Callback invoked for each new message
+     * @returns Cleanup function to unsubscribe
+     */
     subscribeToChannel(channelId: string, onMessage: (msg: ChatMessage) => void): () => void {
         if (!supabase) return () => {};
 
@@ -639,8 +524,12 @@ class ChatServiceClass {
     // ─── PIN DROPS ────────────────────────────
 
     /**
-     * Send a pin drop location to a DM recipient.
-     * Encoded as: 📍PIN|lat|lon|label
+     * Send a pin-drop location as a DM. Formats coordinates into
+     * a parseable `PIN_DROP:lat,lon,name` message.
+     * @param recipientId - Target user UUID
+     * @param lat - Latitude
+     * @param lon - Longitude
+     * @param name - Human-readable location name
      */
     async sendPinDrop(
         recipientId: string,
@@ -1465,22 +1354,3 @@ class ChatServiceClass {
 
 // Singleton
 export const ChatService = new ChatServiceClass();
-
-// ─── PIN DROP HELPERS (standalone for easy import) ────────────
-
-export const PIN_DROP_PREFIX = '📍PIN|';
-
-/**
- * Parse a pin drop from a DM message.
- * Returns null if the message is not a pin drop.
- */
-export function parsePinDrop(message: string): { lat: number; lon: number; label: string } | null {
-    if (!message.startsWith(PIN_DROP_PREFIX)) return null;
-    const parts = message.slice(PIN_DROP_PREFIX.length).split('|');
-    if (parts.length < 3) return null;
-    const lat = parseFloat(parts[0]);
-    const lon = parseFloat(parts[1]);
-    const label = parts.slice(2).join('|');
-    if (!isFinite(lat) || !isFinite(lon)) return null;
-    return { lat, lon, label };
-}

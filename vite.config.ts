@@ -106,7 +106,7 @@ export default defineConfig(({ mode }) => {
             outDir: 'dist',
             sourcemap: mode !== 'production',
             cssMinify: true,
-            chunkSizeWarningLimit: 2000,
+            chunkSizeWarningLimit: 750,
             rollupOptions: {
                 onwarn(warning, warn) {
                     // Suppress "is dynamically imported by X but also statically imported by Y"
@@ -122,6 +122,8 @@ export default defineConfig(({ mode }) => {
                         'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
                         'vendor-leaflet': ['leaflet'],
                         'vendor-supabase': ['@supabase/supabase-js'],
+                        'vendor-sentry': ['@sentry/react'],
+                        'vendor-mapbox': ['mapbox-gl'],
                         'vendor-capacitor': [
                             '@capacitor/preferences',
                             '@capacitor/share',

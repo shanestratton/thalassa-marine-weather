@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
     getMealsByStatus,
-    getMealPlans,
+    getMealPlans as _getMealPlans,
     startCooking,
     completeMeal,
     getStoresAvailability,

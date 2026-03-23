@@ -1,0 +1,52 @@
+name: Preview Deploy Smoke Test
+
+on:
+    deployment_status:
+
+permissions:
+    contents: read
+    deployments: read
+    statuses: write
+
+jobs:
+    smoke:
+        name: Smoke Test Preview
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        # Only run on successful Vercel preview deployments
+        if: >
+            github.event.deployment_status.state == 'success' &&
+            github.event.deployment_status.environment != 'production'
+
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 20
+                  cache: 'npm'
+
+            - name: Install dependencies
+              run: npm ci --legacy-peer-deps
+
+            - name: Install Playwright
+              run: npx playwright install chromium --with-deps
+
+            - name: Run smoke tests against preview
+              env:
+                  PREVIEW_URL: ${{ github.event.deployment_status.target_url }}
+              run: |
+                  echo "Smoke testing: $PREVIEW_URL"
+                  npx playwright test e2e/smoke.spec.ts --project=chromium --reporter=list
+              timeout-minutes: 5
+
+            - name: Upload smoke test artifacts on failure
+              if: failure()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: smoke-test-report
+                  path: |
+                      playwright-report/
+                      test-results/
+                  retention-days: 7

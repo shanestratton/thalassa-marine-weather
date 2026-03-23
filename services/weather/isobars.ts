@@ -1,4 +1,7 @@
 /**
+ * @filesize-justified Cohesive algorithmic module — marching squares + pressure grid interpolation. Splitting would fragment the algorithm.
+ */
+/**
  * Isobar Service — Generates pressure contour lines from Open-Meteo grid data.
  *
  * Pipeline:

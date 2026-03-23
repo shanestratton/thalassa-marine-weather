@@ -1,4 +1,7 @@
 /**
+ * @filesize-justified Page orchestrator with shared state across list/detail/export views. Sub-views share 10+ state variables.
+ */
+/**
  * Log Page - Ship's GPS-based Log
  *
  * Pure rendering shell — all state management lives in useLogPageState hook.

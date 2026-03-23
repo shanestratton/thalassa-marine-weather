@@ -21,6 +21,7 @@ import {
 } from '../services/WeatherOrchestrator';
 
 import { createLogger } from '../utils/createLogger';
+import { useWeatherStore } from '../stores/weatherStore';
 
 const log = createLogger('WeatherContext');
 
@@ -501,6 +502,38 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (loc) fetchWeather(loc, true);
         }
     }, [settings.preferredModel, fetchWeather]);
+
+    // ── ZUSTAND SYNC BRIDGE ──────────────────────────────────
+    // Syncs context state → Zustand store so components can use
+    // fine-grained selectors via useWeatherStore() while we
+    // incrementally migrate away from the context provider.
+    useEffect(() => {
+        useWeatherStore.getState()._sync({
+            weatherData,
+            voyagePlan,
+            loading,
+            loadingMessage,
+            error,
+            debugInfo,
+            quotaUsed,
+            backgroundUpdating,
+            staleRefresh,
+            nextUpdate,
+            historyCache,
+        });
+    }, [
+        weatherData,
+        voyagePlan,
+        loading,
+        loadingMessage,
+        error,
+        debugInfo,
+        quotaUsed,
+        backgroundUpdating,
+        staleRefresh,
+        nextUpdate,
+        historyCache,
+    ]);
 
     // ── CONTEXT VALUE (memoized) ────────────────────────────
     const contextValue = React.useMemo(
