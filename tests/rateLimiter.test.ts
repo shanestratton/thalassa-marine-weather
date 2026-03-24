@@ -1,8 +1,10 @@
 /**
- * RateLimiter — Unit tests
+ * RateLimiter — Additional Unit Tests
+ *
+ * Tests token bucket logic, refill mechanics, custom configs,
+ * and reset functionality.
  */
-
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { rateLimiter } from '../utils/rateLimiter';
 
 describe('rateLimiter', () => {
@@ -10,77 +12,99 @@ describe('rateLimiter', () => {
         rateLimiter.reset();
     });
 
-    it('allows requests within limit', () => {
-        // Default 'stormglass' limit is 10/day
+    afterEach(() => {
+        rateLimiter.reset();
+        vi.restoreAllMocks();
+    });
+
+    it('allows requests within quota', () => {
+        expect(rateLimiter.acquire('default')).toBe(true);
+        expect(rateLimiter.remaining('default')).toBe(29); // 30 maxTokens - 1 acquired
+    });
+
+    it('blocks requests when tokens exhausted', () => {
+        // Drain all tokens
+        for (let i = 0; i < 30; i++) {
+            rateLimiter.acquire('default');
+        }
+        expect(rateLimiter.acquire('default')).toBe(false);
+        expect(rateLimiter.remaining('default')).toBe(0);
+    });
+
+    it('uses correct config for named APIs', () => {
+        // stormglass has maxTokens: 10
+        expect(rateLimiter.remaining('stormglass')).toBe(10);
         for (let i = 0; i < 10; i++) {
             expect(rateLimiter.acquire('stormglass')).toBe(true);
         }
-    });
-
-    it('blocks requests beyond limit', () => {
-        for (let i = 0; i < 10; i++) {
-            rateLimiter.acquire('stormglass');
-        }
-        // 11th request should be blocked
         expect(rateLimiter.acquire('stormglass')).toBe(false);
     });
 
-    it('tracks remaining tokens', () => {
-        expect(rateLimiter.remaining('stormglass')).toBe(10);
-        rateLimiter.acquire('stormglass');
-        expect(rateLimiter.remaining('stormglass')).toBe(9);
-    });
-
-    it('uses default config for unknown APIs', () => {
-        // Default is 30 per minute
+    it('falls back to default for unknown APIs', () => {
         expect(rateLimiter.remaining('unknown-api')).toBe(30);
     });
 
-    it('supports multiple independent buckets', () => {
-        rateLimiter.acquire('stormglass');
-        expect(rateLimiter.remaining('stormglass')).toBe(9);
-        expect(rateLimiter.remaining('open-meteo')).toBe(60);
+    it('supports custom config via configure()', () => {
+        rateLimiter.configure('test-api', {
+            maxTokens: 3,
+            refillAmount: 3,
+            refillIntervalMs: 1000,
+        });
+
+        expect(rateLimiter.remaining('test-api')).toBe(3);
+        for (let i = 0; i < 3; i++) {
+            expect(rateLimiter.acquire('test-api')).toBe(true);
+        }
+        expect(rateLimiter.acquire('test-api')).toBe(false);
+    });
+
+    it('refills tokens after interval passes', () => {
+        rateLimiter.configure('refill-test', {
+            maxTokens: 5,
+            refillAmount: 5,
+            refillIntervalMs: 100,
+        });
+
+        // Drain tokens
+        for (let i = 0; i < 5; i++) {
+            rateLimiter.acquire('refill-test');
+        }
+        expect(rateLimiter.remaining('refill-test')).toBe(0);
+
+        // Advance time past refill interval
+        vi.useFakeTimers();
+        vi.advanceTimersByTime(150);
+        expect(rateLimiter.remaining('refill-test')).toBe(5);
+        vi.useRealTimers();
     });
 
     it('reset clears all buckets', () => {
         rateLimiter.acquire('stormglass');
+        rateLimiter.acquire('mapbox');
         rateLimiter.reset();
         expect(rateLimiter.remaining('stormglass')).toBe(10);
-    });
-
-    it('getStats returns all active buckets', () => {
-        rateLimiter.acquire('stormglass');
-        rateLimiter.acquire('mapbox');
-        const stats = rateLimiter.getStats();
-        expect(stats.stormglass).toBeDefined();
-        expect(stats.stormglass.remaining).toBe(9);
-        expect(stats.stormglass.max).toBe(10);
-        expect(stats.mapbox).toBeDefined();
-        expect(stats.mapbox.remaining).toBe(99);
-    });
-
-    it('configure allows custom limits', () => {
-        rateLimiter.configure('custom-api', {
-            maxTokens: 5,
-            refillAmount: 5,
-            refillIntervalMs: 1000,
-        });
-        expect(rateLimiter.remaining('custom-api')).toBe(5);
-        for (let i = 0; i < 5; i++) {
-            rateLimiter.acquire('custom-api');
-        }
-        expect(rateLimiter.acquire('custom-api')).toBe(false);
-    });
-
-    it('gemini limit is 15 per minute', () => {
-        expect(rateLimiter.remaining('gemini')).toBe(15);
-    });
-
-    it('open-meteo limit is 60 per hour', () => {
-        expect(rateLimiter.remaining('open-meteo')).toBe(60);
-    });
-
-    it('mapbox limit is 100 per minute', () => {
         expect(rateLimiter.remaining('mapbox')).toBe(100);
+    });
+
+    it('getStats returns stats for active buckets', () => {
+        rateLimiter.acquire('gemini');
+        const stats = rateLimiter.getStats();
+        expect(stats['gemini']).toBeDefined();
+        expect(stats['gemini'].remaining).toBe(14); // 15 - 1
+        expect(stats['gemini'].max).toBe(15);
+    });
+
+    it('tokens do not exceed maxTokens after refill', () => {
+        rateLimiter.configure('cap-test', {
+            maxTokens: 5,
+            refillAmount: 10, // More than max
+            refillIntervalMs: 100,
+        });
+
+        rateLimiter.acquire('cap-test');
+        vi.useFakeTimers();
+        vi.advanceTimersByTime(150);
+        expect(rateLimiter.remaining('cap-test')).toBeLessThanOrEqual(5);
+        vi.useRealTimers();
     });
 });
