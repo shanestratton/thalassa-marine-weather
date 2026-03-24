@@ -1399,7 +1399,7 @@ export function useCycloneLayer(
                         map.addSource(id, {
                             type: 'raster',
                             tiles: [tileUrl],
-                            tileSize: 256,
+                            tileSize: 512,
                             maxzoom: 6,
                             bounds,
                             attribution: `NASA GIBS ${sat} IR`,
