@@ -63,6 +63,7 @@ vi.mock('../services/AnchorWatchSyncService', () => ({
         onStateChange: vi.fn().mockReturnValue(vi.fn()),
         onPosition: vi.fn().mockReturnValue(vi.fn()),
         onBroadcast: vi.fn().mockReturnValue(vi.fn()),
+        restoreSession: vi.fn().mockResolvedValue(false),
     },
 }));
 
