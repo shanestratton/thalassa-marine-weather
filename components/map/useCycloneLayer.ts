@@ -1178,12 +1178,46 @@ export function useCycloneLayer(
             return '#00bcd4';                  // TS/TD: teal
         };
 
+        // ── Resolve truncated ATCF names ──
+        // ATCF format caps storm names at 10 chars (e.g. TWENTYEIGH → TWENTY-EIGHT)
+        // Extract the number from the SID (e.g. "28P") and map to the full name
+        const numberNames: Record<number, string> = {
+            1:'One',2:'Two',3:'Three',4:'Four',5:'Five',6:'Six',7:'Seven',8:'Eight',
+            9:'Nine',10:'Ten',11:'Eleven',12:'Twelve',13:'Thirteen',14:'Fourteen',
+            15:'Fifteen',16:'Sixteen',17:'Seventeen',18:'Eighteen',19:'Nineteen',
+            20:'Twenty',21:'Twenty-One',22:'Twenty-Two',23:'Twenty-Three',
+            24:'Twenty-Four',25:'Twenty-Five',26:'Twenty-Six',27:'Twenty-Seven',
+            28:'Twenty-Eight',29:'Twenty-Nine',30:'Thirty',31:'Thirty-One',
+            32:'Thirty-Two',33:'Thirty-Three',34:'Thirty-Four',35:'Thirty-Five',
+        };
+
+        const resolveStormName = (cyclone: ActiveCyclone): string => {
+            // Check if this is a numbered storm (name is all letters, no proper name)
+            const raw = cyclone.name.toUpperCase();
+            // Numbered storms have names like TWENTYEIGH, ONE, SIXTEEN etc.
+            // Named storms have proper names like NARELLE, ALFRED
+            const numMatch = cyclone.sid.match(/(\d+)/);
+            if (numMatch) {
+                const num = parseInt(numMatch[1]);
+                if (numberNames[num]) {
+                    // Verify it's actually a numbered storm (name starts with a number word)
+                    const fullUpper = numberNames[num].replace(/-/g, '').toUpperCase();
+                    if (raw.startsWith(fullUpper.slice(0, Math.min(raw.length, 6))) ||
+                        fullUpper.startsWith(raw.slice(0, 6))) {
+                        return numberNames[num];
+                    }
+                }
+            }
+            // Proper named storm — title case
+            return raw.charAt(0) + raw.slice(1).toLowerCase();
+        };
+
         // ── Create storm info badge element ──
         const createStormBadge = (cyclone: ActiveCyclone): HTMLDivElement => {
             const wrapper = document.createElement('div');
             const accentColor = categoryColor(cyclone.category);
             const catLabel = categoryLabels[cyclone.categoryLabel] ?? `Cat ${cyclone.categoryLabel}`;
-            const stormName = cyclone.name.charAt(0) + cyclone.name.slice(1).toLowerCase();
+            const stormName = resolveStormName(cyclone);
 
             // Pressure display
             const pressure = cyclone.minPressureMb
@@ -1266,7 +1300,7 @@ export function useCycloneLayer(
                 }
 
                 const el = createStormBadge(c);
-                const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+                const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom', offset: [0, -20] })
                     .setLngLat([lon, lat])
                     .addTo(map);
                 markersRef.current.push(marker);
