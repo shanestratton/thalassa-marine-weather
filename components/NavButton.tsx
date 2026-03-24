@@ -53,8 +53,8 @@ export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onCli
                 transform: active ? 'scale(1.1)' : 'none',
                 transition: 'all 0.2s ease-in-out',
                 willChange: 'transform, filter',
-                width: 32,
-                height: 32,
+                width: 35,
+                height: 35,
             }}
         >
             {icon}
