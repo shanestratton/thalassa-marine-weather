@@ -223,12 +223,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         (storm: ActiveCyclone) => {
             setCycloneVisible(true);
             setClosestStorm(storm);
-            // Auto-enable wind + rain for the storm view
-            const w = weatherRef.current;
-            if (w) {
-                if (!w.activeLayers.has('velocity')) w.toggleLayer('velocity');
-                if (!w.activeLayers.has('rain')) w.toggleLayer('rain');
-            }
+            // Storm view now uses Himawari-9 IR satellite imagery
+            // — no auto-enable of wind/rain to keep the view clean
             const map = mapRef.current;
             if (map) {
                 map.flyTo({
@@ -577,15 +573,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onToggleCyclones={() => {
                             const willBeVisible = !cycloneVisible;
                             setCycloneVisible(willBeVisible);
-                            if (willBeVisible) {
-                                // Auto-enable wind + rain when activating storm view
-                                if (!weather.activeLayers.has('velocity')) weather.toggleLayer('velocity');
-                                if (!weather.activeLayers.has('rain')) weather.toggleLayer('rain');
-                            } else {
-                                // Clean up auto-enabled layers when dismissing
-                                if (weather.activeLayers.has('velocity')) weather.toggleLayer('velocity');
-                                if (weather.activeLayers.has('rain')) weather.toggleLayer('rain');
-                            }
+                            // Storm view uses Himawari-9 IR satellite — no auto-enable of wind/rain
+                            // Users can manually toggle them via the layer menu if wanted
                         }}
                         cycloneStormName={closestStorm?.name ?? null}
                         allCyclones={allCyclones}

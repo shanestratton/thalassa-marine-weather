@@ -50,7 +50,11 @@ export function useWeatherLayers(
             const stored = localStorage.getItem(STORAGE_KEY);
             if (stored) {
                 const arr = JSON.parse(stored) as WeatherLayer[];
-                if (Array.isArray(arr) && arr.length > 0) return new Set(arr);
+                if (Array.isArray(arr) && arr.length > 0) {
+                    // Wind OFF by default — filter it out so satellite view is clean
+                    const filtered = arr.filter(l => l !== 'wind' && l !== 'velocity');
+                    return filtered.length > 0 ? new Set(filtered) : new Set();
+                }
             }
         } catch {
             /* ignore */
@@ -182,7 +186,11 @@ export function useWeatherLayers(
     const setWindHour = useCallback((valOrFn: number | ((prev: number) => number)) => {
         windUserScrubbedRef.current = true;
         windUserScrubbedTimeRef.current = Date.now();
-        setWindHourInternal(valOrFn);
+        setWindHourInternal((prev) => {
+            const next = typeof valOrFn === 'function' ? valOrFn(prev) : valOrFn;
+            WindStore.setState({ hour: next });
+            return next;
+        });
     }, []);
 
     /** Compute which forecast hour index best matches 'now' given the model refTime */
@@ -482,6 +490,7 @@ export function useWeatherLayers(
                         const fhrs = windForecastHoursRef.current;
                         const bestIdx = computeNowIndex(currentGrid.refTime, fhrs);
                         setWindHourInternal(bestIdx);
+                        WindStore.setState({ hour: bestIdx });
                         windNowIdxRef.current = bestIdx;
                         // Reset manual scrub flag on fresh GRIB load
                         windUserScrubbedRef.current = false;
@@ -534,6 +543,7 @@ export function useWeatherLayers(
                     log.info(
                         `[WindScrubber] Auto-tracking "now": ${prev} → ${newNowIdx} (forecast hour ${fhrs[newNowIdx]})`,
                     );
+                    WindStore.setState({ hour: newNowIdx });
                     return newNowIdx;
                 }
                 return prev;
@@ -738,7 +748,7 @@ export function useWeatherLayers(
 
         if (!activeLayers.has('pressure')) hideIsobarLayers(map, savedLandFillColorsRef.current);
 
-        // ── Permanent base layer: Esri satellite imagery ──
+         // ── Permanent base layer: Esri satellite imagery ──
         const SAT_ID = 'tiles-satellite';
         if (!map.getSource(SAT_ID)) {
             try {
@@ -765,6 +775,9 @@ export function useWeatherLayers(
                 log.warn('Failed to add satellite base layer:', err);
             }
         }
+
+        // Himawari-9 IR satellite layer is now managed by useCycloneLayer.ts
+        // — only shown when viewing active cyclones (storm page).
 
         if (activeLayers.size === 0) return;
 

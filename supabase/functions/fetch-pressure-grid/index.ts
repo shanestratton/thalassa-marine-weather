@@ -210,6 +210,7 @@ Deno.serve(async (req: Request) => {
         const body = await req.json();
         const { north, south, east, west } = body;
         const forecastHours: number[] = body.hours || [0, 3, 6, 9, 12];
+        const resolution: string = body.resolution || '1p00'; // '0p25' for hi-res cyclone eye
 
         if (
             typeof north !== 'number' ||
@@ -235,9 +236,9 @@ Deno.serve(async (req: Request) => {
 
         const { date, cycle } = getLatestGfsCycle();
 
-        // Always use 1° resolution for synoptic scale
-        const filter = 'filter_gfs_1p00.pl';
-        const filePrefix = 'pgrb2.1p00';
+        // Use requested resolution (0.25° for cyclone eye, 1° for synoptic isobars)
+        const filter = resolution === '0p25' ? 'filter_gfs_0p25.pl' : 'filter_gfs_1p00.pl';
+        const filePrefix = resolution === '0p25' ? 'pgrb2.0p25' : 'pgrb2.1p00';
 
         // Fetch all forecast hours in parallel
         const fetches = forecastHours.map(async (fh) => {
