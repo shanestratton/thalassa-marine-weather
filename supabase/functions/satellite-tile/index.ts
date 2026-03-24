@@ -41,33 +41,50 @@ serve(async (req) => {
     }
 
     // NASA KVP Construction — Geostationary Ring (global IR coverage)
-    const today = new Date().toISOString().split('T')[0]
-    const nasaUrl = new URL("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/wmts.cgi")
+    // NASA GIBS near-real-time data lags 3-24 hours.
+    // Try today → yesterday → 2 days ago to find the latest available.
+    const dateCandidates: string[] = []
+    for (let d = 0; d < 3; d++) {
+      const dt = new Date(Date.now() - d * 86400000)
+      dateCandidates.push(dt.toISOString().split('T')[0])
+    }
 
-    nasaUrl.searchParams.set("Service", "WMTS")
-    nasaUrl.searchParams.set("Request", "GetTile")
-    nasaUrl.searchParams.set("Version", "1.0.0")
-    nasaUrl.searchParams.set("Layer", "Himawari_AHI_Band13_Clean_Infrared")
-    nasaUrl.searchParams.set("Style", "default")
-    nasaUrl.searchParams.set("TileMatrixSet", "GoogleMapsCompatible_Level6")
-    nasaUrl.searchParams.set("TileMatrix", zoom.toString())
-    nasaUrl.searchParams.set("TileRow", yTile.toString())
-    nasaUrl.searchParams.set("TileCol", xTile.toString())
-    nasaUrl.searchParams.set("Format", "image/png")
-    nasaUrl.searchParams.set("Time", today)
+    function buildNasaUrl(dateStr: string): string {
+      const nasaUrl = new URL("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/wmts.cgi")
+      nasaUrl.searchParams.set("Service", "WMTS")
+      nasaUrl.searchParams.set("Request", "GetTile")
+      nasaUrl.searchParams.set("Version", "1.0.0")
+      nasaUrl.searchParams.set("Layer", "Himawari_AHI_Band13_Clean_Infrared")
+      nasaUrl.searchParams.set("Style", "default")
+      nasaUrl.searchParams.set("TileMatrixSet", "GoogleMapsCompatible_Level6")
+      nasaUrl.searchParams.set("TileMatrix", zoom.toString())
+      nasaUrl.searchParams.set("TileRow", yTile.toString())
+      nasaUrl.searchParams.set("TileCol", xTile.toString())
+      nasaUrl.searchParams.set("Format", "image/png")
+      nasaUrl.searchParams.set("Time", dateStr)
+      return nasaUrl.toString()
+    }
 
-    // Fetch from NASA
-    const response = await fetch(nasaUrl.toString())
+    // Try each date candidate until one succeeds
+    let imageBlob: Blob | null = null
+    let usedDate = dateCandidates[0]
+    for (const dateStr of dateCandidates) {
+      const response = await fetch(buildNasaUrl(dateStr))
+      if (response.ok) {
+        imageBlob = await response.blob()
+        usedDate = dateStr
+        break
+      }
+    }
 
-    if (!response.ok) throw new Error(`NASA Error: ${response.status}`)
-
-    const imageBlob = await response.blob()
+    if (!imageBlob) throw new Error(`NASA GIBS unavailable for dates: ${dateCandidates.join(', ')}`)
 
     return new Response(imageBlob, {
       headers: {
         ...CORS_HEADERS,
         "Content-Type": "image/png",
         "Cache-Control": "public, max-age=600",
+        "X-Satellite-Date": usedDate,
       },
     })
 
