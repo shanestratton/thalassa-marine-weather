@@ -40,44 +40,42 @@ serve(async (req) => {
       )
     }
 
-    // NASA KVP Construction — Geostationary Ring (global IR coverage)
     // NASA GIBS near-real-time data lags 3-24 hours.
-    // Try today → yesterday → 2 days ago to find the latest available.
-    const dateCandidates: string[] = []
-    for (let d = 0; d < 3; d++) {
-      const dt = new Date(Date.now() - d * 86400000)
-      dateCandidates.push(dt.toISOString().split('T')[0])
+    // Try today (UTC) → yesterday → 2 days ago.
+    const now = Date.now()
+    const d0 = new Date(now).toISOString().split('T')[0]
+    const d1 = new Date(now - 86400000).toISOString().split('T')[0]
+    const d2 = new Date(now - 172800000).toISOString().split('T')[0]
+
+    // Build NASA WMTS URL for a given date
+    const base = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/wmts.cgi"
+    const params = `Service=WMTS&Request=GetTile&Version=1.0.0`
+      + `&Layer=Himawari_AHI_Band13_Clean_Infrared`
+      + `&Style=default&TileMatrixSet=GoogleMapsCompatible_Level6`
+      + `&TileMatrix=${zoom}&TileRow=${yTile}&TileCol=${xTile}`
+      + `&Format=image%2Fpng`
+
+    // Try today first
+    let response = await fetch(`${base}?${params}&Time=${d0}`)
+    let usedDate = d0
+
+    // Fallback to yesterday
+    if (!response.ok) {
+      response = await fetch(`${base}?${params}&Time=${d1}`)
+      usedDate = d1
     }
 
-    function buildNasaUrl(dateStr: string): string {
-      const nasaUrl = new URL("https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/wmts.cgi")
-      nasaUrl.searchParams.set("Service", "WMTS")
-      nasaUrl.searchParams.set("Request", "GetTile")
-      nasaUrl.searchParams.set("Version", "1.0.0")
-      nasaUrl.searchParams.set("Layer", "Himawari_AHI_Band13_Clean_Infrared")
-      nasaUrl.searchParams.set("Style", "default")
-      nasaUrl.searchParams.set("TileMatrixSet", "GoogleMapsCompatible_Level6")
-      nasaUrl.searchParams.set("TileMatrix", zoom.toString())
-      nasaUrl.searchParams.set("TileRow", yTile.toString())
-      nasaUrl.searchParams.set("TileCol", xTile.toString())
-      nasaUrl.searchParams.set("Format", "image/png")
-      nasaUrl.searchParams.set("Time", dateStr)
-      return nasaUrl.toString()
+    // Fallback to 2 days ago
+    if (!response.ok) {
+      response = await fetch(`${base}?${params}&Time=${d2}`)
+      usedDate = d2
     }
 
-    // Try each date candidate until one succeeds
-    let imageBlob: Blob | null = null
-    let usedDate = dateCandidates[0]
-    for (const dateStr of dateCandidates) {
-      const response = await fetch(buildNasaUrl(dateStr))
-      if (response.ok) {
-        imageBlob = await response.blob()
-        usedDate = dateStr
-        break
-      }
+    if (!response.ok) {
+      throw new Error(`NASA GIBS unavailable: ${response.status}`)
     }
 
-    if (!imageBlob) throw new Error(`NASA GIBS unavailable for dates: ${dateCandidates.join(', ')}`)
+    const imageBlob = await response.blob()
 
     return new Response(imageBlob, {
       headers: {
@@ -89,7 +87,7 @@ serve(async (req) => {
     })
 
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), {
+    return new Response(JSON.stringify({ error: (error as Error).message }), {
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
       status: 400,
     })
