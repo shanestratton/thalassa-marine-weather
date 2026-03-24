@@ -1287,6 +1287,7 @@ export function useCycloneLayer(
 
         // ── Rebuild markers — fixed HUD overlay (doesn't cover the storm eye) ──
         const HUD_CONTAINER_ID = 'cyclone-hud-badges';
+        let focusedStorm: ActiveCyclone | null = null;
         const rebuildMarkers = () => {
             // Remove old HUD
             const old = map.getContainer().querySelector(`#${HUD_CONTAINER_ID}`);
@@ -1296,10 +1297,10 @@ export function useCycloneLayer(
             for (const m of markersRef.current) m.remove();
             markersRef.current = [];
 
-            const cyclones = cyclonesRef.current;
-            if (!cyclones.length) return;
+            // Only show the focused/closest storm
+            if (!focusedStorm) return;
 
-            // Create fixed-position HUD container in bottom-left of map
+            // Create fixed-position HUD container in top-left of map
             const hud = document.createElement('div');
             hud.id = HUD_CONTAINER_ID;
             hud.style.cssText = `
@@ -1313,10 +1314,8 @@ export function useCycloneLayer(
                 pointer-events: none;
             `;
 
-            for (const c of cyclones) {
-                const badge = createStormBadge(c);
-                hud.appendChild(badge);
-            }
+            const badge = createStormBadge(focusedStorm);
+            hud.appendChild(badge);
 
             map.getContainer().appendChild(hud);
         };
@@ -1370,12 +1369,13 @@ export function useCycloneLayer(
                     `[CYCLONE] 🔴 Using ATCF satellite-analyzed positions for ${cyclones.length} storm(s)`,
                 );
 
-                // ── Render storm info badges ──
-                rebuildMarkers();
-
                 // Find & report closest storm
                 const closest = findClosestCyclone(cyclones, userLatRef.current, userLonRef.current);
                 onClosestStormRef.current?.(closest);
+
+                // ── Render storm info badge for focused storm ──
+                focusedStorm = closest;
+                rebuildMarkers();
 
                 // ── Activate Himawari-9 IR satellite overlay for storm view ──
                 const IR_ID = 'himawari-ir-satellite';
