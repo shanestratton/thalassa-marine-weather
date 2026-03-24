@@ -1,73 +1,127 @@
+/**
+ * goldenHour — Unit Tests
+ *
+ * Tests getGoldenHourWindows, isGoldenHour, and getGoldenHourLabel
+ * pure functions for sunrise/sunset → golden hour window calculations.
+ */
 import { describe, it, expect } from 'vitest';
 import { getGoldenHourWindows, isGoldenHour, getGoldenHourLabel } from '../utils/goldenHour';
 
-describe('goldenHour', () => {
-    const sunrise = '06:15';
-    const sunset = '18:45';
-
-    describe('getGoldenHourWindows', () => {
-        it('returns correct morning and evening windows', () => {
-            const w = getGoldenHourWindows(sunrise, sunset);
-            expect(w).not.toBeNull();
-            expect(w!.morning.start).toBe('06:15');
-            expect(w!.morning.end).toBe('06:45');
-            expect(w!.evening.start).toBe('18:15');
-            expect(w!.evening.end).toBe('18:45');
-        });
-
-        it('returns null for invalid input', () => {
-            expect(getGoldenHourWindows('invalid', sunset)).toBeNull();
-            expect(getGoldenHourWindows(sunrise, '')).toBeNull();
-            expect(getGoldenHourWindows('--:--', '--:--')).toBeNull();
-        });
+describe('getGoldenHourWindows', () => {
+    it('returns correct morning and evening windows', () => {
+        const result = getGoldenHourWindows('06:00', '18:00');
+        expect(result).not.toBeNull();
+        expect(result!.morning.start).toBe('06:00');
+        expect(result!.morning.end).toBe('06:30');
+        expect(result!.evening.start).toBe('17:30');
+        expect(result!.evening.end).toBe('18:00');
     });
 
-    describe('isGoldenHour', () => {
-        it('returns true during morning golden hour', () => {
-            const during = new Date(2026, 2, 5, 6, 20); // 06:20
-            expect(isGoldenHour(sunrise, sunset, during)).toBe(true);
-        });
-
-        it('returns true during evening golden hour', () => {
-            const during = new Date(2026, 2, 5, 18, 30); // 18:30
-            expect(isGoldenHour(sunrise, sunset, during)).toBe(true);
-        });
-
-        it('returns false at midday', () => {
-            const midday = new Date(2026, 2, 5, 12, 0);
-            expect(isGoldenHour(sunrise, sunset, midday)).toBe(false);
-        });
-
-        it('returns false at night', () => {
-            const night = new Date(2026, 2, 5, 22, 0);
-            expect(isGoldenHour(sunrise, sunset, night)).toBe(false);
-        });
-
-        it('returns false just before morning golden hour', () => {
-            const before = new Date(2026, 2, 5, 6, 14);
-            expect(isGoldenHour(sunrise, sunset, before)).toBe(false);
-        });
-
-        it('returns false just after evening golden hour', () => {
-            const after = new Date(2026, 2, 5, 18, 45);
-            expect(isGoldenHour(sunrise, sunset, after)).toBe(false);
-        });
+    it('calculates correct windows for early sunrise', () => {
+        const result = getGoldenHourWindows('05:15', '19:45');
+        expect(result!.morning.start).toBe('05:15');
+        expect(result!.morning.end).toBe('05:45');
+        expect(result!.evening.start).toBe('19:15');
+        expect(result!.evening.end).toBe('19:45');
     });
 
-    describe('getGoldenHourLabel', () => {
-        it('returns "morning" during morning window', () => {
-            const d = new Date(2026, 2, 5, 6, 30);
-            expect(getGoldenHourLabel(sunrise, sunset, d)).toBe('morning');
-        });
+    it('returns null for invalid sunrise', () => {
+        expect(getGoldenHourWindows('--:--', '18:00')).toBeNull();
+    });
 
-        it('returns "evening" during evening window', () => {
-            const d = new Date(2026, 2, 5, 18, 20);
-            expect(getGoldenHourLabel(sunrise, sunset, d)).toBe('evening');
-        });
+    it('returns null for invalid sunset', () => {
+        expect(getGoldenHourWindows('06:00', '')).toBeNull();
+    });
 
-        it('returns null outside both windows', () => {
-            const d = new Date(2026, 2, 5, 14, 0);
-            expect(getGoldenHourLabel(sunrise, sunset, d)).toBeNull();
-        });
+    it('returns null for both invalid', () => {
+        expect(getGoldenHourWindows('', '')).toBeNull();
+    });
+
+    it('handles sunrise near midnight (polar regions)', () => {
+        const result = getGoldenHourWindows('00:10', '23:50');
+        expect(result!.morning.start).toBe('00:10');
+        expect(result!.morning.end).toBe('00:40');
+        expect(result!.evening.start).toBe('23:20');
+        expect(result!.evening.end).toBe('23:50');
+    });
+
+    it('handles non-standard input characters', () => {
+        // parseHHMM strips non-numeric/colon characters
+        const result = getGoldenHourWindows('06:00AM', '06:00PM');
+        expect(result).not.toBeNull();
+        expect(result!.morning.start).toBe('06:00');
+    });
+});
+
+describe('isGoldenHour', () => {
+    it('returns true during morning golden hour', () => {
+        const now = new Date();
+        now.setHours(6, 15, 0, 0);
+        expect(isGoldenHour('06:00', '18:00', now)).toBe(true);
+    });
+
+    it('returns true during evening golden hour', () => {
+        const now = new Date();
+        now.setHours(17, 45, 0, 0);
+        expect(isGoldenHour('06:00', '18:00', now)).toBe(true);
+    });
+
+    it('returns false outside golden hour', () => {
+        const now = new Date();
+        now.setHours(12, 0, 0, 0);
+        expect(isGoldenHour('06:00', '18:00', now)).toBe(false);
+    });
+
+    it('returns false before sunrise', () => {
+        const now = new Date();
+        now.setHours(5, 0, 0, 0);
+        expect(isGoldenHour('06:00', '18:00', now)).toBe(false);
+    });
+
+    it('returns false after sunset', () => {
+        const now = new Date();
+        now.setHours(20, 0, 0, 0);
+        expect(isGoldenHour('06:00', '18:00', now)).toBe(false);
+    });
+
+    it('returns false at exactly the end of morning window', () => {
+        const now = new Date();
+        now.setHours(6, 30, 0, 0);
+        // End is exclusive
+        expect(isGoldenHour('06:00', '18:00', now)).toBe(false);
+    });
+
+    it('returns true at exactly the start of morning window', () => {
+        const now = new Date();
+        now.setHours(6, 0, 0, 0);
+        expect(isGoldenHour('06:00', '18:00', now)).toBe(true);
+    });
+
+    it('returns false for invalid inputs', () => {
+        expect(isGoldenHour('', '18:00')).toBe(false);
+    });
+});
+
+describe('getGoldenHourLabel', () => {
+    it('returns "morning" during morning golden hour', () => {
+        const now = new Date();
+        now.setHours(6, 10, 0, 0);
+        expect(getGoldenHourLabel('06:00', '18:00', now)).toBe('morning');
+    });
+
+    it('returns "evening" during evening golden hour', () => {
+        const now = new Date();
+        now.setHours(17, 40, 0, 0);
+        expect(getGoldenHourLabel('06:00', '18:00', now)).toBe('evening');
+    });
+
+    it('returns null outside golden hours', () => {
+        const now = new Date();
+        now.setHours(12, 0, 0, 0);
+        expect(getGoldenHourLabel('06:00', '18:00', now)).toBeNull();
+    });
+
+    it('returns null for invalid inputs', () => {
+        expect(getGoldenHourLabel('--:--', '18:00')).toBeNull();
     });
 });
