@@ -1392,6 +1392,8 @@ export function useCycloneLayer(
                             tiles: [irUrl],
                             tileSize: 256,
                             maxzoom: 6,
+                            // Clip to Himawari-9 geostationary disk (~140.7°E)
+                            bounds: [60, -60, 200, 60],
                             attribution: 'NASA GIBS Himawari-9 IR',
                         });
                         // Add IR layer above Esri satellite but below borders/labels
@@ -1402,7 +1404,11 @@ export function useCycloneLayer(
                                 id: IR_ID,
                                 type: 'raster',
                                 source: IR_ID,
-                                paint: { 'raster-opacity': 0.85, 'raster-fade-duration': 300 },
+                                paint: {
+                                    'raster-opacity': 0.85,
+                                    'raster-fade-duration': 300,
+                                    'raster-resampling': 'linear',
+                                },
                             },
                             firstSymbolId,
                         );
