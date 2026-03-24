@@ -1377,38 +1377,33 @@ export function useCycloneLayer(
                 focusedStorm = closest;
                 rebuildMarkers();
 
-                // ── Activate geostationary IR satellite ring for global storm view ──
-                const SAT_SOURCES = [
-                    { id: 'himawari-ir', sat: 'himawari', bounds: [60, -60, 200, 60] as [number, number, number, number] },
-                    { id: 'goes-west-ir', sat: 'goes-west', bounds: [-180, -60, -60, 60] as [number, number, number, number] },
-                    { id: 'goes-east-ir', sat: 'goes-east', bounds: [-120, -60, 20, 60] as [number, number, number, number] },
-                ];
-
-                const styleLayers = map.getStyle()?.layers ?? [];
-                const firstSymbolId = styleLayers.find((l) => l.type === 'symbol')?.id;
-
-                for (const { id, sat, bounds } of SAT_SOURCES) {
-                    if (map.getSource(id)) continue;
+                // ── Activate NOAA GMGSI global IR satellite composite ──
+                // GMGSI blends GOES-East + GOES-West + Himawari + Meteosat into
+                // one seamless worldwide IR mosaic — no coverage gaps
+                const IR_ID = 'gmgsi-ir-global';
+                if (!map.getSource(IR_ID)) {
                     try {
                         const supabaseUrl =
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             (globalThis as any).__SUPABASE_URL__ ||
                             'https://pcisdplnodrphauixcau.supabase.co';
-                        const tileUrl = `${supabaseUrl}/functions/v1/satellite-tile?sat=${sat}&z={z}&y={y}&x={x}`;
+                        const tileUrl = `${supabaseUrl}/functions/v1/satellite-tile?sat=gmgsi&z={z}&y={y}&x={x}`;
 
-                        map.addSource(id, {
+                        const styleLayers = map.getStyle()?.layers ?? [];
+                        const firstSymbolId = styleLayers.find((l) => l.type === 'symbol')?.id;
+
+                        map.addSource(IR_ID, {
                             type: 'raster',
                             tiles: [tileUrl],
                             tileSize: 512,
-                            maxzoom: 6,
-                            bounds,
-                            attribution: `NASA GIBS ${sat} IR`,
+                            maxzoom: 8,
+                            attribution: 'NOAA GMGSI Global IR',
                         });
                         map.addLayer(
                             {
-                                id,
+                                id: IR_ID,
                                 type: 'raster',
-                                source: id,
+                                source: IR_ID,
                                 paint: {
                                     'raster-opacity': 0.85,
                                     'raster-fade-duration': 300,
@@ -1417,8 +1412,9 @@ export function useCycloneLayer(
                             },
                             firstSymbolId,
                         );
+                        log.info('[CYCLONE] 🛰️ Activated NOAA GMGSI global IR satellite composite');
                     } catch (err) {
-                        log.warn(`[CYCLONE] Failed to add ${sat} IR layer:`, err);
+                        log.warn('[CYCLONE] Failed to add GMGSI IR layer:', err);
                     }
                 }
 
