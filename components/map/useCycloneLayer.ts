@@ -399,180 +399,92 @@ function createTrackOverlay(map: mapboxgl.Map): {
                         pathData += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
                     }
 
-                    // ── SVG Defs: Dynamic Wind-Speed Gradient ──
-                    const windKtsNow = c.currentPosition.windKts || 30;
-                    // Shift colors as storm intensifies
-                    const startColor = windKtsNow > 40 ? '#fbbf24' : '#22d3ee'; // Amber if > 40kts
-                    const endColor = windKtsNow > 55 ? '#be123c' : '#f43f5e';   // Crimson if > 55kts
-                    const dissipationColor = windKtsNow > 55 ? '#881337' : '#9f1239';
-
-                    // Remove old defs and recreate (gradient changes per redraw)
-                    const oldDefs = svg.querySelector('#neonTubeDefs');
-                    if (oldDefs) oldDefs.remove();
-
-                    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-                    defs.id = 'neonTubeDefs';
-                    defs.innerHTML = `
-                        <linearGradient id="sleeveGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                            <stop offset="0%" stop-color="${startColor}" />
-                            <stop offset="70%" stop-color="${endColor}" stop-opacity="0.8" />
-                            <stop offset="100%" stop-color="${dissipationColor}" stop-opacity="0.2" />
-                        </linearGradient>
-                    `;
-                    svg.insertBefore(defs, svg.firstChild);
-
-                    // ── CSS: 3-layer breathing neon tube + wavy boundaries (inject once) ──
+                    // ── CSS: Cone styling (inject once) ──
                     if (!document.getElementById('thalassaSleeveStyle')) {
                         const style = document.createElement('style');
                         style.id = 'thalassaSleeveStyle';
                         style.textContent = `
-                            .thalassa-sleeve {
-                                filter: blur(8px) drop-shadow(0 0 15px rgba(34, 211, 238, 0.6));
-                                stroke-linecap: round;
-                                stroke-linejoin: round;
-                            }
-                            .thalassa-core {
-                                filter: blur(3px) drop-shadow(0 0 8px rgba(34, 211, 238, 0.5));
-                                stroke-linecap: round;
-                                stroke-linejoin: round;
-                                opacity: 0.55;
+                            .thalassa-cone {
+                                pointer-events: none;
                             }
                             .thalassa-spine {
-                                filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.9))
-                                        drop-shadow(0 0 12px rgba(34, 211, 238, 0.5));
-                            }
-                            .thalassa-wavy-edge {
-                                filter: blur(1px) drop-shadow(0 0 4px rgba(34, 211, 238, 0.6));
-                                stroke-linecap: round;
-                                stroke-linejoin: round;
-                                animation: sleeveBoundaryMarch 3s linear infinite,
-                                           sleeveBoundaryPulse 3s ease-in-out infinite;
-                            }
-                            @keyframes sleeveBreathe {
-                                0%, 100% {
-                                    opacity: 0.4;
-                                    stroke-width: 60px;
-                                }
-                                50% {
-                                    opacity: 0.7;
-                                    stroke-width: 90px;
-                                }
-                            }
-                            @keyframes sleeveBoundaryMarch {
-                                from { stroke-dashoffset: 0; }
-                                to   { stroke-dashoffset: -100; }
-                            }
-                            @keyframes sleeveBoundaryPulse {
-                                0%, 100% { opacity: 0.4; }
-                                50%      { opacity: 0.8; }
-                            }
-                            .thalassa-sleeve {
-                                animation: sleeveBreathe var(--pulse-duration, 3s) ease-in-out infinite;
+                                filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.6));
+                                pointer-events: none;
                             }
                         `;
                         document.head.appendChild(style);
                     }
 
-                    // Wind-speed pulse: higher wind → faster breathing
-                    const windKts = c.currentPosition.windKts || 40;
-                    const pulseSec = Math.max(0.8, 5 - (windKts / 20));
+                    // ── LAYER 1: FILLED CONE POLYGON (NHC-style expanding cone) ──
+                    // Build left and right edges that expand from eye to forecast end,
+                    // then close them into a filled polygon.
+                    const minEdge = isMacro ? 3 : 5;
+                    const maxEdge = isMacro ? 20 : 40;
 
-                    // ── LAYER 1: THE PULSING GLOW (breathes width + opacity) ──
-                    const glowPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                    glowPath.setAttribute('d', pathData);
-                    glowPath.setAttribute('fill', 'none');
-                    glowPath.setAttribute('stroke', 'url(#sleeveGradient)');
-                    glowPath.setAttribute('stroke-width', isMacro ? '32' : '70');
-                    glowPath.style.setProperty('--pulse-duration', `${pulseSec.toFixed(1)}s`);
-                    glowPath.classList.add('thalassa-sleeve');
-                    svg.appendChild(glowPath);
+                    const leftEdge: { x: number; y: number }[] = [];
+                    const rightEdge: { x: number; y: number }[] = [];
 
-                    // ── LAYER 2: STATIC CORE (high-confidence inner glow) ──
-                    const corePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                    corePath.setAttribute('d', pathData);
-                    corePath.setAttribute('fill', 'none');
-                    corePath.setAttribute('stroke', 'url(#sleeveGradient)');
-                    corePath.setAttribute('stroke-width', isMacro ? '10' : '20');
-                    corePath.classList.add('thalassa-core');
-                    svg.appendChild(corePath);
+                    for (let j = 0; j < screenPts.length; j++) {
+                        const fraction = screenPts.length > 1 ? j / (screenPts.length - 1) : 0;
+                        const offset = minEdge + (maxEdge - minEdge) * fraction;
 
-                    // ── LAYER 3: THE SPINE — smooth curved centerline following forecast points ──
+                        // Compute tangent direction
+                        let tdx: number, tdy: number;
+                        if (j === 0) {
+                            tdx = screenPts[1].x - screenPts[0].x;
+                            tdy = screenPts[1].y - screenPts[0].y;
+                        } else if (j === screenPts.length - 1) {
+                            tdx = screenPts[j].x - screenPts[j - 1].x;
+                            tdy = screenPts[j].y - screenPts[j - 1].y;
+                        } else {
+                            tdx = screenPts[j + 1].x - screenPts[j - 1].x;
+                            tdy = screenPts[j + 1].y - screenPts[j - 1].y;
+                        }
+                        const tLen = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
+                        const pnx = -tdy / tLen;
+                        const pny = tdx / tLen;
+
+                        leftEdge.push({
+                            x: screenPts[j].x + pnx * offset,
+                            y: screenPts[j].y + pny * offset,
+                        });
+                        rightEdge.push({
+                            x: screenPts[j].x - pnx * offset,
+                            y: screenPts[j].y - pny * offset,
+                        });
+                    }
+
+                    // Build closed polygon: left edge forward → right edge reversed → close
+                    const allConePts = [...leftEdge, ...rightEdge.reverse()];
+                    if (allConePts.length >= 4) {
+                        let conePathData = `M ${allConePts[0].x.toFixed(1)} ${allConePts[0].y.toFixed(1)}`;
+                        for (let j = 1; j < allConePts.length; j++) {
+                            conePathData += ` L ${allConePts[j].x.toFixed(1)} ${allConePts[j].y.toFixed(1)}`;
+                        }
+                        conePathData += ' Z';
+
+                        // Filled cone polygon
+                        const coneFill = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                        coneFill.setAttribute('d', conePathData);
+                        coneFill.setAttribute('fill', 'rgba(255, 255, 255, 0.15)');
+                        coneFill.setAttribute('stroke', 'rgba(255, 255, 255, 0.6)');
+                        coneFill.setAttribute('stroke-width', '1.5');
+                        coneFill.setAttribute('stroke-linejoin', 'round');
+                        coneFill.classList.add('thalassa-cone');
+                        svg.appendChild(coneFill);
+                    }
+
+                    // ── LAYER 2: SMOOTH CURVED CENTERLINE ──
                     const centerLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                     centerLine.setAttribute('d', pathData);
                     centerLine.setAttribute('fill', 'none');
                     centerLine.setAttribute('stroke', 'white');
-                    centerLine.setAttribute('stroke-width', '2.5');
+                    centerLine.setAttribute('stroke-width', '2');
                     centerLine.setAttribute('stroke-opacity', '0.9');
                     centerLine.setAttribute('stroke-linecap', 'round');
                     centerLine.setAttribute('stroke-linejoin', 'round');
                     centerLine.classList.add('thalassa-spine');
                     svg.appendChild(centerLine);
-
-                    // ── LAYER 4 & 5: EXPANDING WAVY BOUNDARY EDGES ──
-                    // Maritime cone of probability: edges expand from minEdge at the
-                    // eye to maxEdge at the furthest forecast point.
-                    const minEdge = isMacro ? 3 : 5;   // minimum half-width at eye
-                    const maxEdge = isMacro ? 16 : 35;  // maximum half-width at end
-                    const signs = [1, -1]; // left edge, right edge
-
-                    for (const sign of signs) {
-                        // Build offset path — each point gets a progressively larger offset
-                        const offsetPts: { x: number; y: number }[] = [];
-                        for (let j = 0; j < screenPts.length; j++) {
-                            // Expanding offset: minEdge at eye → maxEdge at end
-                            const fraction = screenPts.length > 1 ? j / (screenPts.length - 1) : 0;
-                            const expandingOffset = sign * (minEdge + (maxEdge - minEdge) * fraction);
-
-                            // Compute tangent direction at this point
-                            let tdx: number, tdy: number;
-                            if (j === 0) {
-                                tdx = screenPts[1].x - screenPts[0].x;
-                                tdy = screenPts[1].y - screenPts[0].y;
-                            } else if (j === screenPts.length - 1) {
-                                tdx = screenPts[j].x - screenPts[j - 1].x;
-                                tdy = screenPts[j].y - screenPts[j - 1].y;
-                            } else {
-                                tdx = screenPts[j + 1].x - screenPts[j - 1].x;
-                                tdy = screenPts[j + 1].y - screenPts[j - 1].y;
-                            }
-                            const tLen = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
-                            // Perpendicular normal (rotate tangent 90°)
-                            const pnx = -tdy / tLen;
-                            const pny = tdx / tLen;
-                            offsetPts.push({
-                                x: screenPts[j].x + pnx * expandingOffset,
-                                y: screenPts[j].y + pny * expandingOffset,
-                            });
-                        }
-
-                        // Build SVG path data from offset points using cubic bezier
-                        if (offsetPts.length >= 2) {
-                            let edgePath = `M ${offsetPts[0].x.toFixed(1)} ${offsetPts[0].y.toFixed(1)}`;
-                            for (let j = 0; j < offsetPts.length - 1; j++) {
-                                const e0 = offsetPts[j - 1] || offsetPts[j];
-                                const e1 = offsetPts[j];
-                                const e2 = offsetPts[j + 1];
-                                const e3 = offsetPts[j + 2] || e2;
-
-                                const ecx1 = e1.x + (e2.x - e0.x) / 6 * tension;
-                                const ecy1 = e1.y + (e2.y - e0.y) / 6 * tension;
-                                const ecx2 = e2.x - (e3.x - e1.x) / 6 * tension;
-                                const ecy2 = e2.y - (e3.y - e1.y) / 6 * tension;
-
-                                edgePath += ` C ${ecx1.toFixed(1)} ${ecy1.toFixed(1)}, ${ecx2.toFixed(1)} ${ecy2.toFixed(1)}, ${e2.x.toFixed(1)} ${e2.y.toFixed(1)}`;
-                            }
-
-                            const wavyEdge = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                            wavyEdge.setAttribute('d', edgePath);
-                            wavyEdge.setAttribute('fill', 'none');
-                            wavyEdge.setAttribute('stroke', '#22d3ee');
-                            wavyEdge.setAttribute('stroke-width', '2.5');
-                            wavyEdge.setAttribute('stroke-dasharray', '20 10');
-                            wavyEdge.setAttribute('stroke-linecap', 'round');
-                            wavyEdge.classList.add('thalassa-wavy-edge');
-                            svg.appendChild(wavyEdge);
-                        }
-                    }
                 }
 
                 // Draw forecast dots/labels
@@ -1113,45 +1025,45 @@ function addProbabilitySleeve(
     // Add source
     map.addSource(SLEEVE_SOURCE, { type: 'geojson', data: geojson, lineMetrics: true });
 
-    // Layer 1: Outer glow — "The Aura" (wide, transparent electric cyan)
+    // Layer 1: Outer glow — wide transparent fill extending beyond core
     map.addLayer({
         id: SLEEVE_GLOW,
         type: 'fill',
         source: SLEEVE_SOURCE,
         filter: ['==', ['get', 'layer'], 'glow'],
         paint: {
-            'fill-color': '#00f2ff',
-            'fill-opacity': 0.06,
+            'fill-color': '#ffffff',
+            'fill-opacity': 0.05,
         },
     });
 
-    // Layer 2: Core sleeve fill
+    // Layer 2: Core cone fill — NHC-style translucent white
     map.addLayer({
         id: SLEEVE_CORE,
         type: 'fill',
         source: SLEEVE_SOURCE,
         filter: ['==', ['get', 'layer'], 'core'],
         paint: {
-            'fill-color': '#00f2ff',
-            'fill-opacity': 0.15,
+            'fill-color': '#ffffff',
+            'fill-opacity': 0.18,
         },
     });
 
-    // Layer 3: Sleeve edge outline (electric cyan)
+    // Layer 3: Cone edge outline — solid white boundary
     map.addLayer({
         id: SLEEVE_EDGE,
         type: 'line',
         source: SLEEVE_SOURCE,
         filter: ['==', ['get', 'layer'], 'core'],
         paint: {
-            'line-color': '#00f2ff',
-            'line-width': 1,
-            'line-opacity': 0.35,
+            'line-color': '#ffffff',
+            'line-width': 1.5,
+            'line-opacity': 0.6,
         },
         layout: { 'line-join': 'round', 'line-cap': 'round' },
     });
 
-    // Layer 4: Centerline — "The Hard Track" (white dashed)
+    // Layer 4: Centerline — smooth solid track through forecast positions
     map.addLayer({
         id: SLEEVE_CENTER,
         type: 'line',
@@ -1159,9 +1071,8 @@ function addProbabilitySleeve(
         filter: ['==', ['get', 'layer'], 'center'],
         paint: {
             'line-width': 2,
-            'line-opacity': 0.85,
+            'line-opacity': 0.9,
             'line-color': '#ffffff',
-            'line-dasharray': [5, 5],
         },
         layout: { 'line-join': 'round', 'line-cap': 'round' },
     });
@@ -1300,8 +1211,13 @@ export function useCycloneLayer(
                 cyclonesRef.current = cyclones;
                 lastZoomInt = Math.round(map.getZoom());
 
-                // ── Update track overlay (SVG Neon Tube) ──
+                // ── Update track overlay (SVG cone + centerline + dots) ──
                 ensureTrackOverlay().update(cyclones);
+
+                // ── Render Mapbox GL probability polygon (geographic cone) ──
+                for (const c of cyclones) {
+                    addProbabilitySleeve(map, c);
+                }
 
                 // ── DOT POSITIONED AT ATCF SATELLITE-ANALYZED POSITION ──
                 // The ATCF position is determined by JTWC/NHC from actual satellite imagery
