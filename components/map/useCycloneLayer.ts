@@ -1301,7 +1301,7 @@ export function useCycloneLayer(
                 }
 
                 const el = createStormBadge(c);
-                const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom', offset: [0, -20] })
+                const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom', offset: [0, -40] })
                     .setLngLat([lon, lat])
                     .addTo(map);
                 markersRef.current.push(marker);
