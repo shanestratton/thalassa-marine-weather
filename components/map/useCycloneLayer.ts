@@ -1378,44 +1378,53 @@ export function useCycloneLayer(
                 rebuildMarkers();
 
                 // ── Activate Himawari-9 IR satellite overlay for storm view ──
-                // TODO: Switch to GMGSI global composite after edge function redeployment
+                // Probe one tile first — only add layer if tiles are actually loading
+                // (prevents dark horizontal line artifacts from failed tile requests)
                 const IR_ID = 'himawari-ir-satellite';
                 if (!map.getSource(IR_ID)) {
-                    try {
-                        const supabaseUrl =
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            (globalThis as any).__SUPABASE_URL__ ||
-                            'https://pcisdplnodrphauixcau.supabase.co';
-                        const tileUrl = `${supabaseUrl}/functions/v1/satellite-tile?z={z}&y={y}&x={x}`;
+                    const supabaseUrl =
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        (globalThis as any).__SUPABASE_URL__ ||
+                        'https://pcisdplnodrphauixcau.supabase.co';
+                    const baseUrl = `${supabaseUrl}/functions/v1/satellite-tile`;
+                    // Test with a known-good tile covering the equator
+                    fetch(`${baseUrl}?z=2&y=1&x=2`)
+                        .then(r => {
+                            if (!r.ok) throw new Error(`Probe ${r.status}`);
+                            return r.blob();
+                        })
+                        .then(() => {
+                            if (map.getSource(IR_ID)) return; // double-check
+                            const tileUrl = `${baseUrl}?z={z}&y={y}&x={x}`;
+                            const styleLayers = map.getStyle()?.layers ?? [];
+                            const firstSymbolId = styleLayers.find((l) => l.type === 'symbol')?.id;
 
-                        const styleLayers = map.getStyle()?.layers ?? [];
-                        const firstSymbolId = styleLayers.find((l) => l.type === 'symbol')?.id;
-
-                        map.addSource(IR_ID, {
-                            type: 'raster',
-                            tiles: [tileUrl],
-                            tileSize: 512,
-                            maxzoom: 6,
-                            bounds: [60, -60, 200, 60] as [number, number, number, number],
-                            attribution: 'NASA GIBS Himawari-9 IR',
-                        });
-                        map.addLayer(
-                            {
-                                id: IR_ID,
+                            map.addSource(IR_ID, {
                                 type: 'raster',
-                                source: IR_ID,
-                                paint: {
-                                    'raster-opacity': 0.85,
-                                    'raster-fade-duration': 300,
-                                    'raster-resampling': 'linear',
+                                tiles: [tileUrl],
+                                tileSize: 512,
+                                maxzoom: 6,
+                                bounds: [60, -60, 200, 60] as [number, number, number, number],
+                                attribution: 'NASA GIBS Himawari-9 IR',
+                            });
+                            map.addLayer(
+                                {
+                                    id: IR_ID,
+                                    type: 'raster',
+                                    source: IR_ID,
+                                    paint: {
+                                        'raster-opacity': 0.85,
+                                        'raster-fade-duration': 300,
+                                        'raster-resampling': 'linear',
+                                    },
                                 },
-                            },
-                            firstSymbolId,
-                        );
-                        log.info('[CYCLONE] 🛰️ Activated Himawari-9 IR satellite overlay');
-                    } catch (err) {
-                        log.warn('[CYCLONE] Failed to add IR satellite layer:', err);
-                    }
+                                firstSymbolId,
+                            );
+                            log.info('[CYCLONE] 🛰️ Satellite probe OK — IR overlay activated');
+                        })
+                        .catch(() => {
+                            log.warn('[CYCLONE] 🛰️ Satellite probe failed — skipping IR overlay');
+                        });
                 }
 
                 // ── Black country borders above satellite (50m Natural Earth) ──
