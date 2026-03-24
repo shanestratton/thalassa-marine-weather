@@ -1377,33 +1377,38 @@ export function useCycloneLayer(
                 focusedStorm = closest;
                 rebuildMarkers();
 
-                // ── Activate Himawari-9 IR satellite overlay for storm view ──
-                const IR_ID = 'himawari-ir-satellite';
-                if (!map.getSource(IR_ID)) {
+                // ── Activate geostationary IR satellite ring for global storm view ──
+                const SAT_SOURCES = [
+                    { id: 'himawari-ir', sat: 'himawari', bounds: [60, -60, 200, 60] as [number, number, number, number] },
+                    { id: 'goes-west-ir', sat: 'goes-west', bounds: [-180, -60, -60, 60] as [number, number, number, number] },
+                    { id: 'goes-east-ir', sat: 'goes-east', bounds: [-120, -60, 20, 60] as [number, number, number, number] },
+                ];
+
+                const styleLayers = map.getStyle()?.layers ?? [];
+                const firstSymbolId = styleLayers.find((l) => l.type === 'symbol')?.id;
+
+                for (const { id, sat, bounds } of SAT_SOURCES) {
+                    if (map.getSource(id)) continue;
                     try {
                         const supabaseUrl =
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             (globalThis as any).__SUPABASE_URL__ ||
                             'https://pcisdplnodrphauixcau.supabase.co';
-                        const irUrl = `${supabaseUrl}/functions/v1/satellite-tile?z={z}&y={y}&x={x}`;
+                        const tileUrl = `${supabaseUrl}/functions/v1/satellite-tile?sat=${sat}&z={z}&y={y}&x={x}`;
 
-                        map.addSource(IR_ID, {
+                        map.addSource(id, {
                             type: 'raster',
-                            tiles: [irUrl],
+                            tiles: [tileUrl],
                             tileSize: 256,
                             maxzoom: 6,
-                            // Clip to Himawari-9 geostationary disk (~140.7°E)
-                            bounds: [60, -60, 200, 60],
-                            attribution: 'NASA GIBS Himawari-9 IR',
+                            bounds,
+                            attribution: `NASA GIBS ${sat} IR`,
                         });
-                        // Add IR layer above Esri satellite but below borders/labels
-                        const styleLayers = map.getStyle()?.layers ?? [];
-                        const firstSymbolId = styleLayers.find((l) => l.type === 'symbol')?.id;
                         map.addLayer(
                             {
-                                id: IR_ID,
+                                id,
                                 type: 'raster',
-                                source: IR_ID,
+                                source: id,
                                 paint: {
                                     'raster-opacity': 0.85,
                                     'raster-fade-duration': 300,
@@ -1412,92 +1417,92 @@ export function useCycloneLayer(
                             },
                             firstSymbolId,
                         );
-
-                        // ── Black country borders above satellite (50m Natural Earth) ──
-                        const BORDER_ID = 'storm-black-borders';
-                        if (!map.getSource(BORDER_ID)) {
-                            fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json')
-                                .then(r => r.json())
-                                .then(topology => {
-                                    if (map.getSource(BORDER_ID)) return;
-                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                    const topo = topology as any;
-                                    const { scale, translate } = topo.transform;
-                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                    const arcs: number[][][] = topo.arcs.map((arc: number[][]) => {
-                                        let x = 0, y = 0;
-                                        return arc.map(([dx, dy]: number[]) => {
-                                            x += dx; y += dy;
-                                            return [x * scale[0] + translate[0], y * scale[1] + translate[1]];
-                                        });
-                                    });
-
-                                    // Resolve arc references to coordinates
-                                    const resolveRing = (indices: number[]): number[][] => {
-                                        const coords: number[][] = [];
-                                        for (const idx of indices) {
-                                            const arc = idx >= 0 ? arcs[idx] : arcs[~idx].slice().reverse();
-                                            coords.push(...(coords.length > 0 ? arc.slice(1) : arc));
-                                        }
-                                        return coords;
-                                    };
-
-                                    // Convert each country geometry to GeoJSON polygons
-                                    const obj = topo.objects.countries;
-                                    const features: GeoJSON.Feature[] = [];
-                                    for (const geom of obj.geometries) {
-                                        if (geom.type === 'Polygon') {
-                                            features.push({
-                                                type: 'Feature',
-                                                properties: {},
-                                                geometry: {
-                                                    type: 'Polygon',
-                                                    coordinates: geom.arcs.map(resolveRing),
-                                                },
-                                            });
-                                        } else if (geom.type === 'MultiPolygon') {
-                                            features.push({
-                                                type: 'Feature',
-                                                properties: {},
-                                                geometry: {
-                                                    type: 'MultiPolygon',
-                                                    coordinates: geom.arcs.map(
-                                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                                        (polygon: any) => polygon.map(resolveRing),
-                                                    ),
-                                                },
-                                            });
-                                        }
-                                    }
-
-                                    map.addSource(BORDER_ID, {
-                                        type: 'geojson',
-                                        data: { type: 'FeatureCollection', features },
-                                    });
-                                    map.addLayer({
-                                        id: BORDER_ID,
-                                        type: 'line',
-                                        source: BORDER_ID,
-                                        paint: {
-                                            'line-color': '#000000',
-                                            'line-width': 1.5,
-                                            'line-opacity': 0.8,
-                                        },
-                                        layout: {
-                                            'line-join': 'round',
-                                            'line-cap': 'round',
-                                        },
-                                    });
-                                    log.info('[CYCLONE] 🗺️ Added 50m black country borders');
-                                })
-                                .catch(err => log.warn('[CYCLONE] Failed to load borders:', err));
-                        }
-
-                        log.info('[CYCLONE] 🛰️ Activated Himawari-9 IR satellite + black borders for storm view');
                     } catch (err) {
-                        log.warn('[CYCLONE] Failed to add IR satellite layer:', err);
+                        log.warn(`[CYCLONE] Failed to add ${sat} IR layer:`, err);
                     }
                 }
+
+                // ── Black country borders above satellite (50m Natural Earth) ──
+                const BORDER_ID = 'storm-black-borders';
+                if (!map.getSource(BORDER_ID)) {
+                    fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json')
+                        .then(r => r.json())
+                        .then(topology => {
+                            if (map.getSource(BORDER_ID)) return;
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            const topo = topology as any;
+                            const { scale, translate } = topo.transform;
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            const arcs: number[][][] = topo.arcs.map((arc: number[][]) => {
+                                let x = 0, y = 0;
+                                return arc.map(([dx, dy]: number[]) => {
+                                    x += dx; y += dy;
+                                    return [x * scale[0] + translate[0], y * scale[1] + translate[1]];
+                                });
+                            });
+
+                            // Resolve arc references to coordinates
+                            const resolveRing = (indices: number[]): number[][] => {
+                                const coords: number[][] = [];
+                                for (const idx of indices) {
+                                    const arc = idx >= 0 ? arcs[idx] : arcs[~idx].slice().reverse();
+                                    coords.push(...(coords.length > 0 ? arc.slice(1) : arc));
+                                }
+                                return coords;
+                            };
+
+                            // Convert each country geometry to GeoJSON polygons
+                            const obj = topo.objects.countries;
+                            const features: GeoJSON.Feature[] = [];
+                            for (const geom of obj.geometries) {
+                                if (geom.type === 'Polygon') {
+                                    features.push({
+                                        type: 'Feature',
+                                        properties: {},
+                                        geometry: {
+                                            type: 'Polygon',
+                                            coordinates: geom.arcs.map(resolveRing),
+                                        },
+                                    });
+                                } else if (geom.type === 'MultiPolygon') {
+                                    features.push({
+                                        type: 'Feature',
+                                        properties: {},
+                                        geometry: {
+                                            type: 'MultiPolygon',
+                                            coordinates: geom.arcs.map(
+                                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                                (polygon: any) => polygon.map(resolveRing),
+                                            ),
+                                        },
+                                    });
+                                }
+                            }
+
+                            map.addSource(BORDER_ID, {
+                                type: 'geojson',
+                                data: { type: 'FeatureCollection', features },
+                            });
+                            map.addLayer({
+                                id: BORDER_ID,
+                                type: 'line',
+                                source: BORDER_ID,
+                                paint: {
+                                    'line-color': '#000000',
+                                    'line-width': 1.5,
+                                    'line-opacity': 0.8,
+                                },
+                                layout: {
+                                    'line-join': 'round',
+                                    'line-cap': 'round',
+                                },
+                            });
+                            log.info('[CYCLONE] 🗺️ Added 50m black country borders');
+                        })
+                        .catch(err => log.warn('[CYCLONE] Failed to load borders:', err));
+                }
+
+                log.info('[CYCLONE] 🛰️ Activated global IR satellite ring + black borders for storm view');
 
                 // Fly to closest storm on first load
                 if (closest && !hasFlown.current) {
