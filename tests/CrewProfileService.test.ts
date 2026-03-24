@@ -1,8 +1,8 @@
 /**
  * CrewProfileService — Unit Tests
  *
- * Tests profile CRUD, customs manifest conversion,
- * and dietary summary generation.
+ * Tests dietary summary and customs manifest conversion.
+ * Uses properly resolving Supabase mock chains.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { supabase } from '../services/supabase';
@@ -11,8 +11,8 @@ import { supabase } from '../services/supabase';
 const mockProfiles: Record<string, any>[] = [];
 
 vi.mock('../services/vessel/LocalDatabase', () => ({
-    getAll: vi.fn(() => mockProfiles),
-    insertLocal: vi.fn((table: string, record: any) => {
+    getAll: vi.fn(() => [...mockProfiles]),
+    insertLocal: vi.fn((_table: string, record: any) => {
         mockProfiles.push(record);
         return record;
     }),
@@ -56,12 +56,15 @@ describe('CrewProfileService', () => {
 
     describe('getCrewManifestForClearance', () => {
         it('maps profiles to customs manifest format', async () => {
-            // Mock supabase to return null user
-            (supabase!.auth.getUser as ReturnType<typeof vi.fn>).mockResolvedValue({
-                data: { user: null },
-            });
+            // Mock supabase.from chain to resolve properly
+            const chain = {
+                select: vi.fn().mockReturnValue({
+                    order: vi.fn().mockResolvedValue({ data: null, error: null }),
+                }),
+            };
+            (supabase!.from as ReturnType<typeof vi.fn>).mockReturnValue(chain);
 
-            // Use local profiles as fallback
+            // Local profiles as fallback (supabase returns no data)
             mockProfiles.push({
                 full_name: 'Captain Shane',
                 nationality: 'Australian',
@@ -74,14 +77,17 @@ describe('CrewProfileService', () => {
             expect(manifest).toHaveLength(1);
             expect(manifest[0].name).toBe('Captain Shane');
             expect(manifest[0].nationality).toBe('Australian');
-            expect(manifest[0].role).toBe('Skipper'); // professional = Skipper
+            expect(manifest[0].role).toBe('Skipper');
             expect(manifest[0].passport_number).toBe('PA123456');
         });
 
         it('assigns Crew role for non-professional experience', async () => {
-            (supabase!.auth.getUser as ReturnType<typeof vi.fn>).mockResolvedValue({
-                data: { user: null },
-            });
+            const chain = {
+                select: vi.fn().mockReturnValue({
+                    order: vi.fn().mockResolvedValue({ data: null, error: null }),
+                }),
+            };
+            (supabase!.from as ReturnType<typeof vi.fn>).mockReturnValue(chain);
 
             mockProfiles.push({
                 full_name: 'Deckhand Dave',
@@ -93,7 +99,7 @@ describe('CrewProfileService', () => {
 
             const manifest = await getCrewManifestForClearance();
             expect(manifest[0].role).toBe('Crew');
-            expect(manifest[0].passport_number).toBeUndefined(); // null → undefined
+            expect(manifest[0].passport_number).toBeUndefined();
         });
     });
 });

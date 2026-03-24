@@ -57,7 +57,8 @@ describe('findStoreMatch', () => {
     });
 
     it('returns fuzzy match for substring (needle in store name)', () => {
-        const match = findStoreMatch('beef', storeItems);
+        // 'brisket' (7 chars) is a substring of 'beef brisket' (12 chars) → score 7/12 = 0.58 > 0.4
+        const match = findStoreMatch('brisket', storeItems);
         expect(match).not.toBeNull();
         expect(match!.matchType).toBe('fuzzy');
         expect(match!.item.id).toBe('s2'); // Beef Brisket

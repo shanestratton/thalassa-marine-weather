@@ -124,8 +124,8 @@ describe('calculateStatus', () => {
     it('handles exactly 0 engine hours remaining as yellow', () => {
         const task = makeTask({ next_due_hours: 100 });
         const result = calculateStatus(task, 100);
-        // 0 hours remaining → overdue
-        expect(result.status).toBe('red');
+        // 0 hours remaining is within the <= 20 yellow threshold, not negative → yellow
+        expect(result.status).toBe('yellow');
         expect(result.hoursRemaining).toBe(0);
     });
 
