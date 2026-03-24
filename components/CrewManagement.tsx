@@ -36,6 +36,8 @@ import { supabase } from '../services/supabase';
 import { triggerHaptic } from '../utils/system';
 import { toast } from './Toast';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
+import { getDraftVoyages, type Voyage } from '../services/VoyageService';
+import { setActivePassage, getActivePassageId } from '../services/PassagePlanService';
 import { AuthModal } from './AuthModal';
 import { lazyRetry } from '../utils/lazyRetry';
 const CastOffPanel = lazyRetry(
@@ -85,6 +87,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [showCastOff, setShowCastOff] = useState(false);
     const [activeVoyageName, setActiveVoyageName] = useState<string | null>(null);
 
+    // Draft passage plans (moved from Welcome Aboard)
+    const [draftVoyages, setDraftVoyages] = useState<Voyage[]>([]);
+    const [selectedPassageId, setSelectedPassageId] = useState<string>(getActivePassageId() || '');
+
     // Disband group
     const [showDisbandConfirm, setShowDisbandConfirm] = useState(false);
     const [disbandConfirmText, setDisbandConfirmText] = useState('');
@@ -114,12 +120,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         if (isAuthed) loadData();
     }, [isAuthed, loadData]);
 
-    // Load voyage status
+    // Load voyage status + draft voyages
     useEffect(() => {
         import('../services/VoyageService').then(({ getCachedActiveVoyage }) => {
             const v = getCachedActiveVoyage();
             if (v) setActiveVoyageName(v.voyage_name);
         });
+        getDraftVoyages().then(setDraftVoyages);
     }, []);
 
     // ── Handlers ──
@@ -376,45 +383,52 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     </div>
                 )}
 
-                {/* ── CAST OFF / ACTIVE VOYAGE ── */}
+                {/* ── ACTIVE PASSAGE SELECTOR ── */}
                 <div className="mb-4">
-                    <button
-                        onClick={() => {
-                            triggerHaptic('light');
-                            setShowCastOff(true);
-                        }}
-                        className={`w-full p-3 rounded-xl border transition-all active:scale-[0.98] flex items-center gap-3 ${
-                            activeVoyageName
-                                ? 'bg-emerald-500/[0.06] border-emerald-500/15 hover:bg-emerald-500/[0.1]'
-                                : 'bg-amber-500/[0.04] border-amber-500/15 hover:bg-amber-500/[0.08]'
-                        }`}
-                    >
-                        <div className={`p-2 rounded-lg ${activeVoyageName ? 'bg-emerald-500/10' : 'bg-amber-500/10'}`}>
-                            <span className="text-base">{activeVoyageName ? '🟢' : '⛵'}</span>
-                        </div>
-                        <div className="flex-1 text-left">
-                            {activeVoyageName ? (
-                                <>
-                                    <p className="text-xs font-bold text-emerald-400">{activeVoyageName}</p>
-                                    <p className="text-[10px] text-gray-500">Active Passage — Watch Mode</p>
-                                </>
-                            ) : (
-                                <>
-                                    <p className="text-xs font-bold text-amber-300">Select Draft Voyage</p>
-                                    <p className="text-[10px] text-gray-500">Pick a passage to Cast Off</p>
-                                </>
-                            )}
-                        </div>
-                        <svg
-                            className="w-3.5 h-3.5 text-gray-500"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
+                    <label className="text-[10px] uppercase font-bold text-violet-400/60 tracking-wider mb-1.5 block">
+                        🧭 Active Passage
+                    </label>
+                    {draftVoyages.length > 0 ? (
+                        <select
+                            value={selectedPassageId}
+                            onChange={(e) => {
+                                const id = e.target.value;
+                                setSelectedPassageId(id);
+                                if (id) {
+                                    setActivePassage(id);
+                                    triggerHaptic('light');
+                                    // Update voyage name display
+                                    const v = draftVoyages.find(v => v.id === id);
+                                    if (v) setActiveVoyageName(v.voyage_name || `${v.departure_port || '?'} → ${v.destination_port || '?'}`);
+                                } else {
+                                    setActiveVoyageName(null);
+                                }
+                            }}
+                            className="w-full bg-white/[0.06] border border-white/[0.12] rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/40 appearance-none cursor-pointer"
+                            style={{
+                                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23a78bfa'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E")`,
+                                backgroundRepeat: 'no-repeat',
+                                backgroundPosition: 'right 0.75rem center',
+                                backgroundSize: '1rem',
+                            }}
                         >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                        </svg>
-                    </button>
+                            <option value="" style={{ background: '#1e293b' }}>
+                                Select a passage…
+                            </option>
+                            {draftVoyages.map((v) => (
+                                <option key={v.id} value={v.id} style={{ background: '#1e293b' }}>
+                                    {v.voyage_name ||
+                                        `${v.departure_port || '?'} → ${v.destination_port || '?'}`}
+                                </option>
+                            ))}
+                        </select>
+                    ) : (
+                        <div className="bg-white/[0.03] border border-dashed border-white/[0.08] rounded-lg p-3 text-center">
+                            <p className="text-[11px] text-gray-400">
+                                No draft passages yet. Plan a route from the <strong>Route Planner</strong> to create one.
+                            </p>
+                        </div>
+                    )}
                 </div>
 
                 {loading ? (
