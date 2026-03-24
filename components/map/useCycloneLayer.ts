@@ -1377,9 +1377,11 @@ export function useCycloneLayer(
                 focusedStorm = closest;
                 rebuildMarkers();
 
-                // ── Activate Himawari-9 IR satellite overlay for storm view ──
-                // Probe one tile first — only add layer if tiles are actually loading
-                // (prevents dark horizontal line artifacts from failed tile requests)
+                // ── Satellite IR overlay — DISABLED until edge function is redeployed ──
+                // The satellite-tile edge function is currently returning 400 for all
+                // requests, which creates dark horizontal line artifacts on the map.
+                // Re-enable after running: supabase functions deploy satellite-tile --no-verify-jwt
+                /*
                 const IR_ID = 'himawari-ir-satellite';
                 if (!map.getSource(IR_ID)) {
                     const supabaseUrl =
@@ -1387,18 +1389,16 @@ export function useCycloneLayer(
                         (globalThis as any).__SUPABASE_URL__ ||
                         'https://pcisdplnodrphauixcau.supabase.co';
                     const baseUrl = `${supabaseUrl}/functions/v1/satellite-tile`;
-                    // Test with a known-good tile covering the equator
                     fetch(`${baseUrl}?z=2&y=1&x=2`)
                         .then(r => {
                             if (!r.ok) throw new Error(`Probe ${r.status}`);
                             return r.blob();
                         })
                         .then(() => {
-                            if (map.getSource(IR_ID)) return; // double-check
+                            if (map.getSource(IR_ID)) return;
                             const tileUrl = `${baseUrl}?z={z}&y={y}&x={x}`;
                             const styleLayers = map.getStyle()?.layers ?? [];
                             const firstSymbolId = styleLayers.find((l) => l.type === 'symbol')?.id;
-
                             map.addSource(IR_ID, {
                                 type: 'raster',
                                 tiles: [tileUrl],
@@ -1407,25 +1407,14 @@ export function useCycloneLayer(
                                 bounds: [60, -60, 200, 60] as [number, number, number, number],
                                 attribution: 'NASA GIBS Himawari-9 IR',
                             });
-                            map.addLayer(
-                                {
-                                    id: IR_ID,
-                                    type: 'raster',
-                                    source: IR_ID,
-                                    paint: {
-                                        'raster-opacity': 0.85,
-                                        'raster-fade-duration': 300,
-                                        'raster-resampling': 'linear',
-                                    },
-                                },
-                                firstSymbolId,
-                            );
+                            map.addLayer({ id: IR_ID, type: 'raster', source: IR_ID, paint: {
+                                'raster-opacity': 0.85, 'raster-fade-duration': 300, 'raster-resampling': 'linear',
+                            }}, firstSymbolId);
                             log.info('[CYCLONE] 🛰️ Satellite probe OK — IR overlay activated');
                         })
-                        .catch(() => {
-                            log.warn('[CYCLONE] 🛰️ Satellite probe failed — skipping IR overlay');
-                        });
+                        .catch(() => log.warn('[CYCLONE] 🛰️ Satellite probe failed — skipping IR overlay'));
                 }
+                */
 
                 // ── Black country borders above satellite (50m Natural Earth) ──
                 const BORDER_ID = 'storm-black-borders';
