@@ -1231,49 +1231,60 @@ export function useCycloneLayer(
 
             wrapper.innerHTML = `
                 <div style="
-                    background: rgba(10, 15, 30, 0.82);
-                    backdrop-filter: blur(12px);
-                    -webkit-backdrop-filter: blur(12px);
-                    border: 1px solid ${accentColor}44;
-                    border-radius: 10px;
-                    padding: 8px 12px;
-                    color: #ffffff;
-                    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
-                    min-width: 160px;
-                    pointer-events: none;
-                    z-index: 600;
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.5), 0 0 12px ${accentColor}33;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
                 ">
                     <div style="
-                        font-size: 13px;
-                        font-weight: 700;
-                        letter-spacing: 0.3px;
-                        color: ${accentColor};
-                        margin-bottom: 2px;
-                        text-shadow: 0 0 8px ${accentColor}66;
-                    ">${catLabel}</div>
-                    <div style="
-                        font-size: 16px;
-                        font-weight: 800;
+                        background: rgba(10, 15, 30, 0.82);
+                        backdrop-filter: blur(12px);
+                        -webkit-backdrop-filter: blur(12px);
+                        border: 1px solid ${accentColor}44;
+                        border-radius: 10px;
+                        padding: 8px 12px;
                         color: #ffffff;
-                        margin-bottom: 6px;
-                        text-transform: capitalize;
-                    ">${stormName}</div>
-                    <div style="
-                        display: flex;
-                        gap: 12px;
-                        font-size: 11px;
-                        color: rgba(255,255,255,0.8);
+                        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+                        min-width: 160px;
+                        pointer-events: none;
+                        z-index: 600;
+                        box-shadow: 0 4px 20px rgba(0,0,0,0.5), 0 0 12px ${accentColor}33;
                     ">
-                        <div style="display: flex; align-items: center; gap: 3px;">
-                            <span style="color: ${accentColor}; font-size: 13px;">⬇</span>
-                            <span>${pressure}</span>
-                        </div>
-                        <div style="display: flex; align-items: center; gap: 3px;">
-                            <span style="color: ${accentColor}; font-size: 13px;">💨</span>
-                            <span>${wind}</span>
+                        <div style="
+                            font-size: 13px;
+                            font-weight: 700;
+                            letter-spacing: 0.3px;
+                            color: ${accentColor};
+                            margin-bottom: 2px;
+                            text-shadow: 0 0 8px ${accentColor}66;
+                        ">${catLabel}</div>
+                        <div style="
+                            font-size: 16px;
+                            font-weight: 800;
+                            color: #ffffff;
+                            margin-bottom: 6px;
+                            text-transform: capitalize;
+                        ">${stormName}</div>
+                        <div style="
+                            display: flex;
+                            gap: 12px;
+                            font-size: 11px;
+                            color: rgba(255,255,255,0.8);
+                        ">
+                            <div style="display: flex; align-items: center; gap: 3px;">
+                                <span style="color: ${accentColor}; font-size: 13px;">⬇</span>
+                                <span>${pressure}</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 3px;">
+                                <span style="color: ${accentColor}; font-size: 13px;">💨</span>
+                                <span>${wind}</span>
+                            </div>
                         </div>
                     </div>
+                    <div style="
+                        width: 2px;
+                        height: 24px;
+                        background: linear-gradient(to bottom, ${accentColor}88, ${accentColor}00);
+                    "></div>
                 </div>
             `;
             return wrapper;
@@ -1301,7 +1312,7 @@ export function useCycloneLayer(
                 }
 
                 const el = createStormBadge(c);
-                const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom', offset: [0, -40] })
+                const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
                     .setLngLat([lon, lat])
                     .addTo(map);
                 markersRef.current.push(marker);
