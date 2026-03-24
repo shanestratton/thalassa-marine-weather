@@ -1280,43 +1280,45 @@ export function useCycloneLayer(
                             </div>
                         </div>
                     </div>
-                    <div style="
-                        width: 2px;
-                        height: 24px;
-                        background: linear-gradient(to bottom, ${accentColor}88, ${accentColor}00);
-                    "></div>
                 </div>
             `;
             return wrapper;
         };
 
-        // ── Rebuild markers — storm info badge at each cyclone position ──
+        // ── Rebuild markers — fixed HUD overlay (doesn't cover the storm eye) ──
+        const HUD_CONTAINER_ID = 'cyclone-hud-badges';
         const rebuildMarkers = () => {
-            // Remove old markers
+            // Remove old HUD
+            const old = map.getContainer().querySelector(`#${HUD_CONTAINER_ID}`);
+            if (old) old.remove();
+
+            // Also clean up any old geo-anchored markers
             for (const m of markersRef.current) m.remove();
             markersRef.current = [];
 
             const cyclones = cyclonesRef.current;
             if (!cyclones.length) return;
 
-            for (const c of cyclones) {
-                // Resolve position: prefer GFS tracker, fall back to ATCF
-                let lat = c.currentPosition.lat;
-                let lon = c.currentPosition.lon;
-                if (gfsTrackRef.current && gfsTrackRef.current.size > 0) {
-                    const gfsPos = interpolateGfsTracker(
-                        gfsTrackRef.current, c.sid, 0,
-                        c.name, c.currentPosition.lat, c.currentPosition.lon,
-                    );
-                    if (gfsPos) { lat = gfsPos.lat; lon = gfsPos.lon; }
-                }
+            // Create fixed-position HUD container in bottom-left of map
+            const hud = document.createElement('div');
+            hud.id = HUD_CONTAINER_ID;
+            hud.style.cssText = `
+                position: absolute;
+                bottom: 16px;
+                left: 16px;
+                z-index: 600;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                pointer-events: none;
+            `;
 
-                const el = createStormBadge(c);
-                const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
-                    .setLngLat([lon, lat])
-                    .addTo(map);
-                markersRef.current.push(marker);
+            for (const c of cyclones) {
+                const badge = createStormBadge(c);
+                hud.appendChild(badge);
             }
+
+            map.getContainer().appendChild(hud);
         };
 
         let lastZoomInt = Math.round(map.getZoom());
@@ -1526,6 +1528,9 @@ export function useCycloneLayer(
             unsubWind?.();
             cancelled = true;
             map.off('zoomend', onZoomEnd);
+            // Clean up HUD
+            const hudEl = map.getContainer().querySelector(`#${HUD_CONTAINER_ID}`);
+            if (hudEl) hudEl.remove();
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
