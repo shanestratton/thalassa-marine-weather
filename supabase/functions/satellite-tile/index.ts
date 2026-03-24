@@ -6,6 +6,13 @@ const CORS_HEADERS = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+// NASA GIBS IR layers for the geostationary ring (global coverage)
+const SATELLITE_LAYERS: Record<string, string> = {
+  'himawari': 'Himawari_AHI_Band13_Clean_Infrared',
+  'goes-west': 'GOES-West_ABI_Band13_Clean_Infrared',
+  'goes-east': 'GOES-East_ABI_Band13_Clean_Infrared',
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -15,6 +22,10 @@ serve(async (req) => {
   try {
     const url = new URL(req.url)
     const zoom = Math.min(parseInt(url.searchParams.get("zoom") || url.searchParams.get("z") || "5"), 6)
+
+    // Satellite selector: himawari (default), goes-west, goes-east
+    const satParam = url.searchParams.get("sat") || "himawari"
+    const layerName = SATELLITE_LAYERS[satParam] || SATELLITE_LAYERS['himawari']
 
     // Support both modes:
     //   1. Tile coordinates: x, y, z (for Mapbox raster source)
@@ -50,7 +61,7 @@ serve(async (req) => {
     // Build NASA WMTS URL for a given date
     const base = "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/wmts.cgi"
     const params = `Service=WMTS&Request=GetTile&Version=1.0.0`
-      + `&Layer=Himawari_AHI_Band13_Clean_Infrared`
+      + `&Layer=${layerName}`
       + `&Style=default&TileMatrixSet=GoogleMapsCompatible_Level6`
       + `&TileMatrix=${zoom}&TileRow=${yTile}&TileCol=${xTile}`
       + `&Format=image%2Fpng`
@@ -72,7 +83,7 @@ serve(async (req) => {
     }
 
     if (!response.ok) {
-      throw new Error(`NASA GIBS unavailable: ${response.status}`)
+      throw new Error(`NASA GIBS ${satParam} unavailable: ${response.status}`)
     }
 
     const imageBlob = await response.blob()
@@ -83,6 +94,7 @@ serve(async (req) => {
         "Content-Type": "image/png",
         "Cache-Control": "public, max-age=600",
         "X-Satellite-Date": usedDate,
+        "X-Satellite-Source": satParam,
       },
     })
 
