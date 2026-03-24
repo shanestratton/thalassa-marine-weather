@@ -1157,26 +1157,120 @@ export function useCycloneLayer(
             // No wind-based re-scanning needed — pressure minimum is stable.
         });
 
-        // ── Rebuild markers on every integer zoom change for smooth scaling ──
-        // ── Simple red dot marker (replaces fancy TS blob) ──
-        const createRedDotEl = (): HTMLDivElement => {
-            const el = document.createElement('div');
-            el.style.cssText = `
-                width: 14px;
-                height: 14px;
-                background: radial-gradient(circle, #ff0000 0%, #cc0000 60%, rgba(200,0,0,0.4) 100%);
-                border-radius: 50%;
-                border: 2px solid rgba(255,255,255,0.9);
-                box-shadow: 0 0 8px rgba(255,0,0,0.8), 0 0 16px rgba(255,0,0,0.4);
-                pointer-events: none;
-                z-index: 500;
-            `;
-            return el;
+        // ── Storm category labels ──
+        const categoryLabels: Record<string, string> = {
+            'TD': 'Tropical Depression',
+            'TS': 'Tropical Storm',
+            '1': 'Category 1 Cyclone',
+            '2': 'Category 2 Cyclone',
+            '3': 'Category 3 Cyclone',
+            '4': 'Category 4 Cyclone',
+            '5': 'Category 5 Cyclone',
         };
 
-        // ── Rebuild markers — disabled: Himawari-9 IR makes eyes self-evident ──
+        // ── Category-based badge color ──
+        const categoryColor = (cat: number): string => {
+            if (cat >= 5) return '#ff0040';    // Cat 5: hot red
+            if (cat >= 4) return '#ff4400';    // Cat 4: red-orange
+            if (cat >= 3) return '#ff8800';    // Cat 3: orange
+            if (cat >= 2) return '#ffcc00';    // Cat 2: gold
+            if (cat >= 1) return '#00e5ff';    // Cat 1: cyan
+            return '#00bcd4';                  // TS/TD: teal
+        };
+
+        // ── Create storm info badge element ──
+        const createStormBadge = (cyclone: ActiveCyclone): HTMLDivElement => {
+            const wrapper = document.createElement('div');
+            const accentColor = categoryColor(cyclone.category);
+            const catLabel = categoryLabels[cyclone.categoryLabel] ?? `Cat ${cyclone.categoryLabel}`;
+            const stormName = cyclone.name.charAt(0) + cyclone.name.slice(1).toLowerCase();
+
+            // Pressure display
+            const pressure = cyclone.minPressureMb
+                ? `${cyclone.minPressureMb} hPa`
+                : '—';
+            // Wind display
+            const wind = cyclone.maxWindKts > 0
+                ? `${cyclone.maxWindKts} kts`
+                : '—';
+
+            wrapper.innerHTML = `
+                <div style="
+                    background: rgba(10, 15, 30, 0.82);
+                    backdrop-filter: blur(12px);
+                    -webkit-backdrop-filter: blur(12px);
+                    border: 1px solid ${accentColor}44;
+                    border-radius: 10px;
+                    padding: 8px 12px;
+                    color: #ffffff;
+                    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+                    min-width: 160px;
+                    pointer-events: none;
+                    z-index: 600;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.5), 0 0 12px ${accentColor}33;
+                ">
+                    <div style="
+                        font-size: 13px;
+                        font-weight: 700;
+                        letter-spacing: 0.3px;
+                        color: ${accentColor};
+                        margin-bottom: 2px;
+                        text-shadow: 0 0 8px ${accentColor}66;
+                    ">${catLabel}</div>
+                    <div style="
+                        font-size: 16px;
+                        font-weight: 800;
+                        color: #ffffff;
+                        margin-bottom: 6px;
+                        text-transform: capitalize;
+                    ">${stormName}</div>
+                    <div style="
+                        display: flex;
+                        gap: 12px;
+                        font-size: 11px;
+                        color: rgba(255,255,255,0.8);
+                    ">
+                        <div style="display: flex; align-items: center; gap: 3px;">
+                            <span style="color: ${accentColor}; font-size: 13px;">⬇</span>
+                            <span>${pressure}</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 3px;">
+                            <span style="color: ${accentColor}; font-size: 13px;">💨</span>
+                            <span>${wind}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            return wrapper;
+        };
+
+        // ── Rebuild markers — storm info badge at each cyclone position ──
         const rebuildMarkers = () => {
-            // Red dot markers removed — satellite IR imagery shows cyclone eyes directly
+            // Remove old markers
+            for (const m of markersRef.current) m.remove();
+            markersRef.current = [];
+
+            const cyclones = cyclonesRef.current;
+            if (!cyclones.length) return;
+
+            for (const c of cyclones) {
+                // Resolve position: prefer GFS tracker, fall back to ATCF
+                let lat = c.currentPosition.lat;
+                let lon = c.currentPosition.lon;
+                if (gfsTrackRef.current && gfsTrackRef.current.size > 0) {
+                    const gfsPos = interpolateGfsTracker(
+                        gfsTrackRef.current, c.sid, 0,
+                        c.name, c.currentPosition.lat, c.currentPosition.lon,
+                    );
+                    if (gfsPos) { lat = gfsPos.lat; lon = gfsPos.lon; }
+                }
+
+                const el = createStormBadge(c);
+                const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+                    .setLngLat([lon, lat])
+                    .addTo(map);
+                markersRef.current.push(marker);
+            }
         };
 
         let lastZoomInt = Math.round(map.getZoom());
@@ -1227,6 +1321,9 @@ export function useCycloneLayer(
                 log.info(
                     `[CYCLONE] 🔴 Using ATCF satellite-analyzed positions for ${cyclones.length} storm(s)`,
                 );
+
+                // ── Render storm info badges ──
+                rebuildMarkers();
 
                 // Find & report closest storm
                 const closest = findClosestCyclone(cyclones, userLatRef.current, userLonRef.current);
