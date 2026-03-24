@@ -371,10 +371,15 @@ function createTrackOverlay(map: mapboxgl.Map): {
                 }));
 
                 // Project forecast points to screen space
-                const screenPts = forecastAll.map(p => {
+                const rawScreenPts = forecastAll.map(p => {
                     const px = map.project([p.lon, p.lat]);
-                    return { x: px.x, y: px.y };
+                    return [px.x, px.y] as [number, number];
                 });
+
+                // Interpolate via catmull-rom for a genuinely smooth curve
+                // Raw API gives ~5-7 forecast points — we need ~50+ for smooth rendering
+                const smoothScreenPts = catmullRomSpline(rawScreenPts, 12);
+                const screenPts = smoothScreenPts.map(([x, y]) => ({ x, y }));
 
                 if (screenPts.length >= 2) {
                     // ── Cubic Bezier Spline: smooth "Glow Sleeve" path ──
@@ -393,8 +398,6 @@ function createTrackOverlay(map: mapboxgl.Map): {
 
                         pathData += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
                     }
-
-                    console.log(`[SLEEVE DEBUG] 🔴 Rendering neon tube for ${c.name}: ${screenPts.length} pts, pathData length: ${pathData.length}`);
 
                     // ── SVG Defs: Dynamic Wind-Speed Gradient ──
                     const windKtsNow = c.currentPosition.windKts || 30;
@@ -506,18 +509,19 @@ function createTrackOverlay(map: mapboxgl.Map): {
                     svg.appendChild(centerLine);
 
                     // ── LAYER 4 & 5: EXPANDING WAVY BOUNDARY EDGES ──
-                    // Maritime cone of probability: edges expand from 0 at the eye
-                    // to maximum offset at the furthest forecast point.
-                    const maxEdge = isMacro ? 16 : 35; // max half-width at end
+                    // Maritime cone of probability: edges expand from minEdge at the
+                    // eye to maxEdge at the furthest forecast point.
+                    const minEdge = isMacro ? 3 : 5;   // minimum half-width at eye
+                    const maxEdge = isMacro ? 16 : 35;  // maximum half-width at end
                     const signs = [1, -1]; // left edge, right edge
 
                     for (const sign of signs) {
                         // Build offset path — each point gets a progressively larger offset
                         const offsetPts: { x: number; y: number }[] = [];
                         for (let j = 0; j < screenPts.length; j++) {
-                            // Expanding offset: 0 at eye → maxEdge at end
+                            // Expanding offset: minEdge at eye → maxEdge at end
                             const fraction = screenPts.length > 1 ? j / (screenPts.length - 1) : 0;
-                            const expandingOffset = sign * maxEdge * fraction;
+                            const expandingOffset = sign * (minEdge + (maxEdge - minEdge) * fraction);
 
                             // Compute tangent direction at this point
                             let tdx: number, tdy: number;

@@ -385,7 +385,7 @@ export const LayerFABMenu: React.FC<{
                             {/* ── Storm picker submenu ── */}
                             {stormMenuOpen && sortedCyclones.length > 0 && (
                                 <div className="bg-black/30">
-                                    {sortedCyclones.map((storm) => {
+                                    {sortedCyclones.map((storm, idx) => {
                                         const distKm = Math.round(
                                             Math.hypot(
                                                 (storm.currentPosition.lat - userLat) * 111,
@@ -406,7 +406,7 @@ export const LayerFABMenu: React.FC<{
                                         return (
                                             <button
                                                 aria-label="Select Storm"
-                                                key={storm.sid}
+                                                key={`${storm.sid}-${idx}`}
                                                 onClick={() => {
                                                     onSelectStorm?.(storm);
                                                     setStormMenuOpen(false);
