@@ -1193,16 +1193,22 @@ export function useCycloneLayer(
 
         const resolveStormName = (cyclone: ActiveCyclone): string => {
             const raw = cyclone.name.toUpperCase().replace(/[^A-Z]/g, '');
-            // Try each number name — if the ATCF name starts with the same prefix, it's a match
+            // Find the LONGEST matching number name to avoid "TWENTY" matching before "TWENTYEIGHT"
+            let bestMatch = '';
+            let bestLen = 0;
             for (const [, fullName] of Object.entries(numberNames)) {
                 const stripped = fullName.replace(/-/g, '').toUpperCase();
                 // ATCF truncates at 10 chars: "TWENTYEIGHT" → "TWENTYEIGH"
-                // Match if either is a prefix of the other
-                if (stripped.startsWith(raw) || raw.startsWith(stripped) ||
-                    (raw.length >= 6 && stripped.startsWith(raw.slice(0, 6)))) {
-                    return fullName;
+                if (stripped.startsWith(raw) || raw.startsWith(stripped)) {
+                    // Use the match length (overlap) to pick the best
+                    const overlap = Math.min(stripped.length, raw.length);
+                    if (overlap > bestLen) {
+                        bestLen = overlap;
+                        bestMatch = fullName;
+                    }
                 }
             }
+            if (bestMatch) return bestMatch;
             // Proper named storm — title case
             return cyclone.name.charAt(0).toUpperCase() + cyclone.name.slice(1).toLowerCase();
         };
