@@ -1192,24 +1192,19 @@ export function useCycloneLayer(
         };
 
         const resolveStormName = (cyclone: ActiveCyclone): string => {
-            // Check if this is a numbered storm (name is all letters, no proper name)
-            const raw = cyclone.name.toUpperCase();
-            // Numbered storms have names like TWENTYEIGH, ONE, SIXTEEN etc.
-            // Named storms have proper names like NARELLE, ALFRED
-            const numMatch = cyclone.sid.match(/(\d+)/);
-            if (numMatch) {
-                const num = parseInt(numMatch[1]);
-                if (numberNames[num]) {
-                    // Verify it's actually a numbered storm (name starts with a number word)
-                    const fullUpper = numberNames[num].replace(/-/g, '').toUpperCase();
-                    if (raw.startsWith(fullUpper.slice(0, Math.min(raw.length, 6))) ||
-                        fullUpper.startsWith(raw.slice(0, 6))) {
-                        return numberNames[num];
-                    }
+            const raw = cyclone.name.toUpperCase().replace(/[^A-Z]/g, '');
+            // Try each number name — if the ATCF name starts with the same prefix, it's a match
+            for (const [, fullName] of Object.entries(numberNames)) {
+                const stripped = fullName.replace(/-/g, '').toUpperCase();
+                // ATCF truncates at 10 chars: "TWENTYEIGHT" → "TWENTYEIGH"
+                // Match if either is a prefix of the other
+                if (stripped.startsWith(raw) || raw.startsWith(stripped) ||
+                    (raw.length >= 6 && stripped.startsWith(raw.slice(0, 6)))) {
+                    return fullName;
                 }
             }
             // Proper named storm — title case
-            return raw.charAt(0) + raw.slice(1).toLowerCase();
+            return cyclone.name.charAt(0).toUpperCase() + cyclone.name.slice(1).toLowerCase();
         };
 
         // ── Create storm info badge element ──
