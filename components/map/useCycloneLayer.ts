@@ -1377,17 +1377,16 @@ export function useCycloneLayer(
                 focusedStorm = closest;
                 rebuildMarkers();
 
-                // ── Activate NOAA GMGSI global IR satellite composite ──
-                // GMGSI blends GOES-East + GOES-West + Himawari + Meteosat into
-                // one seamless worldwide IR mosaic — no coverage gaps
-                const IR_ID = 'gmgsi-ir-global';
+                // ── Activate Himawari-9 IR satellite overlay for storm view ──
+                // TODO: Switch to GMGSI global composite after edge function redeployment
+                const IR_ID = 'himawari-ir-satellite';
                 if (!map.getSource(IR_ID)) {
                     try {
                         const supabaseUrl =
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             (globalThis as any).__SUPABASE_URL__ ||
                             'https://pcisdplnodrphauixcau.supabase.co';
-                        const tileUrl = `${supabaseUrl}/functions/v1/satellite-tile?sat=gmgsi&z={z}&y={y}&x={x}`;
+                        const tileUrl = `${supabaseUrl}/functions/v1/satellite-tile?z={z}&y={y}&x={x}`;
 
                         const styleLayers = map.getStyle()?.layers ?? [];
                         const firstSymbolId = styleLayers.find((l) => l.type === 'symbol')?.id;
@@ -1396,8 +1395,9 @@ export function useCycloneLayer(
                             type: 'raster',
                             tiles: [tileUrl],
                             tileSize: 512,
-                            maxzoom: 8,
-                            attribution: 'NOAA GMGSI Global IR',
+                            maxzoom: 6,
+                            bounds: [60, -60, 200, 60] as [number, number, number, number],
+                            attribution: 'NASA GIBS Himawari-9 IR',
                         });
                         map.addLayer(
                             {
@@ -1412,9 +1412,9 @@ export function useCycloneLayer(
                             },
                             firstSymbolId,
                         );
-                        log.info('[CYCLONE] 🛰️ Activated NOAA GMGSI global IR satellite composite');
+                        log.info('[CYCLONE] 🛰️ Activated Himawari-9 IR satellite overlay');
                     } catch (err) {
-                        log.warn('[CYCLONE] Failed to add GMGSI IR layer:', err);
+                        log.warn('[CYCLONE] Failed to add IR satellite layer:', err);
                     }
                 }
 
@@ -1498,7 +1498,7 @@ export function useCycloneLayer(
                         .catch(err => log.warn('[CYCLONE] Failed to load borders:', err));
                 }
 
-                log.info('[CYCLONE] 🛰️ Activated global IR satellite ring + black borders for storm view');
+                log.info('[CYCLONE] 🛰️ Activated Himawari-9 IR + black borders for storm view');
 
                 // Fly to closest storm on first load
                 if (closest && !hasFlown.current) {
