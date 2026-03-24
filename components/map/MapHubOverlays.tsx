@@ -11,6 +11,32 @@ import { type WeatherLayer } from './mapConstants';
 import { type ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { triggerHaptic } from '../../utils/system';
 
+// ── Resolve truncated ATCF storm names (10-char limit) ──
+const NUMBER_NAMES: Record<number, string> = {
+    1:'One',2:'Two',3:'Three',4:'Four',5:'Five',6:'Six',7:'Seven',8:'Eight',
+    9:'Nine',10:'Ten',11:'Eleven',12:'Twelve',13:'Thirteen',14:'Fourteen',
+    15:'Fifteen',16:'Sixteen',17:'Seventeen',18:'Eighteen',19:'Nineteen',
+    20:'Twenty',21:'Twenty-One',22:'Twenty-Two',23:'Twenty-Three',
+    24:'Twenty-Four',25:'Twenty-Five',26:'Twenty-Six',27:'Twenty-Seven',
+    28:'Twenty-Eight',29:'Twenty-Nine',30:'Thirty',31:'Thirty-One',
+    32:'Thirty-Two',33:'Thirty-Three',34:'Thirty-Four',35:'Thirty-Five',
+};
+
+function resolveStormDisplayName(name: string): string {
+    const raw = name.toUpperCase().replace(/[^A-Z]/g, '');
+    let bestMatch = '';
+    let bestLen = 0;
+    for (const [, fullName] of Object.entries(NUMBER_NAMES)) {
+        const stripped = fullName.replace(/-/g, '').toUpperCase();
+        if (stripped.startsWith(raw) || raw.startsWith(stripped)) {
+            const overlap = Math.min(stripped.length, raw.length);
+            if (overlap > bestLen) { bestLen = overlap; bestMatch = fullName; }
+        }
+    }
+    if (bestMatch) return bestMatch;
+    return name.charAt(0).toUpperCase() + name.slice(1).toLowerCase();
+}
+
 // ── PointInput ──
 export const PointInput: React.FC<{
     label: string;
@@ -335,7 +361,7 @@ export const LayerFABMenu: React.FC<{
                                     <span className="flex items-center gap-1.5">
                                         <span className="w-1.5 h-1.5 rounded-full bg-red-400 shadow-lg shadow-red-400/50 animate-pulse" />
                                         <span className="text-[11px] font-bold text-red-400 uppercase tracking-wider">
-                                            {cycloneStormName || 'Active'}
+                                            {resolveStormDisplayName(cycloneStormName || 'Active')}
                                         </span>
                                         <span
                                             role="button"
@@ -425,7 +451,7 @@ export const LayerFABMenu: React.FC<{
                                                     {storm.categoryLabel}
                                                 </span>
                                                 <div className="flex-1 min-w-0">
-                                                    <div className="text-xs font-bold truncate">{storm.name}</div>
+                                                    <div className="text-xs font-bold truncate">{resolveStormDisplayName(storm.name)}</div>
                                                     <div className="text-[10px] text-gray-500">
                                                         {storm.maxWindKts}kt
                                                         {storm.minPressureMb ? ` · ${storm.minPressureMb}hPa` : ''}
