@@ -1304,7 +1304,7 @@ export function useCycloneLayer(
             hud.id = HUD_CONTAINER_ID;
             hud.style.cssText = `
                 position: absolute;
-                bottom: 16px;
+                top: 56px;
                 left: 16px;
                 z-index: 600;
                 display: flex;
