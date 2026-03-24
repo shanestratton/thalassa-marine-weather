@@ -1,6 +1,8 @@
 /**
- * @fileoverview Navigation button component for bottom tab bar
+ * @fileoverview "New Wave" tactical navigation button — neon glow theme
  * @module components/NavButton
+ *
+ * 44px min touch targets · embedded SVG icons · GPU-optimized glow
  */
 
 import React from 'react';
@@ -21,8 +23,8 @@ interface NavButtonProps {
 
 /**
  * Navigation button for the bottom tab bar.
- * Includes accessibility features for screen readers.
- * Optimized for instant response on tap.
+ * Neon "New Wave" aesthetic with electric cyan glow.
+ * Minimum 44×44 touch target for vessel movement/pitching safety.
  */
 export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onClick, badge }) => (
     <button
@@ -35,10 +37,26 @@ export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onCli
         aria-current={active ? 'page' : undefined}
         role="tab"
         aria-selected={active}
-        className={`relative z-50 cursor-pointer flex flex-col items-center justify-center gap-0.5 w-16 h-full transition-colors duration-75 active:scale-95 touch-manipulation ${active ? 'text-sky-400' : 'text-gray-400 hover:text-gray-200 active:text-sky-300'}`}
-        style={{ pointerEvents: 'auto', touchAction: 'manipulation', WebkitTapHighlightColor: 'transparent' }}
+        className="relative z-50 cursor-pointer flex flex-col items-center justify-center gap-1 min-w-[44px] min-h-[44px] h-full transition-all duration-200 active:scale-95 touch-manipulation"
+        style={{
+            pointerEvents: 'auto',
+            touchAction: 'manipulation',
+            WebkitTapHighlightColor: 'transparent',
+        }}
     >
-        <div className="relative">
+        <div
+            className="relative flex items-center justify-center"
+            style={{
+                filter: active
+                    ? 'brightness(1.5) drop-shadow(0 0 12px rgba(34, 211, 238, 1))'
+                    : 'drop-shadow(0 0 4px rgba(34, 211, 238, 0.8))',
+                transform: active ? 'scale(1.1)' : 'none',
+                transition: 'all 0.2s ease-in-out',
+                willChange: 'transform, filter',
+                width: 32,
+                height: 32,
+            }}
+        >
             {icon}
             {badge && (
                 <span className="absolute -top-1 -right-1.5 flex items-center justify-center min-w-[14px] h-[14px] bg-red-500 rounded-full border-2 border-slate-900 shadow-lg shadow-red-500/30">
@@ -51,15 +69,28 @@ export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onCli
             )}
         </div>
         <span
-            className={`text-[11px] font-bold uppercase tracking-wider leading-none mt-0.5 ${active ? 'text-sky-400' : 'text-gray-400'}`}
+            style={{
+                fontSize: 10,
+                fontWeight: 900,
+                textTransform: 'uppercase',
+                letterSpacing: '0.15em',
+                color: active ? '#22d3ee' : 'rgba(34, 211, 238, 0.6)',
+                marginTop: 6,
+                lineHeight: 1,
+                transition: 'color 0.2s ease',
+            }}
         >
             {label}
         </span>
         {active && (
             <div
-                className="absolute bottom-0.5 w-1 h-1 bg-sky-400 rounded-full shadow-[0_0_8px_rgba(56,189,248,0.8)] pointer-events-none"
+                className="absolute bottom-0.5 w-1 h-1 rounded-full pointer-events-none"
+                style={{
+                    backgroundColor: '#22d3ee',
+                    boxShadow: '0 0 8px rgba(34, 211, 238, 0.8)',
+                }}
                 aria-hidden="true"
-            ></div>
+            />
         )}
     </button>
 );

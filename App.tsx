@@ -5,12 +5,13 @@ import { useUI } from './context/UIContext';
 import { useAppController } from './hooks/useAppController';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
 import { Dashboard } from './components/Dashboard';
-import { SearchIcon, WindIcon, MapIcon, ShipWheelIcon, StarIcon, ChatIcon } from './components/Icons';
+import { SearchIcon, MapIcon, StarIcon } from './components/Icons';
 import { SkeletonDashboard } from './components/SkeletonLoader';
 import { NotificationManager } from './components/NotificationManager';
 import { ProcessOverlay } from './components/ProcessOverlay';
 import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
+import { NAV_ICON_WX, NAV_ICON_MAP, NAV_ICON_CHAT, NAV_ICON_VESSEL } from './components/icons/NavIconAssets';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemStatusButton } from './components/SystemStatusButton';
 import { ToastPortal, toast } from './components/Toast';
@@ -524,7 +525,13 @@ const App: React.FC = () => {
 
                 {!isMobileLandscape && (
                     <nav
-                        className={`fixed bottom-0 left-0 right-0 z-[900] border-t pb-[env(safe-area-inset-bottom)] ${isLight ? 'bg-slate-200/95 border-slate-300' : 'bg-slate-900 border-white/10'}`}
+                        className="fixed bottom-0 left-0 right-0 z-[900] border-t pb-[env(safe-area-inset-bottom)]"
+                        style={{
+                            background: 'rgba(10, 15, 20, 0.95)',
+                            backdropFilter: 'blur(10px)',
+                            WebkitBackdropFilter: 'blur(10px)',
+                            borderColor: 'rgba(34, 211, 238, 0.1)',
+                        }}
                         aria-label="Main"
                     >
                         <div
@@ -533,13 +540,17 @@ const App: React.FC = () => {
                             aria-label="Main navigation"
                         >
                             <NavButton
-                                icon={<WindIcon className="w-6 h-6" />}
+                                icon={
+                                    <img src={NAV_ICON_WX} alt="" draggable={false} className="w-full h-full object-contain" />
+                                }
                                 label="Wx"
                                 active={currentView === 'dashboard'}
                                 onClick={handleTabDashboard}
                             />
                             <NavButton
-                                icon={<MapIcon className="w-6 h-6" />}
+                                icon={
+                                    <img src={NAV_ICON_MAP} alt="" draggable={false} className="w-full h-full object-contain" />
+                                }
                                 label="Map"
                                 active={currentView === 'map'}
                                 onClick={() => {
@@ -548,14 +559,18 @@ const App: React.FC = () => {
                                 }}
                             />
                             <NavButton
-                                icon={<ChatIcon className="w-6 h-6" />}
+                                icon={
+                                    <img src={NAV_ICON_CHAT} alt="" draggable={false} className="w-full h-full object-contain" />
+                                }
                                 label="Chat"
                                 active={currentView === 'chat'}
                                 onClick={() => setPage('chat')}
                                 badge={chatUnread > 0 ? chatUnread : undefined}
                             />
                             <NavButton
-                                icon={<ShipWheelIcon className="w-6 h-6" />}
+                                icon={
+                                    <img src={NAV_ICON_VESSEL} alt="" draggable={false} className="w-full h-full object-contain" />
+                                }
                                 label="Vessel"
                                 active={isVesselView}
                                 onClick={() => setPage('vessel')}

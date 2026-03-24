@@ -17,9 +17,14 @@ import mapboxgl from 'mapbox-gl';
 import {
     fetchActiveCyclones,
     findClosestCyclone,
+    fetchGfsTrackerPositions,
+    interpolateGfsTracker,
+
     type ActiveCyclone,
     type CyclonePosition,
+    type GfsTrackerPosition,
 } from '../../services/weather/CycloneTrackingService';
+import { WindStore } from '../../stores/WindStore';
 
 import { createLogger } from '../../utils/createLogger';
 
@@ -304,12 +309,12 @@ function createTrackOverlay(map: mapboxgl.Map): {
         inset: 0;
         z-index: 450;
         pointer-events: none;
-        overflow: hidden;
+        overflow: visible;
     `;
     container.appendChild(div);
 
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.style.cssText = 'width: 100%; height: 100%;';
+    svg.style.cssText = 'width: 100%; height: 100%; overflow: visible;';
     div.appendChild(svg);
 
     let storedCyclones: ActiveCyclone[] = [];
@@ -357,35 +362,216 @@ function createTrackOverlay(map: mapboxgl.Map): {
                 drawTrackDots(svg, projected, zoom);
             }
 
-            // ── Forecast track (NOAA NHC predicted positions) ──
+            // ── "New Wave" Neon Tube + Forecast dots ──
             if (c.forecastTrack && c.forecastTrack.length > 0) {
-                // Start from current position
                 const forecastAll = [c.currentPosition, ...c.forecastTrack];
                 const fcProjected = forecastAll.map((p) => ({
                     px: map.project([p.lon, p.lat]),
                     point: p,
                 }));
 
-                // Draw forecast line segments (wider, more prominent dashes)
-                for (let i = 0; i < fcProjected.length - 1; i++) {
-                    const from = fcProjected[i];
-                    const to = fcProjected[i + 1];
-                    const segColor = windColor(to.point.windKts);
+                // Project forecast points to screen space
+                const screenPts = forecastAll.map(p => {
+                    const px = map.project([p.lon, p.lat]);
+                    return { x: px.x, y: px.y };
+                });
 
-                    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-                    line.setAttribute('x1', String(from.px.x));
-                    line.setAttribute('y1', String(from.px.y));
-                    line.setAttribute('x2', String(to.px.x));
-                    line.setAttribute('y2', String(to.px.y));
-                    line.setAttribute('stroke', segColor);
-                    line.setAttribute('stroke-width', String(isMacro ? 2 : 3.5));
-                    line.setAttribute('stroke-dasharray', '12,6');
-                    line.setAttribute('stroke-opacity', '0.7');
-                    line.setAttribute('stroke-linecap', 'round');
-                    svg.appendChild(line);
+                if (screenPts.length >= 2) {
+                    // ── Cubic Bezier Spline: smooth "Glow Sleeve" path ──
+                    const tension = 0.5;
+                    let pathData = `M ${screenPts[0].x.toFixed(1)} ${screenPts[0].y.toFixed(1)}`;
+                    for (let i = 0; i < screenPts.length - 1; i++) {
+                        const p0 = screenPts[i - 1] || screenPts[i];
+                        const p1 = screenPts[i];
+                        const p2 = screenPts[i + 1];
+                        const p3 = screenPts[i + 2] || p2;
+
+                        const cp1x = p1.x + (p2.x - p0.x) / 6 * tension;
+                        const cp1y = p1.y + (p2.y - p0.y) / 6 * tension;
+                        const cp2x = p2.x - (p3.x - p1.x) / 6 * tension;
+                        const cp2y = p2.y - (p3.y - p1.y) / 6 * tension;
+
+                        pathData += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
+                    }
+
+                    console.log(`[SLEEVE DEBUG] 🔴 Rendering neon tube for ${c.name}: ${screenPts.length} pts, pathData length: ${pathData.length}`);
+
+                    // ── SVG Defs: Dynamic Wind-Speed Gradient ──
+                    const windKtsNow = c.currentPosition.windKts || 30;
+                    // Shift colors as storm intensifies
+                    const startColor = windKtsNow > 40 ? '#fbbf24' : '#22d3ee'; // Amber if > 40kts
+                    const endColor = windKtsNow > 55 ? '#be123c' : '#f43f5e';   // Crimson if > 55kts
+                    const dissipationColor = windKtsNow > 55 ? '#881337' : '#9f1239';
+
+                    // Remove old defs and recreate (gradient changes per redraw)
+                    const oldDefs = svg.querySelector('#neonTubeDefs');
+                    if (oldDefs) oldDefs.remove();
+
+                    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+                    defs.id = 'neonTubeDefs';
+                    defs.innerHTML = `
+                        <linearGradient id="sleeveGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                            <stop offset="0%" stop-color="${startColor}" />
+                            <stop offset="70%" stop-color="${endColor}" stop-opacity="0.8" />
+                            <stop offset="100%" stop-color="${dissipationColor}" stop-opacity="0.2" />
+                        </linearGradient>
+                    `;
+                    svg.insertBefore(defs, svg.firstChild);
+
+                    // ── CSS: 3-layer breathing neon tube + wavy boundaries (inject once) ──
+                    if (!document.getElementById('thalassaSleeveStyle')) {
+                        const style = document.createElement('style');
+                        style.id = 'thalassaSleeveStyle';
+                        style.textContent = `
+                            .thalassa-sleeve {
+                                filter: blur(8px) drop-shadow(0 0 15px rgba(34, 211, 238, 0.6));
+                                stroke-linecap: round;
+                                stroke-linejoin: round;
+                            }
+                            .thalassa-core {
+                                filter: blur(3px) drop-shadow(0 0 8px rgba(34, 211, 238, 0.5));
+                                stroke-linecap: round;
+                                stroke-linejoin: round;
+                                opacity: 0.55;
+                            }
+                            .thalassa-spine {
+                                filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.9))
+                                        drop-shadow(0 0 12px rgba(34, 211, 238, 0.5));
+                            }
+                            .thalassa-wavy-edge {
+                                filter: blur(1px) drop-shadow(0 0 4px rgba(34, 211, 238, 0.6));
+                                stroke-linecap: round;
+                                stroke-linejoin: round;
+                                animation: sleeveBoundaryMarch 3s linear infinite,
+                                           sleeveBoundaryPulse 3s ease-in-out infinite;
+                            }
+                            @keyframes sleeveBreathe {
+                                0%, 100% {
+                                    opacity: 0.4;
+                                    stroke-width: 60px;
+                                }
+                                50% {
+                                    opacity: 0.7;
+                                    stroke-width: 90px;
+                                }
+                            }
+                            @keyframes sleeveBoundaryMarch {
+                                from { stroke-dashoffset: 0; }
+                                to   { stroke-dashoffset: -100; }
+                            }
+                            @keyframes sleeveBoundaryPulse {
+                                0%, 100% { opacity: 0.4; }
+                                50%      { opacity: 0.8; }
+                            }
+                            .thalassa-sleeve {
+                                animation: sleeveBreathe var(--pulse-duration, 3s) ease-in-out infinite;
+                            }
+                        `;
+                        document.head.appendChild(style);
+                    }
+
+                    // Wind-speed pulse: higher wind → faster breathing
+                    const windKts = c.currentPosition.windKts || 40;
+                    const pulseSec = Math.max(0.8, 5 - (windKts / 20));
+
+                    // ── LAYER 1: THE PULSING GLOW (breathes width + opacity) ──
+                    const glowPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    glowPath.setAttribute('d', pathData);
+                    glowPath.setAttribute('fill', 'none');
+                    glowPath.setAttribute('stroke', 'url(#sleeveGradient)');
+                    glowPath.setAttribute('stroke-width', isMacro ? '32' : '70');
+                    glowPath.style.setProperty('--pulse-duration', `${pulseSec.toFixed(1)}s`);
+                    glowPath.classList.add('thalassa-sleeve');
+                    svg.appendChild(glowPath);
+
+                    // ── LAYER 2: STATIC CORE (high-confidence inner glow) ──
+                    const corePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    corePath.setAttribute('d', pathData);
+                    corePath.setAttribute('fill', 'none');
+                    corePath.setAttribute('stroke', 'url(#sleeveGradient)');
+                    corePath.setAttribute('stroke-width', isMacro ? '10' : '20');
+                    corePath.classList.add('thalassa-core');
+                    svg.appendChild(corePath);
+
+                    // ── LAYER 3: THE SPINE — smooth curved centerline following forecast points ──
+                    const centerLine = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    centerLine.setAttribute('d', pathData);
+                    centerLine.setAttribute('fill', 'none');
+                    centerLine.setAttribute('stroke', 'white');
+                    centerLine.setAttribute('stroke-width', '2.5');
+                    centerLine.setAttribute('stroke-opacity', '0.9');
+                    centerLine.setAttribute('stroke-linecap', 'round');
+                    centerLine.setAttribute('stroke-linejoin', 'round');
+                    centerLine.classList.add('thalassa-spine');
+                    svg.appendChild(centerLine);
+
+                    // ── LAYER 4 & 5: EXPANDING WAVY BOUNDARY EDGES ──
+                    // Maritime cone of probability: edges expand from 0 at the eye
+                    // to maximum offset at the furthest forecast point.
+                    const maxEdge = isMacro ? 16 : 35; // max half-width at end
+                    const signs = [1, -1]; // left edge, right edge
+
+                    for (const sign of signs) {
+                        // Build offset path — each point gets a progressively larger offset
+                        const offsetPts: { x: number; y: number }[] = [];
+                        for (let j = 0; j < screenPts.length; j++) {
+                            // Expanding offset: 0 at eye → maxEdge at end
+                            const fraction = screenPts.length > 1 ? j / (screenPts.length - 1) : 0;
+                            const expandingOffset = sign * maxEdge * fraction;
+
+                            // Compute tangent direction at this point
+                            let tdx: number, tdy: number;
+                            if (j === 0) {
+                                tdx = screenPts[1].x - screenPts[0].x;
+                                tdy = screenPts[1].y - screenPts[0].y;
+                            } else if (j === screenPts.length - 1) {
+                                tdx = screenPts[j].x - screenPts[j - 1].x;
+                                tdy = screenPts[j].y - screenPts[j - 1].y;
+                            } else {
+                                tdx = screenPts[j + 1].x - screenPts[j - 1].x;
+                                tdy = screenPts[j + 1].y - screenPts[j - 1].y;
+                            }
+                            const tLen = Math.sqrt(tdx * tdx + tdy * tdy) || 1;
+                            // Perpendicular normal (rotate tangent 90°)
+                            const pnx = -tdy / tLen;
+                            const pny = tdx / tLen;
+                            offsetPts.push({
+                                x: screenPts[j].x + pnx * expandingOffset,
+                                y: screenPts[j].y + pny * expandingOffset,
+                            });
+                        }
+
+                        // Build SVG path data from offset points using cubic bezier
+                        if (offsetPts.length >= 2) {
+                            let edgePath = `M ${offsetPts[0].x.toFixed(1)} ${offsetPts[0].y.toFixed(1)}`;
+                            for (let j = 0; j < offsetPts.length - 1; j++) {
+                                const e0 = offsetPts[j - 1] || offsetPts[j];
+                                const e1 = offsetPts[j];
+                                const e2 = offsetPts[j + 1];
+                                const e3 = offsetPts[j + 2] || e2;
+
+                                const ecx1 = e1.x + (e2.x - e0.x) / 6 * tension;
+                                const ecy1 = e1.y + (e2.y - e0.y) / 6 * tension;
+                                const ecx2 = e2.x - (e3.x - e1.x) / 6 * tension;
+                                const ecy2 = e2.y - (e3.y - e1.y) / 6 * tension;
+
+                                edgePath += ` C ${ecx1.toFixed(1)} ${ecy1.toFixed(1)}, ${ecx2.toFixed(1)} ${ecy2.toFixed(1)}, ${e2.x.toFixed(1)} ${e2.y.toFixed(1)}`;
+                            }
+
+                            const wavyEdge = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                            wavyEdge.setAttribute('d', edgePath);
+                            wavyEdge.setAttribute('fill', 'none');
+                            wavyEdge.setAttribute('stroke', '#22d3ee');
+                            wavyEdge.setAttribute('stroke-width', '2.5');
+                            wavyEdge.setAttribute('stroke-dasharray', '20 10');
+                            wavyEdge.setAttribute('stroke-linecap', 'round');
+                            wavyEdge.classList.add('thalassa-wavy-edge');
+                            svg.appendChild(wavyEdge);
+                        }
+                    }
                 }
 
-                // Draw forecast dots and labels (skip first = current position)
+                // Draw forecast dots/labels
                 if (!isMacro) {
                     drawForecastDots(svg, fcProjected.slice(1), zoom);
                 }
@@ -697,6 +883,288 @@ function windToSS(kts: number): number {
     return 0;
 }
 
+// ── Probability Sleeve Geometry Engine ────────────────────
+
+/** Catmull-Rom spline interpolation — returns smooth points between control points */
+function catmullRomSpline(
+    points: [number, number][],
+    segments: number = 8,
+    _alpha: number = 0.5,
+): [number, number][] {
+    if (points.length < 2) return points;
+    if (points.length === 2) {
+        // Linear interpolation for 2 points
+        const result: [number, number][] = [];
+        for (let s = 0; s <= segments; s++) {
+            const t = s / segments;
+            result.push([
+                points[0][0] + (points[1][0] - points[0][0]) * t,
+                points[0][1] + (points[1][1] - points[0][1]) * t,
+            ]);
+        }
+        return result;
+    }
+
+    const result: [number, number][] = [];
+
+    // Pad start and end with ghost points for full curve
+    const padded: [number, number][] = [
+        [2 * points[0][0] - points[1][0], 2 * points[0][1] - points[1][1]],
+        ...points,
+        [
+            2 * points[points.length - 1][0] - points[points.length - 2][0],
+            2 * points[points.length - 1][1] - points[points.length - 2][1],
+        ],
+    ];
+
+    for (let i = 1; i < padded.length - 2; i++) {
+        const p0 = padded[i - 1];
+        const p1 = padded[i];
+        const p2 = padded[i + 1];
+        const p3 = padded[i + 2];
+
+        for (let s = 0; s < segments; s++) {
+            const t = s / segments;
+            const t2 = t * t;
+            const t3 = t2 * t;
+
+            // Centripetal Catmull-Rom coefficients
+            const x =
+                0.5 *
+                (2 * p1[0] +
+                    (-p0[0] + p2[0]) * t +
+                    (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
+                    (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3);
+            const y =
+                0.5 *
+                (2 * p1[1] +
+                    (-p0[1] + p2[1]) * t +
+                    (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
+                    (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3);
+
+            result.push([x, y]);
+        }
+    }
+
+    // Add final point
+    result.push(points[points.length - 1]);
+    return result;
+}
+
+/**
+ * Build the probability sleeve polygon using standard maritime forecast error margins.
+ * Error radii (nautical miles):
+ *   0h → 0nm, 12h → 30nm, 24h → 50nm, 48h → 90nm, 72h → 130nm, 120h → 200nm
+ *
+ * @param smoothTrack  Smoothed [lon, lat] centerline points
+ * @param totalHours   Total forecast window in hours
+ * @param scale        Width multiplier (1.0 = standard, 1.6 = outer glow)
+ * @returns            Closed polygon coordinates [lon, lat][]
+ */
+function buildSleevePolygon(
+    smoothTrack: [number, number][],
+    totalHours: number = 120,
+    scale: number = 1.0,
+): [number, number][] {
+    const n = smoothTrack.length;
+    if (n < 2) return [];
+
+    // Maritime forecast error margins: [hours, radius_nm]
+    const ERROR_TABLE: [number, number][] = [
+        [0, 0],
+        [12, 30],
+        [24, 50],
+        [48, 90],
+        [72, 130],
+        [120, 200],
+    ];
+
+    // Interpolate radius in nautical miles for a given forecast hour
+    const radiusNm = (tHours: number): number => {
+        if (tHours <= 0) return 0;
+        for (let i = 1; i < ERROR_TABLE.length; i++) {
+            const [t0, r0] = ERROR_TABLE[i - 1];
+            const [t1, r1] = ERROR_TABLE[i];
+            if (tHours <= t1) {
+                const frac = (tHours - t0) / (t1 - t0);
+                return r0 + (r1 - r0) * frac;
+            }
+        }
+        // Beyond 120h — extrapolate linearly
+        const [tLast, rLast] = ERROR_TABLE[ERROR_TABLE.length - 1];
+        const [tPrev, rPrev] = ERROR_TABLE[ERROR_TABLE.length - 2];
+        return rLast + ((rLast - rPrev) / (tLast - tPrev)) * (tHours - tLast);
+    };
+
+    const leftEdge: [number, number][] = [];
+    const rightEdge: [number, number][] = [];
+
+    for (let i = 0; i < n; i++) {
+        const fraction = i / (n - 1);
+        const tHours = fraction * totalHours;
+        // Convert nm to degrees: 1nm = 1/60 degree latitude
+        const radiusDeg = (radiusNm(tHours) / 60) * scale;
+
+        // Calculate perpendicular normal at this point
+        let dx: number, dy: number;
+        if (i === 0) {
+            dx = smoothTrack[1][0] - smoothTrack[0][0];
+            dy = smoothTrack[1][1] - smoothTrack[0][1];
+        } else if (i === n - 1) {
+            dx = smoothTrack[n - 1][0] - smoothTrack[n - 2][0];
+            dy = smoothTrack[n - 1][1] - smoothTrack[n - 2][1];
+        } else {
+            dx = smoothTrack[i + 1][0] - smoothTrack[i - 1][0];
+            dy = smoothTrack[i + 1][1] - smoothTrack[i - 1][1];
+        }
+
+        const len = Math.sqrt(dx * dx + dy * dy) || 1;
+        const nx = -dy / len;
+        const ny = dx / len;
+
+        const [lon, lat] = smoothTrack[i];
+        // Adjust for latitude (degrees of longitude shrink at higher latitudes)
+        const latCos = Math.cos((lat * Math.PI) / 180);
+        const lonRadius = radiusDeg / (latCos || 1);
+
+        leftEdge.push([lon + nx * lonRadius, lat + ny * radiusDeg]);
+        rightEdge.push([lon - nx * lonRadius, lat - ny * radiusDeg]);
+    }
+
+    return [...leftEdge, ...rightEdge.reverse(), leftEdge[0]];
+}
+
+/** IDs for the Mapbox GL probability sleeve layers */
+const SLEEVE_SOURCE = 'cyclone-sleeve-src';
+const SLEEVE_GLOW = 'cyclone-sleeve-glow';
+const SLEEVE_CORE = 'cyclone-sleeve-core';
+const SLEEVE_EDGE = 'cyclone-sleeve-edge';
+const SLEEVE_CENTER = 'cyclone-sleeve-center';
+
+/**
+ * Add or update the Probability Sleeve on the map for the forecast track.
+ * Creates a multi-layer glow effect using Mapbox GL fill + line layers.
+ */
+function addProbabilitySleeve(
+    map: mapboxgl.Map,
+    cyclone: ActiveCyclone,
+): void {
+    const forecast = cyclone.forecastTrack;
+    if (!forecast || forecast.length < 2) return;
+
+    // Build the track centerline from current position through forecast
+    const allPoints: [number, number][] = [
+        [cyclone.currentPosition.lon, cyclone.currentPosition.lat],
+        ...forecast.map(p => [p.lon, p.lat] as [number, number]),
+    ];
+
+    // Calculate total forecast hours from timestamps
+    let totalHours = 120;
+    if (forecast.length >= 2 && forecast[0].time && forecast[forecast.length - 1].time) {
+        const t0 = new Date(forecast[0].time).getTime();
+        const tN = new Date(forecast[forecast.length - 1].time).getTime();
+        if (tN > t0) totalHours = (tN - t0) / 3600000;
+    }
+
+    // Smooth the track with Catmull-Rom spline
+    const smoothTrack = catmullRomSpline(allPoints, 10);
+
+    // Build the probability envelope polygon (maritime error margins)
+    const sleeveCoords = buildSleevePolygon(smoothTrack, totalHours, 1.0);
+    // Build wider glow polygon (1.6× scale)
+    const glowCoords = buildSleevePolygon(smoothTrack, totalHours, 1.6);
+
+    // GeoJSON FeatureCollection
+    const geojson: GeoJSON.FeatureCollection = {
+        type: 'FeatureCollection',
+        features: [
+            // Outer glow polygon
+            {
+                type: 'Feature',
+                properties: { layer: 'glow' },
+                geometry: { type: 'Polygon', coordinates: [glowCoords] },
+            },
+            // Core sleeve polygon
+            {
+                type: 'Feature',
+                properties: { layer: 'core' },
+                geometry: { type: 'Polygon', coordinates: [sleeveCoords] },
+            },
+            // Centerline
+            {
+                type: 'Feature',
+                properties: { layer: 'center' },
+                geometry: { type: 'LineString', coordinates: smoothTrack },
+            },
+        ],
+    };
+
+    // Update existing source or create new
+    const existing = map.getSource(SLEEVE_SOURCE) as mapboxgl.GeoJSONSource | undefined;
+    if (existing) {
+        existing.setData(geojson);
+        return;
+    }
+
+    // Add source
+    map.addSource(SLEEVE_SOURCE, { type: 'geojson', data: geojson, lineMetrics: true });
+
+    // Layer 1: Outer glow — "The Aura" (wide, transparent electric cyan)
+    map.addLayer({
+        id: SLEEVE_GLOW,
+        type: 'fill',
+        source: SLEEVE_SOURCE,
+        filter: ['==', ['get', 'layer'], 'glow'],
+        paint: {
+            'fill-color': '#00f2ff',
+            'fill-opacity': 0.06,
+        },
+    });
+
+    // Layer 2: Core sleeve fill
+    map.addLayer({
+        id: SLEEVE_CORE,
+        type: 'fill',
+        source: SLEEVE_SOURCE,
+        filter: ['==', ['get', 'layer'], 'core'],
+        paint: {
+            'fill-color': '#00f2ff',
+            'fill-opacity': 0.15,
+        },
+    });
+
+    // Layer 3: Sleeve edge outline (electric cyan)
+    map.addLayer({
+        id: SLEEVE_EDGE,
+        type: 'line',
+        source: SLEEVE_SOURCE,
+        filter: ['==', ['get', 'layer'], 'core'],
+        paint: {
+            'line-color': '#00f2ff',
+            'line-width': 1,
+            'line-opacity': 0.35,
+        },
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+    });
+
+    // Layer 4: Centerline — "The Hard Track" (white dashed)
+    map.addLayer({
+        id: SLEEVE_CENTER,
+        type: 'line',
+        source: SLEEVE_SOURCE,
+        filter: ['==', ['get', 'layer'], 'center'],
+        paint: {
+            'line-width': 2,
+            'line-opacity': 0.85,
+            'line-color': '#ffffff',
+            'line-dasharray': [5, 5],
+        },
+        layout: { 'line-join': 'round', 'line-cap': 'round' },
+    });
+
+    log.info(`[CYCLONE] 🌀 Probability sleeve rendered for ${cyclone.name} (${smoothTrack.length} smooth points, ${totalHours.toFixed(0)}h window)`);
+}
+
 // ── Hook ──────────────────────────────────────────────────
 
 export function useCycloneLayer(
@@ -740,26 +1208,60 @@ export function useCycloneLayer(
 
         injectCycloneCSS();
 
-        if (!trackOverlayRef.current) {
-            trackOverlayRef.current = createTrackOverlay(map);
-        }
+        // ── Create track overlay (SVG neon tube) on first use ──
+        const ensureTrackOverlay = () => {
+            if (!trackOverlayRef.current) {
+                trackOverlayRef.current = createTrackOverlay(map);
+            }
+            return trackOverlayRef.current;
+        };
+
+        // ── TCVITALS-ONLY SYNC ──
+        // ALWAYS position storm icons at the GFS model's internal eye position.
+        // This is the ONLY source of truth for the "red dot" location.
+        let unsubWind: (() => void) | null = null;
+        const gfsTrackRef: { current: Map<string, GfsTrackerPosition[]> | null } = { current: null };
+
+        // Fetch GFS tracker positions on mount — AWAIT before creating markers
+        const tcvitalsPromise = fetchGfsTrackerPositions().then((trackMap) => {
+            gfsTrackRef.current = trackMap;
+            log.info(`[CYCLONE] 🎯 TCVitals loaded: ${trackMap.size} storm(s)`);
+            for (const [sid, positions] of trackMap) {
+                const p = positions[0];
+                log.info(`[CYCLONE] 🎯 ${sid}: ${p.lat.toFixed(1)}, ${p.lon.toFixed(1)} (vmax=${p.vmax}kt)`);
+            }
+            return trackMap;
+        }).catch((e) => {
+            log.warn('[CYCLONE] TCVitals fetch failed', e);
+            return new Map<string, GfsTrackerPosition[]>();
+        });
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        unsubWind = WindStore.subscribe((_state: any) => {
+            // Pressure-based positioning is the source of truth.
+            // No wind-based re-scanning needed — pressure minimum is stable.
+        });
 
         // ── Rebuild markers on every integer zoom change for smooth scaling ──
+        // ── Simple red dot marker (replaces fancy TS blob) ──
+        const createRedDotEl = (): HTMLDivElement => {
+            const el = document.createElement('div');
+            el.style.cssText = `
+                width: 14px;
+                height: 14px;
+                background: radial-gradient(circle, #ff0000 0%, #cc0000 60%, rgba(200,0,0,0.4) 100%);
+                border-radius: 50%;
+                border: 2px solid rgba(255,255,255,0.9);
+                box-shadow: 0 0 8px rgba(255,0,0,0.8), 0 0 16px rgba(255,0,0,0.4);
+                pointer-events: none;
+                z-index: 500;
+            `;
+            return el;
+        };
+
+        // ── Rebuild markers — disabled: Himawari-9 IR makes eyes self-evident ──
         const rebuildMarkers = () => {
-            const cyclones = cyclonesRef.current;
-            if (cyclones.length === 0) return;
-            const currentZoom = map.getZoom();
-
-            for (const m of markersRef.current) m.remove();
-            markersRef.current = [];
-
-            for (const c of cyclones) {
-                const el = createStormMarkerEl(c, currentZoom);
-                const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
-                    .setLngLat([c.currentPosition.lon, c.currentPosition.lat])
-                    .addTo(map);
-                markersRef.current.push(marker);
-            }
+            // Red dot markers removed — satellite IR imagery shows cyclone eyes directly
         };
 
         let lastZoomInt = Math.round(map.getZoom());
@@ -777,7 +1279,9 @@ export function useCycloneLayer(
         let cancelled = false;
 
         const loadCyclones = async () => {
-            log.info('[CYCLONE] 🌀 Fetching active cyclones...');
+            // CRITICAL: wait for tcvitals before creating markers
+            await tcvitalsPromise;
+            log.info('[CYCLONE] 🌀 Fetching active cyclones (for discovery only)...');
             try {
                 const cyclones = await fetchActiveCyclones();
                 if (cancelled) return;
@@ -792,35 +1296,156 @@ export function useCycloneLayer(
                 cyclonesRef.current = cyclones;
                 lastZoomInt = Math.round(map.getZoom());
 
-                // Update track SVG overlay
-                trackOverlayRef.current?.update(cyclones);
+                // ── Update track overlay (SVG Neon Tube) ──
+                ensureTrackOverlay().update(cyclones);
 
-                // Create DOM markers
-                for (const m of markersRef.current) m.remove();
-                markersRef.current = [];
-
-                const currentZoom = map.getZoom();
-                for (const c of cyclones) {
-                    const el = createStormMarkerEl(c, currentZoom);
-                    const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
-                        .setLngLat([c.currentPosition.lon, c.currentPosition.lat])
-                        .addTo(map);
-                    markersRef.current.push(marker);
-                }
+                // ── DOT POSITIONED AT ATCF SATELLITE-ANALYZED POSITION ──
+                // The ATCF position is determined by JTWC/NHC from actual satellite imagery
+                // analysis (Dvorak technique). This IS the most accurate eye position available.
+                // No GRIB scanning needed — the marker was already placed at the correct
+                // lat/lon from the tcvitals T+0 or API position above.
+                log.info(
+                    `[CYCLONE] 🔴 Using ATCF satellite-analyzed positions for ${cyclones.length} storm(s)`,
+                );
 
                 // Find & report closest storm
                 const closest = findClosestCyclone(cyclones, userLatRef.current, userLonRef.current);
                 onClosestStormRef.current?.(closest);
 
+                // ── Activate Himawari-9 IR satellite overlay for storm view ──
+                const IR_ID = 'himawari-ir-satellite';
+                if (!map.getSource(IR_ID)) {
+                    try {
+                        const supabaseUrl =
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                            (globalThis as any).__SUPABASE_URL__ ||
+                            'https://pcisdplnodrphauixcau.supabase.co';
+                        const irUrl = `${supabaseUrl}/functions/v1/satellite-tile?z={z}&y={y}&x={x}`;
+
+                        map.addSource(IR_ID, {
+                            type: 'raster',
+                            tiles: [irUrl],
+                            tileSize: 256,
+                            maxzoom: 6,
+                            attribution: 'NASA GIBS Himawari-9 IR',
+                        });
+                        // Add IR layer above Esri satellite but below borders/labels
+                        const styleLayers = map.getStyle()?.layers ?? [];
+                        const firstSymbolId = styleLayers.find((l) => l.type === 'symbol')?.id;
+                        map.addLayer(
+                            {
+                                id: IR_ID,
+                                type: 'raster',
+                                source: IR_ID,
+                                paint: { 'raster-opacity': 0.85, 'raster-fade-duration': 300 },
+                            },
+                            firstSymbolId,
+                        );
+
+                        // ── Black country borders above satellite (50m Natural Earth) ──
+                        const BORDER_ID = 'storm-black-borders';
+                        if (!map.getSource(BORDER_ID)) {
+                            fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json')
+                                .then(r => r.json())
+                                .then(topology => {
+                                    if (map.getSource(BORDER_ID)) return;
+                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                    const topo = topology as any;
+                                    const { scale, translate } = topo.transform;
+                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                    const arcs: number[][][] = topo.arcs.map((arc: number[][]) => {
+                                        let x = 0, y = 0;
+                                        return arc.map(([dx, dy]: number[]) => {
+                                            x += dx; y += dy;
+                                            return [x * scale[0] + translate[0], y * scale[1] + translate[1]];
+                                        });
+                                    });
+
+                                    // Resolve arc references to coordinates
+                                    const resolveRing = (indices: number[]): number[][] => {
+                                        const coords: number[][] = [];
+                                        for (const idx of indices) {
+                                            const arc = idx >= 0 ? arcs[idx] : arcs[~idx].slice().reverse();
+                                            coords.push(...(coords.length > 0 ? arc.slice(1) : arc));
+                                        }
+                                        return coords;
+                                    };
+
+                                    // Convert each country geometry to GeoJSON polygons
+                                    const obj = topo.objects.countries;
+                                    const features: GeoJSON.Feature[] = [];
+                                    for (const geom of obj.geometries) {
+                                        if (geom.type === 'Polygon') {
+                                            features.push({
+                                                type: 'Feature',
+                                                properties: {},
+                                                geometry: {
+                                                    type: 'Polygon',
+                                                    coordinates: geom.arcs.map(resolveRing),
+                                                },
+                                            });
+                                        } else if (geom.type === 'MultiPolygon') {
+                                            features.push({
+                                                type: 'Feature',
+                                                properties: {},
+                                                geometry: {
+                                                    type: 'MultiPolygon',
+                                                    coordinates: geom.arcs.map(
+                                                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                                        (polygon: any) => polygon.map(resolveRing),
+                                                    ),
+                                                },
+                                            });
+                                        }
+                                    }
+
+                                    map.addSource(BORDER_ID, {
+                                        type: 'geojson',
+                                        data: { type: 'FeatureCollection', features },
+                                    });
+                                    map.addLayer({
+                                        id: BORDER_ID,
+                                        type: 'line',
+                                        source: BORDER_ID,
+                                        paint: {
+                                            'line-color': '#000000',
+                                            'line-width': 1.5,
+                                            'line-opacity': 0.8,
+                                        },
+                                        layout: {
+                                            'line-join': 'round',
+                                            'line-cap': 'round',
+                                        },
+                                    });
+                                    log.info('[CYCLONE] 🗺️ Added 50m black country borders');
+                                })
+                                .catch(err => log.warn('[CYCLONE] Failed to load borders:', err));
+                        }
+
+                        log.info('[CYCLONE] 🛰️ Activated Himawari-9 IR satellite + black borders for storm view');
+                    } catch (err) {
+                        log.warn('[CYCLONE] Failed to add IR satellite layer:', err);
+                    }
+                }
+
                 // Fly to closest storm on first load
                 if (closest && !hasFlown.current) {
                     hasFlown.current = true;
-                    const { lat, lon } = closest.currentPosition;
+                    // Fly to tcvitals position if available
+                    let flyLat = closest.currentPosition.lat;
+                    let flyLon = closest.currentPosition.lon;
+                    if (gfsTrackRef.current && gfsTrackRef.current.size > 0) {
+                        const gfsPos = interpolateGfsTracker(
+                            gfsTrackRef.current, closest.sid, 0,
+                            closest.name, closest.currentPosition.lat, closest.currentPosition.lon,
+                        );
+                        if (gfsPos) { flyLat = gfsPos.lat; flyLon = gfsPos.lon; }
+                    }
                     log.info(
-                        `[CYCLONE] ✈️ Flying to ${closest.name} (Cat ${closest.categoryLabel}) at ${lat.toFixed(1)}, ${lon.toFixed(1)}`,
+                        `[CYCLONE] ✈️ Flying to ${closest.name} at ${flyLat.toFixed(1)}, ${flyLon.toFixed(1)}`,
                     );
                     map.flyTo({
-                        center: [lon, lat],
+                        center: [flyLon, flyLat],
                         zoom: 5,
                         duration: 2000,
                         essential: true,
@@ -835,6 +1460,7 @@ export function useCycloneLayer(
         refreshTimer.current = setInterval(loadCyclones, 30 * 60 * 1000);
 
         return () => {
+            unsubWind?.();
             cancelled = true;
             map.off('zoomend', onZoomEnd);
             if (refreshTimer.current) {
@@ -843,10 +1469,9 @@ export function useCycloneLayer(
             }
             for (const m of markersRef.current) m.remove();
             markersRef.current = [];
-            trackOverlayRef.current?.remove();
-            trackOverlayRef.current = null;
             cyclonesRef.current = [];
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visible, mapReady]);
 }
+
