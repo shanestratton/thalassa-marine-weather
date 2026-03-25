@@ -16,7 +16,7 @@ const makeTask = (overrides: Partial<MaintenanceTask> = {}): MaintenanceTask => 
     title: 'Oil Change',
     description: 'Change engine oil',
     category: 'engine' as any,
-    trigger_type: 'calendar',
+    trigger_type: 'monthly',
     interval_value: 90,
     next_due_date: null,
     next_due_hours: null,
@@ -150,7 +150,11 @@ describe('calculateStatus', () => {
 // ── sortByUrgency ────────────────────────────────────────────────
 
 describe('sortByUrgency', () => {
-    const makeTWS = (status: 'red' | 'yellow' | 'green' | 'grey', days: number | null = null, hours: number | null = null): TaskWithStatus => ({
+    const makeTWS = (
+        status: 'red' | 'yellow' | 'green' | 'grey',
+        days: number | null = null,
+        hours: number | null = null,
+    ): TaskWithStatus => ({
         ...makeTask(),
         status,
         statusLabel: '',
@@ -159,31 +163,19 @@ describe('sortByUrgency', () => {
     });
 
     it('sorts red before yellow before green before grey', () => {
-        const tasks = [
-            makeTWS('green'),
-            makeTWS('grey'),
-            makeTWS('red'),
-            makeTWS('yellow'),
-        ];
+        const tasks = [makeTWS('green'), makeTWS('grey'), makeTWS('red'), makeTWS('yellow')];
         const sorted = sortByUrgency(tasks);
-        expect(sorted.map(t => t.status)).toEqual(['red', 'yellow', 'green', 'grey']);
+        expect(sorted.map((t) => t.status)).toEqual(['red', 'yellow', 'green', 'grey']);
     });
 
     it('within same priority, sorts by smallest remaining', () => {
-        const tasks = [
-            makeTWS('yellow', 10, null),
-            makeTWS('yellow', 3, null),
-            makeTWS('yellow', 7, null),
-        ];
+        const tasks = [makeTWS('yellow', 10, null), makeTWS('yellow', 3, null), makeTWS('yellow', 7, null)];
         const sorted = sortByUrgency(tasks);
-        expect(sorted.map(t => t.daysRemaining)).toEqual([3, 7, 10]);
+        expect(sorted.map((t) => t.daysRemaining)).toEqual([3, 7, 10]);
     });
 
     it('prefers hoursRemaining over daysRemaining when both present', () => {
-        const tasks = [
-            makeTWS('yellow', 5, 15),
-            makeTWS('yellow', 10, 5),
-        ];
+        const tasks = [makeTWS('yellow', 5, 15), makeTWS('yellow', 10, 5)];
         const sorted = sortByUrgency(tasks);
         // hoursRemaining is checked first, so 5 < 15
         expect(sorted[0].hoursRemaining).toBe(5);
