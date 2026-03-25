@@ -269,14 +269,17 @@ export const MapHub: React.FC<MapHubProps> = ({
         const map = mapRef.current;
         if (!map || !mapReady || !cycloneVisible || !closestStorm) return;
 
-        const onZoom = () => {
+        const onZoomEnd = () => {
             const storm = closestStorm;
             if (!storm) return;
-            map.setCenter([storm.currentPosition.lon, storm.currentPosition.lat]);
+            map.easeTo({
+                center: [storm.currentPosition.lon, storm.currentPosition.lat],
+                duration: 300,
+            });
         };
-        map.on('zoom', onZoom);
+        map.on('zoomend', onZoomEnd);
         return () => {
-            map.off('zoom', onZoom);
+            map.off('zoomend', onZoomEnd);
         };
     }, [cycloneVisible, closestStorm, mapReady, mapRef]);
 

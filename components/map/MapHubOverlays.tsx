@@ -313,7 +313,7 @@ export const LayerFABMenu: React.FC<{
     });
 
     return (
-        <div className={`absolute z-[500] flex flex-col items-end gap-2 top-14 right-4`}>
+        <div className={`absolute z-[700] flex flex-col items-end gap-2 top-14 right-4`}>
             <button
                 aria-label="Menu"
                 onClick={() => {
