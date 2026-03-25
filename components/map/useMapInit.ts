@@ -226,6 +226,14 @@ export function useMapInit(opts: UseMapInitOptions) {
                     if (layer.type === 'symbol' && layer.id.match(/road|motorway|highway|shield|trunk/i)) {
                         map.setLayoutProperty(layer.id, 'visibility', 'none');
                     }
+                    // Hide lat/lon graticule and admin boundary lines to keep weather imagery unobstructed
+                    if (layer.type === 'line') {
+                        log.info(`[MAP_LINE_LAYER] id="${layer.id}"`);
+                        if (layer.id.match(/admin|boundary|border|graticule|grid|latitude|longitude|meridian/i)) {
+                            map.setLayoutProperty(layer.id, 'visibility', 'none');
+                            log.info(`[MAP_LINE_HIDDEN] ${layer.id}`);
+                        }
+                    }
                     // Boost place labels so they're readable under wind particles
                     if (
                         layer.type === 'symbol' &&
