@@ -1,17 +1,21 @@
 /**
  * SatelliteImageryService — Real-time satellite imagery tiles.
  *
- * Uses RealEarth (University of Wisconsin SSEC/CIMSS) XYZ tile API.
- * Free, CORS-enabled, no API key required, updates every 10-15 minutes.
+ * Multi-source enhanced IR satellite tiles for global storm monitoring:
  *
- * Product coverage:
- *   - globalir: Global composite IR from ALL geostationary sats (GOES-16/18, Himawari, Meteosat)
- *   - G16-ABI-FD-BAND13: GOES-16 Clean IR (Americas/Atlantic)
- *   - G18-ABI-FD-BAND13: GOES-18 Clean IR (Pacific)
- *   - MSG-SEVIRI-FD-IR10.8: Meteosat (Europe/Africa/Indian Ocean)
+ * 1. **IEM (Iowa Environmental Mesonet)** — GOES-East & GOES-West
+ *    Academic-grade WMS from Iowa State University. Serves colour-enhanced
+ *    Band 13 (Clean Longwave IR) with cloud-top temperature colouring.
+ *    Free, reliable, no API key. WMS 1.1.1, EPSG:3857.
+ *    - GOES-East Full Disk: Atlantic, Americas, E Pacific (~15°W to ~135°W)
+ *    - GOES-West Full Disk: Pacific, W Americas (~100°W to ~175°E)
  *
- * The "globalir" product is the default — it stitches all satellites together,
- * so it works for tropical cyclones in ANY basin worldwide.
+ * 2. **RealEarth (UW SSEC/CIMSS)** — Himawari-9
+ *    XYZ tile API, Himawari-9 Band 13 GRAD (enhanced colour table).
+ *    Full disk: W Pacific, Australia, Indian Ocean (~60°E to ~160°W)
+ *    Free, CORS-enabled, no API key.
+ *
+ * Together these 3 satellites provide near-global enhanced IR coverage.
  */
 
 import mapboxgl from 'mapbox-gl';
@@ -20,20 +24,46 @@ import { createLogger } from '../../utils/createLogger';
 const log = createLogger('SatelliteImagery');
 
 // ── Tile URLs ─────────────────────────────────────────────
-// RealEarth XYZ API: https://realearth.ssec.wisc.edu/doc/api.php
+// IEM WMS: https://mesonet.agron.iastate.edu/ogc/
+// RealEarth XYZ: https://realearth.ssec.wisc.edu/doc/api.php
+
+// Supabase Edge Function URL for proxied satellite tiles
+const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 
 const TILE_SOURCES = {
-    /** Global composite IR — all geostationary satellites merged. Best default. */
-    'global-ir': 'https://realearth.ssec.wisc.edu/api/image?products=globalir&x={x}&y={y}&z={z}',
-    /** GOES-16 Band 13 Clean IR — Americas + Atlantic */
-    'goes-east-ir': 'https://realearth.ssec.wisc.edu/api/image?products=G16-ABI-FD-BAND13&x={x}&y={y}&z={z}',
-    /** GOES-18 Band 13 Clean IR — Pacific */
-    'goes-west-ir': 'https://realearth.ssec.wisc.edu/api/image?products=G18-ABI-FD-BAND13&x={x}&y={y}&z={z}',
-    /** Meteosat SEVIRI IR10.8 — Europe, Africa, Indian Ocean */
-    'meteosat-ir': 'https://realearth.ssec.wisc.edu/api/image?products=MSG-SEVIRI-FD-IR10.8&x={x}&y={y}&z={z}',
-} as const;
+    /** GOES-East Full Disk enhanced IR — Atlantic, Americas, E Pacific (IEM WMS) */
+    'goes-east-ir':
+        'https://mesonet.agron.iastate.edu/cgi-bin/wms/goes_east.cgi?' +
+        'SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=fulldisk_ch13' +
+        '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/png&TRANSPARENT=TRUE',
 
-export type SatelliteLayer = keyof typeof TILE_SOURCES;
+    /** GOES-West Full Disk enhanced IR — Pacific, W Americas, Australia (IEM WMS) */
+    'goes-west-ir':
+        'https://mesonet.agron.iastate.edu/cgi-bin/wms/goes_west.cgi?' +
+        'SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=fulldisk_ch13' +
+        '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/png&TRANSPARENT=TRUE',
+
+    /** Himawari-9 Band 13 Clean IR (enhanced color palette)
+     *  Proxied via satellite-tile edge function → NASA GIBS
+     *  Color-enhanced tiles (blues/greens/yellows), no rate limiting */
+    'himawari-ir': `${SUPABASE_URL}/functions/v1/satellite-tile?sat=himawari&x={x}&y={y}&z={z}`,
+
+    /** GMGSI Global Longwave IR — seamless composite of all geostationary sats
+     *  (GOES-18 + GOES-19 + Himawari-9 + Meteosat-9 + Meteosat-10)
+     *  nowCOAST GeoServer WMS — grayscale, hourly, full global coverage */
+    'gmgsi-ir':
+        'https://nowcoast.noaa.gov/geoserver/satellite/wms?' +
+        'SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=global_longwave_imagery_mosaic' +
+        '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/png&TRANSPARENT=TRUE',
+
+    /** Default: GOES-East as global fallback (best Americas/Atlantic coverage) */
+    'global-ir':
+        'https://mesonet.agron.iastate.edu/cgi-bin/wms/goes_east.cgi?' +
+        'SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=fulldisk_ch13' +
+        '&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256&FORMAT=image/png&TRANSPARENT=TRUE',
+} as Record<string, string>;
+
+export type SatelliteLayer = 'goes-east-ir' | 'goes-west-ir' | 'himawari-ir' | 'gmgsi-ir' | 'global-ir';
 
 const SOURCE_ID = 'noaa-satellite-source';
 const LAYER_ID = 'noaa-satellite-layer';
@@ -42,19 +72,23 @@ const LAYER_ID = 'noaa-satellite-layer';
 
 /**
  * Pick the best satellite product for a given cyclone basin.
- * Falls back to global-ir which covers everything.
+ *
+ * Basin codes (ATCF):
+ *   L/AL = Atlantic, E/EP = Eastern Pacific, C/CP = Central Pacific
+ *   W/WP = Western Pacific, P/AU/SP = Australian / South Pacific
+ *   S/SI = South Indian Ocean, A/B/IO/NI = North Indian Ocean
  */
 export function bestProductForBasin(basin: string): SatelliteLayer {
     const b = basin.toUpperCase();
-    // Atlantic, Eastern Pacific, Central Pacific → GOES-East
+    // Atlantic, Eastern Pacific, Central Pacific → GOES-East (IEM)
     if (['L', 'AL', 'E', 'EP', 'C', 'CP'].includes(b)) return 'goes-east-ir';
-    // Western Pacific → GOES-West (better Pacific coverage)
-    if (['W', 'WP'].includes(b)) return 'goes-west-ir';
-    // Australian / South Pacific → GOES-West (Himawari area, but GOES-18 extends further)
-    if (['P', 'AU', 'SP'].includes(b)) return 'global-ir'; // Global composite best here
-    // Indian Ocean → Meteosat
-    if (['S', 'SI', 'A', 'B', 'IO', 'NI', 'BB', 'AS'].includes(b)) return 'meteosat-ir';
-    // Default: global composite
+    // Western Pacific → Himawari-9 (RealEarth)
+    if (['W', 'WP'].includes(b)) return 'himawari-ir';
+    // Australian / South Pacific → Himawari-9 (covers SW Pacific well)
+    if (['P', 'AU', 'SP'].includes(b)) return 'himawari-ir';
+    // Indian Ocean → Himawari-9 (covers ~60°E westward edge)
+    if (['S', 'SI', 'A', 'B', 'IO', 'NI', 'BB', 'AS'].includes(b)) return 'himawari-ir';
+    // Default: GOES-East (best general coverage)
     return 'global-ir';
 }
 
@@ -69,13 +103,19 @@ export function addSatelliteLayer(map: mapboxgl.Map, type: SatelliteLayer = 'glo
     removeSatelliteLayer(map);
 
     const tileUrl = TILE_SOURCES[type];
-    log.info(`[SAT] Adding ${type} satellite layer`);
+    const isWMS = tileUrl.includes('{bbox-epsg-3857}');
+    log.info(`[SAT] Adding ${type} satellite layer (${isWMS ? 'WMS' : 'XYZ'})`);
+
+    // Attribution based on source
+    const attribution = isWMS
+        ? '© <a href="https://mesonet.agron.iastate.edu/">IEM/Iowa State</a> · NOAA GOES'
+        : '© SSEC/CIMSS · Himawari-9';
 
     map.addSource(SOURCE_ID, {
         type: 'raster',
         tiles: [tileUrl],
         tileSize: 256,
-        attribution: '© SSEC/CIMSS/NOAA',
+        attribution,
     });
 
     // Insert below the first symbol layer so labels float above
@@ -88,7 +128,8 @@ export function addSatelliteLayer(map: mapboxgl.Map, type: SatelliteLayer = 'glo
             source: SOURCE_ID,
             paint: {
                 'raster-opacity': 0.75,
-                'raster-fade-duration': 300,
+                'raster-fade-duration': 0,
+                'raster-resampling': 'nearest',
             },
         },
         firstSymbolLayer?.id,

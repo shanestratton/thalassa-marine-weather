@@ -52,7 +52,7 @@ export function useWeatherLayers(
                 const arr = JSON.parse(stored) as WeatherLayer[];
                 if (Array.isArray(arr) && arr.length > 0) {
                     // Wind OFF by default — filter it out so satellite view is clean
-                    const filtered = arr.filter(l => l !== 'wind' && l !== 'velocity');
+                    const filtered = arr.filter((l) => l !== 'wind' && l !== 'velocity');
                     return filtered.length > 0 ? new Set(filtered) : new Set();
                 }
             }
@@ -748,7 +748,53 @@ export function useWeatherLayers(
 
         if (!activeLayers.has('pressure')) hideIsobarLayers(map, savedLandFillColorsRef.current);
 
-         // ── Permanent base layer: Esri satellite imagery ──
+        // ── Static tile layers (sea, temperature, clouds) ──
+        // Remove tile layers NOT in active set — must run BEFORE the early return
+        // below, otherwise toggling off the last layer skips cleanup.
+        const TILE_LAYERS: WeatherLayer[] = ['sea', 'temperature', 'clouds'];
+        for (const tl of TILE_LAYERS) {
+            const tileId = `tiles-${tl}`;
+            if (!activeLayers.has(tl)) {
+                try {
+                    if (map.getLayer(tileId)) map.removeLayer(tileId);
+                } catch (_) {
+                    log.warn('[useWeatherLayers]', _);
+                }
+                try {
+                    if (map.getSource(tileId)) map.removeSource(tileId);
+                } catch (_) {
+                    log.warn('[useWeatherLayers]', _);
+                }
+            }
+        }
+        // Sync permanent sea marks layers with the 'sea' toggle
+        const seaVisible = activeLayers.has('sea') ? 'visible' : 'none';
+        for (const lid of [
+            'openseamap-permanent',
+            'harbour-seamarks-circle',
+            'harbour-seamarks-label',
+            'nav-markers-glow',
+            'nav-markers-dot',
+        ]) {
+            try {
+                if (map.getLayer(lid)) map.setLayoutProperty(lid, 'visibility', seaVisible);
+            } catch (_) {
+                // Layer may not exist yet
+            }
+        }
+        // Also clean up legacy single 'weather-tiles' source/layer
+        try {
+            if (map.getLayer('weather-tiles')) map.removeLayer('weather-tiles');
+        } catch (_) {
+            log.warn('[useWeatherLayers]', _);
+        }
+        try {
+            if (map.getSource('weather-tiles')) map.removeSource('weather-tiles');
+        } catch (_) {
+            log.warn('[useWeatherLayers]', _);
+        }
+
+        // ── Permanent base layer: Esri satellite imagery ──
         const SAT_ID = 'tiles-satellite';
         if (!map.getSource(SAT_ID)) {
             try {
@@ -1010,36 +1056,6 @@ export function useWeatherLayers(
                 setRainFrameCount(0);
                 setRainReady(false);
             };
-        }
-
-        // ── Static tile layers (sea, temperature, clouds) ──
-        // Remove tile layers NOT in active set
-        const TILE_LAYERS: WeatherLayer[] = ['sea', 'temperature', 'clouds'];
-        for (const tl of TILE_LAYERS) {
-            const tileId = `tiles-${tl}`;
-            if (!activeLayers.has(tl)) {
-                try {
-                    if (map.getLayer(tileId)) map.removeLayer(tileId);
-                } catch (_) {
-                    log.warn('[useWeatherLayers]', _);
-                }
-                try {
-                    if (map.getSource(tileId)) map.removeSource(tileId);
-                } catch (_) {
-                    log.warn('[useWeatherLayers]', _);
-                }
-            }
-        }
-        // Also clean up legacy single 'weather-tiles' source/layer
-        try {
-            if (map.getLayer('weather-tiles')) map.removeLayer('weather-tiles');
-        } catch (_) {
-            log.warn('[useWeatherLayers]', _);
-        }
-        try {
-            if (map.getSource('weather-tiles')) map.removeSource('weather-tiles');
-        } catch (_) {
-            log.warn('[useWeatherLayers]', _);
         }
 
         // Add tile layers that ARE active

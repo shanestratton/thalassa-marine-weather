@@ -132,7 +132,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                                   ? 'bg-white/[0.015] hover:bg-white/[0.04] border border-white/[0.02] hover:border-white/[0.06]'
                                   : 'bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.03] hover:border-white/[0.08]'
                         }`}
-                        style={!isSub ? { animationDelay: `${index * 40}ms` } : undefined}
+                        style={undefined}
                     >
                         {/* Icon */}
                         <div

@@ -193,6 +193,11 @@ export function useMapInit(opts: UseMapInitOptions) {
             maxTileCacheSize: 200,
         });
 
+        // Match container background to ocean color — hides any sub-pixel WebGL tile seams
+        if (containerRef.current) {
+            containerRef.current.style.backgroundColor = '#191a1a';
+        }
+
         // Measure actual world width via map.project(), set minZoom so
         // one world copy fills the container. No tile-size guessing.
         const calcFillMinZoom = () => {
@@ -264,6 +269,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                             'raster-brightness-max': 0.7,
                             'raster-contrast': 0.15,
                             'raster-fade-duration': 0,
+                            'raster-resampling': 'nearest',
                         },
                     },
                     firstSymbol, // Insert below labels so text stays readable
@@ -314,7 +320,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                         source: 'openseamap-permanent',
                         minzoom: 6,
                         maxzoom: 18,
-                        paint: { 'raster-opacity': 0.85, 'raster-fade-duration': 0 },
+                        paint: { 'raster-opacity': 0.85, 'raster-fade-duration': 0, 'raster-resampling': 'nearest' },
                     },
                     firstSymbolId,
                 );
