@@ -330,9 +330,12 @@ export function syncStormToGrib(
     const { width, height, north, south, east, west } = grid;
 
     // ── Bilinear interpolation helpers ──
-    function getRowCol(lat: number, lon: number): { r0: number; c0: number; r1: number; c1: number; dr: number; dc: number } {
-        const rowF = (lat - south) / (north - south) * (height - 1);
-        const colF = (lon - west) / (east - west) * (width - 1);
+    function getRowCol(
+        lat: number,
+        lon: number,
+    ): { r0: number; c0: number; r1: number; c1: number; dr: number; dc: number } {
+        const rowF = ((lat - south) / (north - south)) * (height - 1);
+        const colF = ((lon - west) / (east - west)) * (width - 1);
         const r0 = Math.max(0, Math.min(height - 2, Math.floor(rowF)));
         const c0 = Math.max(0, Math.min(width - 2, Math.floor(colF)));
         return { r0, c0, r1: r0 + 1, c1: c0 + 1, dr: rowF - r0, dc: colF - c0 };
@@ -340,10 +343,12 @@ export function syncStormToGrib(
 
     function sampleSpeed(lat: number, lon: number): number {
         const { r0, c0, r1, c1, dr, dc } = getRowCol(lat, lon);
-        return speedData[r0 * width + c0] * (1 - dr) * (1 - dc) +
-               speedData[r0 * width + c1] * (1 - dr) * dc +
-               speedData[r1 * width + c0] * dr * (1 - dc) +
-               speedData[r1 * width + c1] * dr * dc;
+        return (
+            speedData[r0 * width + c0] * (1 - dr) * (1 - dc) +
+            speedData[r0 * width + c1] * (1 - dr) * dc +
+            speedData[r1 * width + c0] * dr * (1 - dc) +
+            speedData[r1 * width + c1] * dr * dc
+        );
     }
 
     // ── HEATMAP PEAK EYE DETECTION ──
@@ -351,8 +356,8 @@ export function syncStormToGrib(
     // build a "heatmap" of calm density and find the PEAK.
     // For each grid point, score = sum of 1/(speed² + 0.1) within 1.0° neighborhood.
     // The point with the highest score = most concentrated cluster of calm pixels = the eye.
-    const COARSE = 0.2;   // Coarse grid for heatmap candidates
-    const FINE = 0.1;     // Fine grid for final refinement
+    const COARSE = 0.2; // Coarse grid for heatmap candidates
+    const FINE = 0.1; // Fine grid for final refinement
     const KERNEL_R = 1.0; // Neighborhood radius for density scoring (wider = more smoothing)
     const BOX_RADIUS = 2.0;
 
@@ -420,10 +425,10 @@ export function syncStormToGrib(
 
     log.info(
         `[CYCLONE] 👁️ Heatmap peak at (${eyeLat.toFixed(2)}, ${eyeLon.toFixed(2)}) ` +
-        `eyeSpeed=${eyeSpeed.toFixed(1)} m/s, eyewall=${eyewallMaxKts} kts, ` +
-        `confidence=${fineScore.toFixed(1)} ` +
-        `[seed was (${approxLat.toFixed(2)}, ${approxLon.toFixed(2)}), ` +
-        `Δ=${Math.sqrt((eyeLat - approxLat) ** 2 + (eyeLon - approxLon) ** 2).toFixed(2)}°]`,
+            `eyeSpeed=${eyeSpeed.toFixed(1)} m/s, eyewall=${eyewallMaxKts} kts, ` +
+            `confidence=${fineScore.toFixed(1)} ` +
+            `[seed was (${approxLat.toFixed(2)}, ${approxLon.toFixed(2)}), ` +
+            `Δ=${Math.sqrt((eyeLat - approxLat) ** 2 + (eyeLon - approxLon) ** 2).toFixed(2)}°]`,
     );
 
     return {
@@ -433,7 +438,6 @@ export function syncStormToGrib(
         eyewallMaxKts,
     };
 }
-
 
 // ── PRESSURE MINIMUM EYE DETECTION ──
 // The gold standard: the cyclone eye IS the lowest pressure point.
@@ -450,10 +454,7 @@ interface PressureEyeResult {
  * within ±2° of the approximate storm center.
  * At 0.25° resolution (~28km), this can resolve the eye structure.
  */
-export async function fetchPressureEye(
-    approxLat: number,
-    approxLon: number,
-): Promise<PressureEyeResult | null> {
+export async function fetchPressureEye(approxLat: number, approxLon: number): Promise<PressureEyeResult | null> {
     try {
         const BOX = 2.0;
         const north = approxLat + BOX;
@@ -508,9 +509,9 @@ export async function fetchPressureEye(
 
         log.info(
             `[CYCLONE] 👁️ PRESSURE EYE at (${eyeLat.toFixed(2)}, ${eyeLon.toFixed(2)}) ` +
-            `pressure=${minP.toFixed(1)} hPa ` +
-            `[seed was (${approxLat.toFixed(2)}, ${approxLon.toFixed(2)}), ` +
-            `Δ=${Math.sqrt((eyeLat - approxLat) ** 2 + (eyeLon - approxLon) ** 2).toFixed(2)}°]`,
+                `pressure=${minP.toFixed(1)} hPa ` +
+                `[seed was (${approxLat.toFixed(2)}, ${approxLon.toFixed(2)}), ` +
+                `Δ=${Math.sqrt((eyeLat - approxLat) ** 2 + (eyeLon - approxLon) ** 2).toFixed(2)}°]`,
         );
 
         return { lat: eyeLat, lon: eyeLon, pressureHpa: minP };
@@ -526,7 +527,11 @@ export async function fetchPressureEye(
  */
 export async function fetchActiveCyclones(): Promise<ActiveCyclone[]> {
     // Check cache
-    if (cachedCyclones && cachedCyclones.version === CACHE_VERSION && Date.now() - cachedCyclones.fetchedAt < CACHE_TTL) {
+    if (
+        cachedCyclones &&
+        cachedCyclones.version === CACHE_VERSION &&
+        Date.now() - cachedCyclones.fetchedAt < CACHE_TTL
+    ) {
         log.info('[CYCLONE] Using cached data');
         return cachedCyclones.data;
     }
@@ -546,7 +551,6 @@ export async function fetchActiveCyclones(): Promise<ActiveCyclone[]> {
 }
 
 async function _fetchActiveCyclonesImpl(): Promise<ActiveCyclone[]> {
-
     try {
         // Fetch real-time positions + historical tracks + NOAA forecast + NOAA observed in parallel
         const [atcfStorms, trackHistory, forecastTracks, observedTracks] = await Promise.all([
@@ -695,6 +699,79 @@ async function _fetchActiveCyclonesImpl(): Promise<ActiveCyclone[]> {
             }
         }
 
+        // ── Local Track Accumulator ──
+        // Stores each ATCF position to localStorage on every refresh (~10 min).
+        // For storms without IBTrACS/NOAA history, this builds up a track over time.
+        // Generic: works for ANY storm regardless of basin or data source availability.
+        const TRACK_STORE_KEY = 'thalassa-cyclone-tracks';
+        const TRACK_TTL_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+        const MIN_GAP_MS = 10 * 60 * 1000; // 10 min — matches ATCF refresh cycle
+
+        try {
+            const raw = localStorage.getItem(TRACK_STORE_KEY);
+            const store: Record<string, { positions: CyclonePosition[]; updatedAt: number }> = raw
+                ? JSON.parse(raw)
+                : {};
+
+            const now = Date.now();
+
+            // Clean up stale storms (older than 14 days)
+            for (const sid of Object.keys(store)) {
+                if (now - store[sid].updatedAt > TRACK_TTL_MS) {
+                    delete store[sid];
+                }
+            }
+
+            for (const c of cyclones) {
+                const sid = c.sid;
+                if (!store[sid]) {
+                    store[sid] = { positions: [], updatedAt: now };
+                }
+
+                const accumulated = store[sid].positions;
+                const lastTime =
+                    accumulated.length > 0 ? new Date(accumulated[accumulated.length - 1].time).getTime() : 0;
+                const currentTime = new Date(c.currentPosition.time).getTime();
+
+                // Only add if enough time has passed since last stored position
+                if (currentTime - lastTime >= MIN_GAP_MS && !isNaN(currentTime)) {
+                    accumulated.push({
+                        lat: c.currentPosition.lat,
+                        lon: c.currentPosition.lon,
+                        time: c.currentPosition.time,
+                        windKts: c.currentPosition.windKts,
+                        pressureMb: c.currentPosition.pressureMb,
+                    });
+                    store[sid].updatedAt = now;
+                }
+
+                // If the storm's track from IBTrACS/NOAA has fewer points than our
+                // local accumulation, merge our local data into the track
+                if (c.track.length < accumulated.length) {
+                    // Merge: use accumulated as base, add any IBTrACS points not already covered
+                    const mergedMap = new Map<string, CyclonePosition>();
+                    for (const p of accumulated) {
+                        const key = `${Math.round(new Date(p.time).getTime() / MIN_GAP_MS)}`;
+                        mergedMap.set(key, p);
+                    }
+                    for (const p of c.track) {
+                        const key = `${Math.round(new Date(p.time).getTime() / MIN_GAP_MS)}`;
+                        mergedMap.set(key, p); // IBTrACS takes precedence
+                    }
+                    c.track = Array.from(mergedMap.values()).sort(
+                        (a, b) => new Date(a.time).getTime() - new Date(b.time).getTime(),
+                    );
+                    log.info(
+                        `[CYCLONE] 📦 ${c.name}: Local accumulator provided ${accumulated.length} points → merged track: ${c.track.length} points`,
+                    );
+                }
+            }
+
+            localStorage.setItem(TRACK_STORE_KEY, JSON.stringify(store));
+        } catch (err) {
+            log.warn('[CYCLONE] Track accumulator error:', err);
+        }
+
         // ── Synthetic Forecast: extrapolate for storms without NHC forecast ──
         // NOAA NHC only covers Atlantic/Eastern Pacific. For South Pacific,
         // Indian Ocean, and Western Pacific storms, generate a synthetic
@@ -730,9 +807,10 @@ async function _fetchActiveCyclonesImpl(): Promise<ActiveCyclone[]> {
             }
 
             c.forecastTrack = syntheticForecast;
-            log.info(`[CYCLONE] 🔮 Synthesized ${syntheticForecast.length}-pt forecast for ${c.name} (extrapolated from track heading)`);
+            log.info(
+                `[CYCLONE] 🔮 Synthesized ${syntheticForecast.length}-pt forecast for ${c.name} (extrapolated from track heading)`,
+            );
         }
-
 
         log.info(
             `[CYCLONE] 🌀 ${cyclones.length} active cyclone(s):`,
@@ -806,8 +884,7 @@ export async function fetchGfsTrackerPositions(): Promise<Map<string, GfsTracker
 
     inflightGfsTracker = (async () => {
         try {
-            const supabaseUrl =
-                (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+            const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
             if (!supabaseUrl) {
                 log.warn('[CYCLONE] No SUPABASE_URL — cannot fetch GFS tracker');
                 return new Map<string, GfsTrackerPosition[]>();
@@ -901,9 +978,7 @@ export function interpolateGfsTracker(
             }
         }
         if (positions) {
-            log.info(
-                `[CYCLONE] 🎯 Matched tcvitals storm by proximity (${bestDist.toFixed(1)}° from API pos)`,
-            );
+            log.info(`[CYCLONE] 🎯 Matched tcvitals storm by proximity (${bestDist.toFixed(1)}° from API pos)`);
         }
     }
 
@@ -949,4 +1024,3 @@ export function interpolateGfsTracker(
         lon: loPos.lon + t * (hiPos.lon - loPos.lon),
     };
 }
-

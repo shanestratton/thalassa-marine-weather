@@ -19,12 +19,16 @@ import {
     findClosestCyclone,
     fetchGfsTrackerPositions,
     interpolateGfsTracker,
-
     type ActiveCyclone,
     type CyclonePosition,
     type GfsTrackerPosition,
 } from '../../services/weather/CycloneTrackingService';
 import { WindStore } from '../../stores/WindStore';
+import {
+    addSatelliteLayer,
+    removeSatelliteLayer,
+    bestProductForBasin,
+} from '../../services/weather/SatelliteImageryService';
 
 import { createLogger } from '../../utils/createLogger';
 
@@ -93,18 +97,19 @@ function stormClassification(basin: string, windKts: number): string {
         return 'Tropical Depression';
     }
 
-    // Australian & South Pacific → Tropical Cyclone (BOM scale)
-    // BOM: Cat 1-2 = Tropical Cyclone, Cat 3-5 = Severe Tropical Cyclone
+    // Australian & South Pacific
     if (['P', 'AU', 'SP'].includes(b)) {
         if (windKts >= 86) return 'Severe Tropical Cyclone';
-        if (windKts >= 34) return 'Tropical Cyclone';
+        if (windKts >= 64) return 'Tropical Cyclone';
+        if (windKts >= 34) return 'Tropical Storm';
         return 'Tropical Depression';
     }
 
-    // South Indian Ocean → same BOM-style classification
+    // South Indian Ocean
     if (['S', 'SI'].includes(b)) {
         if (windKts >= 86) return 'Severe Tropical Cyclone';
-        if (windKts >= 34) return 'Tropical Cyclone';
+        if (windKts >= 64) return 'Tropical Cyclone';
+        if (windKts >= 34) return 'Tropical Storm';
         return 'Tropical Depression';
     }
 
@@ -120,6 +125,75 @@ function stormClassification(basin: string, windKts: number): string {
     if (windKts >= 86) return 'Severe Tropical Cyclone';
     if (windKts >= 34) return 'Tropical Storm';
     return 'Tropical Depression';
+}
+
+// ── Resolve truncated ATCF names (top-level for reuse) ────
+
+const NUMBER_NAMES: Record<number, string> = {
+    1: 'One',
+    2: 'Two',
+    3: 'Three',
+    4: 'Four',
+    5: 'Five',
+    6: 'Six',
+    7: 'Seven',
+    8: 'Eight',
+    9: 'Nine',
+    10: 'Ten',
+    11: 'Eleven',
+    12: 'Twelve',
+    13: 'Thirteen',
+    14: 'Fourteen',
+    15: 'Fifteen',
+    16: 'Sixteen',
+    17: 'Seventeen',
+    18: 'Eighteen',
+    19: 'Nineteen',
+    20: 'Twenty',
+    21: 'Twenty-One',
+    22: 'Twenty-Two',
+    23: 'Twenty-Three',
+    24: 'Twenty-Four',
+    25: 'Twenty-Five',
+    26: 'Twenty-Six',
+    27: 'Twenty-Seven',
+    28: 'Twenty-Eight',
+    29: 'Twenty-Nine',
+    30: 'Thirty',
+    31: 'Thirty-One',
+    32: 'Thirty-Two',
+    33: 'Thirty-Three',
+    34: 'Thirty-Four',
+    35: 'Thirty-Five',
+};
+
+// ── Storm category labels (module scope) ──
+const categoryLabels: Record<string, string> = {
+    TD: 'Tropical Depression',
+    TS: 'Tropical Storm',
+    '1': 'Category 1 Cyclone',
+    '2': 'Category 2 Cyclone',
+    '3': 'Category 3 Cyclone',
+    '4': 'Category 4 Cyclone',
+    '5': 'Category 5 Cyclone',
+};
+
+function resolveStormName(cyclone: ActiveCyclone): string {
+    const raw = cyclone.name.toUpperCase().replace(/[^A-Z]/g, '');
+    let bestMatch = '';
+    let bestLen = 0;
+    for (const [, fullName] of Object.entries(NUMBER_NAMES)) {
+        const stripped = fullName.replace(/-/g, '').toUpperCase();
+        if (stripped.startsWith(raw) || raw.startsWith(stripped)) {
+            const overlap = Math.min(stripped.length, raw.length);
+            if (overlap > bestLen) {
+                bestLen = overlap;
+                bestMatch = fullName;
+            }
+        }
+    }
+    if (bestMatch) return bestMatch;
+    return cyclone.name.charAt(0).toUpperCase() + cyclone.name.slice(1).toLowerCase();
 }
 
 // ── Create DOM marker for a cyclone ───────────────────────
@@ -182,19 +256,21 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
         <div style="
             font-weight: 800;
             color: #fff;
-            text-shadow: 0 1px 6px rgba(0,0,0,1), 0 0 12px rgba(0,0,0,0.8);
+            -webkit-text-stroke: 0.5px rgba(0,0,0,0.8);
+            text-shadow: 0 0 3px rgba(0,0,0,1), 0 1px 4px rgba(0,0,0,1), 0 0 8px rgba(0,0,0,0.9), 1px 1px 2px rgba(0,0,0,1), -1px -1px 2px rgba(0,0,0,1), 0 0 16px rgba(0,0,0,0.6);
             letter-spacing: 0.5px;
             margin-bottom: 6px;
             text-align: center;
-            background: rgba(0,0,0,0.35);
-            padding: 3px 12px;
+            background: rgba(0,0,0,0.65);
+            padding: 4px 14px;
             border-radius: 8px;
-            backdrop-filter: blur(4px);
-            -webkit-backdrop-filter: blur(4px);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            border: 1px solid rgba(0,0,0,0.5);
             line-height: 1.3;
         ">
             <div style="font-size: ${isMacro ? 8 : 10}px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.08em;">${classification}</div>
-            <div style="font-size: ${isMacro ? 12 : 15}px;">${cyclone.name}</div>
+            <div style="font-size: ${isMacro ? 12 : 15}px;">${resolveStormName(cyclone)}</div>
         </div>
         <div style="
             position: relative;
@@ -204,31 +280,76 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
             align-items: center;
             justify-content: center;
         ">
-            ${glowRings.join('')}
-            <div style="
-                position: absolute; inset: -2px;
-                border-radius: 45% 55% 50% 50% / 50% 45% 55% 50%;
-                background: radial-gradient(ellipse 60% 75%,
-                    ${pal.core} 0%,
-                    ${pal.mid} 25%,
-                    ${pal.outer} 50%,
-                    ${pal.accent} 70%,
-                    transparent 100%);
-                animation: cyclone-blob ${6 - catScale * 0.5}s ease-in-out infinite alternate,
-                           cyclone-spin ${8 - catScale * 0.8}s linear infinite;
-                opacity: 0.9;
-            "></div>
+
             <div style="
                 position: relative; z-index: 2;
-                font-size: ${fontSize}px;
-                font-weight: 900;
-                color: #fff;
-                text-shadow:
-                    0 0 6px ${pal.core},
-                    0 0 14px ${pal.outer},
-                    0 0 28px ${pal.glow};
-                letter-spacing: 1px;
-            ">${cyclone.categoryLabel}</div>
+                width: ${Math.round(eyeSize * 0.9)}px;
+                height: ${Math.round(eyeSize * 0.9)}px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                animation: cyclone-eye-spin ${Math.max(2, 8 - catScale * 1.2)}s linear infinite;
+            ">
+                ${
+                    cyclone.category >= 1
+                        ? `
+                <svg viewBox="0 0 100 100" width="${Math.round(eyeSize * 0.85)}" height="${Math.round(eyeSize * 0.85)}">
+                    <!-- Filled blade arms — count increases with category -->
+                    <g fill="${pal.mid}" stroke="#000" stroke-width="1.5">
+                        <!-- Arm 1: top-right -->
+                        <path d="M54 42 C58 28, 68 10, 82 8 C90 6, 96 14, 94 24 C92 32, 84 36, 74 34 C68 33, 62 36, 58 42 Z"/>
+                        <!-- Arm 2: bottom-left -->
+                        <path d="M46 58 C42 72, 32 90, 18 92 C10 94, 4 86, 6 76 C8 68, 16 64, 26 66 C32 67, 38 64, 42 58 Z"/>
+                        ${
+                            catScale >= 2
+                                ? `
+                        <!-- Arm 3: right-bottom -->
+                        <path d="M58 54 C72 58, 90 68, 92 82 C94 90, 86 96, 76 94 C68 92, 64 84, 66 74 C67 68, 64 62, 58 58 Z"/>
+                        <!-- Arm 4: left-top -->
+                        <path d="M42 46 C28 42, 10 32, 8 18 C6 10, 14 4, 24 6 C32 8, 36 16, 34 26 C33 32, 36 38, 42 42 Z"/>
+                        `
+                                : ''
+                        }
+                        ${
+                            catScale >= 4
+                                ? `
+                        <!-- Arm 5: top-left extra -->
+                        <path d="M44 42 C36 32, 22 18, 12 22 C6 24, 4 34, 10 40 C16 44, 26 42, 34 38 C38 36, 42 38, 46 42 Z"/>
+                        <!-- Arm 6: bottom-right extra -->
+                        <path d="M56 58 C64 68, 78 82, 88 78 C94 76, 96 66, 90 60 C84 56, 74 58, 66 62 C62 64, 58 62, 54 58 Z"/>
+                        `
+                                : ''
+                        }
+                    </g>
+                    <!-- White eye circle -->
+                    <circle cx="50" cy="50" r="16" fill="#fff" stroke="#000" stroke-width="1.5"/>
+                    <circle cx="50" cy="50" r="14.5" fill="#fff" stroke="${pal.mid}" stroke-width="1.5"/>
+                    <!-- Category number -->
+                    <text x="50" y="50" text-anchor="middle" dominant-baseline="central"
+                          font-size="18" font-weight="900" fill="${pal.mid}"
+                          font-family="system-ui, -apple-system, sans-serif">${cyclone.categoryLabel}</text>
+                </svg>
+                `
+                        : `
+                <svg viewBox="0 0 100 100" width="${Math.round(eyeSize * 0.85)}" height="${Math.round(eyeSize * 0.85)}">
+                    <!-- Tropical Storm: 2 elegant swept tails -->
+                    <g fill="${pal.mid}" stroke="#000" stroke-width="1.5">
+                        <!-- Upper tail sweeping right -->
+                        <path d="M52 38 C56 24, 66 6, 80 4 C88 2, 92 10, 88 18 C82 26, 68 30, 58 34 C54 36, 52 38, 52 40 Z"/>
+                        <!-- Lower tail sweeping left -->
+                        <path d="M48 62 C44 76, 34 94, 20 96 C12 98, 8 90, 12 82 C18 74, 32 70, 42 66 C46 64, 48 62, 48 60 Z"/>
+                    </g>
+                    <!-- White eye circle -->
+                    <circle cx="50" cy="50" r="18" fill="#fff" stroke="#000" stroke-width="1.5"/>
+                    <circle cx="50" cy="50" r="16.5" fill="#fff" stroke="${pal.mid}" stroke-width="1.5"/>
+                    <!-- TS label -->
+                    <text x="50" y="50" text-anchor="middle" dominant-baseline="central"
+                          font-size="16" font-weight="900" fill="${pal.mid}"
+                          font-family="system-ui, -apple-system, sans-serif">${cyclone.categoryLabel}</text>
+                </svg>
+                `
+                }
+            </div>
         </div>
         ${
             showInfoBadge
@@ -267,6 +388,10 @@ function injectCycloneCSS() {
         @keyframes cyclone-spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
+        }
+        @keyframes cyclone-eye-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(-360deg); }
         }
         @keyframes cyclone-morph {
             0%   { border-radius: 40% 60% 55% 45% / 55% 45% 50% 50%; }
@@ -338,23 +463,52 @@ function createTrackOverlay(map: mapboxgl.Map): {
                 point: p,
             }));
 
-            // Draw intensity-colored segments between consecutive points
-            for (let i = 0; i < projected.length - 1; i++) {
-                const from = projected[i];
-                const to = projected[i + 1];
-                const segColor = windColor(from.point.windKts);
+            // Smooth the past track with Catmull-Rom spline (same as forecast)
+            const rawTrackPts = projected.map((p) => [p.px.x, p.px.y] as [number, number]);
+            const smoothTrackPts = catmullRomSpline(rawTrackPts, 8);
 
-                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-                line.setAttribute('x1', String(from.px.x));
-                line.setAttribute('y1', String(from.px.y));
-                line.setAttribute('x2', String(to.px.x));
-                line.setAttribute('y2', String(to.px.y));
-                line.setAttribute('stroke', segColor);
-                line.setAttribute('stroke-width', String(lineWidth));
-                line.setAttribute('stroke-dasharray', isMacro ? '6,4' : '10,6');
-                line.setAttribute('stroke-opacity', '0.85');
-                line.setAttribute('stroke-linecap', 'round');
-                svg.appendChild(line);
+            if (smoothTrackPts.length >= 2) {
+                // Build cubic bezier path for smooth curve
+                const tension = 0.5;
+                let pathData = `M ${smoothTrackPts[0][0].toFixed(1)} ${smoothTrackPts[0][1].toFixed(1)}`;
+                for (let i = 0; i < smoothTrackPts.length - 1; i++) {
+                    const p0 = smoothTrackPts[i - 1] || smoothTrackPts[i];
+                    const p1 = smoothTrackPts[i];
+                    const p2 = smoothTrackPts[i + 1];
+                    const p3 = smoothTrackPts[i + 2] || p2;
+
+                    const cp1x = p1[0] + ((p2[0] - p0[0]) / 6) * tension;
+                    const cp1y = p1[1] + ((p2[1] - p0[1]) / 6) * tension;
+                    const cp2x = p2[0] - ((p3[0] - p1[0]) / 6) * tension;
+                    const cp2y = p2[1] - ((p3[1] - p1[1]) / 6) * tension;
+
+                    pathData += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2[0].toFixed(1)} ${p2[1].toFixed(1)}`;
+                }
+
+                // Use the most recent track point colour for the line
+                const trackColor = windColor(c.currentPosition.windKts);
+
+                // Black outline for contrast over satellite
+                const outlinePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                outlinePath.setAttribute('d', pathData);
+                outlinePath.setAttribute('fill', 'none');
+                outlinePath.setAttribute('stroke', '#000');
+                outlinePath.setAttribute('stroke-width', String(lineWidth + 4));
+                outlinePath.setAttribute('stroke-opacity', '0.7');
+                outlinePath.setAttribute('stroke-linecap', 'round');
+                outlinePath.setAttribute('stroke-linejoin', 'round');
+                svg.appendChild(outlinePath);
+
+                // Main track path — solid white
+                const trackPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                trackPath.setAttribute('d', pathData);
+                trackPath.setAttribute('fill', 'none');
+                trackPath.setAttribute('stroke', '#fff');
+                trackPath.setAttribute('stroke-width', String(lineWidth));
+                trackPath.setAttribute('stroke-opacity', '1');
+                trackPath.setAttribute('stroke-linecap', 'round');
+                trackPath.setAttribute('stroke-linejoin', 'round');
+                svg.appendChild(trackPath);
             }
 
             // Show track labels at zoom >= 5
@@ -371,7 +525,7 @@ function createTrackOverlay(map: mapboxgl.Map): {
                 }));
 
                 // Project forecast points to screen space
-                const rawScreenPts = forecastAll.map(p => {
+                const rawScreenPts = forecastAll.map((p) => {
                     const px = map.project([p.lon, p.lat]);
                     return [px.x, px.y] as [number, number];
                 });
@@ -391,10 +545,10 @@ function createTrackOverlay(map: mapboxgl.Map): {
                         const p2 = screenPts[i + 1];
                         const p3 = screenPts[i + 2] || p2;
 
-                        const cp1x = p1.x + (p2.x - p0.x) / 6 * tension;
-                        const cp1y = p1.y + (p2.y - p0.y) / 6 * tension;
-                        const cp2x = p2.x - (p3.x - p1.x) / 6 * tension;
-                        const cp2y = p2.y - (p3.y - p1.y) / 6 * tension;
+                        const cp1x = p1.x + ((p2.x - p0.x) / 6) * tension;
+                        const cp1y = p1.y + ((p2.y - p0.y) / 6) * tension;
+                        const cp2x = p2.x - ((p3.x - p1.x) / 6) * tension;
+                        const cp2y = p2.y - ((p3.y - p1.y) / 6) * tension;
 
                         pathData += ` C ${cp1x.toFixed(1)} ${cp1y.toFixed(1)}, ${cp2x.toFixed(1)} ${cp2y.toFixed(1)}, ${p2.x.toFixed(1)} ${p2.y.toFixed(1)}`;
                     }
@@ -515,9 +669,12 @@ function createTrackOverlay(map: mapboxgl.Map): {
 function drawTrackDots(svg: SVGSVGElement, projected: { px: mapboxgl.Point; point: CyclonePosition }[], zoom: number) {
     const now = Date.now();
     const showLabels = zoom >= 7; // Show text labels at zoom 7+
-    const labelEvery = zoom >= 9 ? 1 : 2; // Every point at high zoom, every 2nd otherwise
+    const labelEvery = zoom >= 9 ? 2 : 4; // Every 2nd at high zoom, every 4th otherwise
 
     for (let i = 0; i < projected.length; i++) {
+        // Show every other dot (half as many)
+        if (i % 2 !== 0 && i < projected.length - 1) continue;
+
         const { px, point } = projected[i];
         const dotColor = windColor(point.windKts);
         const cat = point.windKts ? windToSS(point.windKts) : 0;
@@ -526,7 +683,7 @@ function drawTrackDots(svg: SVGSVGElement, projected: { px: mapboxgl.Point; poin
         const glow = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         glow.setAttribute('cx', String(px.x));
         glow.setAttribute('cy', String(px.y));
-        glow.setAttribute('r', '6');
+        glow.setAttribute('r', '12');
         glow.setAttribute('fill', dotColor);
         glow.setAttribute('opacity', '0.3');
         svg.appendChild(glow);
@@ -535,19 +692,19 @@ function drawTrackDots(svg: SVGSVGElement, projected: { px: mapboxgl.Point; poin
         const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
         dot.setAttribute('cx', String(px.x));
         dot.setAttribute('cy', String(px.y));
-        dot.setAttribute('r', cat >= 1 ? '5' : '3');
+        dot.setAttribute('r', cat >= 1 ? '10' : '6');
         dot.setAttribute('fill', dotColor);
         dot.setAttribute('stroke', 'rgba(0,0,0,0.7)');
-        dot.setAttribute('stroke-width', '1.5');
+        dot.setAttribute('stroke-width', '2');
         svg.appendChild(dot);
 
         // Category number inside larger dots
         if (cat >= 1) {
             const catText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
             catText.setAttribute('x', String(px.x));
-            catText.setAttribute('y', String(px.y + 3));
+            catText.setAttribute('y', String(px.y + 5));
             catText.setAttribute('fill', '#fff');
-            catText.setAttribute('font-size', '7');
+            catText.setAttribute('font-size', '14');
             catText.setAttribute('font-weight', '800');
             catText.setAttribute('font-family', 'system-ui, sans-serif');
             catText.setAttribute('text-anchor', 'middle');
@@ -802,11 +959,7 @@ function windToSS(kts: number): number {
 // ── Probability Sleeve Geometry Engine ────────────────────
 
 /** Catmull-Rom spline interpolation — returns smooth points between control points */
-function catmullRomSpline(
-    points: [number, number][],
-    segments: number = 8,
-    _alpha: number = 0.5,
-): [number, number][] {
+function catmullRomSpline(points: [number, number][], segments: number = 8, _alpha: number = 0.5): [number, number][] {
     if (points.length < 2) return points;
     if (points.length === 2) {
         // Linear interpolation for 2 points
@@ -961,17 +1114,14 @@ const SLEEVE_CENTER = 'cyclone-sleeve-center';
  * Add or update the Probability Sleeve on the map for the forecast track.
  * Creates a multi-layer glow effect using Mapbox GL fill + line layers.
  */
-function addProbabilitySleeve(
-    map: mapboxgl.Map,
-    cyclone: ActiveCyclone,
-): void {
+function addProbabilitySleeve(map: mapboxgl.Map, cyclone: ActiveCyclone): void {
     const forecast = cyclone.forecastTrack;
     if (!forecast || forecast.length < 2) return;
 
     // Build the track centerline from current position through forecast
     const allPoints: [number, number][] = [
         [cyclone.currentPosition.lon, cyclone.currentPosition.lat],
-        ...forecast.map(p => [p.lon, p.lat] as [number, number]),
+        ...forecast.map((p) => [p.lon, p.lat] as [number, number]),
     ];
 
     // Calculate total forecast hours from timestamps
@@ -1077,7 +1227,9 @@ function addProbabilitySleeve(
         layout: { 'line-join': 'round', 'line-cap': 'round' },
     });
 
-    log.info(`[CYCLONE] 🌀 Probability sleeve rendered for ${cyclone.name} (${smoothTrack.length} smooth points, ${totalHours.toFixed(0)}h window)`);
+    log.info(
+        `[CYCLONE] 🌀 Probability sleeve rendered for ${cyclone.name} (${smoothTrack.length} smooth points, ${totalHours.toFixed(0)}h window)`,
+    );
 }
 
 // ── Hook ──────────────────────────────────────────────────
@@ -1089,7 +1241,10 @@ export function useCycloneLayer(
     userLat: number,
     userLon: number,
     onClosestStorm?: (storm: ActiveCyclone | null) => void,
+    skipAutoFlyRef?: React.MutableRefObject<boolean>,
+    selectedStorm?: ActiveCyclone | null,
 ) {
+    // (categoryLabels, categoryColor moved to module scope below)
     const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
     const hasFlown = useRef(false);
     const markersRef = useRef<mapboxgl.Marker[]>([]);
@@ -1098,10 +1253,12 @@ export function useCycloneLayer(
     const userLatRef = useRef(userLat);
     const userLonRef = useRef(userLon);
     const onClosestStormRef = useRef(onClosestStorm);
+    const selectedStormRef = useRef(selectedStorm ?? null);
 
     userLatRef.current = userLat;
     userLonRef.current = userLon;
     onClosestStormRef.current = onClosestStorm;
+    selectedStormRef.current = selectedStorm ?? null;
 
     useEffect(() => {
         const map = mapRef.current;
@@ -1114,6 +1271,42 @@ export function useCycloneLayer(
             trackOverlayRef.current = null;
             cyclonesRef.current = [];
             hasFlown.current = false;
+            removeSatelliteLayer(map);
+
+            // ── Clean up all GeoJSON layers added by cyclone view ──
+            // Country borders
+            const BORDER_ID = 'storm-black-borders';
+            if (map.getLayer(BORDER_ID)) map.removeLayer(BORDER_ID);
+            if (map.getSource(BORDER_ID)) map.removeSource(BORDER_ID);
+
+            // Probability sleeve
+            const sleeveLayers = [
+                'cyclone-sleeve-glow',
+                'cyclone-sleeve-core',
+                'cyclone-sleeve-edge',
+                'cyclone-sleeve-center',
+            ];
+            for (const id of sleeveLayers) {
+                if (map.getLayer(id)) map.removeLayer(id);
+            }
+            if (map.getSource('cyclone-sleeve-src')) map.removeSource('cyclone-sleeve-src');
+
+            // Per-storm past track lines (dynamic IDs: past-track-{sid}-outline, past-track-{sid}-line)
+            for (const layerId of map.getStyle()?.layers?.map((l) => l.id) ?? []) {
+                if (layerId.startsWith('past-track-')) {
+                    map.removeLayer(layerId);
+                }
+            }
+            for (const srcId of Object.keys(map.getStyle()?.sources ?? {})) {
+                if (srcId.startsWith('past-track-')) {
+                    map.removeSource(srcId);
+                }
+            }
+
+            // HUD overlay
+            const hudEl = map.getContainer().querySelector('#cyclone-hud-badges');
+            if (hudEl) hudEl.remove();
+
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
@@ -1138,18 +1331,20 @@ export function useCycloneLayer(
         const gfsTrackRef: { current: Map<string, GfsTrackerPosition[]> | null } = { current: null };
 
         // Fetch GFS tracker positions on mount — AWAIT before creating markers
-        const tcvitalsPromise = fetchGfsTrackerPositions().then((trackMap) => {
-            gfsTrackRef.current = trackMap;
-            log.info(`[CYCLONE] 🎯 TCVitals loaded: ${trackMap.size} storm(s)`);
-            for (const [sid, positions] of trackMap) {
-                const p = positions[0];
-                log.info(`[CYCLONE] 🎯 ${sid}: ${p.lat.toFixed(1)}, ${p.lon.toFixed(1)} (vmax=${p.vmax}kt)`);
-            }
-            return trackMap;
-        }).catch((e) => {
-            log.warn('[CYCLONE] TCVitals fetch failed', e);
-            return new Map<string, GfsTrackerPosition[]>();
-        });
+        const tcvitalsPromise = fetchGfsTrackerPositions()
+            .then((trackMap) => {
+                gfsTrackRef.current = trackMap;
+                log.info(`[CYCLONE] 🎯 TCVitals loaded: ${trackMap.size} storm(s)`);
+                for (const [sid, positions] of trackMap) {
+                    const p = positions[0];
+                    log.info(`[CYCLONE] 🎯 ${sid}: ${p.lat.toFixed(1)}, ${p.lon.toFixed(1)} (vmax=${p.vmax}kt)`);
+                }
+                return trackMap;
+            })
+            .catch((e) => {
+                log.warn('[CYCLONE] TCVitals fetch failed', e);
+                return new Map<string, GfsTrackerPosition[]>();
+            });
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         unsubWind = WindStore.subscribe((_state: any) => {
@@ -1157,61 +1352,7 @@ export function useCycloneLayer(
             // No wind-based re-scanning needed — pressure minimum is stable.
         });
 
-        // ── Storm category labels ──
-        const categoryLabels: Record<string, string> = {
-            'TD': 'Tropical Depression',
-            'TS': 'Tropical Storm',
-            '1': 'Category 1 Cyclone',
-            '2': 'Category 2 Cyclone',
-            '3': 'Category 3 Cyclone',
-            '4': 'Category 4 Cyclone',
-            '5': 'Category 5 Cyclone',
-        };
-
-        // ── Category-based badge color ──
-        const categoryColor = (cat: number): string => {
-            if (cat >= 5) return '#ff0040';    // Cat 5: hot red
-            if (cat >= 4) return '#ff4400';    // Cat 4: red-orange
-            if (cat >= 3) return '#ff8800';    // Cat 3: orange
-            if (cat >= 2) return '#ffcc00';    // Cat 2: gold
-            if (cat >= 1) return '#00e5ff';    // Cat 1: cyan
-            return '#00bcd4';                  // TS/TD: teal
-        };
-
-        // ── Resolve truncated ATCF names ──
-        // ATCF format caps storm names at 10 chars (e.g. TWENTYEIGH → TWENTY-EIGHT)
-        // Extract the number from the SID (e.g. "28P") and map to the full name
-        const numberNames: Record<number, string> = {
-            1:'One',2:'Two',3:'Three',4:'Four',5:'Five',6:'Six',7:'Seven',8:'Eight',
-            9:'Nine',10:'Ten',11:'Eleven',12:'Twelve',13:'Thirteen',14:'Fourteen',
-            15:'Fifteen',16:'Sixteen',17:'Seventeen',18:'Eighteen',19:'Nineteen',
-            20:'Twenty',21:'Twenty-One',22:'Twenty-Two',23:'Twenty-Three',
-            24:'Twenty-Four',25:'Twenty-Five',26:'Twenty-Six',27:'Twenty-Seven',
-            28:'Twenty-Eight',29:'Twenty-Nine',30:'Thirty',31:'Thirty-One',
-            32:'Thirty-Two',33:'Thirty-Three',34:'Thirty-Four',35:'Thirty-Five',
-        };
-
-        const resolveStormName = (cyclone: ActiveCyclone): string => {
-            const raw = cyclone.name.toUpperCase().replace(/[^A-Z]/g, '');
-            // Find the LONGEST matching number name to avoid "TWENTY" matching before "TWENTYEIGHT"
-            let bestMatch = '';
-            let bestLen = 0;
-            for (const [, fullName] of Object.entries(numberNames)) {
-                const stripped = fullName.replace(/-/g, '').toUpperCase();
-                // ATCF truncates at 10 chars: "TWENTYEIGHT" → "TWENTYEIGH"
-                if (stripped.startsWith(raw) || raw.startsWith(stripped)) {
-                    // Use the match length (overlap) to pick the best
-                    const overlap = Math.min(stripped.length, raw.length);
-                    if (overlap > bestLen) {
-                        bestLen = overlap;
-                        bestMatch = fullName;
-                    }
-                }
-            }
-            if (bestMatch) return bestMatch;
-            // Proper named storm — title case
-            return cyclone.name.charAt(0).toUpperCase() + cyclone.name.slice(1).toLowerCase();
-        };
+        // categoryLabels and categoryColor are defined at module scope
 
         // ── Create storm info badge element ──
         const createStormBadge = (cyclone: ActiveCyclone): HTMLDivElement => {
@@ -1221,63 +1362,129 @@ export function useCycloneLayer(
             const stormName = resolveStormName(cyclone);
 
             // Pressure display
-            const pressure = cyclone.minPressureMb
-                ? `${cyclone.minPressureMb} hPa`
-                : '—';
-            // Wind display
-            const wind = cyclone.maxWindKts > 0
-                ? `${cyclone.maxWindKts} kts`
-                : '—';
+            const pressure = cyclone.minPressureMb ? `${cyclone.minPressureMb} hPa` : '—';
+            // Sustained wind
+            const sustained = cyclone.maxWindKts > 0 ? `${cyclone.maxWindKts} kts` : '—';
+            // Estimated gusts (typically 1.2–1.25× sustained)
+            const gustKts = cyclone.maxWindKts > 0 ? Math.round(cyclone.maxWindKts * 1.25) : null;
+            const gusts = gustKts ? `~${gustKts} kts` : '—';
+
+            // Position
+            const lat = cyclone.currentPosition.lat;
+            const lon = cyclone.currentPosition.lon;
+            const latStr = `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? 'N' : 'S'}`;
+            const lonStr = `${Math.abs(lon).toFixed(1)}°${lon >= 0 ? 'E' : 'W'}`;
+
+            // Data age
+            const posTime = cyclone.currentPosition.time;
+            let dataAgeStr = '—';
+            let dataTimeStr = '—';
+            if (posTime) {
+                const posDate = new Date(posTime);
+                const ageMin = Math.round((Date.now() - posDate.getTime()) / 60000);
+                if (ageMin < 60) dataAgeStr = `${ageMin} min ago`;
+                else if (ageMin < 1440) dataAgeStr = `${Math.floor(ageMin / 60)}h ${ageMin % 60}m ago`;
+                else dataAgeStr = `${Math.floor(ageMin / 1440)}d ago`;
+                dataTimeStr = posDate.toISOString().replace('T', ' ').slice(0, 16) + 'Z';
+            }
+
+            // Next advisory (ATCF updates at 00/06/12/18Z, ~3h processing)
+            const now = new Date();
+            const utcH = now.getUTCHours();
+            const advisorySlots = [0, 6, 12, 18];
+            // Find the next advisory slot after current hour (+3h for processing)
+            let nextAdv = advisorySlots.find((h) => h > utcH) ?? advisorySlots[0] + 24;
+            if (nextAdv < utcH) nextAdv += 24;
+            const nextAdvDate = new Date(now);
+            nextAdvDate.setUTCHours(nextAdv % 24, 0, 0, 0);
+            if (nextAdv >= 24) nextAdvDate.setUTCDate(nextAdvDate.getUTCDate() + 1);
+            const nextAdvMin = Math.round((nextAdvDate.getTime() - now.getTime()) / 60000);
+            const nextAdvStr =
+                nextAdvMin < 60 ? `~${nextAdvMin} min` : `~${Math.floor(nextAdvMin / 60)}h ${nextAdvMin % 60}m`;
+
+            // Basin label
+            const basinLabels: Record<string, string> = {
+                WP: 'W. Pacific',
+                EP: 'E. Pacific',
+                AL: 'Atlantic',
+                IO: 'Indian Ocean',
+                SI: 'S. Indian',
+                SP: 'S. Pacific',
+                SH: 'S. Hemisphere',
+            };
+            const basinStr = basinLabels[cyclone.basin] ?? cyclone.basin;
+
+            const row = (icon: string, label: string, value: string, valueColor = 'rgba(255,255,255,0.9)') =>
+                `<div style="display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:11px;width:14px;text-align:center;">${icon}</span>
+                    <span style="font-size:10px;color:rgba(255,255,255,0.45);min-width:60px;">${label}</span>
+                    <span style="font-size:11px;font-weight:700;color:${valueColor};margin-left:auto;">${value}</span>
+                </div>`;
 
             wrapper.innerHTML = `
                 <div style="
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
+                    background: rgba(10, 15, 30, 0.88);
+                    backdrop-filter: blur(16px);
+                    -webkit-backdrop-filter: blur(16px);
+                    border: 1px solid ${accentColor}44;
+                    border-left: 3px solid ${accentColor};
+                    border-radius: 12px;
+                    padding: 10px 14px;
+                    color: #ffffff;
+                    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+                    min-width: 200px;
+                    max-width: 240px;
+                    pointer-events: none;
+                    z-index: 600;
+                    box-shadow: 0 4px 24px rgba(0,0,0,0.6), 0 0 12px ${accentColor}22;
                 ">
                     <div style="
-                        background: rgba(10, 15, 30, 0.82);
-                        backdrop-filter: blur(12px);
-                        -webkit-backdrop-filter: blur(12px);
-                        border: 1px solid ${accentColor}44;
-                        border-radius: 10px;
-                        padding: 8px 12px;
+                        font-size: 10px;
+                        font-weight: 700;
+                        letter-spacing: 1px;
+                        color: ${accentColor};
+                        text-transform: uppercase;
+                        margin-bottom: 1px;
+                        text-shadow: 0 0 8px ${accentColor}44;
+                    ">${catLabel}</div>
+                    <div style="
+                        font-size: 18px;
+                        font-weight: 800;
                         color: #ffffff;
-                        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
-                        min-width: 160px;
-                        pointer-events: none;
-                        z-index: 600;
-                        box-shadow: 0 4px 20px rgba(0,0,0,0.5), 0 0 12px ${accentColor}33;
+                        margin-bottom: 2px;
+                        text-transform: capitalize;
+                        line-height: 1.2;
+                    ">${stormName}</div>
+                    <div style="
+                        font-size: 9px;
+                        color: rgba(255,255,255,0.35);
+                        margin-bottom: 8px;
+                    ">${basinStr} · ${cyclone.sid}</div>
+
+                    <div style="display:flex;flex-direction:column;gap:4px;">
+                        ${row('⬇', 'Pressure', pressure, accentColor)}
+                        ${row('💨', 'Sustained', sustained, '#ffffff')}
+                        ${row('🌪️', 'Gusts (est)', gusts, gustKts && gustKts >= 64 ? '#ef4444' : '#ffffff')}
+                        ${row('📍', 'Position', `${latStr}  ${lonStr}`, 'rgba(255,255,255,0.7)')}
+                    </div>
+
+                    <div style="
+                        margin-top: 8px;
+                        padding-top: 6px;
+                        border-top: 1px solid rgba(255,255,255,0.06);
+                        display: flex;
+                        flex-direction: column;
+                        gap: 3px;
                     ">
-                        <div style="
-                            font-size: 13px;
-                            font-weight: 700;
-                            letter-spacing: 0.3px;
-                            color: ${accentColor};
-                            margin-bottom: 2px;
-                            text-shadow: 0 0 8px ${accentColor}66;
-                        ">${catLabel}</div>
-                        <div style="
-                            font-size: 16px;
-                            font-weight: 800;
-                            color: #ffffff;
-                            margin-bottom: 6px;
-                            text-transform: capitalize;
-                        ">${stormName}</div>
-                        <div style="
-                            display: flex;
-                            gap: 12px;
-                            font-size: 11px;
-                            color: rgba(255,255,255,0.8);
-                        ">
-                            <div style="display: flex; align-items: center; gap: 3px;">
-                                <span style="color: ${accentColor}; font-size: 13px;">⬇</span>
-                                <span>${pressure}</span>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 3px;">
-                                <span style="color: ${accentColor}; font-size: 13px;">💨</span>
-                                <span>${wind}</span>
-                            </div>
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <span style="font-size:11px;width:14px;text-align:center;">🕐</span>
+                            <span style="font-size:9px;color:rgba(255,255,255,0.35);">${dataTimeStr}</span>
+                            <span style="font-size:9px;font-weight:700;color:#FFA500;margin-left:auto;">${dataAgeStr}</span>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <span style="font-size:11px;width:14px;text-align:center;">📡</span>
+                            <span style="font-size:9px;color:rgba(255,255,255,0.35);">Next advisory</span>
+                            <span style="font-size:9px;font-weight:700;color:rgba(255,255,255,0.55);margin-left:auto;">${nextAdvStr}</span>
                         </div>
                     </div>
                 </div>
@@ -1285,7 +1492,7 @@ export function useCycloneLayer(
             return wrapper;
         };
 
-        // ── Rebuild markers — fixed HUD overlay (doesn't cover the storm eye) ──
+        // ── Rebuild markers — HUD badge + geo-anchored storm eye markers ──
         const HUD_CONTAINER_ID = 'cyclone-hud-badges';
         let focusedStorm: ActiveCyclone | null = null;
         const rebuildMarkers = () => {
@@ -1297,7 +1504,40 @@ export function useCycloneLayer(
             for (const m of markersRef.current) m.remove();
             markersRef.current = [];
 
-            // Only show the focused/closest storm
+            const cyclones = cyclonesRef.current;
+            if (!cyclones || cyclones.length === 0) return;
+
+            const zoom = map.getZoom();
+
+            // ── Create geo-anchored spinning storm markers for ALL cyclones ──
+            for (const cyclone of cyclones) {
+                // Use GFS tracker position if available, else ATCF position
+                let eyeLat = cyclone.currentPosition.lat;
+                let eyeLon = cyclone.currentPosition.lon;
+
+                if (gfsTrackRef.current && gfsTrackRef.current.size > 0) {
+                    const gfsPos = interpolateGfsTracker(
+                        gfsTrackRef.current,
+                        cyclone.sid,
+                        0, // T+0 (current)
+                        cyclone.name,
+                        eyeLat,
+                        eyeLon,
+                    );
+                    if (gfsPos) {
+                        eyeLat = gfsPos.lat;
+                        eyeLon = gfsPos.lon;
+                    }
+                }
+
+                const markerEl = createStormMarkerEl(cyclone, zoom);
+                const marker = new mapboxgl.Marker({ element: markerEl, anchor: 'center' })
+                    .setLngLat([eyeLon, eyeLat])
+                    .addTo(map);
+                markersRef.current.push(marker);
+            }
+
+            // ── HUD badge for focused storm ──
             if (!focusedStorm) return;
 
             // Create fixed-position HUD container in top-left of map
@@ -1355,6 +1595,76 @@ export function useCycloneLayer(
                 // ── Update track overlay (SVG cone + centerline + dots) ──
                 ensureTrackOverlay().update(cyclones);
 
+                // ── Native Mapbox GL past track lines (render on canvas, always visible) ──
+                for (const c of cyclones) {
+                    const srcId = `past-track-${c.sid}`;
+                    const outlineId = `${srcId}-outline`;
+                    const lineId = `${srcId}-line`;
+
+                    // Clean up any existing layers from previous load
+                    if (map.getLayer(lineId)) map.removeLayer(lineId);
+                    if (map.getLayer(outlineId)) map.removeLayer(outlineId);
+                    if (map.getSource(srcId)) map.removeSource(srcId);
+
+                    // Build coordinate array from track history + current position
+                    const trackCoords: [number, number][] = c.track.map((p) => [p.lon, p.lat] as [number, number]);
+
+                    log.info(`[CYCLONE] 🛤️ ${c.name} past track: ${trackCoords.length} points`);
+
+                    if (trackCoords.length < 2) continue;
+
+                    // Smooth via Catmull-Rom spline on geographic coords
+                    const smoothCoords = catmullRomSpline(trackCoords, 6);
+
+                    const geojson: GeoJSON.FeatureCollection = {
+                        type: 'FeatureCollection',
+                        features: [
+                            {
+                                type: 'Feature',
+                                properties: {},
+                                geometry: {
+                                    type: 'LineString',
+                                    coordinates: smoothCoords,
+                                },
+                            },
+                        ],
+                    };
+
+                    map.addSource(srcId, { type: 'geojson', data: geojson });
+
+                    // Black outline
+                    map.addLayer({
+                        id: outlineId,
+                        type: 'line',
+                        source: srcId,
+                        paint: {
+                            'line-color': '#000',
+                            'line-width': 5,
+                            'line-opacity': 0.6,
+                        },
+                        layout: {
+                            'line-cap': 'round',
+                            'line-join': 'round',
+                        },
+                    });
+
+                    // White inner line
+                    map.addLayer({
+                        id: lineId,
+                        type: 'line',
+                        source: srcId,
+                        paint: {
+                            'line-color': '#fff',
+                            'line-width': 2.5,
+                            'line-opacity': 0.95,
+                        },
+                        layout: {
+                            'line-cap': 'round',
+                            'line-join': 'round',
+                        },
+                    });
+                }
+
                 // ── Render Mapbox GL probability polygon (geographic cone) ──
                 for (const c of cyclones) {
                     addProbabilitySleeve(map, c);
@@ -1365,72 +1675,45 @@ export function useCycloneLayer(
                 // analysis (Dvorak technique). This IS the most accurate eye position available.
                 // No GRIB scanning needed — the marker was already placed at the correct
                 // lat/lon from the tcvitals T+0 or API position above.
-                log.info(
-                    `[CYCLONE] 🔴 Using ATCF satellite-analyzed positions for ${cyclones.length} storm(s)`,
-                );
+                log.info(`[CYCLONE] 🔴 Using ATCF satellite-analyzed positions for ${cyclones.length} storm(s)`);
 
-                // Find & report closest storm
+                // Find & report closest storm — but ONLY update if user hasn't manually selected
                 const closest = findClosestCyclone(cyclones, userLatRef.current, userLonRef.current);
-                onClosestStormRef.current?.(closest);
+                if (!skipAutoFlyRef?.current) {
+                    // No manual selection — use geo-closest
+                    onClosestStormRef.current?.(closest);
+                }
 
                 // ── Render storm info badge for focused storm ──
-                focusedStorm = closest;
+                // Use user-selected storm if available, otherwise closest
+                focusedStorm = selectedStormRef.current ?? closest;
                 rebuildMarkers();
 
-                // ── Satellite IR overlay — DISABLED until edge function is redeployed ──
-                // The satellite-tile edge function is currently returning 400 for all
-                // requests, which creates dark horizontal line artifacts on the map.
-                // Re-enable after running: supabase functions deploy satellite-tile --no-verify-jwt
-                /*
-                const IR_ID = 'himawari-ir-satellite';
-                if (!map.getSource(IR_ID)) {
-                    const supabaseUrl =
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        (globalThis as any).__SUPABASE_URL__ ||
-                        'https://pcisdplnodrphauixcau.supabase.co';
-                    const baseUrl = `${supabaseUrl}/functions/v1/satellite-tile`;
-                    fetch(`${baseUrl}?z=2&y=1&x=2`)
-                        .then(r => {
-                            if (!r.ok) throw new Error(`Probe ${r.status}`);
-                            return r.blob();
-                        })
-                        .then(() => {
-                            if (map.getSource(IR_ID)) return;
-                            const tileUrl = `${baseUrl}?z={z}&y={y}&x={x}`;
-                            const styleLayers = map.getStyle()?.layers ?? [];
-                            const firstSymbolId = styleLayers.find((l) => l.type === 'symbol')?.id;
-                            map.addSource(IR_ID, {
-                                type: 'raster',
-                                tiles: [tileUrl],
-                                tileSize: 512,
-                                maxzoom: 6,
-                                bounds: [60, -60, 200, 60] as [number, number, number, number],
-                                attribution: 'NASA GIBS Himawari-9 IR',
-                            });
-                            map.addLayer({ id: IR_ID, type: 'raster', source: IR_ID, paint: {
-                                'raster-opacity': 0.85, 'raster-fade-duration': 300, 'raster-resampling': 'linear',
-                            }}, firstSymbolId);
-                            log.info('[CYCLONE] 🛰️ Satellite probe OK — IR overlay activated');
-                        })
-                        .catch(() => log.warn('[CYCLONE] 🛰️ Satellite probe failed — skipping IR overlay'));
-                }
-                */
+                // ── Satellite IR overlay — all 4 NOAA/SSEC geostationary satellites ──
+                // Uses RealEarth SSEC/CIMSS XYZ tile API (free, CORS-enabled, no API key)
+                // Auto-selects the best satellite for the storm's basin:
+                //   Global IR composite | GOES-East (Americas) | GOES-West (Pacific) | Meteosat (Europe/Africa/IO)
+                const satProduct = closest ? bestProductForBasin(closest.basin) : 'global-ir';
+                addSatelliteLayer(map, satProduct);
+                log.info(`[CYCLONE] 🛰️ Satellite IR overlay activated: ${satProduct}`);
 
                 // ── Black country borders above satellite (50m Natural Earth) ──
                 const BORDER_ID = 'storm-black-borders';
                 if (!map.getSource(BORDER_ID)) {
                     fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json')
-                        .then(r => r.json())
-                        .then(topology => {
+                        .then((r) => r.json())
+                        .then((topology) => {
                             if (map.getSource(BORDER_ID)) return;
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             const topo = topology as any;
                             const { scale, translate } = topo.transform;
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             const arcs: number[][][] = topo.arcs.map((arc: number[][]) => {
-                                let x = 0, y = 0;
+                                let x = 0,
+                                    y = 0;
                                 return arc.map(([dx, dy]: number[]) => {
-                                    x += dx; y += dy;
+                                    x += dx;
+                                    y += dy;
                                     return [x * scale[0] + translate[0], y * scale[1] + translate[1]];
                                 });
                             });
@@ -1493,33 +1776,46 @@ export function useCycloneLayer(
                             });
                             log.info('[CYCLONE] 🗺️ Added 50m black country borders');
                         })
-                        .catch(err => log.warn('[CYCLONE] Failed to load borders:', err));
+                        .catch((err) => log.warn('[CYCLONE] Failed to load borders:', err));
                 }
 
                 log.info('[CYCLONE] 🛰️ Activated Himawari-9 IR + black borders for storm view');
 
-                // Fly to closest storm on first load
+                // Fly to closest storm on first load (unless user manually selected a storm)
                 if (closest && !hasFlown.current) {
                     hasFlown.current = true;
-                    // Fly to tcvitals position if available
-                    let flyLat = closest.currentPosition.lat;
-                    let flyLon = closest.currentPosition.lon;
-                    if (gfsTrackRef.current && gfsTrackRef.current.size > 0) {
-                        const gfsPos = interpolateGfsTracker(
-                            gfsTrackRef.current, closest.sid, 0,
-                            closest.name, closest.currentPosition.lat, closest.currentPosition.lon,
+                    // If handleSelectStorm already initiated a flyTo, skip the auto-fly
+                    if (skipAutoFlyRef?.current) {
+                        skipAutoFlyRef.current = false;
+                        log.info(`[CYCLONE] ✈️ Skipping auto-fly (user selected a storm manually)`);
+                    } else {
+                        // Fly to tcvitals position if available
+                        let flyLat = closest.currentPosition.lat;
+                        let flyLon = closest.currentPosition.lon;
+                        if (gfsTrackRef.current && gfsTrackRef.current.size > 0) {
+                            const gfsPos = interpolateGfsTracker(
+                                gfsTrackRef.current,
+                                closest.sid,
+                                0,
+                                closest.name,
+                                closest.currentPosition.lat,
+                                closest.currentPosition.lon,
+                            );
+                            if (gfsPos) {
+                                flyLat = gfsPos.lat;
+                                flyLon = gfsPos.lon;
+                            }
+                        }
+                        log.info(
+                            `[CYCLONE] ✈️ Flying to ${closest.name} at ${flyLat.toFixed(1)}, ${flyLon.toFixed(1)}`,
                         );
-                        if (gfsPos) { flyLat = gfsPos.lat; flyLon = gfsPos.lon; }
+                        map.flyTo({
+                            center: [flyLon, flyLat],
+                            zoom: 5,
+                            duration: 2000,
+                            essential: true,
+                        });
                     }
-                    log.info(
-                        `[CYCLONE] ✈️ Flying to ${closest.name} at ${flyLat.toFixed(1)}, ${flyLon.toFixed(1)}`,
-                    );
-                    map.flyTo({
-                        center: [flyLon, flyLat],
-                        zoom: 5,
-                        duration: 2000,
-                        essential: true,
-                    });
                 }
             } catch (e) {
                 log.error('[CYCLONE] ❌ Error loading cyclones:', e);
@@ -1536,6 +1832,7 @@ export function useCycloneLayer(
             // Clean up HUD
             const hudEl = map.getContainer().querySelector(`#${HUD_CONTAINER_ID}`);
             if (hudEl) hudEl.remove();
+            removeSatelliteLayer(map);
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
@@ -1546,5 +1843,161 @@ export function useCycloneLayer(
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visible, mapReady]);
+
+    // ── Rebuild HUD when selected storm changes ──
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady || !visible || !selectedStorm) return;
+
+        const HUD_CONTAINER_ID = 'cyclone-hud-badges';
+        const old = map.getContainer().querySelector(`#${HUD_CONTAINER_ID}`);
+        if (old) old.remove();
+
+        const hud = document.createElement('div');
+        hud.id = HUD_CONTAINER_ID;
+        hud.style.cssText = `
+            position: absolute;
+            top: 56px;
+            left: 16px;
+            z-index: 600;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            pointer-events: none;
+        `;
+
+        const badge = createStormBadgeStatic(selectedStorm);
+        hud.appendChild(badge);
+        map.getContainer().appendChild(hud);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedStorm?.sid, visible, mapReady]);
 }
 
+// ── Static badge builder (accessible outside the main effect closure) ──
+function createStormBadgeStatic(cyclone: ActiveCyclone): HTMLDivElement {
+    const wrapper = document.createElement('div');
+    const accentColor = categoryColor(cyclone.category);
+    const catLabel = categoryLabels[cyclone.categoryLabel] ?? `Cat ${cyclone.categoryLabel}`;
+    const stormName = resolveStormName(cyclone);
+
+    const pressure = cyclone.minPressureMb ? `${cyclone.minPressureMb} hPa` : '—';
+    const sustained = cyclone.maxWindKts > 0 ? `${cyclone.maxWindKts} kts` : '—';
+    const gustKts = cyclone.maxWindKts > 0 ? Math.round(cyclone.maxWindKts * 1.25) : null;
+    const gusts = gustKts ? `~${gustKts} kts` : '—';
+
+    const lat = cyclone.currentPosition.lat;
+    const lon = cyclone.currentPosition.lon;
+    const latStr = `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? 'N' : 'S'}`;
+    const lonStr = `${Math.abs(lon).toFixed(1)}°${lon >= 0 ? 'E' : 'W'}`;
+
+    const posTime = cyclone.currentPosition.time;
+    let dataAgeStr = '—';
+    let dataTimeStr = '—';
+    if (posTime) {
+        const posDate = new Date(posTime);
+        const ageMin = Math.round((Date.now() - posDate.getTime()) / 60000);
+        if (ageMin < 60) dataAgeStr = `${ageMin} min ago`;
+        else if (ageMin < 1440) dataAgeStr = `${Math.floor(ageMin / 60)}h ${ageMin % 60}m ago`;
+        else dataAgeStr = `${Math.floor(ageMin / 1440)}d ago`;
+        dataTimeStr = posDate.toISOString().replace('T', ' ').slice(0, 16) + 'Z';
+    }
+
+    const now = new Date();
+    const utcH = now.getUTCHours();
+    const advisorySlots = [0, 6, 12, 18];
+    let nextAdv = advisorySlots.find((h) => h > utcH) ?? advisorySlots[0] + 24;
+    if (nextAdv < utcH) nextAdv += 24;
+    const nextAdvDate = new Date(now);
+    nextAdvDate.setUTCHours(nextAdv % 24, 0, 0, 0);
+    if (nextAdv >= 24) nextAdvDate.setUTCDate(nextAdvDate.getUTCDate() + 1);
+    const nextAdvMin = Math.round((nextAdvDate.getTime() - now.getTime()) / 60000);
+    const nextAdvStr = nextAdvMin < 60 ? `~${nextAdvMin} min` : `~${Math.floor(nextAdvMin / 60)}h ${nextAdvMin % 60}m`;
+
+    const basinLabels: Record<string, string> = {
+        WP: 'W. Pacific',
+        EP: 'E. Pacific',
+        AL: 'Atlantic',
+        IO: 'Indian Ocean',
+        SI: 'S. Indian',
+        SP: 'S. Pacific',
+        SH: 'S. Hemisphere',
+    };
+    const basinStr = basinLabels[cyclone.basin] ?? cyclone.basin;
+
+    const row = (icon: string, label: string, value: string, valueColor = 'rgba(255,255,255,0.9)') =>
+        `<div style="display:flex;align-items:center;gap:6px;">
+            <span style="font-size:11px;width:14px;text-align:center;">${icon}</span>
+            <span style="font-size:10px;color:rgba(255,255,255,0.45);min-width:60px;">${label}</span>
+            <span style="font-size:11px;font-weight:700;color:${valueColor};margin-left:auto;">${value}</span>
+        </div>`;
+
+    wrapper.innerHTML = `
+        <div style="
+            background: rgba(10, 15, 30, 0.88);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid ${accentColor}44;
+            border-left: 3px solid ${accentColor};
+            border-radius: 12px;
+            padding: 10px 14px;
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+            min-width: 200px;
+            max-width: 240px;
+            pointer-events: none;
+            z-index: 600;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.6), 0 0 12px ${accentColor}22;
+        ">
+            <div style="
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 1px;
+                color: ${accentColor};
+                text-transform: uppercase;
+                margin-bottom: 1px;
+                text-shadow: 0 0 8px ${accentColor}44;
+            ">${catLabel}</div>
+            <div style="
+                font-size: 18px;
+                font-weight: 800;
+                color: #ffffff;
+                margin-bottom: 2px;
+                text-transform: capitalize;
+                line-height: 1.2;
+            ">${stormName}</div>
+            <div style="
+                font-size: 9px;
+                color: rgba(255,255,255,0.35);
+                margin-bottom: 8px;
+            ">${basinStr} · ${cyclone.sid}</div>
+
+            <div style="display:flex;flex-direction:column;gap:4px;">
+                ${row('⬇', 'Pressure', pressure, accentColor)}
+                ${row('💨', 'Sustained', sustained, '#ffffff')}
+                ${row('🌪️', 'Gusts (est)', gusts, gustKts && gustKts >= 64 ? '#ef4444' : '#ffffff')}
+                ${row('📍', 'Position', `${latStr}  ${lonStr}`, 'rgba(255,255,255,0.7)')}
+            </div>
+
+            <div style="
+                margin-top: 8px;
+                padding-top: 6px;
+                border-top: 1px solid rgba(255,255,255,0.06);
+                display: flex;
+                flex-direction: column;
+                gap: 3px;
+            ">
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:11px;width:14px;text-align:center;">🕐</span>
+                    <span style="font-size:9px;color:rgba(255,255,255,0.35);">${dataTimeStr}</span>
+                    <span style="font-size:9px;font-weight:700;color:#FFA500;margin-left:auto;">${dataAgeStr}</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:11px;width:14px;text-align:center;">📡</span>
+                    <span style="font-size:9px;color:rgba(255,255,255,0.35);">Next advisory</span>
+                    <span style="font-size:9px;font-weight:700;color:rgba(255,255,255,0.55);margin-left:auto;">${nextAdvStr}</span>
+                </div>
+            </div>
+        </div>
+    `;
+    return wrapper;
+}

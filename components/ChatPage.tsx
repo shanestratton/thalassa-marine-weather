@@ -402,8 +402,19 @@ export const ChatPage: React.FC = React.memo(() => {
     useEffect(() => {
         const init = async () => {
             try {
-                // FAST PATH: Show channels immediately (from cache or defaults)
-                const chs = await loadChannels();
+                // Run channel load + auth init in parallel so everything appears together
+                const initWithTimeout = Promise.race([
+                    ChatService.initialize(),
+                    new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Chat init timeout')), 8000)),
+                ]).catch((e) => {
+                    log.warn('Init auth/profile failed:', e);
+                });
+
+                const [chs] = await Promise.all([loadChannels(), initWithTimeout]);
+
+                // Roles are now loaded — refresh reactive state immediately
+                refreshRoles();
+                loadUnreadCount();
 
                 // Auto-restore channel if returning from pin-view map
                 const returnChannelId = sessionStorage.getItem('chat_return_to_channel');
@@ -413,26 +424,13 @@ export const ChatPage: React.FC = React.memo(() => {
                     if (ch) openChannel(ch);
                 }
 
-                // Auth + profile load — with timeout to prevent infinite spinner
+                // Refresh channels from network (bypass cache — auth may unlock new channels)
                 try {
-                    const initWithTimeout = Promise.race([
-                        ChatService.initialize(),
-                        new Promise<void>((_, reject) =>
-                            setTimeout(() => reject(new Error('Chat init timeout')), 8000),
-                        ),
-                    ]);
-                    await initWithTimeout;
-                    // Roles are now loaded — refresh reactive state
-                    refreshRoles();
-                    loadUnreadCount();
-
-                    // Refresh channels from network (bypass cache — auth may unlock new channels)
                     const fresh = await ChatService.getChannelsFresh();
                     if (fresh.length > 0) setChannels(fresh);
-
                     await loadProfile();
-                } catch (e) {
-                    log.warn('Init auth/profile failed:', e);
+                } catch {
+                    /* non-critical */
                 }
             } catch (e) {
                 // Outer catch — loadChannels() or channel restore failed

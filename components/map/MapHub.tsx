@@ -45,6 +45,7 @@ import { useAisLayer } from './useAisLayer';
 import { useAisStreamLayer } from './useAisStreamLayer';
 import { useChokepointLayer } from './useChokepointLayer';
 import { useCycloneLayer } from './useCycloneLayer';
+import { useSquallMap } from './useSquallMap';
 import { type ActiveCyclone, fetchActiveCyclones } from '../../services/weather/CycloneTrackingService';
 import { AisLegend } from './AisLegend';
 import { AisGuardAlert } from './AisGuardAlert';
@@ -192,8 +193,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [aisVisible, setAisVisible] = useState(false);
     const [chokepointVisible, setChokepointVisible] = useState(false);
     const [cycloneVisible, setCycloneVisible] = useState(false);
+    const [squallVisible, setSquallVisible] = useState(false);
     const [closestStorm, setClosestStorm] = useState<ActiveCyclone | null>(null);
     const [allCyclones, setAllCyclones] = useState<ActiveCyclone[]>([]);
+    const skipAutoFlyRef = useRef(false);
 
     // Fetch all active cyclones for the storm picker menu (runs regardless of layer visibility)
     useEffect(() => {
@@ -221,21 +224,23 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Handle storm selection from the picker menu
     const handleSelectStorm = useCallback(
         (storm: ActiveCyclone) => {
-            setCycloneVisible(true);
+            // Signal useCycloneLayer to skip its auto-fly on the next load.
+            // We handle the flyTo here to the user-selected storm.
+            skipAutoFlyRef.current = true;
+            if (!cycloneVisible) setCycloneVisible(true);
+            setSquallVisible(false); // Mutually exclusive with squall
             setClosestStorm(storm);
-            // Storm view now uses Himawari-9 IR satellite imagery
-            // — no auto-enable of wind/rain to keep the view clean
             const map = mapRef.current;
             if (map) {
                 map.flyTo({
                     center: [storm.currentPosition.lon, storm.currentPosition.lat],
-                    zoom: 5,
+                    zoom: 4,
                     duration: 2000,
                     essential: true,
                 });
             }
         },
-        [mapRef],
+        [mapRef, cycloneVisible],
     );
 
     // ── Passage Planner ──
@@ -245,10 +250,35 @@ export const MapHub: React.FC<MapHubProps> = ({
     useFollowRouteMapbox(mapRef, mapReady);
 
     // ── Cyclone Tracking Layer ──
-    useCycloneLayer(mapRef, mapReady, cycloneVisible, location.lat, location.lon, setClosestStorm);
+    useCycloneLayer(
+        mapRef,
+        mapReady,
+        cycloneVisible,
+        location.lat,
+        location.lon,
+        setClosestStorm,
+        skipAutoFlyRef,
+        closestStorm,
+    );
 
-    // Cyclone zoom center-lock removed — users should be free to zoom and pan freely.
-    // The cyclone blob is already visible on the map; no need to force-center.
+    // ── Rain Squall Map (GMGSI IR with BD Enhancement Curve) ──
+    useSquallMap(mapRef, mapReady, squallVisible, allCyclones, handleSelectStorm);
+
+    // ── Cyclone zoom center-lock — keep selected storm dead-center during zoom ──
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady || !cycloneVisible || !closestStorm) return;
+
+        const onZoom = () => {
+            const storm = closestStorm;
+            if (!storm) return;
+            map.setCenter([storm.currentPosition.lon, storm.currentPosition.lat]);
+        };
+        map.on('zoom', onZoom);
+        return () => {
+            map.off('zoom', onZoom);
+        };
+    }, [cycloneVisible, closestStorm, mapReady, mapRef]);
 
     // Clear isochrone progress when route completes
     useEffect(() => {
@@ -573,6 +603,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onToggleCyclones={() => {
                             const willBeVisible = !cycloneVisible;
                             setCycloneVisible(willBeVisible);
+                            // Mutually exclusive with squall map
+                            if (willBeVisible) setSquallVisible(false);
                             // Storm view uses Himawari-9 IR satellite — no auto-enable of wind/rain
                             // Users can manually toggle them via the layer menu if wanted
                         }}
@@ -581,6 +613,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                         userLat={location.lat}
                         userLon={location.lon}
                         onSelectStorm={handleSelectStorm}
+                        squallVisible={squallVisible}
+                        onToggleSquall={() => {
+                            const willBeVisible = !squallVisible;
+                            setSquallVisible(willBeVisible);
+                            // Mutually exclusive with storm layer
+                            if (willBeVisible) setCycloneVisible(false);
+                        }}
                     />
                 )}
 

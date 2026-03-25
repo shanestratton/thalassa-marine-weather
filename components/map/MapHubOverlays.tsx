@@ -13,13 +13,41 @@ import { triggerHaptic } from '../../utils/system';
 
 // ── Resolve truncated ATCF storm names (10-char limit) ──
 const NUMBER_NAMES: Record<number, string> = {
-    1:'One',2:'Two',3:'Three',4:'Four',5:'Five',6:'Six',7:'Seven',8:'Eight',
-    9:'Nine',10:'Ten',11:'Eleven',12:'Twelve',13:'Thirteen',14:'Fourteen',
-    15:'Fifteen',16:'Sixteen',17:'Seventeen',18:'Eighteen',19:'Nineteen',
-    20:'Twenty',21:'Twenty-One',22:'Twenty-Two',23:'Twenty-Three',
-    24:'Twenty-Four',25:'Twenty-Five',26:'Twenty-Six',27:'Twenty-Seven',
-    28:'Twenty-Eight',29:'Twenty-Nine',30:'Thirty',31:'Thirty-One',
-    32:'Thirty-Two',33:'Thirty-Three',34:'Thirty-Four',35:'Thirty-Five',
+    1: 'One',
+    2: 'Two',
+    3: 'Three',
+    4: 'Four',
+    5: 'Five',
+    6: 'Six',
+    7: 'Seven',
+    8: 'Eight',
+    9: 'Nine',
+    10: 'Ten',
+    11: 'Eleven',
+    12: 'Twelve',
+    13: 'Thirteen',
+    14: 'Fourteen',
+    15: 'Fifteen',
+    16: 'Sixteen',
+    17: 'Seventeen',
+    18: 'Eighteen',
+    19: 'Nineteen',
+    20: 'Twenty',
+    21: 'Twenty-One',
+    22: 'Twenty-Two',
+    23: 'Twenty-Three',
+    24: 'Twenty-Four',
+    25: 'Twenty-Five',
+    26: 'Twenty-Six',
+    27: 'Twenty-Seven',
+    28: 'Twenty-Eight',
+    29: 'Twenty-Nine',
+    30: 'Thirty',
+    31: 'Thirty-One',
+    32: 'Thirty-Two',
+    33: 'Thirty-Three',
+    34: 'Thirty-Four',
+    35: 'Thirty-Five',
 };
 
 function resolveStormDisplayName(name: string): string {
@@ -30,7 +58,10 @@ function resolveStormDisplayName(name: string): string {
         const stripped = fullName.replace(/-/g, '').toUpperCase();
         if (stripped.startsWith(raw) || raw.startsWith(stripped)) {
             const overlap = Math.min(stripped.length, raw.length);
-            if (overlap > bestLen) { bestLen = overlap; bestMatch = fullName; }
+            if (overlap > bestLen) {
+                bestLen = overlap;
+                bestMatch = fullName;
+            }
         }
     }
     if (bestMatch) return bestMatch;
@@ -227,6 +258,8 @@ export const LayerFABMenu: React.FC<{
     userLat?: number;
     userLon?: number;
     onSelectStorm?: (storm: ActiveCyclone) => void;
+    squallVisible?: boolean;
+    onToggleSquall?: () => void;
 }> = ({
     activeLayers,
     showLayerMenu,
@@ -250,6 +283,8 @@ export const LayerFABMenu: React.FC<{
     userLat = 0,
     userLon = 0,
     onSelectStorm,
+    squallVisible = false,
+    onToggleSquall,
 }) => {
     const activeCount = activeLayers.size;
     const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -428,7 +463,7 @@ export const LayerFABMenu: React.FC<{
                                             1: 'bg-yellow-500',
                                             0: 'bg-sky-500',
                                         };
-                                        const isSelected = cycloneStormName === storm.name;
+                                        const isSelected = cycloneVisible && cycloneStormName === storm.name;
                                         return (
                                             <button
                                                 aria-label="Select Storm"
@@ -451,7 +486,9 @@ export const LayerFABMenu: React.FC<{
                                                     {storm.categoryLabel}
                                                 </span>
                                                 <div className="flex-1 min-w-0">
-                                                    <div className="text-xs font-bold truncate">{resolveStormDisplayName(storm.name)}</div>
+                                                    <div className="text-xs font-bold truncate">
+                                                        {resolveStormDisplayName(storm.name)}
+                                                    </div>
                                                     <div className="text-[10px] text-gray-500">
                                                         {storm.maxWindKts}kt
                                                         {storm.minPressureMb ? ` · ${storm.minPressureMb}hPa` : ''}
@@ -467,6 +504,39 @@ export const LayerFABMenu: React.FC<{
                                     })}
                                 </div>
                             )}
+                            <div className="h-px bg-white/[0.06] mx-3" />
+                        </>
+                    )}
+
+                    {/* ── Rain Squall Map ── */}
+                    {onToggleSquall && (
+                        <>
+                            <button
+                                aria-label="Squall Map"
+                                onClick={() => {
+                                    onToggleSquall();
+                                    triggerHaptic('light');
+                                    setShowLayerMenu(false);
+                                }}
+                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${
+                                    squallVisible
+                                        ? 'bg-cyan-500/15 text-cyan-400 border-l-2 border-cyan-400'
+                                        : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'
+                                }`}
+                            >
+                                <span className="text-xl">⛈️</span>
+                                <span className="text-sm font-bold flex-1">Squall Map</span>
+                                {squallVisible ? (
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-lg shadow-cyan-400/50 animate-pulse" />
+                                        <span className="text-[11px] font-bold text-cyan-400 uppercase tracking-wider">
+                                            Live IR
+                                        </span>
+                                    </span>
+                                ) : (
+                                    <span className="text-[11px] text-gray-500">GMGSI IR</span>
+                                )}
+                            </button>
                             <div className="h-px bg-white/[0.06] mx-3" />
                         </>
                     )}
