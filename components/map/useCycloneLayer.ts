@@ -1375,8 +1375,8 @@ export function useCycloneLayer(
             const latStr = `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? 'N' : 'S'}`;
             const lonStr = `${Math.abs(lon).toFixed(1)}°${lon >= 0 ? 'E' : 'W'}`;
 
-            // Data age
-            const posTime = cyclone.currentPosition.time;
+            // Data age — use original advisory time, not interpolated "now" time
+            const posTime = cyclone.lastAdvisoryTime || cyclone.currentPosition.time;
             let dataAgeStr = '—';
             let dataTimeStr = '—';
             if (posTime) {
