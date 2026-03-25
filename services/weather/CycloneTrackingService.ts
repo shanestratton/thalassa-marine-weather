@@ -34,6 +34,8 @@ export interface ActiveCyclone {
     category: number; // Saffir-Simpson 0-5 (0 = TS/TD)
     categoryLabel: string; // "TD", "TS", "1", "2", "3", "4", "5"
     currentPosition: CyclonePosition;
+    /** Original ATCF advisory timestamp (preserved before interpolation overwrites currentPosition.time) */
+    lastAdvisoryTime?: string;
     track: CyclonePosition[];
     forecastTrack: CyclonePosition[]; // NOAA NHC forecast positions (future)
     maxWindKts: number;
@@ -682,6 +684,11 @@ async function _fetchActiveCyclonesImpl(): Promise<ActiveCyclone[]> {
                 log.info(
                     `[CYCLONE] 📍 ${c.name}: Interpolated to NOW (t=${t.toFixed(2)}) → (${interpLat.toFixed(1)}, ${interpLon.toFixed(1)}) [between ${before.lat.toFixed(1)},${before.lon.toFixed(1)} and ${after.lat.toFixed(1)},${after.lon.toFixed(1)}]`,
                 );
+
+                // Preserve original advisory time before overwriting with interpolated time
+                if (!c.lastAdvisoryTime) {
+                    c.lastAdvisoryTime = c.currentPosition.time;
+                }
 
                 c.currentPosition = {
                     lat: interpLat,
