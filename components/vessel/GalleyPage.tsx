@@ -129,11 +129,6 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                                 {meal.planned_date} · {meal.meal_slot} · {meal.servings_planned} serves
                                             </p>
                                         </div>
-                                        <div className="absolute top-2 right-2 px-2 py-0.5 rounded-md bg-black/40 backdrop-blur-sm">
-                                            <span className="text-[8px] font-bold text-white/50 tracking-widest uppercase">
-                                                SupaSpoon™
-                                            </span>
-                                        </div>
                                     </div>
 
                                     {/* Ingredients */}
@@ -260,9 +255,8 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                         )}
                                     </div>
 
-                                    {/* SupaSpoon attribution */}
                                     {recipe.source_url && (
-                                        <p className="text-[9px] text-gray-600">🔗 via SupaSpoon™ · saved offline</p>
+                                        <p className="text-[9px] text-gray-600">🔗 via Spoonacular · saved offline</p>
                                     )}
                                 </div>
                             ))

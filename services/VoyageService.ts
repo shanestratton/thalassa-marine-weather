@@ -84,6 +84,44 @@ export async function createVoyage(
     return { voyage: voyage as Voyage };
 }
 
+/** Editable fields on a draft voyage */
+export type VoyageUpdate = Partial<
+    Pick<Voyage, 'voyage_name' | 'departure_port' | 'destination_port' | 'departure_time' | 'eta' | 'crew_count' | 'notes'>
+>;
+
+/** Update a draft voyage (planning status only) */
+export async function updateVoyage(
+    voyageId: string,
+    data: VoyageUpdate,
+): Promise<{ voyage: Voyage | null; error?: string }> {
+    if (!supabase) return { voyage: null, error: 'Offline — no Supabase connection' };
+
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return { voyage: null, error: 'Sign in required' };
+
+    const { data: voyage, error } = await supabase
+        .from('voyages')
+        .update({
+            ...data,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', voyageId)
+        .eq('user_id', user.id)
+        .select()
+        .single();
+
+    if (error) {
+        console.error('[VoyageService] updateVoyage failed:', error.message);
+        return { voyage: null, error: error.message };
+    }
+
+    const updated = voyage as Voyage;
+    cacheVoyage(updated);
+    return { voyage: updated };
+}
+
 /** Start a passage (set status to 'active') */
 export async function startVoyage(voyageId: string): Promise<Voyage | null> {
     if (!supabase) return null;

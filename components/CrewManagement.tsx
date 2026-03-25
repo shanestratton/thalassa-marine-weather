@@ -36,7 +36,8 @@ import { supabase } from '../services/supabase';
 import { triggerHaptic } from '../utils/system';
 import { toast } from './Toast';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
-import { getDraftVoyages, type Voyage } from '../services/VoyageService';
+import { getDraftVoyages, updateVoyage, type Voyage } from '../services/VoyageService';
+import { getCrewCount } from '../services/MealPlanService';
 import { setActivePassage, getActivePassageId } from '../services/PassagePlanService';
 import { AuthModal } from './AuthModal';
 import { lazyRetry } from '../utils/lazyRetry';
@@ -95,6 +96,16 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [showDisbandConfirm, setShowDisbandConfirm] = useState(false);
     const [disbandConfirmText, setDisbandConfirmText] = useState('');
     const [disbanding, setDisbanding] = useState(false);
+
+    // Planning panel state
+    const [showPlanning, setShowPlanning] = useState(false);
+    const [planDeparture, setPlanDeparture] = useState('');
+    const [planEta, setPlanEta] = useState('');
+    const [planDeparturePort, setPlanDeparturePort] = useState('');
+    const [planDestPort, setPlanDestPort] = useState('');
+    const [planNotes, setPlanNotes] = useState('');
+    const [planCrewCount, setPlanCrewCount] = useState(1);
+    const [savingPlan, setSavingPlan] = useState(false);
 
     // Check auth + get user email
     const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -259,6 +270,45 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             setList([...list, register]);
         }
     };
+
+    // ── Planning Panel ──
+    const openPlanning = useCallback(() => {
+        const v = draftVoyages.find((d) => d.id === selectedPassageId);
+        if (!v) return;
+        setPlanDeparture(v.departure_time ? v.departure_time.slice(0, 16) : '');
+        setPlanEta(v.eta ? v.eta.slice(0, 16) : '');
+        setPlanDeparturePort(v.departure_port || '');
+        setPlanDestPort(v.destination_port || '');
+        setPlanNotes(v.notes || '');
+        setShowPlanning(true);
+        // Load crew count
+        getCrewCount(v.id).then(setPlanCrewCount).catch(() => setPlanCrewCount(1));
+        triggerHaptic('light');
+    }, [draftVoyages, selectedPassageId]);
+
+    const handleSavePlan = useCallback(async () => {
+        if (!selectedPassageId) return;
+        setSavingPlan(true);
+        const result = await updateVoyage(selectedPassageId, {
+            departure_time: planDeparture ? new Date(planDeparture).toISOString() : null,
+            eta: planEta ? new Date(planEta).toISOString() : null,
+            departure_port: planDeparturePort.trim() || null,
+            destination_port: planDestPort.trim() || null,
+            notes: planNotes.trim() || null,
+        });
+        setSavingPlan(false);
+        if (result.voyage) {
+            // Update local draft list with new values
+            setDraftVoyages((prev) =>
+                prev.map((v) => (v.id === selectedPassageId ? result.voyage! : v)),
+            );
+            toast.success('Passage updated');
+            triggerHaptic('medium');
+            setShowPlanning(false);
+        } else {
+            toast.error(result.error || 'Failed to save');
+        }
+    }, [selectedPassageId, planDeparture, planEta, planDeparturePort, planDestPort, planNotes]);
 
     // Filter out declined invites older than 7 days
     const visibleCrew = myCrew.filter((m) => {
@@ -431,6 +481,154 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     )}
                 </div>
 
+                {/* ── PLANNING + CAST OFF BUTTONS ── */}
+                {selectedPassageId && (
+                    <div className="mb-4 space-y-2">
+                        <div className="flex gap-2">
+                            <button
+                                onClick={openPlanning}
+                                className={`flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all active:scale-[0.97] flex items-center justify-center gap-1.5 ${
+                                    showPlanning
+                                        ? 'bg-violet-500/15 border border-violet-500/30 text-violet-300'
+                                        : 'bg-white/[0.04] border border-white/[0.08] text-gray-400 hover:bg-white/[0.06] hover:text-white'
+                                }`}
+                            >
+                                🧭 Planning
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setShowCastOff(true);
+                                    triggerHaptic('medium');
+                                }}
+                                disabled={!draftVoyages.find((v) => v.id === selectedPassageId)?.departure_time}
+                                className="flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 text-amber-300 transition-all active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed hover:from-amber-500/20 hover:to-orange-500/20 flex items-center justify-center gap-1.5"
+                            >
+                                ⚓ Cast Off
+                            </button>
+                        </div>
+
+                        {/* ── PLANNING PANEL ── */}
+                        {showPlanning && (
+                            <div className="bg-white/[0.02] border border-violet-500/15 rounded-xl p-4 space-y-3 animate-in slide-in-from-top-2 duration-200">
+                                {/* Crew count badge (read-only) */}
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-black text-violet-400/60 uppercase tracking-widest">
+                                        Passage Details
+                                    </span>
+                                    <span className="px-2.5 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/20 text-[10px] font-bold text-sky-400">
+                                        👥 {planCrewCount} crew
+                                    </span>
+                                </div>
+
+                                {/* Departure + ETA */}
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
+                                            Departure
+                                        </label>
+                                        <input
+                                            type="datetime-local"
+                                            value={planDeparture}
+                                            onChange={(e) => setPlanDeparture(e.target.value)}
+                                            onFocus={scrollInputAboveKeyboard}
+                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-violet-500/40 [color-scheme:dark]"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
+                                            ETA
+                                        </label>
+                                        <input
+                                            type="datetime-local"
+                                            value={planEta}
+                                            onChange={(e) => setPlanEta(e.target.value)}
+                                            onFocus={scrollInputAboveKeyboard}
+                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-violet-500/40 [color-scheme:dark]"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Ports */}
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
+                                            From
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={planDeparturePort}
+                                            onChange={(e) => setPlanDeparturePort(e.target.value)}
+                                            onFocus={scrollInputAboveKeyboard}
+                                            placeholder="Departure port"
+                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/40"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
+                                            To
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={planDestPort}
+                                            onChange={(e) => setPlanDestPort(e.target.value)}
+                                            onFocus={scrollInputAboveKeyboard}
+                                            placeholder="Destination"
+                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/40"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Notes */}
+                                <div>
+                                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
+                                        Notes
+                                    </label>
+                                    <textarea
+                                        value={planNotes}
+                                        onChange={(e) => setPlanNotes(e.target.value)}
+                                        onFocus={scrollInputAboveKeyboard}
+                                        placeholder="Weather windows, tidal constraints, fuel stops…"
+                                        rows={2}
+                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/40 resize-none"
+                                    />
+                                </div>
+
+                                {/* Readiness indicators */}
+                                {planDeparture && planEta && (
+                                    <div className="flex gap-2 text-[10px]">
+                                        <span className="px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/15 text-emerald-400 font-bold">
+                                            ✅ Dates set
+                                        </span>
+                                        <span className={`px-2 py-1 rounded-lg font-bold ${
+                                            planCrewCount > 1
+                                                ? 'bg-emerald-500/10 border border-emerald-500/15 text-emerald-400'
+                                                : 'bg-amber-500/10 border border-amber-500/15 text-amber-400'
+                                        }`}>
+                                            {planCrewCount > 1 ? '✅' : '⚠️'} {planCrewCount} crew
+                                        </span>
+                                    </div>
+                                )}
+
+                                {/* Save + Cancel */}
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={handleSavePlan}
+                                        disabled={savingPlan}
+                                        className="flex-1 py-2.5 bg-violet-500/15 border border-violet-500/25 rounded-xl text-[11px] font-bold text-violet-300 uppercase tracking-widest hover:bg-violet-500/25 transition-all active:scale-[0.97] disabled:opacity-40"
+                                    >
+                                        {savingPlan ? '⏳ Saving…' : '💾 Save'}
+                                    </button>
+                                    <button
+                                        onClick={() => setShowPlanning(false)}
+                                        className="px-4 py-2.5 bg-white/[0.04] border border-white/[0.06] rounded-xl text-[11px] font-bold text-gray-400 hover:text-white transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
                 {loading ? (
                     <div className="flex items-center justify-center py-20">
                         <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
