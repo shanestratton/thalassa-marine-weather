@@ -68,19 +68,36 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
         }
 
         try {
-            // Use RPC function that extracts lat/lon via ST_X/ST_Y
+            // Try RPC function first (uses PostGIS ST_X/ST_Y for lat/lon)
             const { data, error } = await supabase.rpc('search_vessels', {
                 search_query: q.trim(),
                 max_results: 10,
             });
 
+            let rows = data;
+
             if (error) {
-                log.warn('[VesselSearch] RPC error:', error.message);
-                setResults([]);
-                return;
+                log.warn('[VesselSearch] RPC not available, falling back to direct query:', error.message);
+                // Fallback: direct query on vessels table (no PostGIS dependency)
+                const isMMSI = /^\d{5,9}$/.test(q.trim());
+                let query = supabase.from('vessels').select('mmsi, name, call_sign, ship_type, sog, lat, lon');
+
+                if (isMMSI) {
+                    query = query.eq('mmsi', parseInt(q.trim()));
+                } else {
+                    query = query.ilike('name', `%${q.trim()}%`);
+                }
+
+                const { data: fallbackData, error: fallbackError } = await query.limit(10);
+                if (fallbackError) {
+                    log.warn('[VesselSearch] Fallback query error:', fallbackError.message);
+                    setResults([]);
+                    return;
+                }
+                rows = fallbackData;
             }
 
-            const merged: VesselSearchResult[] = (data || [])
+            const merged: VesselSearchResult[] = (rows || [])
                 .filter((v: { lat: number; lon: number }) => v.lat !== 0 || v.lon !== 0)
                 .map(
                     (v: {
