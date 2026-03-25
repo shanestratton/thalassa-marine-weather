@@ -15,6 +15,7 @@
 import { getAll, query, insertLocal, updateLocal, deltaLocal, generateUUID } from './vessel/LocalDatabase';
 import { scaleIngredient, type RecipeIngredient, type GalleyMeal } from './GalleyRecipeService';
 import { triggerHaptic } from '../utils/system';
+import { getMyCrew } from './CrewService';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -338,6 +339,66 @@ export function getVoyageDateRange(startDate: string, days: number): string[] {
     return dates;
 }
 
+// ── Voyage Context Helpers ─────────────────────────────────────────────────
+
+export interface MealDayInfo {
+    /** Number of actual passage days (departure → arrival) */
+    passageDays: number;
+    /** Number of emergency buffer days (2 per 5 passage days) */
+    emergencyDays: number;
+    /** Total days to plan meals for */
+    totalDays: number;
+    /** Array of ISO date strings for each day */
+    dates: string[];
+    /** Which dates are emergency buffer days */
+    emergencyDates: Set<string>;
+}
+
+/**
+ * Calculate meal planning days from voyage departure/arrival.
+ *
+ * Formula: 2 emergency days per 5 passage days.
+ * Emergency days are appended after the ETA for weather delays,
+ * mechanical issues, etc. Cook should plan shelf-stable meals for these.
+ */
+export function calculateMealDays(departureTime: string, eta: string): MealDayInfo {
+    const dep = new Date(departureTime);
+    const arr = new Date(eta);
+    const diffMs = arr.getTime() - dep.getTime();
+    const passageDays = Math.max(1, Math.ceil(diffMs / (24 * 60 * 60 * 1000)));
+    const emergencyDays = Math.floor(passageDays / 5) * 2;
+    const totalDays = passageDays + emergencyDays;
+
+    const dates: string[] = [];
+    const emergencyDates = new Set<string>();
+    const startDate = new Date(departureTime + (departureTime.includes('T') ? '' : 'T00:00:00Z'));
+
+    for (let i = 0; i < totalDays; i++) {
+        const d = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
+        const dateStr = d.toISOString().split('T')[0];
+        dates.push(dateStr);
+        if (i >= passageDays) {
+            emergencyDates.add(dateStr);
+        }
+    }
+
+    return { passageDays, emergencyDays, totalDays, dates, emergencyDates };
+}
+
+/**
+ * Get crew count for a voyage from the crew roster.
+ * Returns crew members + 1 (the captain/owner).
+ */
+export async function getCrewCount(voyageId: string): Promise<number> {
+    try {
+        const crew = await getMyCrew(voyageId);
+        // +1 for the captain (who is the owner, not in the crew list)
+        return crew.filter((c) => c.status === 'accepted').length + 1;
+    } catch {
+        return 1; // Offline fallback — at least the captain
+    }
+}
+
 // ── Shortfall Helper ───────────────────────────────────────────────────────
 
 /**
@@ -377,3 +438,61 @@ export async function addShortfallItem(
         return false;
     }
 }
+
+// ── Aggregated Ingredients for Shopping List ────────────────────────────────
+
+export interface AggregatedIngredient {
+    /** Ingredient name (title-cased) */
+    name: string;
+    /** Total quantity across all scheduled meals */
+    totalQty: number;
+    /** Unit (e.g. "g", "ml", "whole") */
+    unit: string;
+    /** Which meals use this ingredient */
+    mealTitles: string[];
+    /** Pre-selected for shopping list (user can deselect) */
+    selected: boolean;
+}
+
+/**
+ * Aggregate all ingredients from scheduled meals for a voyage.
+ * Deduplicates by name+unit and sums quantities.
+ * Returns a flat list ready for the shopping list checklist UI.
+ */
+export function getAggregatedIngredients(voyageId?: string): AggregatedIngredient[] {
+    const meals = query<MealPlan>(TABLE, (m) => {
+        const statusOk = m.status !== 'completed' && m.status !== 'skipped';
+        const voyageOk = voyageId ? m.voyage_id === voyageId : true;
+        return statusOk && voyageOk;
+    });
+
+    const map = new Map<string, AggregatedIngredient>();
+
+    for (const meal of meals) {
+        for (const ing of meal.ingredients) {
+            if (!ing.name || ing.amount <= 0) continue;
+            const key = `${ing.name.toLowerCase()}__${ing.unit.toLowerCase()}`;
+            const existing = map.get(key);
+            if (existing) {
+                existing.totalQty += ing.amount;
+                if (!existing.mealTitles.includes(meal.title)) {
+                    existing.mealTitles.push(meal.title);
+                }
+            } else {
+                map.set(key, {
+                    name: ing.name,
+                    totalQty: ing.amount,
+                    unit: ing.unit,
+                    mealTitles: [meal.title],
+                    selected: true,
+                });
+            }
+        }
+    }
+
+    // Sort alphabetically, round quantities
+    return Array.from(map.values())
+        .map((i) => ({ ...i, totalQty: Math.round(i.totalQty * 10) / 10 }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+}
+

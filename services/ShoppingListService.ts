@@ -10,9 +10,10 @@
  * "Don't buy the same brisket at a different shop!" — sync immediately.
  */
 
-import { getAll, query, insertLocal, updateLocal, generateUUID } from './vessel/LocalDatabase';
+import { getAll, query, insertLocal, updateLocal, deleteLocal, generateUUID } from './vessel/LocalDatabase';
 import { syncNow } from './vessel/SyncService';
 import { type ProvisionItem } from './PassageProvisionsService';
+import { getCachedActiveVoyage } from './VoyageService';
 import { triggerHaptic } from '../utils/system';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -212,6 +213,62 @@ export async function generateShoppingList(
 }
 
 /**
+ * Bulk-add aggregated meal ingredients to the shopping list.
+ * Used by the "Add All to Shopping List" flow in the Meal Calendar.
+ */
+export async function bulkAddToShoppingList(
+    ingredients: { name: string; totalQty: number; unit: string }[],
+    voyageId: string | null,
+): Promise<number> {
+    const now = new Date().toISOString();
+    let count = 0;
+
+    for (const ing of ingredients) {
+        if (ing.totalQty <= 0) continue;
+
+        // Check for existing unpurchased item with same name to avoid duplicates
+        const existing = query<ShoppingItem>(TABLE, (i) =>
+            i.ingredient_name.toLowerCase() === ing.name.toLowerCase() &&
+            i.voyage_id === voyageId &&
+            !i.purchased,
+        );
+
+        if (existing.length > 0) {
+            // Update quantity instead of creating duplicate
+            await updateLocal<ShoppingItem>(TABLE, existing[0].id, {
+                required_qty: existing[0].required_qty + ing.totalQty,
+            } as Partial<ShoppingItem>);
+        } else {
+            const item: ShoppingItem = {
+                id: generateUUID(),
+                ingredient_name: ing.name,
+                required_qty: Math.round(ing.totalQty * 10) / 10,
+                unit: ing.unit,
+                market_zone: detectMarketZone(ing.name),
+                actual_cost: null,
+                currency: 'AUD',
+                purchased: false,
+                purchased_at: null,
+                store_location: 'Galley',
+                provision_id: null,
+                voyage_id: voyageId,
+                notes: null,
+                created_at: now,
+                updated_at: now,
+            };
+            await insertLocal(TABLE, item);
+        }
+        count++;
+    }
+
+    // Immediate sync so crew sees updates
+    triggerHaptic('medium');
+    syncNow().catch(() => { /* offline */ });
+
+    return count;
+}
+
+/**
  * Mark an item as purchased — inserts into Ship's Stores + immediate sync.
  * This prevents Robin buying the same brisket at a different shop!
  */
@@ -254,6 +311,74 @@ export async function markPurchased(
     triggerHaptic('medium');
     syncNow().catch(() => {
         /* offline — will sync later */
+    });
+}
+
+/**
+ * Manually add an item to the shopping list (non-recipe items like soap, parts, etc.)
+ */
+export async function addManualItem(opts: {
+    name: string;
+    qty: number;
+    unit: string;
+    zone?: MarketZone;
+    notes?: string;
+}): Promise<ShoppingItem> {
+    const voyage = getCachedActiveVoyage?.();
+    const now = new Date().toISOString();
+    const item: ShoppingItem = {
+        id: generateUUID(),
+        ingredient_name: opts.name,
+        required_qty: opts.qty,
+        unit: opts.unit || 'each',
+        market_zone: opts.zone || detectMarketZone(opts.name),
+        actual_cost: null,
+        currency: 'AUD',
+        purchased: false,
+        purchased_at: null,
+        store_location: '',
+        provision_id: null,
+        voyage_id: voyage?.id || null,
+        notes: opts.notes || null,
+        created_at: now,
+        updated_at: now,
+    };
+    await insertLocal(TABLE, item);
+    triggerHaptic('medium');
+    syncNow().catch(() => { /* offline */ });
+    return item;
+}
+
+/**
+ * Unmark a purchased item — reverts to "needs buying".
+ * Also removes the corresponding Ship's Stores entry that was auto-created.
+ */
+export async function unmarkPurchased(shoppingItemId: string): Promise<void> {
+    const items = query<ShoppingItem>(TABLE, (i) => i.id === shoppingItemId);
+    const item = items[0];
+    if (!item || !item.purchased) return;
+
+    // 1. Revert shopping list item
+    await updateLocal<ShoppingItem>(TABLE, shoppingItemId, {
+        purchased: false,
+        purchased_at: null,
+        actual_cost: null,
+    } as Partial<ShoppingItem>);
+
+    // 2. Remove the auto-created inventory entry (best-effort match by name + voyage)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const storesEntries = query<any>('inventory_items', (i: any) =>
+        i.item_name === item.ingredient_name &&
+        (i.notes || '').includes(item.voyage_id || '___'),
+    );
+    for (const entry of storesEntries) {
+        await deleteLocal('inventory_items', entry.id);
+    }
+
+    // 3. Sync
+    triggerHaptic('light');
+    syncNow().catch(() => {
+        /* offline */
     });
 }
 

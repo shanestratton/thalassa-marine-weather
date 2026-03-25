@@ -1,25 +1,31 @@
 /**
  * GalleyCard — Collapsible "Passage Planning" card for the Chat screen.
  *
- * Minimised by default to keep chat clear. Expands to reveal:
- *   A) The Food Thing: Active meal, recipe info, scaling, Cook Now
- *   B) Galley Chat: Dedicated sub-thread for passage meal coordination
+ * Contains a multi-day meal calendar grid powered by voyage dates,
+ * per-slot Spoonacular recipe search, and crew coordination chat.
  *
  * Hard-wired to Ship's Stores: "Cook Now" triggers DELTA subtractions.
  */
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
     getMealsByStatus,
     startCooking,
     completeMeal,
     scheduleMeal,
-    todayUTC,
+    calculateMealDays,
+    getCrewCount,
+    getAggregatedIngredients,
     type MealPlan,
+    type MealSlot,
+    type MealDayInfo,
+    type AggregatedIngredient,
 } from '../../services/MealPlanService';
 import { getStoresAvailability } from '../../services/MealPlanService';
-import { getShoppingList, type ShoppingListSummary } from '../../services/ShoppingListService';
+import { getShoppingList, bulkAddToShoppingList, type ShoppingListSummary } from '../../services/ShoppingListService';
 import { triggerHaptic } from '../../utils/system';
-import { scaleIngredient, getRecipeImageUrl } from '../../services/GalleyRecipeService';
+import { scaleIngredient, getRecipeImageUrl, searchRecipes, type GalleyMeal } from '../../services/GalleyRecipeService';
+import { getCachedActiveVoyage, type Voyage } from '../../services/VoyageService';
+import { toPurchasable } from '../../services/PurchaseUnits';
 
 import { type PassageStatus } from '../../services/PassagePlanService';
 
@@ -48,6 +54,24 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
     );
     const [galleyInput, setGalleyInput] = useState('');
     const [cookingMealId, setCookingMealId] = useState<string | null>(null);
+
+    // ── Voyage context for meal calendar ──
+    const [voyage, setVoyage] = useState<Voyage | null>(null);
+    const [mealDays, setMealDays] = useState<MealDayInfo | null>(null);
+    const [crewCount, setCrewCount] = useState(1);
+
+    // Load voyage data and compute calendar dimensions
+    useEffect(() => {
+        if (!expanded) return;
+        const v = getCachedActiveVoyage();
+        setVoyage(v);
+        if (v?.departure_time && v?.eta) {
+            setMealDays(calculateMealDays(v.departure_time, v.eta));
+        }
+        if (v?.id) {
+            getCrewCount(v.id).then(setCrewCount).catch(() => setCrewCount(1));
+        }
+    }, [expanded]);
 
     // Load active meals and shopping status
     useEffect(() => {
@@ -163,39 +187,34 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
                             icon="🍽️"
                             title="Meal Planner"
                             subtitle={
-                                activeMeals.length > 0
-                                    ? `${activeMeals.length} meal${activeMeals.length !== 1 ? 's' : ''} planned`
-                                    : 'No active meals'
+                                mealDays
+                                    ? `${mealDays.totalDays} days · ${crewCount} crew`
+                                    : activeMeals.length > 0
+                                      ? `${activeMeals.length} meal${activeMeals.length !== 1 ? 's' : ''} planned`
+                                      : 'Set voyage dates to plan'
                             }
                             color="amber"
                             defaultOpen={activeTab === 'food'}
                             onToggle={() => setActiveTab(activeTab === 'food' ? '' : 'food')}
                             isOpen={activeTab === 'food'}
                         >
-                            <div className="max-h-[420px] overflow-y-auto">
-                                {activeMeals.length === 0 ? (
-                                    <QuickMealForm
-                                        onScheduled={() => {
-                                            const reserved = getMealsByStatus('reserved');
-                                            const cooking = getMealsByStatus('cooking');
-                                            setActiveMeals([...cooking, ...reserved]);
-                                        }}
-                                    />
-                                ) : (
-                                    activeMeals.map((meal) => {
-                                        const baseServings = meal.servings_planned || 4;
-                                        return (
-                                            <ChefPlate
-                                                key={meal.id}
-                                                meal={meal}
-                                                baseServings={baseServings}
-                                                cooking={cookingMealId === meal.id}
-                                                onCook={() => handleCookNow(meal)}
-                                                shoppingSummary={shoppingSummary}
-                                            />
-                                        );
-                                    })
-                                )}
+                            <div className="max-h-[520px] overflow-y-auto">
+                                <MealCalendar
+                                    mealDays={mealDays}
+                                    crewCount={crewCount}
+                                    voyageId={voyage?.id || null}
+                                    voyageName={voyage?.voyage_name || null}
+                                    activeMeals={activeMeals}
+                                    onMealsChanged={() => {
+                                        const reserved = getMealsByStatus('reserved');
+                                        const cooking = getMealsByStatus('cooking');
+                                        setActiveMeals([...cooking, ...reserved]);
+                                    }}
+                                    onOpenCookingMode={onOpenCookingMode}
+                                    cookingMealId={cookingMealId}
+                                    onCookNow={handleCookNow}
+                                    shoppingSummary={shoppingSummary}
+                                />
                             </div>
                         </ChildCard>
                     )}
@@ -391,137 +410,550 @@ const ChildCard: React.FC<{
     );
 };
 
-// ── Quick Meal Planning Form ──
-const SLOT_OPTIONS: { value: 'breakfast' | 'lunch' | 'dinner'; label: string; emoji: string }[] = [
-    { value: 'breakfast', label: 'Breakfast', emoji: '🌅' },
-    { value: 'lunch', label: 'Lunch', emoji: '☀️' },
-    { value: 'dinner', label: 'Dinner', emoji: '🌙' },
+// ── Meal Calendar Grid ──
+const SLOT_CONFIG: { slot: MealSlot; label: string; emoji: string }[] = [
+    { slot: 'breakfast', label: 'Brekky', emoji: '🌅' },
+    { slot: 'lunch', label: 'Lunch', emoji: '☀️' },
+    { slot: 'dinner', label: 'Dinner', emoji: '🌙' },
 ];
 
-const QUICK_MEALS = [
-    '🍳 Eggs & Toast',
-    '🥗 Fresh Salad',
-    '🍝 Pasta Marinara',
-    '🐟 Grilled Fish',
-    '🍛 Curry & Rice',
-    '🌮 Tacos',
-    '🍔 Burgers',
-    '🥘 Stew',
-];
+interface MealCalendarProps {
+    mealDays: MealDayInfo | null;
+    crewCount: number;
+    voyageId: string | null;
+    voyageName: string | null;
+    activeMeals: MealPlan[];
+    onMealsChanged: () => void;
+    onOpenCookingMode?: (meal: MealPlan) => void;
+    cookingMealId: string | null;
+    onCookNow: (meal: MealPlan) => void;
+    shoppingSummary: ShoppingListSummary | null;
+}
 
-const QuickMealForm: React.FC<{ onScheduled: () => void }> = ({ onScheduled }) => {
-    const [mealName, setMealName] = useState('');
-    const [slot, setSlot] = useState<'breakfast' | 'lunch' | 'dinner'>('dinner');
-    const [servings, setServings] = useState(2);
-    const [date, setDate] = useState(todayUTC());
+const MealCalendar: React.FC<MealCalendarProps> = ({
+    mealDays,
+    crewCount,
+    voyageId,
+    voyageName,
+    activeMeals,
+    onMealsChanged,
+    onOpenCookingMode,
+    cookingMealId,
+    onCookNow,
+    shoppingSummary,
+}) => {
+    const [slotPicker, setSlotPicker] = useState<{ date: string; slot: MealSlot } | null>(null);
+    const [expandedMeal, setExpandedMeal] = useState<string | null>(null);
+    const [showShoppingModal, setShowShoppingModal] = useState(false);
+    const [shoppingIngredients, setShoppingIngredients] = useState<AggregatedIngredient[]>([]);
+    const [addingToList, setAddingToList] = useState(false);
+
+    const handleOpenShoppingModal = useCallback(() => {
+        if (!voyageId) return;
+        const ingredients = getAggregatedIngredients(voyageId);
+        setShoppingIngredients(ingredients);
+        setShowShoppingModal(true);
+        triggerHaptic('light');
+    }, [voyageId]);
+
+    const handleToggleIngredient = useCallback((name: string) => {
+        setShoppingIngredients((prev) =>
+            prev.map((i) => (i.name === name ? { ...i, selected: !i.selected } : i)),
+        );
+    }, []);
+
+    const handleBulkAdd = useCallback(async () => {
+        const selected = shoppingIngredients.filter((i) => i.selected);
+        if (selected.length === 0) return;
+        setAddingToList(true);
+        const count = await bulkAddToShoppingList(selected.map((i) => ({
+            name: i.name,
+            totalQty: i.totalQty,
+            unit: i.unit,
+        })), voyageId);
+        setAddingToList(false);
+        setShowShoppingModal(false);
+        onMealsChanged(); // refresh shopping summary
+        triggerHaptic('heavy');
+        // Toast-like feedback via alert or state
+        console.log(`[Galley] Added ${count} items to shopping list`);
+    }, [shoppingIngredients, voyageId, onMealsChanged]);
+
+    // No dates set — prompt user
+    if (!mealDays) {
+        return (
+            <div className="p-6 text-center">
+                <span className="text-4xl">📅</span>
+                <p className="text-sm font-bold text-white mt-3">Set Voyage Dates</p>
+                <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+                    Add departure and arrival dates to your passage plan to unlock the meal calendar.
+                </p>
+                <div className="mt-3 px-4">
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                        <span className="text-base">🧭</span>
+                        <p className="text-[11px] text-gray-400 text-left">
+                            Go to Vessel Hub → select your passage → set departure {'&'} ETA dates
+                        </p>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // Build a map of existing meals by date+slot for quick lookup
+    const mealMap = new Map<string, MealPlan>();
+    for (const m of activeMeals) {
+        mealMap.set(`${m.planned_date}_${m.meal_slot}`, m);
+    }
+
+    return (
+        <div className="p-3 space-y-1">
+            {/* Calendar header */}
+            <div className="flex items-center justify-between px-1 pb-2">
+                <div>
+                    <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">
+                        {voyageName || 'Passage'} · {mealDays.passageDays}d + {mealDays.emergencyDays}d buffer
+                    </p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                    {activeMeals.length > 0 && (
+                        <button
+                            onClick={handleOpenShoppingModal}
+                            className="px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold text-emerald-400 hover:bg-emerald-500/20 transition-all active:scale-95"
+                        >
+                            🛒 List
+                        </button>
+                    )}
+                    <span className="px-2 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/20 text-[10px] font-bold text-sky-400">
+                        👥 {crewCount}
+                    </span>
+                </div>
+            </div>
+
+            {/* Day rows */}
+            {mealDays.dates.map((date, dayIdx) => {
+                const isEmergency = mealDays.emergencyDates.has(date);
+                const dayLabel = `Day ${dayIdx + 1}`;
+                const dateLabel = new Date(date + 'T12:00:00Z').toLocaleDateString(undefined, {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric',
+                });
+
+                return (
+                    <div
+                        key={date}
+                        className={`rounded-xl border p-2 transition-all ${
+                            isEmergency
+                                ? 'border-amber-500/25 border-dashed bg-amber-500/[0.03]'
+                                : 'border-white/[0.06] bg-white/[0.02]'
+                        }`}
+                    >
+                        {/* Day label */}
+                        <div className="flex items-center gap-2 px-1 pb-1.5">
+                            <span className={`text-[10px] font-black uppercase tracking-widest ${isEmergency ? 'text-amber-400' : 'text-gray-500'}`}>
+                                {isEmergency ? '⚠️ ' : ''}{dayLabel}
+                            </span>
+                            <span className="text-[10px] text-gray-600">{dateLabel}</span>
+                            {isEmergency && (
+                                <span className="ml-auto text-[9px] font-bold text-amber-400/60 uppercase tracking-wider">
+                                    Emergency
+                                </span>
+                            )}
+                        </div>
+
+                        {/* 3-column slot grid */}
+                        <div className="grid grid-cols-3 gap-1.5">
+                            {SLOT_CONFIG.map(({ slot, label, emoji }) => {
+                                const meal = mealMap.get(`${date}_${slot}`);
+                                const isExpanded = expandedMeal === meal?.id;
+
+                                if (meal) {
+                                    return (
+                                        <button
+                                            key={slot}
+                                            onClick={() => setExpandedMeal(isExpanded ? null : meal.id)}
+                                            className={`p-2 rounded-lg text-left transition-all ${
+                                                isExpanded
+                                                    ? 'bg-amber-500/15 border border-amber-500/25'
+                                                    : 'bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08]'
+                                            }`}
+                                        >
+                                            <p className="text-[9px] text-gray-500 font-bold uppercase tracking-wider">
+                                                {emoji} {label}
+                                            </p>
+                                            <p className="text-[11px] font-bold text-white truncate mt-0.5">
+                                                {meal.title.replace(/^[\p{Emoji_Presentation}\p{Emoji}\uFE0F?\s]+/u, '')}
+                                            </p>
+                                        </button>
+                                    );
+                                }
+
+                                // Empty slot — "+" button
+                                return (
+                                    <button
+                                        key={slot}
+                                        onClick={() => {
+                                            setSlotPicker({ date, slot });
+                                            triggerHaptic('light');
+                                        }}
+                                        className="p-2 rounded-lg border border-dashed border-white/[0.08] hover:border-amber-500/30 hover:bg-amber-500/[0.04] transition-all flex flex-col items-center justify-center min-h-[48px] group"
+                                    >
+                                        <span className="text-[9px] text-gray-600 font-bold uppercase tracking-wider group-hover:text-gray-400">
+                                            {emoji} {label}
+                                        </span>
+                                        <span className="text-lg text-gray-600 group-hover:text-amber-400 transition-colors leading-none mt-0.5">
+                                            +
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {/* Expanded ChefPlate for selected meal */}
+                        {expandedMeal && mealMap.get(`${date}_breakfast`)?.id === expandedMeal && (
+                            <div className="mt-2">
+                                <ChefPlate
+                                    meal={activeMeals.find((m) => m.id === expandedMeal)!}
+                                    baseServings={activeMeals.find((m) => m.id === expandedMeal)?.servings_planned || crewCount}
+                                    cooking={cookingMealId === expandedMeal}
+                                    onCook={() => onCookNow(activeMeals.find((m) => m.id === expandedMeal)!)}
+                                    shoppingSummary={shoppingSummary}
+                                />
+                            </div>
+                        )}
+                        {expandedMeal && mealMap.get(`${date}_lunch`)?.id === expandedMeal && (
+                            <div className="mt-2">
+                                <ChefPlate
+                                    meal={activeMeals.find((m) => m.id === expandedMeal)!}
+                                    baseServings={activeMeals.find((m) => m.id === expandedMeal)?.servings_planned || crewCount}
+                                    cooking={cookingMealId === expandedMeal}
+                                    onCook={() => onCookNow(activeMeals.find((m) => m.id === expandedMeal)!)}
+                                    shoppingSummary={shoppingSummary}
+                                />
+                            </div>
+                        )}
+                        {expandedMeal && mealMap.get(`${date}_dinner`)?.id === expandedMeal && (
+                            <div className="mt-2">
+                                <ChefPlate
+                                    meal={activeMeals.find((m) => m.id === expandedMeal)!}
+                                    baseServings={activeMeals.find((m) => m.id === expandedMeal)?.servings_planned || crewCount}
+                                    cooking={cookingMealId === expandedMeal}
+                                    onCook={() => onCookNow(activeMeals.find((m) => m.id === expandedMeal)!)}
+                                    shoppingSummary={shoppingSummary}
+                                />
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
+
+            {/* ── Shopping List Modal ── */}
+            {showShoppingModal && (
+                <div className="fixed inset-0 z-50 bg-black/70 flex items-end justify-center" onClick={() => setShowShoppingModal(false)}>
+                    <div
+                        className="w-full max-w-lg bg-[#0d1117] rounded-t-3xl overflow-hidden max-h-[85vh] flex flex-col"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Header */}
+                        <div className="flex items-center justify-between p-4 pb-2 border-b border-white/[0.06]">
+                            <div>
+                                <h3 className="text-sm font-black text-white">🛒 Grocery Shopping List</h3>
+                                <p className="text-[10px] text-gray-500 mt-0.5">
+                                    Deselect items you already have on board
+                                </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={() => setShoppingIngredients((prev) => prev.map((i) => ({ ...i, selected: true })))}
+                                    className="text-[10px] font-bold text-sky-400 hover:text-sky-300"
+                                >
+                                    All
+                                </button>
+                                <span className="text-gray-600">|</span>
+                                <button
+                                    onClick={() => setShoppingIngredients((prev) => prev.map((i) => ({ ...i, selected: false })))}
+                                    className="text-[10px] font-bold text-gray-500 hover:text-gray-300"
+                                >
+                                    None
+                                </button>
+                                <button
+                                    onClick={() => setShowShoppingModal(false)}
+                                    className="ml-2 w-7 h-7 rounded-full bg-white/5 text-gray-400 flex items-center justify-center text-xs"
+                                >
+                                    ✕
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Ingredient List */}
+                        <div className="flex-1 overflow-y-auto p-3 space-y-1">
+                            {shoppingIngredients.length === 0 ? (
+                                <div className="text-center py-8">
+                                    <span className="text-3xl">📋</span>
+                                    <p className="text-xs text-gray-500 mt-2">
+                                        No ingredients yet — schedule some meals first
+                                    </p>
+                                </div>
+                            ) : (
+                                shoppingIngredients.map((ing) => {
+                                    const purchase = toPurchasable(ing.name, ing.totalQty, ing.unit);
+                                    return (
+                                    <button
+                                        key={ing.name}
+                                        onClick={() => handleToggleIngredient(ing.name)}
+                                        className={`w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all active:scale-[0.98] ${
+                                            ing.selected
+                                                ? 'bg-emerald-500/[0.06] border-emerald-500/15'
+                                                : 'bg-white/[0.02] border-white/[0.04] opacity-50'
+                                        }`}
+                                    >
+                                        {/* Checkbox */}
+                                        <div
+                                            className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                                                ing.selected ? 'bg-emerald-500 border-emerald-500' : 'border-gray-600'
+                                            }`}
+                                        >
+                                            {ing.selected && (
+                                                <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                                </svg>
+                                            )}
+                                        </div>
+
+                                        {/* Name + meals */}
+                                        <div className="flex-1 text-left min-w-0">
+                                            <p className={`text-xs font-bold truncate ${ing.selected ? 'text-white' : 'text-gray-500 line-through'}`}>
+                                                {ing.name}
+                                            </p>
+                                            <p className="text-[10px] text-gray-500 truncate">
+                                                {ing.mealTitles.slice(0, 2).join(', ')}{ing.mealTitles.length > 2 ? ` +${ing.mealTitles.length - 2}` : ''}
+                                            </p>
+                                        </div>
+
+                                        {/* Purchase quantity */}
+                                        <div className="text-right flex-shrink-0">
+                                            <span className="text-[11px] font-bold text-emerald-400 tabular-nums">
+                                                {purchase.packageCount} × {purchase.packageLabel}
+                                            </span>
+                                            {purchase.matched && (
+                                                <p className="text-[9px] text-gray-600 line-through tabular-nums">
+                                                    {ing.totalQty} {ing.unit}
+                                                </p>
+                                            )}
+                                        </div>
+                                    </button>
+                                    );
+                                })
+                            )}
+                        </div>
+
+                        {/* Footer */}
+                        {shoppingIngredients.length > 0 && (
+                            <div className="p-4 pt-2 border-t border-white/[0.06] space-y-2">
+                                <p className="text-[10px] text-center text-gray-500">
+                                    {shoppingIngredients.filter((i) => i.selected).length} of {shoppingIngredients.length} items selected
+                                </p>
+                                <button
+                                    onClick={handleBulkAdd}
+                                    disabled={addingToList || shoppingIngredients.filter((i) => i.selected).length === 0}
+                                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-xl text-sm font-black text-black uppercase tracking-[0.15em] transition-all active:scale-[0.96] disabled:opacity-30 shadow-lg shadow-emerald-500/20"
+                                >
+                                    {addingToList ? '⏳ Adding…' : `🛒 Add ${shoppingIngredients.filter((i) => i.selected).length} Items to List`}
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {/* Slot Picker Modal */}
+            {slotPicker && (
+                <SlotPicker
+                    date={slotPicker.date}
+                    slot={slotPicker.slot}
+                    crewCount={crewCount}
+                    voyageId={voyageId}
+                    onScheduled={() => {
+                        setSlotPicker(null);
+                        onMealsChanged();
+                    }}
+                    onClose={() => setSlotPicker(null)}
+                />
+            )}
+        </div>
+    );
+};
+
+// ── Slot Picker Modal ──
+const SlotPicker: React.FC<{
+    date: string;
+    slot: MealSlot;
+    crewCount: number;
+    voyageId: string | null;
+    onScheduled: () => void;
+    onClose: () => void;
+}> = ({ date, slot, crewCount, voyageId, onScheduled, onClose }) => {
+    const [searchQuery, setSearchQuery] = useState('');
+    const [results, setResults] = useState<GalleyMeal[]>([]);
+    const [searching, setSearching] = useState(false);
     const [scheduling, setScheduling] = useState(false);
+    const [customName, setCustomName] = useState('');
+    const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const handleSchedule = async () => {
-        if (!mealName.trim()) return;
+    const slotLabel = SLOT_CONFIG.find((s) => s.slot === slot);
+    const dateLabel = new Date(date + 'T12:00:00Z').toLocaleDateString(undefined, {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+    });
+
+    // Debounced search
+    const handleSearch = useCallback(
+        (q: string) => {
+            setSearchQuery(q);
+            if (searchTimeout.current) clearTimeout(searchTimeout.current);
+            if (!q.trim()) {
+                setResults([]);
+                return;
+            }
+            searchTimeout.current = setTimeout(async () => {
+                setSearching(true);
+                const r = await searchRecipes(q, slot === 'breakfast' ? 'breakfast' : undefined);
+                setResults(r);
+                setSearching(false);
+            }, 400);
+        },
+        [slot],
+    );
+
+    const handleSelectRecipe = async (meal: GalleyMeal) => {
         setScheduling(true);
         try {
-            const galleyMeal = {
+            await scheduleMeal(meal, date, slot, voyageId, crewCount);
+            triggerHaptic('medium');
+            onScheduled();
+        } catch {
+            /* handled */
+        }
+        setScheduling(false);
+    };
+
+    const handleCustomMeal = async () => {
+        if (!customName.trim()) return;
+        setScheduling(true);
+        try {
+            const meal: GalleyMeal = {
                 id: Date.now(),
-                title: mealName.trim(),
+                title: customName.trim(),
                 readyInMinutes: 45,
-                servings,
+                servings: crewCount,
                 image: '',
                 sourceUrl: '',
                 ingredients: [],
             };
-            await scheduleMeal(galleyMeal, date, slot, null, servings);
+            await scheduleMeal(meal, date, slot, voyageId, crewCount);
             triggerHaptic('medium');
             onScheduled();
         } catch {
-            /* handled by service */
+            /* handled */
         }
         setScheduling(false);
     };
 
     return (
-        <div className="p-4 space-y-4">
-            <div className="text-center pb-1">
-                <span className="text-3xl">🍽️</span>
-                <p className="text-sm font-bold text-white mt-2">Plan a Meal</p>
-                <p className="text-[10px] text-gray-500">What's on the menu?</p>
-            </div>
-
-            {/* Quick pick buttons */}
-            <div className="flex flex-wrap gap-1.5 justify-center">
-                {QUICK_MEALS.map((name) => (
+        <div className="fixed inset-0 z-[900] flex items-end justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+            <div
+                className="w-full max-w-lg bg-slate-900 border-t border-white/[0.1] rounded-t-3xl max-h-[80vh] flex flex-col animate-in slide-in-from-bottom-8 duration-300"
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Header */}
+                <div className="flex items-center justify-between p-4 border-b border-white/[0.06]">
+                    <div>
+                        <p className="text-sm font-bold text-white">
+                            {slotLabel?.emoji} {slotLabel?.label}
+                        </p>
+                        <p className="text-[10px] text-gray-500">{dateLabel}</p>
+                    </div>
                     <button
-                        key={name}
-                        onClick={() => setMealName(name)}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all ${
-                            mealName === name
-                                ? 'bg-amber-500/20 border-amber-500/30 text-amber-300 border'
-                                : 'bg-white/[0.04] border border-white/[0.08] text-gray-400 hover:bg-white/[0.08]'
-                        }`}
+                        onClick={onClose}
+                        className="w-8 h-8 rounded-full bg-white/[0.06] flex items-center justify-center text-gray-400 hover:text-white transition-colors"
                     >
-                        {name}
+                        ✕
                     </button>
-                ))}
-            </div>
+                </div>
 
-            {/* Custom name */}
-            <input
-                value={mealName}
-                onChange={(e) => setMealName(e.target.value)}
-                placeholder="Or type a meal name…"
-                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
-            />
+                {/* Search */}
+                <div className="p-3">
+                    <input
+                        value={searchQuery}
+                        onChange={(e) => handleSearch(e.target.value)}
+                        placeholder="🔍 Search recipes…"
+                        autoFocus
+                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
+                    />
+                </div>
 
-            {/* Slot picker */}
-            <div className="flex gap-2">
-                {SLOT_OPTIONS.map((s) => (
-                    <button
-                        key={s.value}
-                        onClick={() => setSlot(s.value)}
-                        className={`flex-1 py-2 rounded-xl text-[11px] font-bold transition-all ${
-                            slot === s.value
-                                ? 'bg-amber-500/15 border-amber-500/25 text-amber-300 border'
-                                : 'bg-white/[0.03] border border-white/[0.06] text-gray-500 hover:text-gray-300'
-                        }`}
-                    >
-                        {s.emoji} {s.label}
-                    </button>
-                ))}
-            </div>
+                {/* Results */}
+                <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
+                    {searching && (
+                        <p className="text-center text-[11px] text-gray-500 py-4">⏳ Searching recipes…</p>
+                    )}
 
-            {/* Date + servings row */}
-            <div className="flex gap-2">
-                <input
-                    type="date"
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500/30 [color-scheme:dark]"
-                />
-                <div className="flex items-center gap-2 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3">
-                    <button
-                        onClick={() => setServings((s) => Math.max(1, s - 1))}
-                        className="text-gray-400 hover:text-white text-lg leading-none"
-                    >
-                        −
-                    </button>
-                    <span className="text-sm font-bold text-amber-400 w-5 text-center tabular-nums">{servings}</span>
-                    <button
-                        onClick={() => setServings((s) => Math.min(20, s + 1))}
-                        className="text-gray-400 hover:text-white text-lg leading-none"
-                    >
-                        +
-                    </button>
-                    <span className="text-[10px] text-gray-500">👥</span>
+                    {results.map((meal) => (
+                        <button
+                            key={meal.id}
+                            onClick={() => handleSelectRecipe(meal)}
+                            disabled={scheduling}
+                            className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-amber-500/[0.06] hover:border-amber-500/20 transition-all text-left disabled:opacity-40"
+                        >
+                            {meal.image && (
+                                <img
+                                    src={meal.image}
+                                    alt=""
+                                    className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
+                                    loading="lazy"
+                                    onError={(e) => {
+                                        (e.target as HTMLImageElement).style.display = 'none';
+                                    }}
+                                />
+                            )}
+                            <div className="flex-1 min-w-0">
+                                <p className="text-xs font-bold text-white truncate">{meal.title}</p>
+                                <p className="text-[10px] text-gray-500">
+                                    ⏱️ {meal.readyInMinutes}min · {meal.ingredients.length} ingredients
+                                </p>
+                            </div>
+                        </button>
+                    ))}
+
+                    {!searching && results.length === 0 && searchQuery.trim() && (
+                        <p className="text-center text-[11px] text-gray-500 py-4">
+                            No recipes found. Try a different search or add a custom meal below.
+                        </p>
+                    )}
+                </div>
+
+                {/* Custom meal fallback */}
+                <div className="p-3 border-t border-white/[0.06]">
+                    <div className="flex gap-2">
+                        <input
+                            value={customName}
+                            onChange={(e) => setCustomName(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleCustomMeal()}
+                            placeholder="Or type a custom meal…"
+                            className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
+                        />
+                        <button
+                            onClick={handleCustomMeal}
+                            disabled={!customName.trim() || scheduling}
+                            className="px-4 py-2.5 bg-amber-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold text-amber-300 disabled:opacity-30 hover:bg-amber-500/25 transition-all"
+                        >
+                            {scheduling ? '⏳' : '+ Add'}
+                        </button>
+                    </div>
                 </div>
             </div>
-
-            {/* Schedule button */}
-            <button
-                onClick={handleSchedule}
-                disabled={!mealName.trim() || scheduling}
-                className="w-full py-3 bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold uppercase tracking-widest text-amber-300 hover:from-amber-500/25 hover:to-orange-500/25 transition-all active:scale-[0.97] disabled:opacity-40"
-            >
-                {scheduling ? '⏳ Scheduling…' : '📋 Schedule This Meal'}
-            </button>
         </div>
     );
 };
@@ -594,7 +1026,7 @@ const ChefPlate: React.FC<{
     // Filter out fake spoonacular IDs (QuickMealForm uses Date.now() which is 13+ digits)
     const realSpoonacularId = meal.spoonacular_id && meal.spoonacular_id < 10_000_000 ? meal.spoonacular_id : null;
     const recipeImageUrl = realSpoonacularId
-        ? getRecipeImageUrl(realSpoonacularId, `https://img.spoonacular.com/recipes/${realSpoonacularId}-556x370.jpg`)
+        ? getRecipeImageUrl(realSpoonacularId, `https://img.spoonacular.com/recipes/${realSpoonacularId}-480x360.jpg`)
         : '';
     const showImage = recipeImageUrl && !imgError;
 
@@ -630,7 +1062,6 @@ const ChefPlate: React.FC<{
         `⏱️ ${readyInLabel}`,
         `🔧 Stores: ${shortfallIngredients.length === 0 ? 'READY' : `SHORTFALL (${shortfallIngredients.length} ITEMS)`}`,
         '',
-        'via SupaSpoon™',
     ].join('\n');
 
     // ── Start Prep broadcast ──
@@ -723,10 +1154,6 @@ const ChefPlate: React.FC<{
                     </div>
                 </div>
 
-                {/* SupaSpoon watermark */}
-                <div className="absolute top-3 right-3 px-2 py-1 rounded-md bg-black/40 backdrop-blur-sm">
-                    <span className="text-[9px] font-bold text-white/40 tracking-widest uppercase">SupaSpoon™</span>
-                </div>
 
                 {/* Status badge */}
                 <div className="absolute top-3 left-3">

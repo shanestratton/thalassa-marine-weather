@@ -224,7 +224,7 @@ export function getRecipeImageUrl(spoonacularId: number | null, fallbackUrl: str
         const cached = getCachedImage(spoonacularId);
         if (cached) return cached;
     }
-    return fallbackUrl || `https://img.spoonacular.com/recipes/${spoonacularId}-556x370.jpg`;
+    return fallbackUrl || `https://img.spoonacular.com/recipes/${spoonacularId}-480x360.jpg`;
 }
 
 /**
@@ -361,8 +361,8 @@ export async function generateGalleyPlan(days: number, crew: number): Promise<Ga
                     image: m.image
                         ? m.image.startsWith('http')
                             ? m.image
-                            : `https://img.spoonacular.com/recipes/${m.id}-312x231.jpg`
-                        : `https://img.spoonacular.com/recipes/${m.id}-312x231.jpg`,
+                            : `https://img.spoonacular.com/recipes/${m.id}-480x360.jpg`
+                        : `https://img.spoonacular.com/recipes/${m.id}-480x360.jpg`,
                     sourceUrl: m.sourceUrl || '',
                     ingredients: recipeDetails[m.id] || [],
                 }),
@@ -476,6 +476,130 @@ export async function getShoppingList(recipeIds: number[]): Promise<ShoppingItem
     } catch (err) {
         console.warn('[GalleyRecipe] Failed to get shopping list:', err);
         return [];
+    }
+}
+
+// ── Recipe Search (Per-Slot) ───────────────────────────────────────────────
+
+const SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+/**
+ * Search for recipes by query string using Spoonacular complexSearch.
+ * Used by the meal calendar's per-slot picker. Results are cached 24hr.
+ *
+ * @param searchQuery  - e.g. "chicken curry", "pasta", "breakfast eggs"
+ * @param mealType     - Optional: "breakfast" | "lunch" | "dinner" | "snack"
+ * @param maxResults   - Max results to return (default 8)
+ */
+export async function searchRecipes(
+    searchQuery: string,
+    mealType?: string,
+    maxResults = 8,
+): Promise<GalleyMeal[]> {
+    const apiKey = getApiKey();
+    const trimmed = searchQuery.trim().toLowerCase();
+    if (!trimmed) return [];
+
+    // Cache key for this specific search
+    const cacheKey = `${CACHE_PREFIX}search_${trimmed}_${mealType || 'any'}`;
+    try {
+        const raw = localStorage.getItem(cacheKey);
+        if (raw) {
+            const cached = JSON.parse(raw) as { results: GalleyMeal[]; ts: number };
+            if (Date.now() - cached.ts < SEARCH_CACHE_TTL_MS) return cached.results;
+            localStorage.removeItem(cacheKey);
+        }
+    } catch {
+        /* ignore */
+    }
+
+    // No API key — fall back to locally stored recipes matching the query
+    if (!apiKey) {
+        console.warn('[GalleyRecipe] No API key found — falling back to local recipes');
+        const stored = getStoredRecipes();
+        return stored
+            .filter((r) => r.title.toLowerCase().includes(trimmed))
+            .slice(0, maxResults)
+            .map((r) => ({
+                id: r.spoonacular_id ?? Date.now(),
+                title: r.title,
+                readyInMinutes: r.ready_in_minutes,
+                servings: r.servings,
+                image: r.image_url,
+                sourceUrl: r.source_url,
+                ingredients: r.ingredients,
+            }));
+    }
+
+    try {
+        const params = new URLSearchParams({
+            apiKey,
+            query: trimmed,
+            number: String(maxResults),
+            addRecipeInformation: 'true',
+            fillIngredients: 'true',
+            instructionsRequired: 'false',
+            sort: 'popularity',
+        });
+        // Don't filter by mealType — too restrictive, let user search freely
+
+        console.log(`[GalleyRecipe] Searching: "${trimmed}" (${maxResults} results)`);
+        const url = `${API_BASE}/recipes/complexSearch?${params}`;
+        const resp = await fetch(url);
+        if (!resp.ok) {
+            const body = await resp.text().catch(() => '');
+            console.error(`[GalleyRecipe] API ${resp.status}: ${body}`);
+            return [];
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data = (await resp.json()) as any;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const results: GalleyMeal[] = (data.results || []).map((r: any) => ({
+            id: r.id,
+            title: r.title,
+            readyInMinutes: r.readyInMinutes || 30,
+            servings: r.servings || 2,
+            image: r.image
+                ? r.image.startsWith('http')
+                    ? r.image
+                    : `https://img.spoonacular.com/recipes/${r.id}-480x360.jpg`
+                : `https://img.spoonacular.com/recipes/${r.id}-480x360.jpg`,
+            sourceUrl: r.sourceUrl || '',
+            ingredients: parseIngredients(r.extendedIngredients || []),
+        }));
+
+        // Cache results
+        try {
+            localStorage.setItem(cacheKey, JSON.stringify({ results, ts: Date.now() }));
+        } catch {
+            /* storage full */
+        }
+
+        // Persist recipes for offline access
+        for (const meal of results) {
+            persistRecipe(meal).catch(() => {
+                /* non-critical */
+            });
+        }
+
+        return results;
+    } catch (err) {
+        console.warn('[GalleyRecipe] Search failed:', err);
+        // Fallback to local recipes
+        const stored = getStoredRecipes();
+        return stored
+            .filter((r) => r.title.toLowerCase().includes(trimmed))
+            .slice(0, maxResults)
+            .map((r) => ({
+                id: r.spoonacular_id ?? Date.now(),
+                title: r.title,
+                readyInMinutes: r.ready_in_minutes,
+                servings: r.servings,
+                image: r.image_url,
+                sourceUrl: r.source_url,
+                ingredients: r.ingredients,
+            }));
     }
 }
 
