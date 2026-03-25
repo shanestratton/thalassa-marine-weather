@@ -541,7 +541,7 @@ const App: React.FC = () => {
                         >
                             <NavButton
                                 icon={
-                                    <img src={NAV_ICON_WX} alt="" draggable={false} style={{ height: 28, width: 'auto' }} />
+                                    <img src={NAV_ICON_WX} alt="" draggable={false} className="w-full h-full object-contain" />
                                 }
                                 label="Wx"
                                 active={currentView === 'dashboard'}
