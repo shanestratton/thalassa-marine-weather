@@ -1246,6 +1246,7 @@ export function useCycloneLayer(
 ) {
     // (categoryLabels, categoryColor moved to module scope below)
     const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+    const dataAgeTimer = useRef<ReturnType<typeof setInterval> | null>(null);
     const hasFlown = useRef(false);
     const markersRef = useRef<mapboxgl.Marker[]>([]);
     const trackOverlayRef = useRef<ReturnType<typeof createTrackOverlay> | null>(null);
@@ -1310,6 +1311,10 @@ export function useCycloneLayer(
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
+            }
+            if (dataAgeTimer.current) {
+                clearInterval(dataAgeTimer.current);
+                dataAgeTimer.current = null;
             }
             return;
         }
@@ -1479,12 +1484,12 @@ export function useCycloneLayer(
                         <div style="display:flex;align-items:center;gap:6px;">
                             <span style="font-size:11px;width:14px;text-align:center;">🕐</span>
                             <span style="font-size:9px;color:rgba(255,255,255,0.35);">${dataTimeStr}</span>
-                            <span style="font-size:9px;font-weight:700;color:#FFA500;margin-left:auto;">${dataAgeStr}</span>
+                            <span style="font-size:9px;font-weight:700;color:#FFA500;margin-left:auto;" class="cyclone-data-age" data-advisory-time="${posTime || ''}">${dataAgeStr}</span>
                         </div>
                         <div style="display:flex;align-items:center;gap:6px;">
                             <span style="font-size:11px;width:14px;text-align:center;">📡</span>
                             <span style="font-size:9px;color:rgba(255,255,255,0.35);">Next advisory</span>
-                            <span style="font-size:9px;font-weight:700;color:rgba(255,255,255,0.55);margin-left:auto;">${nextAdvStr}</span>
+                            <span style="font-size:9px;font-weight:700;color:rgba(255,255,255,0.55);margin-left:auto;" class="cyclone-next-adv">${nextAdvStr}</span>
                         </div>
                     </div>
                 </div>
@@ -1746,6 +1751,38 @@ export function useCycloneLayer(
         loadCyclones();
         refreshTimer.current = setInterval(loadCyclones, 30 * 60 * 1000);
 
+        // ── Live data age ticker — updates card timestamps every 60s ──
+        const tickDataAge = () => {
+            const container = map.getContainer();
+            // Update all data age spans
+            container.querySelectorAll('.cyclone-data-age').forEach((el) => {
+                const advTime = (el as HTMLElement).dataset.advisoryTime;
+                if (!advTime) return;
+                const ageMin = Math.round((Date.now() - new Date(advTime).getTime()) / 60000);
+                let ageStr: string;
+                if (ageMin < 60) ageStr = `${ageMin} min ago`;
+                else if (ageMin < 1440) ageStr = `${Math.floor(ageMin / 60)}h ${ageMin % 60}m ago`;
+                else ageStr = `${Math.floor(ageMin / 1440)}d ago`;
+                el.textContent = ageStr;
+            });
+            // Update next advisory countdown
+            container.querySelectorAll('.cyclone-next-adv').forEach((el) => {
+                const now = new Date();
+                const utcH = now.getUTCHours();
+                const advisorySlots = [0, 6, 12, 18];
+                let nextAdv = advisorySlots.find((h) => h > utcH) ?? advisorySlots[0] + 24;
+                if (nextAdv < utcH) nextAdv += 24;
+                const nextAdvDate = new Date(now);
+                nextAdvDate.setUTCHours(nextAdv % 24, 0, 0, 0);
+                if (nextAdv >= 24) nextAdvDate.setUTCDate(nextAdvDate.getUTCDate() + 1);
+                const nextAdvMin = Math.round((nextAdvDate.getTime() - now.getTime()) / 60000);
+                const h = Math.floor(nextAdvMin / 60);
+                const m = nextAdvMin % 60;
+                el.textContent = `~${h}h ${m}m`;
+            });
+        };
+        dataAgeTimer.current = setInterval(tickDataAge, 60 * 1000);
+
         return () => {
             unsubWind?.();
             cancelled = true;
@@ -1757,6 +1794,10 @@ export function useCycloneLayer(
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
+            }
+            if (dataAgeTimer.current) {
+                clearInterval(dataAgeTimer.current);
+                dataAgeTimer.current = null;
             }
             for (const m of markersRef.current) m.remove();
             markersRef.current = [];
@@ -1910,12 +1951,12 @@ function createStormBadgeStatic(cyclone: ActiveCyclone): HTMLDivElement {
                 <div style="display:flex;align-items:center;gap:6px;">
                     <span style="font-size:11px;width:14px;text-align:center;">🕐</span>
                     <span style="font-size:9px;color:rgba(255,255,255,0.35);">${dataTimeStr}</span>
-                    <span style="font-size:9px;font-weight:700;color:#FFA500;margin-left:auto;">${dataAgeStr}</span>
+                    <span style="font-size:9px;font-weight:700;color:#FFA500;margin-left:auto;" class="cyclone-data-age" data-advisory-time="${posTime || ''}">${dataAgeStr}</span>
                 </div>
                 <div style="display:flex;align-items:center;gap:6px;">
                     <span style="font-size:11px;width:14px;text-align:center;">📡</span>
                     <span style="font-size:9px;color:rgba(255,255,255,0.35);">Next advisory</span>
-                    <span style="font-size:9px;font-weight:700;color:rgba(255,255,255,0.55);margin-left:auto;">${nextAdvStr}</span>
+                    <span style="font-size:9px;font-weight:700;color:rgba(255,255,255,0.55);margin-left:auto;" class="cyclone-next-adv">${nextAdvStr}</span>
                 </div>
             </div>
         </div>
