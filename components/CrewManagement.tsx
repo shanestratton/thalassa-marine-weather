@@ -17,8 +17,6 @@ import {
     type SharedRegister,
     type CrewMember,
     ALL_REGISTERS,
-    VESSEL_REGISTERS,
-    PASSAGE_REGISTERS,
     REGISTER_LABELS,
     REGISTER_ICONS,
     inviteCrew,
@@ -50,8 +48,11 @@ interface CrewManagementProps {
     onBack: () => void;
 }
 
-// ── SwipeableCrewCard — extracted to crew/SwipeableCrewCard.tsx ──
+// ── Extracted sub-components ──
 import { SwipeableCrewCard } from './crew/SwipeableCrewCard';
+import { PassagePlanningPanel } from './crew/PassagePlanningPanel';
+import { InviteCrewModal } from './crew/InviteCrewModal';
+import { RegisterButton } from './crew/RegisterButton';
 
 // ── Main Component ─────────────────────────────────────────────
 
@@ -530,123 +531,22 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
                         {/* ── PLANNING PANEL ── */}
                         {showPlanning && (
-                            <div className="bg-white/[0.02] border border-violet-500/15 rounded-xl p-4 space-y-3 animate-in slide-in-from-top-2 duration-200">
-                                {/* Crew count badge (read-only) */}
-                                <div className="flex items-center justify-between">
-                                    <span className="text-[10px] font-black text-violet-400/60 uppercase tracking-widest">
-                                        Passage Details
-                                    </span>
-                                    <span className="px-2.5 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/20 text-[10px] font-bold text-sky-400">
-                                        👥 {planCrewCount} crew
-                                    </span>
-                                </div>
-
-                                {/* Departure + ETA */}
-                                <div className="grid grid-cols-2 gap-2">
-                                    <div className="min-w-0">
-                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
-                                            Departure
-                                        </label>
-                                        <input
-                                            type="date"
-                                            value={planDeparture ? planDeparture.slice(0, 10) : ''}
-                                            onChange={(e) => setPlanDeparture(e.target.value ? e.target.value + 'T08:00' : '')}
-                                            onFocus={scrollInputAboveKeyboard}
-                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-[11px] text-white focus:outline-none focus:border-violet-500/40 [color-scheme:dark]"
-                                        />
-                                    </div>
-                                    <div className="min-w-0">
-                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
-                                            ETA
-                                        </label>
-                                        <input
-                                            type="date"
-                                            value={planEta ? planEta.slice(0, 10) : ''}
-                                            onChange={(e) => setPlanEta(e.target.value ? e.target.value + 'T18:00' : '')}
-                                            onFocus={scrollInputAboveKeyboard}
-                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-[11px] text-white focus:outline-none focus:border-violet-500/40 [color-scheme:dark]"
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Ports */}
-                                <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
-                                            From
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={planDeparturePort}
-                                            onChange={(e) => setPlanDeparturePort(e.target.value)}
-                                            onFocus={scrollInputAboveKeyboard}
-                                            placeholder="Departure port"
-                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/40"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
-                                            To
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={planDestPort}
-                                            onChange={(e) => setPlanDestPort(e.target.value)}
-                                            onFocus={scrollInputAboveKeyboard}
-                                            placeholder="Destination"
-                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/40"
-                                        />
-                                    </div>
-                                </div>
-
-                                {/* Notes */}
-                                <div>
-                                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
-                                        Notes
-                                    </label>
-                                    <textarea
-                                        value={planNotes}
-                                        onChange={(e) => setPlanNotes(e.target.value)}
-                                        onFocus={scrollInputAboveKeyboard}
-                                        placeholder="Weather windows, tidal constraints, fuel stops…"
-                                        rows={2}
-                                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-violet-500/40 resize-none"
-                                    />
-                                </div>
-
-                                {/* Readiness indicators */}
-                                {planDeparture && planEta && (
-                                    <div className="flex gap-2 text-[10px]">
-                                        <span className="px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/15 text-emerald-400 font-bold">
-                                            ✅ Dates set
-                                        </span>
-                                        <span className={`px-2 py-1 rounded-lg font-bold ${
-                                            planCrewCount > 1
-                                                ? 'bg-emerald-500/10 border border-emerald-500/15 text-emerald-400'
-                                                : 'bg-amber-500/10 border border-amber-500/15 text-amber-400'
-                                        }`}>
-                                            {planCrewCount > 1 ? '✅' : '⚠️'} {planCrewCount} crew
-                                        </span>
-                                    </div>
-                                )}
-
-                                {/* Save + Cancel */}
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={handleSavePlan}
-                                        disabled={savingPlan}
-                                        className="flex-1 py-2.5 bg-violet-500/15 border border-violet-500/25 rounded-xl text-[11px] font-bold text-violet-300 uppercase tracking-widest hover:bg-violet-500/25 transition-all active:scale-[0.97] disabled:opacity-40"
-                                    >
-                                        {savingPlan ? '⏳ Saving…' : '💾 Save'}
-                                    </button>
-                                    <button
-                                        onClick={() => setShowPlanning(false)}
-                                        className="px-4 py-2.5 bg-white/[0.04] border border-white/[0.06] rounded-xl text-[11px] font-bold text-gray-400 hover:text-white transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                </div>
-                            </div>
+                            <PassagePlanningPanel
+                                planDeparture={planDeparture}
+                                planEta={planEta}
+                                planDeparturePort={planDeparturePort}
+                                planDestPort={planDestPort}
+                                planNotes={planNotes}
+                                planCrewCount={planCrewCount}
+                                savingPlan={savingPlan}
+                                onDepartureChange={setPlanDeparture}
+                                onEtaChange={setPlanEta}
+                                onDeparturePortChange={setPlanDeparturePort}
+                                onDestPortChange={setPlanDestPort}
+                                onNotesChange={setPlanNotes}
+                                onSave={handleSavePlan}
+                                onCancel={() => setShowPlanning(false)}
+                            />
                         )}
                     </div>
                 )}
@@ -863,111 +763,16 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 }}
                 title="Invite Crew Member"
             >
-                <div className="p-6 space-y-5">
-                    {inviteSuccess ? (
-                        <div className="text-center py-6">
-                            <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4 border border-emerald-500/30">
-                                <svg
-                                    className="w-8 h-8 text-emerald-400"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={2}
-                                >
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                </svg>
-                            </div>
-                            <h3 className="text-lg font-bold text-white mb-1">Invite Sent!</h3>
-                            <p className="text-sm text-gray-400">{inviteEmail} will see the invite in their app.</p>
-                        </div>
-                    ) : (
-                        <>
-                            {/* Email input */}
-                            <div>
-                                <label className="text-[11px] uppercase font-bold text-gray-400 mb-1.5 ml-1 block tracking-wide">
-                                    Crew Email Address
-                                </label>
-                                <input
-                                    type="email"
-                                    value={inviteEmail}
-                                    onChange={(e) => setInviteEmail(e.target.value)}
-                                    onFocus={scrollInputAboveKeyboard}
-                                    placeholder="firstmate@email.com"
-                                    className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none transition-colors`}
-                                    autoFocus
-                                />
-                            </div>
-
-                            {/* Register selection — grouped */}
-                            <div className="space-y-4">
-                                {/* Vessel Registers */}
-                                <div>
-                                    <label className="text-[11px] uppercase font-bold text-gray-400 mb-2 ml-1 block tracking-wide">
-                                        Vessel Registers
-                                    </label>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        {VESSEL_REGISTERS.map((reg) => {
-                                            const selected = inviteRegisters.includes(reg);
-                                            return (
-                                                <RegisterButton
-                                                    key={reg}
-                                                    reg={reg}
-                                                    selected={selected}
-                                                    onToggle={() =>
-                                                        toggleRegister(reg, inviteRegisters, setInviteRegisters)
-                                                    }
-                                                />
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-
-                                {/* Passage Planning */}
-                                <div>
-                                    <label className="text-[11px] uppercase font-bold text-sky-400 mb-2 ml-1 block tracking-wide">
-                                        🧭 Passage Planning
-                                    </label>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        {PASSAGE_REGISTERS.map((reg) => {
-                                            const selected = inviteRegisters.includes(reg);
-                                            return (
-                                                <RegisterButton
-                                                    key={reg}
-                                                    reg={reg}
-                                                    selected={selected}
-                                                    onToggle={() =>
-                                                        toggleRegister(reg, inviteRegisters, setInviteRegisters)
-                                                    }
-                                                />
-                                            );
-                                        })}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Error */}
-                            {inviteError && (
-                                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-red-200">
-                                    {inviteError}
-                                </div>
-                            )}
-
-                            {/* Send button */}
-                            <button
-                                aria-label="Invite"
-                                onClick={handleInvite}
-                                disabled={inviteLoading || !inviteEmail.trim() || inviteRegisters.length === 0}
-                                className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${!inviteEmail.trim() || inviteRegisters.length === 0 ? 'opacity-50' : 'hover:bg-gray-100'}`}
-                            >
-                                {inviteLoading ? (
-                                    <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
-                                ) : (
-                                    `Send Invite (${inviteRegisters.length} register${inviteRegisters.length !== 1 ? 's' : ''})`
-                                )}
-                            </button>
-                        </>
-                    )}
-                </div>
+                <InviteCrewModal
+                    inviteEmail={inviteEmail}
+                    inviteRegisters={inviteRegisters}
+                    inviteLoading={inviteLoading}
+                    inviteError={inviteError}
+                    inviteSuccess={inviteSuccess}
+                    onEmailChange={setInviteEmail}
+                    onToggleRegister={(reg) => toggleRegister(reg, inviteRegisters, setInviteRegisters)}
+                    onInvite={handleInvite}
+                />
             </ModalSheet>
 
             {/* ── EDIT PERMISSIONS MODAL ── */}
@@ -1117,40 +922,4 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     );
 });
 
-// ── Reusable register toggle button ──
-const RegisterButton: React.FC<{
-    reg: SharedRegister;
-    selected: boolean;
-    onToggle: () => void;
-}> = ({ reg, selected, onToggle }) => (
-    <button
-        aria-label="Register"
-        type="button"
-        onClick={onToggle}
-        className={`p-3 rounded-xl border text-left transition-all active:scale-95 ${
-            selected
-                ? 'bg-sky-500/15 border-sky-500/40 shadow-lg shadow-sky-500/5'
-                : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]'
-        }`}
-    >
-        <div className="flex items-center gap-2">
-            <span className="text-lg">{REGISTER_ICONS[reg]}</span>
-            <p className={`text-xs font-bold ${selected ? 'text-sky-300' : 'text-white'}`}>{REGISTER_LABELS[reg]}</p>
-        </div>
-        <div
-            className={`mt-2 w-4 h-4 rounded-md border-2 flex items-center justify-center ${selected ? 'bg-sky-500 border-sky-500' : 'border-white/20'}`}
-        >
-            {selected && (
-                <svg
-                    className="w-2.5 h-2.5 text-white"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={3}
-                >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                </svg>
-            )}
-        </div>
-    </button>
-);
+// RegisterButton is now in ./crew/RegisterButton.tsx
