@@ -238,8 +238,12 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     // ── Load data ──
     const loadItems = useCallback(async () => {
         try {
-            // Deduplicate items by name on load (one-time merge)
-            await InventoryService.deduplicateByName();
+            // Only deduplicate if we haven't already done so this session
+            const dedupKey = 'thalassa_inventory_deduped';
+            if (!localStorage.getItem(dedupKey)) {
+                await InventoryService.deduplicateByName();
+                localStorage.setItem(dedupKey, '1');
+            }
             const data = await InventoryService.getAll();
             setItems(data);
             const s = await InventoryService.getStats();

@@ -162,7 +162,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = React.memo(({ onB
         setDeletedListing(null);
         try {
             await MarketplaceService.deleteListing(listing.id);
-        } catch {
+        } catch (e) { console.warn("Suppressed:", e);
             toast.error('Failed to delete listing');
             setListings((prev) => [listing, ...prev]);
         }

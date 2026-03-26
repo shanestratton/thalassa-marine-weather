@@ -104,7 +104,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                     showHandle.remove();
                     hideHandle.remove();
                 };
-            } catch {
+            } catch (e) { console.warn("Suppressed:", e);
                 /* Not running in Capacitor — no-op */
             }
         })();

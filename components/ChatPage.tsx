@@ -429,7 +429,7 @@ export const ChatPage: React.FC = React.memo(() => {
                     const fresh = await ChatService.getChannelsFresh();
                     if (fresh.length > 0) setChannels(fresh);
                     await loadProfile();
-                } catch {
+                } catch (e) { console.warn("Suppressed:", e);
                     /* non-critical */
                 }
             } catch (e) {

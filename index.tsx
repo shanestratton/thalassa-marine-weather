@@ -7,6 +7,7 @@ import App from './App';
 import { ThalassaProvider } from './context/ThalassaContext';
 import { Keyboard } from '@capacitor/keyboard';
 import { Capacitor } from '@capacitor/core';
+import { CrewCountProvider } from './contexts/CrewCountContext';
 
 // Enable iOS keyboard "Done" toolbar — lets you dismiss the keyboard
 // without having to find somewhere else to tap
@@ -215,7 +216,9 @@ root.render(
     <React.StrictMode>
         <ErrorBoundary>
             <ThalassaProvider>
-                <App />
+                <CrewCountProvider>
+                    <App />
+                </CrewCountProvider>
             </ThalassaProvider>
         </ErrorBoundary>
     </React.StrictMode>,

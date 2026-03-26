@@ -173,7 +173,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     setTimeout(() => {
                         try {
                             marker.remove();
-                        } catch {
+                        } catch (e) { console.warn("Suppressed:", e);
                             /* already removed */
                         }
                     }, 10_000);
@@ -205,7 +205,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             try {
                 const cyclones = await fetchActiveCyclones();
                 if (!cancelled) setAllCyclones(cyclones);
-            } catch {
+            } catch (e) { console.warn("Suppressed:", e);
                 /* non-critical */
             }
         };
