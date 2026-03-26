@@ -78,10 +78,7 @@ const ChecklistsPage = lazyRetry(
     () => import('./components/vessel/ChecklistsPage').then((m) => ({ default: m.ChecklistsPage })),
     'ChecklistsPage',
 );
-const GroceryListPage = lazyRetry(
-    () => import('./components/vessel/GroceryListPage').then((m) => ({ default: m.GroceryListPage })),
-    'GroceryListPage',
-);
+
 const GuardianPage = lazyRetry(
     () => import('./components/GuardianPage').then((m) => ({ default: m.GuardianPage })),
     'GuardianPage',
@@ -258,12 +255,7 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         group: 'vessel',
         getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
     },
-    grocery: {
-        component: GroceryListPage,
-        boundaryName: 'GroceryList',
-        group: 'vessel',
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
-    },
+
     guardian: {
         component: GuardianPage,
         boundaryName: 'Guardian',

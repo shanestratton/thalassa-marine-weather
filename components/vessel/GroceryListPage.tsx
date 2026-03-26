@@ -329,7 +329,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                                     </span>
                                                     {purchase.matched && (
                                                         <p className="text-[9px] text-gray-600 line-through tabular-nums">
-                                                            {item.required_qty} {item.unit}
+                                                            {Math.round(item.required_qty * 10) / 10} {item.unit}
                                                         </p>
                                                     )}
                                                 </div>
@@ -404,7 +404,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                 <div className="fixed inset-0 z-50 flex items-end justify-center" onClick={() => setPriceItem(null)}>
                     <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
                     <div
-                        className="relative w-full max-w-md mx-4 mb-8 p-5 rounded-2xl bg-slate-900 border border-white/[0.08] shadow-2xl animate-in slide-in-from-bottom duration-200"
+                        className="relative w-full max-w-md mx-4 mb-[calc(5rem+env(safe-area-inset-bottom)+8px)] p-5 rounded-2xl bg-slate-900 border border-white/[0.08] shadow-2xl animate-in slide-in-from-bottom duration-200"
                         onClick={(e) => e.stopPropagation()}
                     >
                         <h3 className="text-sm font-black text-white mb-1">✅ Mark as Purchased</h3>

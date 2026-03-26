@@ -238,13 +238,15 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     // ── Load data ──
     const loadItems = useCallback(async () => {
         try {
+            // Deduplicate items by name on load (one-time merge)
+            await InventoryService.deduplicateByName();
             const data = await InventoryService.getAll();
             setItems(data);
             const s = await InventoryService.getStats();
             setStats(s);
         } catch (e) {
             log.warn(' load failed:', e);
-            toast.error('Failed to load inventory');
+            toast.error('Failed to load stores');
         }
         setLoading(false);
     }, []);
@@ -438,12 +440,12 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
         <div className="relative h-full bg-slate-950 overflow-hidden">
             <div className="flex flex-col h-full">
                 <PageHeader
-                    title="Inventory"
+                    title="Ship's Stores"
                     onBack={onBack}
-                    breadcrumbs={["Ship's Office", 'Inventory']}
+                    breadcrumbs={["Ship's Office", "Ship's Stores"]}
                     subtitle={
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
-                            {stats ? `${stats.totalItems} Items · ${stats.totalQuantity} Units` : 'Loading...'}
+                            {stats ? `${stats.totalItems} Items · ${Math.round(stats.totalQuantity * 10) / 10} Units` : 'Loading...'}
                             {stats && stats.lowStock > 0 && (
                                 <span className="text-amber-400"> · {stats.lowStock} Low</span>
                             )}
@@ -572,7 +574,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                     />
                                 </svg>
                             }
-                            title={searchQuery ? 'No Items Match' : 'No Inventory Yet'}
+                            title={searchQuery ? 'No Items Match' : 'No Stores Items Yet'}
                             subtitle={
                                 searchQuery
                                     ? 'Try a different search term.'

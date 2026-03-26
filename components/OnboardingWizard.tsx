@@ -442,6 +442,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
 
         localStorage.setItem('thalassa_v3_onboarded', 'true');
         localStorage.setItem('thalassa_tutorial_completed', 'true'); // Tips now shown during onboarding
+        localStorage.setItem('thalassa_crew_count', String(crewCount ? parseInt(crewCount) || 2 : 2));
         onComplete(settings);
     };
 

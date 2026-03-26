@@ -127,4 +127,33 @@ export class LocalInventoryService {
         if (delta < 0) return LocalInventoryService.decrementQuantity(id, Math.abs(delta));
         return getById<InventoryItem>(TABLE, id);
     }
+
+    /**
+     * Deduplicate items by name — merge duplicates by summing quantities,
+     * keeping the first occurrence and deleting the rest.
+     */
+    static async deduplicateByName(): Promise<number> {
+        const items = getAll<InventoryItem>(TABLE);
+        const seen = new Map<string, InventoryItem>();
+        let merged = 0;
+
+        for (const item of items) {
+            const key = item.item_name.toLowerCase().trim();
+            const existing = seen.get(key);
+            if (existing) {
+                // Sum quantity into existing, delete this duplicate
+                const newQty = Math.round((existing.quantity + item.quantity) * 10) / 10;
+                await updateLocal<InventoryItem>(TABLE, existing.id, {
+                    quantity: newQty,
+                } as Partial<InventoryItem>);
+                existing.quantity = newQty; // Keep in-memory copy updated
+                await deleteLocal(TABLE, item.id);
+                merged++;
+            } else {
+                seen.set(key, item);
+            }
+        }
+
+        return merged;
+    }
 }

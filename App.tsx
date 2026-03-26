@@ -541,7 +541,10 @@ const App: React.FC = () => {
                         >
                             <NavButton
                                 icon={
-                                    <img src={NAV_ICON_WX} alt="" draggable={false} className="w-full h-full object-contain" />
+                                    <img src={NAV_ICON_WX} alt="" draggable={false}
+                                        className="w-full h-full object-contain"
+                                        style={{ WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)', maskImage: 'radial-gradient(circle, black 55%, transparent 75%)' }}
+                                    />
                                 }
                                 label="Wx"
                                 active={currentView === 'dashboard'}
@@ -549,7 +552,10 @@ const App: React.FC = () => {
                             />
                             <NavButton
                                 icon={
-                                    <img src={NAV_ICON_MAP} alt="" draggable={false} className="w-full h-full object-contain" />
+                                    <img src={NAV_ICON_MAP} alt="" draggable={false}
+                                        className="w-full h-full object-contain"
+                                        style={{ WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)', maskImage: 'radial-gradient(circle, black 55%, transparent 75%)' }}
+                                    />
                                 }
                                 label="Map"
                                 active={currentView === 'map'}
@@ -560,7 +566,10 @@ const App: React.FC = () => {
                             />
                             <NavButton
                                 icon={
-                                    <img src={NAV_ICON_CHAT} alt="" draggable={false} className="w-full h-full object-contain" />
+                                    <img src={NAV_ICON_CHAT} alt="" draggable={false}
+                                        className="w-full h-full object-contain"
+                                        style={{ WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)', maskImage: 'radial-gradient(circle, black 55%, transparent 75%)' }}
+                                    />
                                 }
                                 label="Chat"
                                 active={currentView === 'chat'}
@@ -569,7 +578,10 @@ const App: React.FC = () => {
                             />
                             <NavButton
                                 icon={
-                                    <img src={NAV_ICON_VESSEL} alt="" draggable={false} className="w-full h-full object-contain" />
+                                    <img src={NAV_ICON_VESSEL} alt="" draggable={false}
+                                        className="w-full h-full object-contain"
+                                        style={{ WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)', maskImage: 'radial-gradient(circle, black 55%, transparent 75%)' }}
+                                    />
                                 }
                                 label="Vessel"
                                 active={isVesselView}
