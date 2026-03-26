@@ -434,7 +434,7 @@ export function toPurchasable(
             recipeQty,
             recipeUnit,
             packageCount: Math.ceil(recipeQty),
-            packageLabel: `${recipeQty} ${recipeUnit}`,
+            packageLabel: `${Math.round(recipeQty * 10) / 10} ${recipeUnit}`,
             matched: false,
         };
     }

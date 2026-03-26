@@ -608,3 +608,78 @@ export function clearGalleyCache(): void {
     const keys = Object.keys(localStorage).filter((k) => k.startsWith(CACHE_PREFIX));
     keys.forEach((k) => localStorage.removeItem(k));
 }
+
+// ── Galley Difficulty Scoring ─────────────────────────────────────────────────
+
+export interface GalleyDifficulty {
+    /** 1 (easy, any conditions) → 5 (harbour only) */
+    score: 1 | 2 | 3 | 4 | 5;
+    /** Max sea state (meters) this recipe is practical in */
+    maxSeaStateM: number;
+    /** Human label */
+    label: string;
+    /** Emoji indicator */
+    emoji: string;
+    /** Color class for UI */
+    color: string;
+}
+
+const DIFFICULTY_LEVELS: Record<number, Omit<GalleyDifficulty, 'score'>> = {
+    1: { maxSeaStateM: 5.0, label: 'Any Conditions', emoji: '🟢', color: 'emerald' },
+    2: { maxSeaStateM: 3.0, label: 'Moderate Seas', emoji: '🟢', color: 'emerald' },
+    3: { maxSeaStateM: 2.0, label: 'Fair Weather', emoji: '🟡', color: 'amber' },
+    4: { maxSeaStateM: 1.5, label: 'Calm Only', emoji: '🟠', color: 'orange' },
+    5: { maxSeaStateM: 0.5, label: 'Harbour Only', emoji: '🔴', color: 'red' },
+};
+
+// Keywords that push difficulty UP (harder to cook underway)
+const HARD_KEYWORDS = [
+    // Score 5 — harbour only
+    { words: ['flambé', 'flambe', 'sushi', 'soufflé', 'souffle', 'tempura', 'deep fry', 'deep-fry', 'multi-course'], score: 5 },
+    // Score 4 — calm only (hot liquids, long cook)
+    { words: ['stew', 'soup', 'braise', 'broth', 'chowder', 'ramen', 'pho', 'fondue', 'curry', 'risotto', 'slow cook', 'slow-cook', 'casserole', 'bolognese', 'chili', 'chilli', 'gumbo', 'laksa', 'dahl', 'dal'], score: 4 },
+    // Score 3 — fair weather (oven, grill, frying)
+    { words: ['roast', 'bake', 'grill', 'bbq', 'barbecue', 'smoke', 'smoked', 'brisket', 'pizza', 'pie', 'lasagna', 'lasagne', 'quiche', 'cake', 'brownie', 'muffin', 'pancake', 'fry', 'fried', 'sauté', 'saute', 'stir-fry', 'stir fry', 'wok'], score: 3 },
+];
+
+// Keywords that push difficulty DOWN (easy to make)
+const EASY_KEYWORDS = [
+    'sandwich', 'wrap', 'toast', 'cereal', 'muesli', 'granola', 'yogurt', 'yoghurt',
+    'cold', 'salad', 'fruit', 'smoothie', 'protein bar', 'crackers', 'cheese board',
+    'instant', 'no-cook', 'overnight oats', 'tinned', 'canned',
+];
+
+/**
+ * Score a recipe on how practical it is to cook underway.
+ * Uses title keywords, cook time, and ingredient count.
+ */
+export function getGalleyDifficulty(title: string, readyInMinutes?: number, ingredientCount?: number): GalleyDifficulty {
+    const t = title.toLowerCase();
+
+    // 1. Check easy keywords first — these override everything
+    if (EASY_KEYWORDS.some((kw) => t.includes(kw))) {
+        return { score: 1, ...DIFFICULTY_LEVELS[1] };
+    }
+
+    // 2. Check hard keywords — use highest matching score
+    let keywordScore = 0;
+    for (const group of HARD_KEYWORDS) {
+        if (group.words.some((kw) => t.includes(kw))) {
+            keywordScore = Math.max(keywordScore, group.score);
+        }
+    }
+
+    if (keywordScore > 0) {
+        return { score: keywordScore as GalleyDifficulty['score'], ...DIFFICULTY_LEVELS[keywordScore] };
+    }
+
+    // 3. Fall back to cook time + ingredient count heuristic
+    const mins = readyInMinutes || 30;
+    const ings = ingredientCount || 5;
+
+    if (mins <= 15 && ings <= 5) return { score: 1, ...DIFFICULTY_LEVELS[1] };
+    if (mins <= 30 && ings <= 8) return { score: 2, ...DIFFICULTY_LEVELS[2] };
+    if (mins <= 60) return { score: 3, ...DIFFICULTY_LEVELS[3] };
+    if (mins <= 120) return { score: 4, ...DIFFICULTY_LEVELS[4] };
+    return { score: 5, ...DIFFICULTY_LEVELS[5] };
+}

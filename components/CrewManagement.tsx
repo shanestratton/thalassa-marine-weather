@@ -104,8 +104,21 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [planDeparturePort, setPlanDeparturePort] = useState('');
     const [planDestPort, setPlanDestPort] = useState('');
     const [planNotes, setPlanNotes] = useState('');
-    const [planCrewCount, setPlanCrewCount] = useState(1);
+    const [planCrewCount, setPlanCrewCount] = useState(() => {
+        const stored = localStorage.getItem('thalassa_crew_count');
+        return stored ? parseInt(stored) || 2 : 2;
+    });
     const [savingPlan, setSavingPlan] = useState(false);
+
+    // Listen for crew count changes from other components (e.g. meal planner stepper)
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent).detail;
+            if (typeof detail === 'number') setPlanCrewCount(detail);
+        };
+        window.addEventListener('thalassa:crew-changed', handler);
+        return () => window.removeEventListener('thalassa:crew-changed', handler);
+    }, []);
 
     // Check auth + get user email
     const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -281,8 +294,16 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         setPlanDestPort(v.destination_port || '');
         setPlanNotes(v.notes || '');
         setShowPlanning(true);
-        // Load crew count
-        getCrewCount(v.id).then(setPlanCrewCount).catch(() => setPlanCrewCount(1));
+        // Load crew count — read from shared localStorage first, Supabase as fallback
+        const storedCrew = localStorage.getItem('thalassa_crew_count');
+        if (storedCrew) {
+            setPlanCrewCount(parseInt(storedCrew) || 2);
+        } else {
+            getCrewCount(v.id).then((count) => {
+                setPlanCrewCount(count);
+                localStorage.setItem('thalassa_crew_count', String(count));
+            }).catch(() => setPlanCrewCount(2));
+        }
         triggerHaptic('light');
     }, [draftVoyages, selectedPassageId]);
 
@@ -522,28 +543,28 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
                                 {/* Departure + ETA */}
                                 <div className="grid grid-cols-2 gap-2">
-                                    <div>
+                                    <div className="min-w-0">
                                         <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
                                             Departure
                                         </label>
                                         <input
-                                            type="datetime-local"
-                                            value={planDeparture}
-                                            onChange={(e) => setPlanDeparture(e.target.value)}
+                                            type="date"
+                                            value={planDeparture ? planDeparture.slice(0, 10) : ''}
+                                            onChange={(e) => setPlanDeparture(e.target.value ? e.target.value + 'T08:00' : '')}
                                             onFocus={scrollInputAboveKeyboard}
-                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-violet-500/40 [color-scheme:dark]"
+                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-[11px] text-white focus:outline-none focus:border-violet-500/40 [color-scheme:dark]"
                                         />
                                     </div>
-                                    <div>
+                                    <div className="min-w-0">
                                         <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
                                             ETA
                                         </label>
                                         <input
-                                            type="datetime-local"
-                                            value={planEta}
-                                            onChange={(e) => setPlanEta(e.target.value)}
+                                            type="date"
+                                            value={planEta ? planEta.slice(0, 10) : ''}
+                                            onChange={(e) => setPlanEta(e.target.value ? e.target.value + 'T18:00' : '')}
                                             onFocus={scrollInputAboveKeyboard}
-                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-violet-500/40 [color-scheme:dark]"
+                                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-[11px] text-white focus:outline-none focus:border-violet-500/40 [color-scheme:dark]"
                                         />
                                     </div>
                                 </div>

@@ -308,21 +308,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         />
                         <ListDivider />
                         <OfficeRow
-                            icon={<ChecklistIcon color="#10b981" />}
-                            label="Grocery List"
-                            status="Shopping"
-                            statusColor="#10b981"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate('grocery');
-                            }}
-                        />
-                        <ListDivider />
-                        <OfficeRow
                             icon={<ChecklistIcon color="#22d3ee" />}
                             label="Checklists"
-                            status="Pre-Departure"
-                            statusColor="#22d3ee"
+                            status="Safety & Passage"
+                            statusColor="#9ca3af"
                             onClick={() => {
                                 triggerHaptic('light');
                                 onNavigate('checklists');

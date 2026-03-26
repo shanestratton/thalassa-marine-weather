@@ -48,8 +48,8 @@ export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onCli
             className="relative flex items-center justify-center"
             style={{
                 filter: active
-                    ? 'brightness(1.5) drop-shadow(0 0 12px rgba(34, 211, 238, 1))'
-                    : 'drop-shadow(0 0 4px rgba(34, 211, 238, 0.8))',
+                    ? 'brightness(1.2) drop-shadow(0 0 6px rgba(34, 211, 238, 0.4))'
+                    : 'none',
                 transform: active ? 'scale(1.1)' : 'none',
                 transition: 'all 0.2s ease-in-out',
                 willChange: 'transform, filter',
@@ -87,7 +87,7 @@ export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onCli
                 className="absolute bottom-0.5 w-1 h-1 rounded-full pointer-events-none"
                 style={{
                     backgroundColor: '#22d3ee',
-                    boxShadow: '0 0 8px rgba(34, 211, 238, 0.8)',
+                    boxShadow: '0 0 4px rgba(34, 211, 238, 0.4)',
                 }}
                 aria-hidden="true"
             />

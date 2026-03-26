@@ -7,25 +7,28 @@
  * Hard-wired to Ship's Stores: "Cook Now" triggers DELTA subtractions.
  */
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
     getMealsByStatus,
     startCooking,
     completeMeal,
     scheduleMeal,
+    unscheduleMeal,
     calculateMealDays,
     getCrewCount,
-    getAggregatedIngredients,
+
     type MealPlan,
     type MealSlot,
     type MealDayInfo,
-    type AggregatedIngredient,
+
 } from '../../services/MealPlanService';
 import { getStoresAvailability } from '../../services/MealPlanService';
-import { getShoppingList, bulkAddToShoppingList, type ShoppingListSummary } from '../../services/ShoppingListService';
+import { getShoppingList, markPurchased, type ShoppingItem, type ShoppingListSummary } from '../../services/ShoppingListService';
 import { triggerHaptic } from '../../utils/system';
-import { scaleIngredient, getRecipeImageUrl, searchRecipes, type GalleyMeal } from '../../services/GalleyRecipeService';
+import { scaleIngredient, getRecipeImageUrl, searchRecipes, getGalleyDifficulty, type GalleyMeal } from '../../services/GalleyRecipeService';
 import { getCachedActiveVoyage, type Voyage } from '../../services/VoyageService';
 import { toPurchasable } from '../../services/PurchaseUnits';
+
 
 import { type PassageStatus } from '../../services/PassagePlanService';
 
@@ -46,7 +49,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
         canViewChecklist: true,
     };
     const [expanded, setExpanded] = useState(false);
-    const [activeTab, setActiveTab] = useState<'' | 'food' | 'chat' | 'route' | 'checklist'>('food');
+    const [activeTab, setActiveTab] = useState<'' | 'food' | 'chat' | 'route' | 'checklist' | 'shopping'>('food');
     const [activeMeals, setActiveMeals] = useState<MealPlan[]>([]);
     const [shoppingSummary, setShoppingSummary] = useState<ShoppingListSummary | null>(null);
     const [galleyMessages, setGalleyMessages] = useState<{ id: string; text: string; sender: string; time: string }[]>(
@@ -58,7 +61,18 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
     // ── Voyage context for meal calendar ──
     const [voyage, setVoyage] = useState<Voyage | null>(null);
     const [mealDays, setMealDays] = useState<MealDayInfo | null>(null);
-    const [crewCount, setCrewCount] = useState(1);
+    const [crewCount, setCrewCount] = useState(() => {
+        const stored = localStorage.getItem('thalassa_crew_count');
+        return stored ? parseInt(stored) || 2 : 2;
+    });
+
+    // Update crew count + persist + broadcast
+    const handleSetCrewCount = useCallback((n: number) => {
+        const clamped = Math.max(1, Math.min(20, n));
+        setCrewCount(clamped);
+        localStorage.setItem('thalassa_crew_count', String(clamped));
+        window.dispatchEvent(new CustomEvent('thalassa:crew-changed', { detail: clamped }));
+    }, []);
 
     // Load voyage data and compute calendar dimensions
     useEffect(() => {
@@ -68,10 +82,13 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
         if (v?.departure_time && v?.eta) {
             setMealDays(calculateMealDays(v.departure_time, v.eta));
         }
-        if (v?.id) {
-            getCrewCount(v.id).then(setCrewCount).catch(() => setCrewCount(1));
+        // If no stored crew count, try loading from Supabase
+        if (!localStorage.getItem('thalassa_crew_count') && v?.id) {
+            getCrewCount(v.id).then((count) => {
+                handleSetCrewCount(count);
+            }).catch(() => {});
         }
-    }, [expanded]);
+    }, [expanded, handleSetCrewCount]);
 
     // Load active meals and shopping status
     useEffect(() => {
@@ -155,16 +172,13 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
                 aria-expanded={expanded}
                 aria-label="Passage Planning"
             >
-                <div className="p-2 rounded-xl bg-sky-500/10 flex-shrink-0">
-                    <span className="text-base">🧭</span>
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-sky-500/20 to-indigo-500/10 border border-sky-500/20 flex items-center justify-center text-xl flex-shrink-0">
+                    ⛵
                 </div>
                 <div className="flex-1 text-left">
                     <p className="text-xs font-bold text-white">Passage Planning</p>
                     <p className="text-[10px] text-sky-400/70">
-                        {activeMeals.length > 0
-                            ? `${activeMeals.length} meal${activeMeals.length !== 1 ? 's' : ''} planned`
-                            : 'Meals · Chat · Route · Checklist'}
-                        {reservedCount > 0 && ` · ${reservedCount} reserved`}
+                        Meals · Chat · Route · Checklist
                     </p>
                 </div>
                 <svg
@@ -198,7 +212,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
                             onToggle={() => setActiveTab(activeTab === 'food' ? '' : 'food')}
                             isOpen={activeTab === 'food'}
                         >
-                            <div className="max-h-[520px] overflow-y-auto">
+                            <div>
                                 <MealCalendar
                                     mealDays={mealDays}
                                     crewCount={crewCount}
@@ -214,7 +228,97 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
                                     cookingMealId={cookingMealId}
                                     onCookNow={handleCookNow}
                                     shoppingSummary={shoppingSummary}
+                                    onCrewCountChange={handleSetCrewCount}
                                 />
+                            </div>
+                        </ChildCard>
+                    )}
+
+                    {/* ── 1b. Shopping List ── */}
+                    {shoppingSummary && shoppingSummary.total > 0 && (
+                        <ChildCard
+                            icon="🛒"
+                            title="Shopping List"
+                            subtitle={`${shoppingSummary.remaining} remaining · ${shoppingSummary.purchased} purchased`}
+                            color="emerald"
+                            defaultOpen={false}
+                            onToggle={() => setActiveTab(activeTab === 'shopping' ? '' : 'shopping')}
+                            isOpen={activeTab === 'shopping'}
+                        >
+                            <div className="p-3 space-y-3">
+                                {/* Progress bar */}
+                                <div className="space-y-1">
+                                    <div className="flex justify-between text-[10px] font-bold">
+                                        <span className="text-gray-500 uppercase tracking-wider">Progress</span>
+                                        <span className="text-emerald-400">
+                                            {shoppingSummary.purchased}/{shoppingSummary.total}
+                                        </span>
+                                    </div>
+                                    <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
+                                        <div
+                                            className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
+                                            style={{ width: `${shoppingSummary.total > 0 ? (shoppingSummary.purchased / shoppingSummary.total) * 100 : 0}%` }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Zone-grouped items */}
+                                {shoppingSummary.zones
+                                    .filter((z) => z.items.some((i) => !i.purchased))
+                                    .map((zone) => {
+                                        const ZONE_EMOJI: Record<string, string> = {
+                                            Butcher: '🥩', Produce: '🥬', 'Bottle Shop': '🍷', Bakery: '🥖',
+                                            Dairy: '🧀', Chandlery: '⚓', 'Fuel Dock': '⛽', Pharmacy: '💊', General: '🛒',
+                                        };
+                                        const unpurchased = zone.items.filter((i) => !i.purchased);
+                                        if (unpurchased.length === 0) return null;
+                                        return (
+                                            <div key={zone.zone}>
+                                                <div className="flex items-center gap-1.5 mb-1.5">
+                                                    <span className="text-xs">{ZONE_EMOJI[zone.zone] || '🛒'}</span>
+                                                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                                                        {zone.zone}
+                                                    </span>
+                                                    <span className="text-[9px] text-gray-600 font-bold">({unpurchased.length})</span>
+                                                </div>
+                                                <div className="space-y-1">
+                                                    {unpurchased.map((item) => {
+                                                        const purchase = toPurchasable(item.ingredient_name, item.required_qty, item.unit);
+                                                        return (
+                                                            <button
+                                                                key={item.id}
+                                                                onClick={async () => {
+                                                                    triggerHaptic('medium');
+                                                                    await markPurchased(item.id);
+                                                                    setShoppingSummary(getShoppingList());
+                                                                    window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
+                                                                }}
+                                                                className="w-full flex items-center gap-2.5 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-emerald-500/[0.06] hover:border-emerald-500/20 transition-all active:scale-[0.98] text-left"
+                                                            >
+                                                                <div className="w-5 h-5 rounded-md border-2 border-gray-600 flex items-center justify-center flex-shrink-0" />
+                                                                <span className="text-[11px] font-bold text-white flex-1 truncate">
+                                                                    {item.ingredient_name}
+                                                                </span>
+                                                                <span className="text-[10px] font-bold text-emerald-400 tabular-nums flex-shrink-0">
+                                                                    {purchase.matched
+                                                                        ? `${purchase.packageCount} × ${purchase.packageLabel}`
+                                                                        : `${Math.round(item.required_qty * 10) / 10} ${item.unit}`}
+                                                                </span>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                {/* All done state */}
+                                {shoppingSummary.remaining === 0 && (
+                                    <div className="text-center py-4">
+                                        <span className="text-2xl">✅</span>
+                                        <p className="text-[11px] font-bold text-emerald-400 mt-1">All provisioned!</p>
+                                    </div>
+                                )}
                             </div>
                         </ChildCard>
                     )}
@@ -234,7 +338,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
                             onToggle={() => setActiveTab(activeTab === 'chat' ? '' : 'chat')}
                             isOpen={activeTab === 'chat'}
                         >
-                            <div className="flex flex-col max-h-[280px]">
+                            <div className="flex flex-col flex-1">
                                 {/* Messages */}
                                 <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-[120px]">
                                     {galleyMessages.length === 0 ? (
@@ -383,30 +487,66 @@ const ChildCard: React.FC<{
     children: React.ReactNode;
 }> = ({ icon, title, subtitle, color, isOpen, onToggle, children }) => {
     const c = COLOR_MAP[color] || COLOR_MAP.amber;
+
     return (
-        <div
-            className={`rounded-2xl border overflow-hidden transition-all ${isOpen ? c.border + ' ' + c.bg : 'border-white/[0.06] bg-white/[0.02]'}`}
-        >
-            <button onClick={onToggle} className="w-full flex items-center gap-3 p-3 text-left" aria-expanded={isOpen}>
-                <div className={`p-1.5 rounded-lg ${c.iconBg} flex-shrink-0`}>
-                    <span className="text-sm">{icon}</span>
+        <>
+            {/* ── Tappable Row (always visible in the passage planning list) ── */}
+            <button
+                onClick={onToggle}
+                className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all active:scale-[0.98] ${
+                    isOpen ? c.border + ' ' + c.bg : 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
+                }`}
+                aria-expanded={isOpen}
+            >
+                <div className={`w-11 h-11 rounded-xl ${c.iconBg} border ${c.border} flex items-center justify-center text-xl flex-shrink-0`}>
+                    {icon}
                 </div>
                 <div className="flex-1 min-w-0">
                     <p className="text-[11px] font-bold text-white">{title}</p>
                     <p className={`text-[10px] ${c.text} opacity-70`}>{subtitle}</p>
                 </div>
                 <svg
-                    className={`w-3.5 h-3.5 text-gray-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                    className="w-3.5 h-3.5 text-gray-500"
                     fill="none"
                     viewBox="0 0 24 24"
                     stroke="currentColor"
                     strokeWidth={2}
                 >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                 </svg>
             </button>
-            {isOpen && <div className="border-t border-white/[0.06]">{children}</div>}
-        </div>
+
+            {/* ── Full-Screen Overlay (portal to escape will-change-transform) ── */}
+            {isOpen && createPortal(
+                <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+                    {/* Header with back chevron */}
+                    <div className={`flex items-center gap-3 px-4 py-3 border-b ${c.border} bg-slate-950/95 backdrop-blur-xl flex-shrink-0`}>
+                        <button
+                            onClick={onToggle}
+                            className="p-2 -ml-2 rounded-xl hover:bg-white/5 transition-colors active:scale-90"
+                            aria-label="Back to passage planning"
+                        >
+                            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                            </svg>
+                        </button>
+                        <div className={`w-11 h-11 rounded-xl ${c.iconBg} border ${c.border} flex items-center justify-center text-xl flex-shrink-0`}>
+                            {icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm font-bold text-white">{title}</p>
+                            <p className={`text-[10px] ${c.text} opacity-70`}>{subtitle}</p>
+                        </div>
+                    </div>
+
+                    {/* Scrollable content */}
+                    <div className="flex-1 overflow-y-auto overscroll-contain" style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}>
+                        {children}
+                    </div>
+                </div>,
+                document.body,
+            )}
+        </>
     );
 };
 
@@ -428,6 +568,7 @@ interface MealCalendarProps {
     cookingMealId: string | null;
     onCookNow: (meal: MealPlan) => void;
     shoppingSummary: ShoppingListSummary | null;
+    onCrewCountChange?: (n: number) => void;
 }
 
 const MealCalendar: React.FC<MealCalendarProps> = ({
@@ -441,43 +582,139 @@ const MealCalendar: React.FC<MealCalendarProps> = ({
     cookingMealId,
     onCookNow,
     shoppingSummary,
+    onCrewCountChange,
 }) => {
     const [slotPicker, setSlotPicker] = useState<{ date: string; slot: MealSlot } | null>(null);
     const [expandedMeal, setExpandedMeal] = useState<string | null>(null);
-    const [showShoppingModal, setShowShoppingModal] = useState(false);
-    const [shoppingIngredients, setShoppingIngredients] = useState<AggregatedIngredient[]>([]);
-    const [addingToList, setAddingToList] = useState(false);
 
-    const handleOpenShoppingModal = useCallback(() => {
-        if (!voyageId) return;
-        const ingredients = getAggregatedIngredients(voyageId);
-        setShoppingIngredients(ingredients);
-        setShowShoppingModal(true);
-        triggerHaptic('light');
-    }, [voyageId]);
+    // Context menu for meal card actions (copy/move)
+    const [contextMenu, setContextMenu] = useState<{ meal: MealPlan; action: 'copy' | 'move' } | null>(null);
+    const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const handleToggleIngredient = useCallback((name: string) => {
-        setShoppingIngredients((prev) =>
-            prev.map((i) => (i.name === name ? { ...i, selected: !i.selected } : i)),
-        );
+    // ── Delete meal ──
+    const handleDeleteMeal = useCallback(async (meal: MealPlan, e: React.MouseEvent) => {
+        e.stopPropagation();
+        await unscheduleMeal(meal.id);
+        triggerHaptic('medium');
+        onMealsChanged();
+        // Dispatch stores-changed so stores UI updates
+        window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
+    }, [onMealsChanged]);
+
+    // ── Copy/Move meal to target date ──
+    const handleCopyToDate = useCallback(async (targetDate: string) => {
+        if (!contextMenu || !voyageId) return;
+        const meal = contextMenu.meal;
+        const isMove = contextMenu.action === 'move';
+
+        // Construct GalleyMeal from MealPlan for scheduleMeal
+        const galleyMeal: GalleyMeal = {
+            id: meal.spoonacular_id || Date.now(),
+            title: meal.title,
+            readyInMinutes: 30,
+            servings: meal.servings_planned,
+            image: '',
+            sourceUrl: '',
+            ingredients: meal.ingredients,
+        };
+
+        await scheduleMeal(galleyMeal, targetDate, meal.meal_slot, voyageId, meal.servings_planned);
+
+        // If move, delete original
+        if (isMove) {
+            await unscheduleMeal(meal.id);
+        }
+
+        triggerHaptic('medium');
+        setContextMenu(null);
+        onMealsChanged();
+        window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
+    }, [contextMenu, voyageId, onMealsChanged]);
+
+    // Long-press handlers
+    const startLongPress = useCallback((meal: MealPlan) => {
+        longPressTimer.current = setTimeout(() => {
+            triggerHaptic('heavy');
+            setContextMenu({ meal, action: 'copy' });
+        }, 500);
+    }, []);
+    const cancelLongPress = useCallback(() => {
+        if (longPressTimer.current) {
+            clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+        }
     }, []);
 
-    const handleBulkAdd = useCallback(async () => {
-        const selected = shoppingIngredients.filter((i) => i.selected);
-        if (selected.length === 0) return;
-        setAddingToList(true);
-        const count = await bulkAddToShoppingList(selected.map((i) => ({
-            name: i.name,
-            totalQty: i.totalQty,
-            unit: i.unit,
-        })), voyageId);
-        setAddingToList(false);
-        setShowShoppingModal(false);
-        onMealsChanged(); // refresh shopping summary
-        triggerHaptic('heavy');
-        // Toast-like feedback via alert or state
-        console.log(`[Galley] Added ${count} items to shopping list`);
-    }, [shoppingIngredients, voyageId, onMealsChanged]);
+
+    // ── Provision Passage: aggregate all shortfalls at once ──
+    const [provisioning, setProvisioning] = useState(false);
+    const handleProvisionPassage = useCallback(async () => {
+        if (!mealDays || activeMeals.length === 0) return;
+        setProvisioning(true);
+        try {
+            const { addManualItem } = await import('../../services/ShoppingListService');
+            const storesAvail = getStoresAvailability();
+
+            // Fuzzy match helper (same as ChefPlate)
+            const STRIP = new Set(['large', 'small', 'medium', 'fresh', 'dried', 'ground', 'whole', 'raw', 'cooked', 'chopped', 'diced', 'sliced', 'minced', 'grated', 'shredded', 'crushed', 'melted', 'softened', 'unsalted', 'salted', 'sharp', 'mild', 'extra', 'fine', 'thick', 'thin', 'hot', 'cold', 'frozen', 'canned', 'tinned']);
+            const fuzzyMatch = (name: string) => {
+                const lower = name.toLowerCase().trim();
+                const exact = storesAvail.find((s) => s.item_name.toLowerCase() === lower);
+                if (exact) return exact;
+                const core = lower.split(/\s+/).filter((w) => !STRIP.has(w) && w.length > 2).join(' ');
+                if (!core) return undefined;
+                return storesAvail.find((s) => {
+                    const sl = s.item_name.toLowerCase();
+                    return sl.includes(core) || core.includes(sl);
+                });
+            };
+
+            // Aggregate required quantities across all meals
+            const needs = new Map<string, { qty: number; unit: string; name: string }>();
+            for (const meal of activeMeals) {
+                const servings = meal.servings_planned || crewCount;
+                for (const ing of (meal.ingredients || [])) {
+                    const scaled = scaleIngredient(ing.amount, ing.scalable, ing.amount, servings);
+                    const key = ing.name.toLowerCase();
+                    const prev = needs.get(key);
+                    if (prev) {
+                        prev.qty += scaled;
+                    } else {
+                        needs.set(key, { qty: scaled, unit: ing.unit, name: ing.name });
+                    }
+                }
+            }
+
+            // Compute shortfalls against stores and add to shopping list
+            let added = 0;
+            for (const [, need] of needs) {
+                const store = fuzzyMatch(need.name);
+                const available = store ? store.available : 0;
+                const shortfall = Math.round((need.qty - available) * 10) / 10;
+                if (shortfall > 0) {
+                    await addManualItem({
+                        name: need.name,
+                        qty: shortfall,
+                        unit: need.unit,
+                        notes: 'Passage provision',
+                    });
+                    added++;
+                }
+            }
+
+            triggerHaptic('medium');
+            window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
+
+            // Brief success feedback
+            if (added === 0) {
+                alert('✅ All ingredients are already in your stores!');
+            }
+        } catch (e) {
+            console.error('Provision passage error:', e);
+        }
+        setProvisioning(false);
+    }, [mealDays, activeMeals, crewCount]);
+
 
     // No dates set — prompt user
     if (!mealDays) {
@@ -516,19 +753,44 @@ const MealCalendar: React.FC<MealCalendarProps> = ({
                     </p>
                 </div>
                 <div className="flex items-center gap-1.5">
-                    {activeMeals.length > 0 && (
+                    {/* Crew count stepper */}
+                    <div className="flex items-center gap-0.5 rounded-full bg-sky-500/10 border border-sky-500/20 px-1 py-0.5">
                         <button
-                            onClick={handleOpenShoppingModal}
-                            className="px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold text-emerald-400 hover:bg-emerald-500/20 transition-all active:scale-95"
+                            onClick={() => onCrewCountChange?.(crewCount - 1)}
+                            disabled={crewCount <= 1}
+                            className="w-5 h-5 rounded-full flex items-center justify-center text-sky-400 text-xs font-bold hover:bg-sky-500/20 disabled:opacity-30 active:scale-90 transition-all"
                         >
-                            🛒 List
+                            −
                         </button>
-                    )}
-                    <span className="px-2 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/20 text-[10px] font-bold text-sky-400">
-                        👥 {crewCount}
-                    </span>
+                        <span className="text-[10px] font-bold text-sky-400 min-w-[28px] text-center">
+                            👥 {crewCount}
+                        </span>
+                        <button
+                            onClick={() => onCrewCountChange?.(crewCount + 1)}
+                            disabled={crewCount >= 20}
+                            className="w-5 h-5 rounded-full flex items-center justify-center text-sky-400 text-xs font-bold hover:bg-sky-500/20 disabled:opacity-30 active:scale-90 transition-all"
+                        >
+                            +
+                        </button>
+                    </div>
                 </div>
             </div>
+
+            {/* Provision Passage CTA */}
+            {activeMeals.length > 0 && (
+                <button
+                    onClick={handleProvisionPassage}
+                    disabled={provisioning}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold active:scale-[0.98] disabled:opacity-50 transition-all mb-1"
+                >
+                    {provisioning ? (
+                        <div className="w-3.5 h-3.5 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+                    ) : (
+                        '🛒'
+                    )}
+                    {provisioning ? 'Building list…' : `Provision Passage (${activeMeals.length} meals)`}
+                </button>
+            )}
 
             {/* Day rows */}
             {mealDays.dates.map((date, dayIdx) => {
@@ -552,12 +814,12 @@ const MealCalendar: React.FC<MealCalendarProps> = ({
                         {/* Day label */}
                         <div className="flex items-center gap-2 px-1 pb-1.5">
                             <span className={`text-[10px] font-black uppercase tracking-widest ${isEmergency ? 'text-amber-400' : 'text-gray-500'}`}>
-                                {isEmergency ? '⚠️ ' : ''}{dayLabel}
+                                {isEmergency ? '📦 ' : ''}{dayLabel}
                             </span>
                             <span className="text-[10px] text-gray-600">{dateLabel}</span>
                             {isEmergency && (
                                 <span className="ml-auto text-[9px] font-bold text-amber-400/60 uppercase tracking-wider">
-                                    Emergency
+                                    Buffer
                                 </span>
                             )}
                         </div>
@@ -570,22 +832,46 @@ const MealCalendar: React.FC<MealCalendarProps> = ({
 
                                 if (meal) {
                                     return (
-                                        <button
+                                        <div
                                             key={slot}
-                                            onClick={() => setExpandedMeal(isExpanded ? null : meal.id)}
-                                            className={`p-2 rounded-lg text-left transition-all ${
+                                            className={`relative p-2 rounded-lg text-left transition-all select-none ${
                                                 isExpanded
                                                     ? 'bg-amber-500/15 border border-amber-500/25'
                                                     : 'bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08]'
                                             }`}
+                                            onClick={() => setExpandedMeal(isExpanded ? null : meal.id)}
+                                            onTouchStart={() => startLongPress(meal)}
+                                            onTouchEnd={cancelLongPress}
+                                            onTouchMove={cancelLongPress}
                                         >
+                                            {/* ✕ Delete button */}
+                                            <button
+                                                onClick={(e) => handleDeleteMeal(meal, e)}
+                                                className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-gray-600/90 text-white text-[8px] leading-none flex items-center justify-center z-10 active:scale-90 opacity-60 hover:opacity-100 transition-opacity"
+                                                aria-label={`Remove ${meal.title}`}
+                                            >
+                                                ✕
+                                            </button>
                                             <p className="text-[9px] text-gray-500 font-bold uppercase tracking-wider">
                                                 {emoji} {label}
                                             </p>
-                                            <p className="text-[11px] font-bold text-white truncate mt-0.5">
+                                            <p className="text-[11px] font-bold text-white truncate mt-0.5 pr-3">
                                                 {meal.title.replace(/^[\p{Emoji_Presentation}\p{Emoji}\uFE0F?\s]+/u, '')}
                                             </p>
-                                        </button>
+                                            {(() => {
+                                                const diff = getGalleyDifficulty(meal.title, undefined, meal.ingredients?.length);
+                                                return (
+                                                    <p className={`text-[8px] font-bold mt-0.5 ${
+                                                        diff.score <= 2 ? 'text-emerald-400/60' :
+                                                        diff.score === 3 ? 'text-amber-400/60' :
+                                                        diff.score === 4 ? 'text-orange-400/70' :
+                                                        'text-red-400/70'
+                                                    }`}>
+                                                        {diff.emoji} {diff.label}
+                                                    </p>
+                                                );
+                                            })()}
+                                        </div>
                                     );
                                 }
 
@@ -648,126 +934,8 @@ const MealCalendar: React.FC<MealCalendarProps> = ({
                 );
             })}
 
-            {/* ── Shopping List Modal ── */}
-            {showShoppingModal && (
-                <div className="fixed inset-0 z-50 bg-black/70 flex items-end justify-center" onClick={() => setShowShoppingModal(false)}>
-                    <div
-                        className="w-full max-w-lg bg-[#0d1117] rounded-t-3xl overflow-hidden max-h-[85vh] flex flex-col"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* Header */}
-                        <div className="flex items-center justify-between p-4 pb-2 border-b border-white/[0.06]">
-                            <div>
-                                <h3 className="text-sm font-black text-white">🛒 Grocery Shopping List</h3>
-                                <p className="text-[10px] text-gray-500 mt-0.5">
-                                    Deselect items you already have on board
-                                </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => setShoppingIngredients((prev) => prev.map((i) => ({ ...i, selected: true })))}
-                                    className="text-[10px] font-bold text-sky-400 hover:text-sky-300"
-                                >
-                                    All
-                                </button>
-                                <span className="text-gray-600">|</span>
-                                <button
-                                    onClick={() => setShoppingIngredients((prev) => prev.map((i) => ({ ...i, selected: false })))}
-                                    className="text-[10px] font-bold text-gray-500 hover:text-gray-300"
-                                >
-                                    None
-                                </button>
-                                <button
-                                    onClick={() => setShowShoppingModal(false)}
-                                    className="ml-2 w-7 h-7 rounded-full bg-white/5 text-gray-400 flex items-center justify-center text-xs"
-                                >
-                                    ✕
-                                </button>
-                            </div>
-                        </div>
 
-                        {/* Ingredient List */}
-                        <div className="flex-1 overflow-y-auto p-3 space-y-1">
-                            {shoppingIngredients.length === 0 ? (
-                                <div className="text-center py-8">
-                                    <span className="text-3xl">📋</span>
-                                    <p className="text-xs text-gray-500 mt-2">
-                                        No ingredients yet — schedule some meals first
-                                    </p>
-                                </div>
-                            ) : (
-                                shoppingIngredients.map((ing) => {
-                                    const purchase = toPurchasable(ing.name, ing.totalQty, ing.unit);
-                                    return (
-                                    <button
-                                        key={ing.name}
-                                        onClick={() => handleToggleIngredient(ing.name)}
-                                        className={`w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all active:scale-[0.98] ${
-                                            ing.selected
-                                                ? 'bg-emerald-500/[0.06] border-emerald-500/15'
-                                                : 'bg-white/[0.02] border-white/[0.04] opacity-50'
-                                        }`}
-                                    >
-                                        {/* Checkbox */}
-                                        <div
-                                            className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${
-                                                ing.selected ? 'bg-emerald-500 border-emerald-500' : 'border-gray-600'
-                                            }`}
-                                        >
-                                            {ing.selected && (
-                                                <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                                                </svg>
-                                            )}
-                                        </div>
 
-                                        {/* Name + meals */}
-                                        <div className="flex-1 text-left min-w-0">
-                                            <p className={`text-xs font-bold truncate ${ing.selected ? 'text-white' : 'text-gray-500 line-through'}`}>
-                                                {ing.name}
-                                            </p>
-                                            <p className="text-[10px] text-gray-500 truncate">
-                                                {ing.mealTitles.slice(0, 2).join(', ')}{ing.mealTitles.length > 2 ? ` +${ing.mealTitles.length - 2}` : ''}
-                                            </p>
-                                        </div>
-
-                                        {/* Purchase quantity */}
-                                        <div className="text-right flex-shrink-0">
-                                            <span className="text-[11px] font-bold text-emerald-400 tabular-nums">
-                                                {purchase.packageCount} × {purchase.packageLabel}
-                                            </span>
-                                            {purchase.matched && (
-                                                <p className="text-[9px] text-gray-600 line-through tabular-nums">
-                                                    {ing.totalQty} {ing.unit}
-                                                </p>
-                                            )}
-                                        </div>
-                                    </button>
-                                    );
-                                })
-                            )}
-                        </div>
-
-                        {/* Footer */}
-                        {shoppingIngredients.length > 0 && (
-                            <div className="p-4 pt-2 border-t border-white/[0.06] space-y-2">
-                                <p className="text-[10px] text-center text-gray-500">
-                                    {shoppingIngredients.filter((i) => i.selected).length} of {shoppingIngredients.length} items selected
-                                </p>
-                                <button
-                                    onClick={handleBulkAdd}
-                                    disabled={addingToList || shoppingIngredients.filter((i) => i.selected).length === 0}
-                                    className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-xl text-sm font-black text-black uppercase tracking-[0.15em] transition-all active:scale-[0.96] disabled:opacity-30 shadow-lg shadow-emerald-500/20"
-                                >
-                                    {addingToList ? '⏳ Adding…' : `🛒 Add ${shoppingIngredients.filter((i) => i.selected).length} Items to List`}
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-
-            {/* Slot Picker Modal */}
             {slotPicker && (
                 <SlotPicker
                     date={slotPicker.date}
@@ -780,6 +948,102 @@ const MealCalendar: React.FC<MealCalendarProps> = ({
                     }}
                     onClose={() => setSlotPicker(null)}
                 />
+            )}
+
+            {/* ── Copy/Move Context Menu ── */}
+            {contextMenu && mealDays && createPortal(
+                <div
+                    className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70"
+                    onClick={() => setContextMenu(null)}
+                >
+                    <div
+                        className="w-full max-w-lg bg-slate-950 border-t border-amber-500/20 rounded-t-3xl shadow-2xl p-5 space-y-4"
+                        onClick={(e) => e.stopPropagation()}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label={`${contextMenu.action === 'copy' ? 'Copy' : 'Move'} ${contextMenu.meal.title}`}
+                    >
+                        {/* Header */}
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center text-lg">
+                                {contextMenu.action === 'copy' ? '📋' : '↗️'}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-white truncate">{contextMenu.meal.title}</p>
+                                <p className="text-[10px] text-amber-400/70">
+                                    {contextMenu.meal.planned_date} · {contextMenu.meal.meal_slot}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Action toggle */}
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => setContextMenu({ ...contextMenu, action: 'copy' })}
+                                className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                                    contextMenu.action === 'copy'
+                                        ? 'bg-amber-500/20 border border-amber-500/30 text-amber-400'
+                                        : 'bg-white/[0.04] border border-white/[0.06] text-gray-400'
+                                }`}
+                            >
+                                📋 Copy
+                            </button>
+                            <button
+                                onClick={() => setContextMenu({ ...contextMenu, action: 'move' })}
+                                className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                                    contextMenu.action === 'move'
+                                        ? 'bg-sky-500/20 border border-sky-500/30 text-sky-400'
+                                        : 'bg-white/[0.04] border border-white/[0.06] text-gray-400'
+                                }`}
+                            >
+                                ↗️ Move
+                            </button>
+                        </div>
+
+                        {/* Day picker */}
+                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">
+                            Select target day
+                        </p>
+                        <div className="max-h-[200px] overflow-y-auto space-y-1.5">
+                            {mealDays.dates.map((date, idx) => {
+                                const isSource = date === contextMenu.meal.planned_date;
+                                const existing = mealMap.get(`${date}_${contextMenu.meal.meal_slot}`);
+                                const occupied = !!existing && existing.id !== contextMenu.meal.id;
+                                const dateLabel = new Date(date + 'T12:00:00Z').toLocaleDateString(undefined, {
+                                    weekday: 'short', month: 'short', day: 'numeric',
+                                });
+                                return (
+                                    <button
+                                        key={date}
+                                        onClick={() => handleCopyToDate(date)}
+                                        disabled={isSource || occupied}
+                                        className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                                            isSource
+                                                ? 'border-white/[0.06] bg-white/[0.02] opacity-40 cursor-not-allowed'
+                                                : occupied
+                                                  ? 'border-red-500/10 bg-red-500/[0.03] opacity-50 cursor-not-allowed'
+                                                  : 'border-white/[0.06] bg-white/[0.03] hover:bg-amber-500/10 hover:border-amber-500/20 active:scale-[0.98]'
+                                        }`}
+                                    >
+                                        <span className="text-[11px] font-black text-gray-500 w-12">Day {idx + 1}</span>
+                                        <span className="text-xs text-white flex-1 text-left">{dateLabel}</span>
+                                        {isSource && <span className="text-[9px] text-gray-600">current</span>}
+                                        {occupied && <span className="text-[9px] text-red-400">occupied</span>}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {/* Cancel */}
+                        <button
+                            onClick={() => setContextMenu(null)}
+                            className="w-full py-3 rounded-xl bg-white/[0.04] text-sm text-gray-400 font-medium"
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>,
+                document.body,
             )}
         </div>
     );
@@ -862,9 +1126,9 @@ const SlotPicker: React.FC<{
     };
 
     return (
-        <div className="fixed inset-0 z-[900] flex items-end justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[900] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
             <div
-                className="w-full max-w-lg bg-slate-900 border-t border-white/[0.1] rounded-t-3xl max-h-[80vh] flex flex-col animate-in slide-in-from-bottom-8 duration-300"
+                className="w-[calc(100%-2rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-[80vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
@@ -896,6 +1160,34 @@ const SlotPicker: React.FC<{
 
                 {/* Results */}
                 <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
+                    {/* Quick suggestions when search is empty */}
+                    {!searchQuery && results.length === 0 && !searching && (
+                        <div className="space-y-2 pb-2">
+                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider px-1">
+                                💡 Suggestions for {slotLabel?.label || 'this meal'}
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                                {(slot === 'breakfast'
+                                    ? ['Scrambled Eggs', 'Pancakes', 'Porridge', 'French Toast', 'Omelette', 'Baked Beans on Toast', 'Smoothie Bowl', 'Eggs Benedict']
+                                    : slot === 'lunch'
+                                      ? ['Chicken Wrap', 'Tuna Salad', 'Fried Rice', 'BLT Sandwich', 'Soup', 'Quesadilla', 'Fish Tacos', 'Pasta Salad']
+                                      : ['Spaghetti Bolognese', 'Grilled Chicken', 'Beef Stew', 'Fish Curry', 'Stir Fry', 'Lamb Chops', 'Chilli Con Carne', 'Pad Thai']
+                                ).map((suggestion) => (
+                                    <button
+                                        key={suggestion}
+                                        onClick={() => {
+                                            setSearchQuery(suggestion);
+                                            handleSearch(suggestion);
+                                        }}
+                                        className="px-2.5 py-1.5 rounded-lg bg-amber-500/[0.06] border border-amber-500/15 text-[11px] text-amber-400/80 font-medium hover:bg-amber-500/15 hover:text-amber-300 transition-all active:scale-95"
+                                    >
+                                        {suggestion}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {searching && (
                         <p className="text-center text-[11px] text-gray-500 py-4">⏳ Searching recipes…</p>
                     )}
@@ -1004,7 +1296,16 @@ const ChefPlate: React.FC<{
     const [imgError, setImgError] = useState(false);
     const [prepStarted, setPrepStarted] = useState(meal.status === 'cooking');
     const [addedItems, setAddedItems] = useState<Set<string>>(new Set());
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const [storesVersion, setStoresVersion] = useState(0);
     const ratio = crewCount / baseServings;
+
+    // Refresh stores data when items are purchased
+    useEffect(() => {
+        const handler = () => setStoresVersion((v) => v + 1);
+        window.addEventListener('thalassa:stores-changed', handler);
+        return () => window.removeEventListener('thalassa:stores-changed', handler);
+    }, []);
 
     // Scale ingredients in real-time
     const scaledIngredients = meal.ingredients.map((ing) => ({
@@ -1012,14 +1313,34 @@ const ChefPlate: React.FC<{
         scaledAmount: Math.round(scaleIngredient(ing.amount, ing.scalable, baseServings, crewCount) * 10) / 10,
     }));
 
-    // Get stores availability for per-ingredient shortfall
+    // Get stores availability for per-ingredient shortfall (re-reads on storesVersion change)
     const storesAvail = getStoresAvailability();
-    const storesMap = new Map(storesAvail.map((s) => [s.item_name.toLowerCase(), s]));
 
-    // Shortfall count
+    // Fuzzy match: recipe name "large eggs" should match store item "eggs"
+    const STRIP_WORDS = new Set(['large', 'small', 'medium', 'fresh', 'dried', 'ground', 'whole', 'raw', 'cooked', 'chopped', 'diced', 'sliced', 'minced', 'grated', 'shredded', 'crushed', 'melted', 'softened', 'unsalted', 'salted', 'sharp', 'mild', 'extra', 'fine', 'thick', 'thin', 'hot', 'cold', 'frozen', 'canned', 'tinned']);
+    const findStoreMatch = (ingredientName: string) => {
+        const lower = ingredientName.toLowerCase().trim();
+        // 1. Exact match
+        const exact = storesAvail.find((s) => s.item_name.toLowerCase() === lower);
+        if (exact) return exact;
+        // 2. Strip qualifiers and try contains match
+        const coreWords = lower.split(/\s+/).filter((w) => !STRIP_WORDS.has(w) && w.length > 2);
+        const corePhrase = coreWords.join(' ');
+        if (!corePhrase) return undefined;
+        // Check if store name contains core phrase or vice versa
+        return storesAvail.find((s) => {
+            const storeLower = s.item_name.toLowerCase();
+            return storeLower.includes(corePhrase) || corePhrase.includes(storeLower);
+        });
+    };
+
+    // Shortfall count — add back THIS meal's own reservation to avoid circular logic
+    // available = on_hand - all_reservations, so available + this_meal's_amount = on_hand - other_meals' reservations
     const shortfallIngredients = scaledIngredients.filter((ing) => {
-        const store = storesMap.get(ing.name.toLowerCase());
-        return !store || store.available < ing.scaledAmount;
+        const store = findStoreMatch(ing.name);
+        if (!store) return true;
+        const effectiveAvailable = Math.round((store.available + ing.amount) * 10) / 10;
+        return effectiveAvailable < ing.scaledAmount;
     });
 
     // Recipe image — cache-first
@@ -1071,44 +1392,30 @@ const ChefPlate: React.FC<{
 
         // Start cooking lifecycle
         await startCooking(meal.id);
-
-        // Broadcast to galley chat
-        const broadcastMsg = {
-            id: Date.now().toString(),
-            text: `🔥 Started preparing: ${meal.title}!\n👥 ${crewCount} serves · ⏱️ ${readyInLabel}`,
-            sender: '⚓ Galley Bot',
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        };
-
-        try {
-            const existingRaw = localStorage.getItem('thalassa_galley_chat');
-            const existing = existingRaw ? JSON.parse(existingRaw) : [];
-            const updated = [...existing, broadcastMsg].slice(-50);
-            localStorage.setItem('thalassa_galley_chat', JSON.stringify(updated));
-        } catch {
-            /* full */
-        }
-
-        // Dispatch event so galley chat tab updates
-        window.dispatchEvent(new CustomEvent('thalassa:galley-prep', { detail: { meal: meal.title, crewCount } }));
     };
 
-    // ── Add shortfall to provision list ──
+    // ── Add shortfall directly to shopping list (no middleman) ──
     const handleAddToList = async (ing: (typeof scaledIngredients)[0]) => {
-        const { addShortfallItem } = await import('../../services/MealPlanService');
-        const store = storesMap.get(ing.name.toLowerCase());
-        const shortfall = store ? Math.max(0, ing.scaledAmount - store.available) : ing.scaledAmount;
-        const success = await addShortfallItem(ing.name, shortfall, ing.unit, meal.title, meal.voyage_id);
-        if (success) {
+        try {
+            const { addManualItem } = await import('../../services/ShoppingListService');
+            const store = findStoreMatch(ing.name);
+            const effectiveAvailable = store ? Math.round((store.available + ing.amount) * 10) / 10 : 0;
+            const shortfall = Math.max(0, ing.scaledAmount - effectiveAvailable);
+            if (shortfall <= 0) return;
+            await addManualItem({
+                name: ing.name,
+                qty: Math.round(shortfall * 10) / 10,
+                unit: ing.unit,
+                notes: `For ${meal.title}`,
+            });
             setAddedItems((prev) => new Set(prev).add(ing.name.toLowerCase()));
-            triggerHaptic('medium');
-        }
+        } catch { /* failed */ }
     };
 
     return (
         <div className="rounded-2xl overflow-hidden border border-white/[0.06] bg-slate-950">
-            {/* ═══════ 1. HERO IMAGE (top 40%) ═══════ */}
-            <div className="relative h-52 overflow-hidden">
+            {/* ═══════ 1. HERO IMAGE (compact 50%) ═══════ */}
+            <div className="relative h-28 overflow-hidden">
                 {/* Recipe photo — edge-to-edge */}
                 {showImage && (
                     <img
@@ -1144,10 +1451,22 @@ const ChefPlate: React.FC<{
                 {/* Title + Ready In overlay */}
                 <div className="absolute bottom-0 left-0 right-0 p-4">
                     <p className="text-lg font-black text-white leading-tight drop-shadow-lg">{meal.title}</p>
-                    <div className="flex items-center gap-2 mt-1.5">
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                         <span className="px-2 py-0.5 rounded-full bg-white/15 backdrop-blur-sm text-[10px] font-bold text-amber-200 border border-white/10">
                             ⏱️ {readyInLabel}
                         </span>
+                        {(() => {
+                            const diff = getGalleyDifficulty(meal.title, undefined, meal.ingredients?.length);
+                            const diffColors = diff.score <= 2 ? 'text-emerald-300 border-emerald-500/20 bg-emerald-500/15'
+                                : diff.score === 3 ? 'text-amber-300 border-amber-500/20 bg-amber-500/15'
+                                : diff.score === 4 ? 'text-orange-300 border-orange-500/20 bg-orange-500/15'
+                                : 'text-red-300 border-red-500/20 bg-red-500/15';
+                            return (
+                                <span className={`px-2 py-0.5 rounded-full backdrop-blur-sm text-[10px] font-bold border ${diffColors}`}>
+                                    {diff.emoji} {diff.label}
+                                </span>
+                            );
+                        })()}
                         <span className="text-[11px] text-white/60">
                             {meal.planned_date} · {meal.meal_slot}
                         </span>
@@ -1256,8 +1575,8 @@ const ChefPlate: React.FC<{
             {/* ═══════ 4. INGREDIENT LIST with per-item shortfall ═══════ */}
             <div className="p-4 space-y-1.5">
                 {scaledIngredients.map((ing, i) => {
-                    const store = storesMap.get(ing.name.toLowerCase());
-                    const available = store?.available ?? 0;
+                    const store = findStoreMatch(ing.name);
+                    const available = store ? Math.round((store.available + ing.amount) * 10) / 10 : 0;
                     const hasEnough = available >= ing.scaledAmount;
                     const isLow = store && !hasEnough;
                     const isMissing = !store;
@@ -1297,20 +1616,28 @@ const ChefPlate: React.FC<{
                                     was {ing.amount}
                                 </span>
                             )}
-
-                            {/* ADD TO LIST button for shortfalls */}
-                            {!hasEnough && !alreadyAdded && (
-                                <button
-                                    onClick={() => handleAddToList(ing)}
-                                    className="flex-shrink-0 px-2 py-1 rounded-lg bg-red-500/15 border border-red-500/25 text-[9px] font-bold text-red-300 uppercase tracking-wider hover:bg-red-500/25 transition-all active:scale-95"
-                                >
-                                    + List
-                                </button>
-                            )}
-                            {alreadyAdded && <span className="text-[9px] text-emerald-400 flex-shrink-0">✓ Added</span>}
                         </div>
                     );
                 })}
+
+                {/* ═══ Master "Add All Shortfall" button ═══ */}
+                {shortfallIngredients.length > 0 && (
+                    <button
+                        onClick={async () => {
+                            for (const ing of shortfallIngredients) {
+                                if (!addedItems.has(ing.name.toLowerCase())) {
+                                    await handleAddToList(ing);
+                                }
+                            }
+                        }}
+                        disabled={shortfallIngredients.every((ing) => addedItems.has(ing.name.toLowerCase()))}
+                        className="w-full mt-2 py-3 rounded-xl bg-gradient-to-r from-red-500/15 to-orange-500/15 border border-red-500/20 text-[11px] font-bold uppercase tracking-widest text-red-300 hover:from-red-500/25 hover:to-orange-500/25 transition-all active:scale-[0.97] disabled:opacity-30"
+                    >
+                        {shortfallIngredients.every((ing) => addedItems.has(ing.name.toLowerCase()))
+                            ? '✅ All Shortfall Added'
+                            : `🛒 Add ${shortfallIngredients.filter((ing) => !addedItems.has(ing.name.toLowerCase())).length} Shortfall to List`}
+                    </button>
+                )}
             </div>
 
             {/* ═══════ 5. ACTIONS: Start Prep + Share ═══════ */}

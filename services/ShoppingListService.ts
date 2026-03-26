@@ -10,7 +10,7 @@
  * "Don't buy the same brisket at a different shop!" — sync immediately.
  */
 
-import { getAll, query, insertLocal, updateLocal, deleteLocal, generateUUID } from './vessel/LocalDatabase';
+import { getAll, query, insertLocal, updateLocal, deltaLocal, deleteLocal, generateUUID } from './vessel/LocalDatabase';
 import { syncNow } from './vessel/SyncService';
 import { type ProvisionItem } from './PassageProvisionsService';
 import { getCachedActiveVoyage } from './VoyageService';
@@ -289,33 +289,48 @@ export async function markPurchased(
         store_location: storeLocation || item.store_location,
     } as Partial<ShoppingItem>);
 
-    // 2. Insert into Ship's Stores (inventory_items)
-    const storesEntry = {
-        id: generateUUID(),
-        item_name: item.ingredient_name,
-        category: 'Provisions' as const,
-        quantity: item.required_qty,
-        min_quantity: 0,
-        unit: item.unit,
-        location_zone: storeLocation || item.store_location,
-        location_specific: '',
-        unit_value: actualCost ?? 0,
-        currency: item.currency,
-        notes: `Purchased for passage ${item.voyage_id || ''}`.trim(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-    };
-    await insertLocal('inventory_items', storesEntry);
+    // 2. Insert into Ship's Stores (inventory_items) — raw recipe units for shortfall matching
+    //    Deduplicate: if an item with the same name already exists, delta its quantity instead
+    const rawQty = Math.max(1, Math.round(item.required_qty * 10) / 10);
+    const existingStores = query<{ id: string; item_name: string; quantity: number }>(
+        'inventory_items',
+        (s) => s.item_name.toLowerCase() === item.ingredient_name.toLowerCase(),
+    );
+    if (existingStores.length > 0) {
+        // Increment the first match
+        await deltaLocal('inventory_items', existingStores[0].id, 'quantity', rawQty);
+    } else {
+        const storesEntry = {
+            id: generateUUID(),
+            item_name: item.ingredient_name,
+            category: 'Provisions' as const,
+            quantity: rawQty,
+            min_quantity: 0,
+            unit: item.unit,
+            location_zone: storeLocation || item.store_location,
+            location_specific: '',
+            unit_value: actualCost ?? 0,
+            currency: item.currency,
+            notes: `Purchased for passage ${item.voyage_id || ''}`.trim(),
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        };
+        await insertLocal('inventory_items', storesEntry);
+    }
 
     // 3. Haptic + immediate sync so crew sees update instantly
     triggerHaptic('medium');
     syncNow().catch(() => {
         /* offline — will sync later */
     });
+
+    // 4. Notify listeners (e.g. meal planner) that stores have changed
+    window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
 }
 
 /**
  * Manually add an item to the shopping list (non-recipe items like soap, parts, etc.)
+ * If an unpurchased item with the same name already exists, updates its quantity.
  */
 export async function addManualItem(opts: {
     name: string;
@@ -325,7 +340,29 @@ export async function addManualItem(opts: {
     notes?: string;
 }): Promise<ShoppingItem> {
     const voyage = getCachedActiveVoyage?.();
+    const voyageId = voyage?.id || null;
     const now = new Date().toISOString();
+
+    // Check for existing unpurchased item with same name to avoid duplicates
+    const existing = query<ShoppingItem>(TABLE, (i) =>
+        i.ingredient_name.toLowerCase() === opts.name.toLowerCase() &&
+        i.voyage_id === voyageId &&
+        !i.purchased,
+    );
+
+    if (existing.length > 0) {
+        // Update quantity on existing item
+        const updated = { ...existing[0], required_qty: existing[0].required_qty + opts.qty, updated_at: now };
+        await updateLocal<ShoppingItem>(TABLE, existing[0].id, {
+            required_qty: updated.required_qty,
+            updated_at: now,
+            notes: opts.notes ? `${existing[0].notes ? existing[0].notes + ' · ' : ''}${opts.notes}` : existing[0].notes,
+        } as Partial<ShoppingItem>);
+        triggerHaptic('medium');
+        syncNow().catch(() => { /* offline */ });
+        return updated;
+    }
+
     const item: ShoppingItem = {
         id: generateUUID(),
         ingredient_name: opts.name,
@@ -338,7 +375,7 @@ export async function addManualItem(opts: {
         purchased_at: null,
         store_location: '',
         provision_id: null,
-        voyage_id: voyage?.id || null,
+        voyage_id: voyageId,
         notes: opts.notes || null,
         created_at: now,
         updated_at: now,
@@ -380,6 +417,9 @@ export async function unmarkPurchased(shoppingItemId: string): Promise<void> {
     syncNow().catch(() => {
         /* offline */
     });
+
+    // 4. Notify listeners that stores changed
+    window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
 }
 
 /**
