@@ -103,7 +103,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             } else {
                 setError(result.error || 'Failed to create voyage');
             }
-        } catch {
+        } catch (e) { console.warn("Suppressed:", e);
             setError('Failed to create voyage');
         }
         setCreating(false);

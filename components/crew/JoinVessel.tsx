@@ -80,7 +80,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                 setStatus('pending');
                 setVesselName('Vessel (offline)');
                 triggerHaptic('medium');
-            } catch {
+            } catch (e) { console.warn("Suppressed:", e);
                 setErrorMsg('Failed to save code locally');
                 setStatus('error');
             }
@@ -162,7 +162,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
             syncNow().catch(() => {
                 /* will sync when approved */
             });
-        } catch {
+        } catch (e) { console.warn("Suppressed:", e);
             setErrorMsg('Connection error — try again');
             setStatus('error');
         }

@@ -25,22 +25,11 @@ import { EmptyState } from '../ui/EmptyState';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { getCachedActiveVoyage } from '../../services/VoyageService';
 
+import { ZONE_EMOJI } from '../chat/galleyTokens';
+
 interface GroceryListPageProps {
     onBack: () => void;
 }
-
-// Market zone emoji mapping
-const ZONE_EMOJI: Record<MarketZone, string> = {
-    Butcher: '🥩',
-    Produce: '🥬',
-    'Bottle Shop': '🍷',
-    Bakery: '🥖',
-    Dairy: '🧀',
-    Chandlery: '⚓',
-    'Fuel Dock': '⛽',
-    Pharmacy: '💊',
-    General: '🛒',
-};
 
 const ALL_ZONES: MarketZone[] = ['General', 'Produce', 'Butcher', 'Dairy', 'Bakery', 'Bottle Shop', 'Pharmacy', 'Chandlery', 'Fuel Dock'];
 
@@ -70,7 +59,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                 for (const z of b.byZone) byZoneMap[z.zone] = z.spent;
                 setBudget({ total: b.totalSpent, byZone: byZoneMap });
             }
-        } catch { /* no active voyage */ }
+        } catch (e) { console.warn("Suppressed:", e); }
     }, []);
 
     useEffect(() => {

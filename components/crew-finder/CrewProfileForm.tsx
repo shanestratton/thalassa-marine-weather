@@ -33,7 +33,7 @@ const formatDate = (iso: string | null) => {
             month: 'short',
             year: 'numeric',
         });
-    } catch {
+    } catch (e) { console.warn("Suppressed:", e);
         return iso;
     }
 };

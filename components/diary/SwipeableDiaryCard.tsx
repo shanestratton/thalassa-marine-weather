@@ -92,7 +92,7 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                                 directory: Directory.Cache,
                             });
                             fileUris.push(result.uri);
-                        } catch {
+                        } catch (e) { console.warn("Suppressed:", e);
                             // Skip undownloadable photos — share text only
                         }
                     }),
@@ -106,7 +106,7 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                     ...(fileUris.length > 0 ? { files: fileUris } : {}),
                     dialogTitle: 'Share diary entry',
                 });
-            } catch {
+            } catch (e) { console.warn("Suppressed:", e);
                 // User cancelled or share not available — silent
             } finally {
                 sharingRef.current = false;

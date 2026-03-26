@@ -49,7 +49,7 @@ export const OnboardingOverlay: React.FC = () => {
     const [visible, setVisible] = useState(() => {
         try {
             return !localStorage.getItem(STORAGE_KEY);
-        } catch {
+        } catch (e) { console.warn("Suppressed:", e);
             return true;
         }
     });
@@ -58,7 +58,7 @@ export const OnboardingOverlay: React.FC = () => {
     const dismiss = useCallback(() => {
         try {
             localStorage.setItem(STORAGE_KEY, 'true');
-        } catch {
+        } catch (e) { console.warn("Suppressed:", e);
             /* noop */
         }
         setVisible(false);

@@ -17,7 +17,7 @@ const isMapboxConfigured = () => {
     try {
         const local = localStorage.getItem('thalassa_mapbox_key');
         return !!local;
-    } catch {
+    } catch (e) { console.warn("Suppressed:", e);
         return false;
     }
 };

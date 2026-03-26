@@ -77,7 +77,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const [showAisOnRadar, setShowAisOnRadar] = useState(() => {
         try {
             return localStorage.getItem('thalassa_anchor_ais') !== 'off';
-        } catch {
+        } catch (e) { console.warn("Suppressed:", e);
             return true;
         }
     });
@@ -314,7 +314,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     });
 
                 setAisTargets(dots);
-            } catch {
+            } catch (e) { console.warn("Suppressed:", e);
                 // Silently fail — AIS is a nice-to-have overlay
             }
         };
@@ -931,7 +931,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         setShowAisOnRadar(next);
                         try {
                             localStorage.setItem('thalassa_anchor_ais', next ? 'on' : 'off');
-                        } catch {
+                        } catch (e) { console.warn("Suppressed:", e);
                             /* */
                         }
                         triggerHaptic('light');
