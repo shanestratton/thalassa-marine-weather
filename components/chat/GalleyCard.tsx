@@ -229,17 +229,18 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
                                     onCookNow={handleCookNow}
                                     shoppingSummary={shoppingSummary}
                                     onCrewCountChange={handleSetCrewCount}
+                                    onShoppingChanged={() => setShoppingSummary(getShoppingList())}
                                 />
                             </div>
                         </ChildCard>
                     )}
 
                     {/* ── 1b. Shopping List ── */}
-                    {shoppingSummary && shoppingSummary.total > 0 && (
+                    {shoppingSummary && shoppingSummary.remaining > 0 && (
                         <ChildCard
                             icon="🛒"
                             title="Shopping List"
-                            subtitle={`${shoppingSummary.remaining} remaining · ${shoppingSummary.purchased} purchased`}
+                            subtitle={`${shoppingSummary.remaining} item${shoppingSummary.remaining !== 1 ? 's' : ''} to buy`}
                             color="emerald"
                             defaultOpen={false}
                             onToggle={() => setActiveTab(activeTab === 'shopping' ? '' : 'shopping')}
@@ -569,6 +570,7 @@ interface MealCalendarProps {
     onCookNow: (meal: MealPlan) => void;
     shoppingSummary: ShoppingListSummary | null;
     onCrewCountChange?: (n: number) => void;
+    onShoppingChanged?: () => void;
 }
 
 const MealCalendar: React.FC<MealCalendarProps> = ({
@@ -583,6 +585,7 @@ const MealCalendar: React.FC<MealCalendarProps> = ({
     onCookNow,
     shoppingSummary,
     onCrewCountChange,
+    onShoppingChanged,
 }) => {
     const [slotPicker, setSlotPicker] = useState<{ date: string; slot: MealSlot } | null>(null);
     const [expandedMeal, setExpandedMeal] = useState<string | null>(null);
@@ -704,6 +707,9 @@ const MealCalendar: React.FC<MealCalendarProps> = ({
 
             triggerHaptic('medium');
             window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
+
+            // Refresh shopping list state so the inline card appears immediately
+            onShoppingChanged?.();
 
             // Brief success feedback
             if (added === 0) {
