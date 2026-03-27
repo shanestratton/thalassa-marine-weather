@@ -50,8 +50,7 @@ const CONTOUR_BG = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000
 export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, settings, onSave: _onSave }) => {
     // ── Vessel state ──
     const { settings: ctx } = useSettings();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const isObserver = (ctx as any)?.vessel?.type === 'observer';
+    const isObserver = (ctx as { vessel?: { type?: string } })?.vessel?.type === 'observer';
 
     // ── Anchor state ──
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
@@ -94,7 +93,22 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // ── Draft passage plans ──
     const [passageCrewCount, setPassageCrewCount] = useState(0);
     useEffect(() => {
-        getMyCrew().then((c) => setPassageCrewCount(c.length));
+        getMyCrew().then((c) => {
+            // Crew count from vessel settings
+            let settingsCount = 2;
+            try {
+                const raw = localStorage.getItem('CapacitorStorage.thalassa_settings');
+                if (raw) {
+                    const s = JSON.parse(raw);
+                    if (s?.vessel?.crewCount) settingsCount = s.vessel.crewCount;
+                }
+            } catch {
+                /* ignore */
+            }
+            // max(settings count, actual crew + captain)
+            const actualWithCaptain = c.length + 1;
+            setPassageCrewCount(Math.max(settingsCount, actualWithCaptain));
+        });
     }, []);
 
     // ── Anchor display ──
@@ -141,12 +155,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                             animation: anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
                                         }}
                                     />
-                                    <span className="text-[13px] font-black text-white tracking-wide">
-                                        Anchor Watch
-                                    </span>
+                                    <span className="text-sm font-black text-white tracking-wide">Anchor Watch</span>
                                 </div>
                                 <p
-                                    className="text-[11px] font-bold uppercase tracking-widest"
+                                    className="text-xs font-bold uppercase tracking-widest"
                                     style={{ color: anchorColor }}
                                 >
                                     {anchorLabel}
@@ -155,7 +167,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
                             {/* Right: Passages */}
                             <button
-                                aria-label="Passages"
+                                aria-label="Route Planner"
                                 onClick={() => {
                                     if (isObserver) return;
                                     triggerHaptic('light');
@@ -167,10 +179,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             >
                                 <div className="flex items-center gap-2.5 mb-2">
                                     <CompassIcon />
-                                    <span className="text-[13px] font-black text-white tracking-wide">Passages</span>
+                                    <span className="text-sm font-black text-white tracking-wide">Route Planner</span>
                                 </div>
                                 <p
-                                    className={`text-[11px] font-bold uppercase tracking-widest ${isObserver ? 'text-gray-500' : 'text-cyan-400'}`}
+                                    className={`text-xs font-bold uppercase tracking-widest ${isObserver ? 'text-gray-500' : 'text-cyan-400'}`}
                                 >
                                     {isObserver ? 'Vessel Required' : 'Route Plan'}
                                 </p>
@@ -194,8 +206,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     <ShieldIcon color="#f59e0b" />
                                 </div>
                                 <div>
-                                    <h4 className="text-[12px] font-black text-white tracking-wide">Guardian</h4>
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
+                                    <h4 className="text-[13px] font-black text-white tracking-wide">Guardian</h4>
+                                    <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
                                         Bay Watch
                                     </p>
                                 </div>
@@ -216,8 +228,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     <SignalIcon color="#f59e0b" />
                                 </div>
                                 <div>
-                                    <h4 className="text-[12px] font-black text-white tracking-wide">Radio</h4>
-                                    <p className="text-[10px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
+                                    <h4 className="text-[13px] font-black text-white tracking-wide">Radio</h4>
+                                    <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
                                         Report Pos
                                     </p>
                                 </div>
@@ -244,8 +256,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             <BookIcon color="#0ea5e9" />
                         </div>
                         <div className="flex-1 min-w-0">
-                            <span className="text-[12px] font-black text-white tracking-wide">Voyage Entries</span>
-                            <p className="text-[10px] text-gray-500 truncate mt-0.5 italic">
+                            <span className="text-[13px] font-black text-white tracking-wide">Voyage Entries</span>
+                            <p className="text-[11px] text-gray-500 truncate mt-0.5 italic">
                                 Tap to view or add entries
                             </p>
                         </div>
@@ -264,7 +276,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <OfficeRow
                             icon={<PenIcon color="#0ea5e9" />}
                             label="Diary"
-                            status="Captain's Notes"
+                            status="Daily Notes"
                             statusColor="#9ca3af"
                             onClick={() => {
                                 triggerHaptic('light');
@@ -361,13 +373,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     <div style={GLASS.listContainer}>
                         <OfficeRow
                             icon={<CrewIcon color="#8b5cf6" />}
-                            label="Crew Management"
+                            label="Passage Planning"
                             status={
                                 passageCrewCount > 0
                                     ? `${passageCrewCount} crew`
                                     : pendingCrewInvites > 0
                                       ? `${pendingCrewInvites} Pending`
-                                      : 'Invite Crew'
+                                      : 'Plan Your Voyage'
                             }
                             statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#8b5cf6'}
                             onClick={() => {
@@ -402,7 +414,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 const SectionLabel: React.FC<{ color: string; label: string }> = ({ color, label }) => (
     <div className="flex items-center gap-2 mb-2.5">
         <div className="w-1 h-3.5 rounded-full" style={{ backgroundColor: color }} />
-        <span className="text-[10px] font-black uppercase tracking-[0.2em]" style={{ color }}>
+        <span className="text-[11px] font-black uppercase tracking-[0.2em]" style={{ color }}>
             {label}
         </span>
     </div>
@@ -431,13 +443,13 @@ const OfficeRow: React.FC<{
         <div className="p-1.5 rounded-lg" style={{ background: 'rgba(255,255,255,0.04)' }}>
             {icon}
         </div>
-        <span className="flex-1 text-[12px] font-bold text-white tracking-wide">{label}</span>
+        <span className="flex-1 text-[13px] font-bold text-white tracking-wide">{label}</span>
         {badge !== undefined && (
-            <span className="px-1.5 py-0.5 bg-amber-500/30 text-amber-300 text-[10px] font-bold rounded-full">
+            <span className="px-1.5 py-0.5 bg-amber-500/30 text-amber-300 text-[11px] font-bold rounded-full">
                 {badge}
             </span>
         )}
-        <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: statusColor }}>
+        <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: statusColor }}>
             {status}
         </span>
         <ChevronRight />

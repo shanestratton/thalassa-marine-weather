@@ -189,7 +189,7 @@ export const enrichMarineWeather = async (
              Specific Instruction: Mock/Comment on them being a "dirt dweller" or "land lubber".
              Return JSON { "boatingAdvice": "string" }`;
         } else {
-            const vesselNamePart = vessel?.name && vessel.name !== 'Observer' ? `named "${vessel.name}"` : '';
+            const vesselNamePart = vessel?.name && vessel.name !== 'Crew Member' ? `named "${vessel.name}"` : '';
             const vesselDesc = `Sailing a ${lenStr} ${lenUnit} ${vesselType} ${vesselNamePart} `.trim();
             prompt = `${role}
             THE USER IS: ${vesselDesc}.

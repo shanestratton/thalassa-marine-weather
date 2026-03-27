@@ -65,9 +65,9 @@ import {
     getMealPlans,
     getMealsForDate,
     getMealsByStatus,
-    unscheduleMeal,
-    startCooking,
-    skipMeal,
+    unscheduleMeal as _unscheduleMeal,
+    startCooking as _startCooking,
+    skipMeal as _skipMeal,
 } from '../services/MealPlanService';
 import type { MealSlot } from '../services/MealPlanService';
 

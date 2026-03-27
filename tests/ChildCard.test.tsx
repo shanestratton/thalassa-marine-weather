@@ -9,7 +9,7 @@ import { ChildCard } from '../components/chat/ChildCard';
 describe('ChildCard', () => {
     const defaultProps = {
         icon: '🍴',
-        title: 'Ship\'s Galley',
+        title: "Ship's Galley",
         subtitle: 'Meals & Stores',
         color: 'amber',
         isOpen: false,

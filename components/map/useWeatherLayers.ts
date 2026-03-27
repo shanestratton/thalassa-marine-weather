@@ -20,6 +20,7 @@ import { WindParticleLayer } from './WindParticleLayer';
 import { type WindGrid } from '../../services/weather/windField';
 import { WindDataController } from '../../services/weather/WindDataController';
 import { type WeatherLayer, getTileUrl, getWindColor } from './mapConstants';
+import { createWindLabelMarker } from '../../utils/createMarkerEl';
 import {
     initIsobarLayers,
     hideIsobarLayers,
@@ -420,20 +421,7 @@ export function useWeatherLayers(
                 ];
                 const cardinal = dirs[Math.round(dir / 22.5) % 16];
 
-                const el = document.createElement('div');
-                el.className = 'wind-label-marker';
-                el.style.cssText = `
-                        display: inline-block;
-                        background: ${getWindColor(speedKts)};
-                        color: ${speedKts > 25 ? '#fff' : '#1a1a2e'};
-                        font-size: 10px; font-weight: 800; line-height: 1.2;
-                        text-align: center; padding: 3px 6px; border-radius: 6px;
-                        white-space: nowrap; pointer-events: none; text-shadow: none;
-                        box-shadow: 0 1px 4px rgba(0,0,0,0.4);
-                        border: 1px solid rgba(255,255,255,0.15);
-                        position: relative; z-index: 20;
-                    `;
-                el.innerHTML = `${speedKts}kt<br/>${cardinal}`;
+                const el = createWindLabelMarker(speedKts, cardinal, getWindColor(speedKts));
 
                 const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
                     .setLngLat([grid.lons[c], grid.lats[r]])
@@ -566,20 +554,17 @@ export function useWeatherLayers(
             // Pressure/synoptic — lock zoom to synoptic range (~3-7)
             map.setMinZoom(3);
             map.setMaxZoom(7);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            map.setMaxBounds(undefined as any);
+            map.setMaxBounds(undefined!); // Mapbox runtime API accepts undefined to clear bounds
         } else if (hasWind) {
             // Wind active — constrain min zoom only (overlay handles its own visibility at high zoom)
             map.setMinZoom(1);
             map.setMaxZoom(18);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            map.setMaxBounds(undefined as any);
+            map.setMaxBounds(undefined!); // Mapbox runtime API accepts undefined to clear bounds
         } else {
             // No weather layers — full freedom
             map.setMinZoom(1);
             map.setMaxZoom(20);
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            map.setMaxBounds(undefined as any);
+            map.setMaxBounds(undefined!); // Mapbox runtime API accepts undefined to clear bounds
         }
 
         // Fly to user only on FIRST layer activation (not every toggle)

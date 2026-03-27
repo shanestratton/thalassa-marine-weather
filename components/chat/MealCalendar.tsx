@@ -5,7 +5,7 @@
  * Includes SlotPicker for recipe search, Provision Passage CTA,
  * crew stepper, and copy/move context menu.
  */
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
     scheduleMeal,
@@ -15,7 +15,12 @@ import {
     type MealSlot,
     type MealDayInfo,
 } from '../../services/MealPlanService';
-import { scaleIngredient, searchRecipes, getGalleyDifficulty, type GalleyMeal } from '../../services/GalleyRecipeService';
+import {
+    scaleIngredient,
+    searchRecipes,
+    getGalleyDifficulty,
+    type GalleyMeal,
+} from '../../services/GalleyRecipeService';
 import { type ShoppingListSummary } from '../../services/ShoppingListService';
 import { triggerHaptic } from '../../utils/system';
 import { ChefPlate } from './ChefPlate';
@@ -59,44 +64,50 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // ── Delete meal ──
-    const handleDeleteMeal = useCallback(async (meal: MealPlan, e: React.MouseEvent) => {
-        e.stopPropagation();
-        await unscheduleMeal(meal.id);
-        triggerHaptic('medium');
-        onMealsChanged();
-        // Dispatch stores-changed so stores UI updates
-        window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
-    }, [onMealsChanged]);
+    const handleDeleteMeal = useCallback(
+        async (meal: MealPlan, e: React.MouseEvent) => {
+            e.stopPropagation();
+            await unscheduleMeal(meal.id);
+            triggerHaptic('medium');
+            onMealsChanged();
+            // Dispatch stores-changed so stores UI updates
+            window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
+        },
+        [onMealsChanged],
+    );
 
     // ── Copy/Move meal to target date ──
-    const handleCopyToDate = useCallback(async (targetDate: string) => {
-        if (!contextMenu || !voyageId) return;
-        const meal = contextMenu.meal;
-        const isMove = contextMenu.action === 'move';
+    const handleCopyToDate = useCallback(
+        async (targetDate: string) => {
+            if (!contextMenu || !voyageId) return;
+            const meal = contextMenu.meal;
+            const isMove = contextMenu.action === 'move';
 
-        // Construct GalleyMeal from MealPlan for scheduleMeal
-        const galleyMeal: GalleyMeal = {
-            id: meal.spoonacular_id || Date.now(),
-            title: meal.title,
-            readyInMinutes: 30,
-            servings: meal.servings_planned,
-            image: '',
-            sourceUrl: '',
-            ingredients: meal.ingredients,
-        };
+            // Construct GalleyMeal from MealPlan for scheduleMeal
+            const galleyMeal: GalleyMeal = {
+                id: meal.spoonacular_id || Date.now(),
+                title: meal.title,
+                readyInMinutes: 30,
+                servings: meal.servings_planned,
+                image: '',
+                sourceUrl: '',
+                ingredients: meal.ingredients,
+            };
 
-        await scheduleMeal(galleyMeal, targetDate, meal.meal_slot, voyageId, meal.servings_planned);
+            await scheduleMeal(galleyMeal, targetDate, meal.meal_slot, voyageId, meal.servings_planned);
 
-        // If move, delete original
-        if (isMove) {
-            await unscheduleMeal(meal.id);
-        }
+            // If move, delete original
+            if (isMove) {
+                await unscheduleMeal(meal.id);
+            }
 
-        triggerHaptic('medium');
-        setContextMenu(null);
-        onMealsChanged();
-        window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
-    }, [contextMenu, voyageId, onMealsChanged]);
+            triggerHaptic('medium');
+            setContextMenu(null);
+            onMealsChanged();
+            window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
+        },
+        [contextMenu, voyageId, onMealsChanged],
+    );
 
     // Long-press handlers
     const startLongPress = useCallback((meal: MealPlan) => {
@@ -112,22 +123,76 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
         }
     }, []);
 
-
-    // ── Provision Passage: aggregate all shortfalls at once ──
+    // ── Add to Shopping List: aggregate all shortfalls at once ──
     const [provisioning, setProvisioning] = useState(false);
-    const handleProvisionPassage = useCallback(async () => {
+    const [lastAddedCount, setLastAddedCount] = useState<number | null>(null);
+
+    // Reset success state when meals change (new meal added/removed)
+    useEffect(() => {
+        setLastAddedCount(null);
+    }, [activeMeals]);
+
+    // Pre-compute how many unique ingredients need purchasing
+    const shortfallCount = (() => {
+        if (!mealDays || activeMeals.length === 0) return 0;
+        const storesAvail = getStoresAvailability();
+        const fuzzyMatch = (name: string) => {
+            const lower = name.toLowerCase().trim();
+            const exact = storesAvail.find((s) => s.item_name.toLowerCase() === lower);
+            if (exact) return exact;
+            const core = lower
+                .split(/\s+/)
+                .filter((w) => !STRIP_WORDS.has(w) && w.length > 2)
+                .join(' ');
+            if (!core) return undefined;
+            return storesAvail.find((s) => {
+                const sl = s.item_name.toLowerCase();
+                return sl.includes(core) || core.includes(sl);
+            });
+        };
+        const needs = new Map<string, { qty: number; unit: string; name: string }>();
+        for (const meal of activeMeals) {
+            const servings = meal.servings_planned || crewCount;
+            for (const ing of meal.ingredients || []) {
+                const scaled = scaleIngredient(ing.amount, ing.scalable, ing.amount, servings);
+                const key = ing.name.toLowerCase();
+                const prev = needs.get(key);
+                if (prev) {
+                    prev.qty += scaled;
+                } else {
+                    needs.set(key, { qty: scaled, unit: ing.unit, name: ing.name });
+                }
+            }
+        }
+        let count = 0;
+        for (const [, need] of needs) {
+            const store = fuzzyMatch(need.name);
+            const available = store ? store.available : 0;
+            if (Math.round((need.qty - available) * 10) / 10 > 0) count++;
+        }
+        return count;
+    })();
+
+    const handleAddToShoppingList = useCallback(async () => {
         if (!mealDays || activeMeals.length === 0) return;
         setProvisioning(true);
+        setLastAddedCount(null);
         try {
-            const { addManualItem } = await import('../../services/ShoppingListService');
+            const { addManualItem, removeUnpurchasedProvisionItems } =
+                await import('../../services/ShoppingListService');
+
+            // Clear previous unpurchased provision items so we rebuild fresh
+            await removeUnpurchasedProvisionItems();
             const storesAvail = getStoresAvailability();
 
-            // Fuzzy match helper (same as ChefPlate)
             const fuzzyMatch = (name: string) => {
                 const lower = name.toLowerCase().trim();
                 const exact = storesAvail.find((s) => s.item_name.toLowerCase() === lower);
                 if (exact) return exact;
-                const core = lower.split(/\s+/).filter((w) => !STRIP_WORDS.has(w) && w.length > 2).join(' ');
+                const core = lower
+                    .split(/\s+/)
+                    .filter((w) => !STRIP_WORDS.has(w) && w.length > 2)
+                    .join(' ');
                 if (!core) return undefined;
                 return storesAvail.find((s) => {
                     const sl = s.item_name.toLowerCase();
@@ -135,11 +200,10 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                 });
             };
 
-            // Aggregate required quantities across all meals
             const needs = new Map<string, { qty: number; unit: string; name: string }>();
             for (const meal of activeMeals) {
                 const servings = meal.servings_planned || crewCount;
-                for (const ing of (meal.ingredients || [])) {
+                for (const ing of meal.ingredients || []) {
                     const scaled = scaleIngredient(ing.amount, ing.scalable, ing.amount, servings);
                     const key = ing.name.toLowerCase();
                     const prev = needs.get(key);
@@ -151,7 +215,6 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                 }
             }
 
-            // Compute shortfalls against stores and add to shopping list
             let added = 0;
             for (const [, need] of needs) {
                 const store = fuzzyMatch(need.name);
@@ -170,21 +233,14 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
 
             triggerHaptic('medium');
             window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
-
-            // Refresh shopping list state so the inline card appears immediately
             onShoppingChanged?.();
-
-            // Brief success feedback
-            if (added === 0) {
-                alert('✅ All ingredients are already in your stores!');
-            }
+            setLastAddedCount(added);
+            // Success state persists until activeMeals changes (new meal added/removed)
         } catch (e) {
-            console.error('Provision passage error:', e);
+            console.error('Add to shopping list error:', e);
         }
         setProvisioning(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mealDays, activeMeals, crewCount, onShoppingChanged]);
-
 
     // No dates set — prompt user
     if (!mealDays) {
@@ -224,7 +280,11 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                 </div>
                 <div className="flex items-center gap-1.5">
                     {/* Crew count stepper */}
-                    <div className="flex items-center gap-0.5 rounded-full bg-sky-500/10 border border-sky-500/20 px-1 py-0.5" role="group" aria-label="Crew count">
+                    <div
+                        className="flex items-center gap-0.5 rounded-full bg-sky-500/10 border border-sky-500/20 px-1 py-0.5"
+                        role="group"
+                        aria-label="Crew count"
+                    >
                         <button
                             onClick={() => onCrewCountChange?.(crewCount - 1)}
                             disabled={crewCount <= 1}
@@ -233,7 +293,10 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                         >
                             −
                         </button>
-                        <span className="text-[10px] font-bold text-sky-400 min-w-[28px] text-center" aria-live="polite">
+                        <span
+                            className="text-[10px] font-bold text-sky-400 min-w-[28px] text-center"
+                            aria-live="polite"
+                        >
                             👥 {crewCount}
                         </span>
                         <button
@@ -248,22 +311,43 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                 </div>
             </div>
 
-            {/* Provision Passage CTA */}
-            {activeMeals.length > 0 && (
-                <button
-                    onClick={handleProvisionPassage}
-                    disabled={provisioning}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold active:scale-[0.98] disabled:opacity-50 transition-all mb-1"
-                    aria-label={`Provision passage for ${activeMeals.length} meals`}
-                >
-                    {provisioning ? (
-                        <div className="w-3.5 h-3.5 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
-                    ) : (
-                        '🛒'
-                    )}
-                    {provisioning ? 'Building list…' : `Provision Passage (${activeMeals.length} meals)`}
-                </button>
-            )}
+            {/* Add to Shopping List CTA */}
+            {activeMeals.length > 0 &&
+                (lastAddedCount !== null ? (
+                    /* Success state — auto-resets after 3s */
+                    <div className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/25 text-emerald-400 text-xs font-bold mb-1 transition-all">
+                        ✅{' '}
+                        {lastAddedCount > 0
+                            ? `${lastAddedCount} item${lastAddedCount !== 1 ? 's' : ''} added to shopping list`
+                            : 'Fully stocked — nothing to add'}
+                    </div>
+                ) : (
+                    <button
+                        onClick={handleAddToShoppingList}
+                        disabled={provisioning || shortfallCount === 0}
+                        className={`w-full flex items-center justify-center gap-3 py-2.5 rounded-xl text-xs font-bold active:scale-[0.98] disabled:opacity-50 transition-all mb-1 ${
+                            shortfallCount === 0
+                                ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400/60'
+                                : 'bg-emerald-500/15 border border-emerald-500/25 text-emerald-400'
+                        }`}
+                        aria-label={
+                            shortfallCount > 0
+                                ? `Add ${shortfallCount} items to shopping list`
+                                : 'All items fully stocked'
+                        }
+                    >
+                        {provisioning ? (
+                            <div className="w-3.5 h-3.5 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+                        ) : (
+                            '🛒'
+                        )}
+                        {provisioning
+                            ? 'Adding to list…'
+                            : shortfallCount > 0
+                              ? `Add ${shortfallCount} Item${shortfallCount !== 1 ? 's' : ''} to Shopping List`
+                              : '✅ Fully Stocked'}
+                    </button>
+                ))}
 
             {/* Day rows */}
             {mealDays.dates.map((date, dayIdx) => {
@@ -288,8 +372,11 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                     >
                         {/* Day label */}
                         <div className="flex items-center gap-2 px-1 pb-1.5">
-                            <span className={`text-[10px] font-black uppercase tracking-widest ${isEmergency ? 'text-amber-400' : 'text-gray-500'}`}>
-                                {isEmergency ? '📦 ' : ''}{dayLabel}
+                            <span
+                                className={`text-[10px] font-black uppercase tracking-widest ${isEmergency ? 'text-amber-400' : 'text-gray-500'}`}
+                            >
+                                {isEmergency ? '📦 ' : ''}
+                                {dayLabel}
                             </span>
                             <span className="text-[10px] text-gray-600">{dateLabel}</span>
                             {isEmergency && (
@@ -322,7 +409,12 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                             aria-label={`${label}: ${meal.title}. Tap to ${isExpanded ? 'collapse' : 'expand'}`}
                                             aria-expanded={isExpanded}
                                             tabIndex={0}
-                                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpandedMeal(isExpanded ? null : meal.id); } }}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' || e.key === ' ') {
+                                                    e.preventDefault();
+                                                    setExpandedMeal(isExpanded ? null : meal.id);
+                                                }
+                                            }}
                                         >
                                             {/* ✕ Delete button */}
                                             <button
@@ -336,17 +428,29 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                                 {emoji} {label}
                                             </p>
                                             <p className="text-[11px] font-bold text-white truncate mt-0.5 pr-3">
-                                                {meal.title.replace(/^[\p{Emoji_Presentation}\p{Emoji}\uFE0F?\s]+/u, '')}
+                                                {meal.title.replace(
+                                                    /^[\p{Emoji_Presentation}\p{Emoji}\uFE0F?\s]+/u,
+                                                    '',
+                                                )}
                                             </p>
                                             {(() => {
-                                                const diff = getGalleyDifficulty(meal.title, undefined, meal.ingredients?.length);
+                                                const diff = getGalleyDifficulty(
+                                                    meal.title,
+                                                    undefined,
+                                                    meal.ingredients?.length,
+                                                );
                                                 return (
-                                                    <p className={`text-[8px] font-bold mt-0.5 ${
-                                                        diff.score <= 2 ? 'text-emerald-400/60' :
-                                                        diff.score === 3 ? 'text-amber-400/60' :
-                                                        diff.score === 4 ? 'text-orange-400/70' :
-                                                        'text-red-400/70'
-                                                    }`}>
+                                                    <p
+                                                        className={`text-[8px] font-bold mt-0.5 ${
+                                                            diff.score <= 2
+                                                                ? 'text-emerald-400/60'
+                                                                : diff.score === 3
+                                                                  ? 'text-amber-400/60'
+                                                                  : diff.score === 4
+                                                                    ? 'text-orange-400/70'
+                                                                    : 'text-red-400/70'
+                                                        }`}
+                                                    >
                                                         {diff.emoji} {diff.label}
                                                     </p>
                                                 );
@@ -382,7 +486,9 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                             <div className="mt-2">
                                 <ChefPlate
                                     meal={activeMeals.find((m) => m.id === expandedMeal)!}
-                                    baseServings={activeMeals.find((m) => m.id === expandedMeal)?.servings_planned || crewCount}
+                                    baseServings={
+                                        activeMeals.find((m) => m.id === expandedMeal)?.servings_planned || crewCount
+                                    }
                                     cooking={cookingMealId === expandedMeal}
                                     onCook={() => onCookNow(activeMeals.find((m) => m.id === expandedMeal)!)}
                                     shoppingSummary={shoppingSummary}
@@ -393,7 +499,9 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                             <div className="mt-2">
                                 <ChefPlate
                                     meal={activeMeals.find((m) => m.id === expandedMeal)!}
-                                    baseServings={activeMeals.find((m) => m.id === expandedMeal)?.servings_planned || crewCount}
+                                    baseServings={
+                                        activeMeals.find((m) => m.id === expandedMeal)?.servings_planned || crewCount
+                                    }
                                     cooking={cookingMealId === expandedMeal}
                                     onCook={() => onCookNow(activeMeals.find((m) => m.id === expandedMeal)!)}
                                     shoppingSummary={shoppingSummary}
@@ -404,7 +512,9 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                             <div className="mt-2">
                                 <ChefPlate
                                     meal={activeMeals.find((m) => m.id === expandedMeal)!}
-                                    baseServings={activeMeals.find((m) => m.id === expandedMeal)?.servings_planned || crewCount}
+                                    baseServings={
+                                        activeMeals.find((m) => m.id === expandedMeal)?.servings_planned || crewCount
+                                    }
                                     cooking={cookingMealId === expandedMeal}
                                     onCook={() => onCookNow(activeMeals.find((m) => m.id === expandedMeal)!)}
                                     shoppingSummary={shoppingSummary}
@@ -414,8 +524,6 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                     </div>
                 );
             })}
-
-
 
             {slotPicker && (
                 <SlotPicker
@@ -432,100 +540,106 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
             )}
 
             {/* ── Copy/Move Context Menu ── */}
-            {contextMenu && mealDays && createPortal(
-                <div
-                    className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70"
-                    onClick={() => setContextMenu(null)}
-                >
+            {contextMenu &&
+                mealDays &&
+                createPortal(
                     <div
-                        className="w-full max-w-lg bg-slate-950 border-t border-amber-500/20 rounded-t-3xl shadow-2xl p-5 space-y-4"
-                        onClick={(e) => e.stopPropagation()}
-                        role="dialog"
-                        aria-modal="true"
-                        aria-label={`${contextMenu.action === 'copy' ? 'Copy' : 'Move'} ${contextMenu.meal.title}`}
+                        className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70"
+                        onClick={() => setContextMenu(null)}
                     >
-                        {/* Header */}
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center text-lg">
-                                {contextMenu.action === 'copy' ? '📋' : '↗️'}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-bold text-white truncate">{contextMenu.meal.title}</p>
-                                <p className="text-[10px] text-amber-400/70">
-                                    {contextMenu.meal.planned_date} · {contextMenu.meal.meal_slot}
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* Action toggle */}
-                        <div className="flex gap-2">
-                            <button
-                                onClick={() => setContextMenu({ ...contextMenu, action: 'copy' })}
-                                className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                                    contextMenu.action === 'copy'
-                                        ? 'bg-amber-500/20 border border-amber-500/30 text-amber-400'
-                                        : 'bg-white/[0.04] border border-white/[0.06] text-gray-400'
-                                }`}
-                            >
-                                📋 Copy
-                            </button>
-                            <button
-                                onClick={() => setContextMenu({ ...contextMenu, action: 'move' })}
-                                className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                                    contextMenu.action === 'move'
-                                        ? 'bg-sky-500/20 border border-sky-500/30 text-sky-400'
-                                        : 'bg-white/[0.04] border border-white/[0.06] text-gray-400'
-                                }`}
-                            >
-                                ↗️ Move
-                            </button>
-                        </div>
-
-                        {/* Day picker */}
-                        <p className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">
-                            Select target day
-                        </p>
-                        <div className="max-h-[200px] overflow-y-auto space-y-1.5">
-                            {mealDays.dates.map((date, idx) => {
-                                const isSource = date === contextMenu.meal.planned_date;
-                                const existing = mealMap.get(`${date}_${contextMenu.meal.meal_slot}`);
-                                const occupied = !!existing && existing.id !== contextMenu.meal.id;
-                                const dateLabel = new Date(date + 'T12:00:00Z').toLocaleDateString(undefined, {
-                                    weekday: 'short', month: 'short', day: 'numeric',
-                                });
-                                return (
-                                    <button
-                                        key={date}
-                                        onClick={() => handleCopyToDate(date)}
-                                        disabled={isSource || occupied}
-                                        className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${
-                                            isSource
-                                                ? 'border-white/[0.06] bg-white/[0.02] opacity-40 cursor-not-allowed'
-                                                : occupied
-                                                  ? 'border-red-500/10 bg-red-500/[0.03] opacity-50 cursor-not-allowed'
-                                                  : 'border-white/[0.06] bg-white/[0.03] hover:bg-amber-500/10 hover:border-amber-500/20 active:scale-[0.98]'
-                                        }`}
-                                    >
-                                        <span className="text-[11px] font-black text-gray-500 w-12">Day {idx + 1}</span>
-                                        <span className="text-xs text-white flex-1 text-left">{dateLabel}</span>
-                                        {isSource && <span className="text-[9px] text-gray-600">current</span>}
-                                        {occupied && <span className="text-[9px] text-red-400">occupied</span>}
-                                    </button>
-                                );
-                            })}
-                        </div>
-
-                        {/* Cancel */}
-                        <button
-                            onClick={() => setContextMenu(null)}
-                            className="w-full py-3 rounded-xl bg-white/[0.04] text-sm text-gray-400 font-medium"
+                        <div
+                            className="w-full max-w-lg bg-slate-950 border-t border-amber-500/20 rounded-t-3xl shadow-2xl p-5 space-y-4"
+                            onClick={(e) => e.stopPropagation()}
+                            role="dialog"
+                            aria-modal="true"
+                            aria-label={`${contextMenu.action === 'copy' ? 'Copy' : 'Move'} ${contextMenu.meal.title}`}
                         >
-                            Cancel
-                        </button>
-                    </div>
-                </div>,
-                document.body,
-            )}
+                            {/* Header */}
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center text-lg">
+                                    {contextMenu.action === 'copy' ? '📋' : '↗️'}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-sm font-bold text-white truncate">{contextMenu.meal.title}</p>
+                                    <p className="text-[10px] text-amber-400/70">
+                                        {contextMenu.meal.planned_date} · {contextMenu.meal.meal_slot}
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Action toggle */}
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setContextMenu({ ...contextMenu, action: 'copy' })}
+                                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                                        contextMenu.action === 'copy'
+                                            ? 'bg-amber-500/20 border border-amber-500/30 text-amber-400'
+                                            : 'bg-white/[0.04] border border-white/[0.06] text-gray-400'
+                                    }`}
+                                >
+                                    📋 Copy
+                                </button>
+                                <button
+                                    onClick={() => setContextMenu({ ...contextMenu, action: 'move' })}
+                                    className={`flex-1 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                                        contextMenu.action === 'move'
+                                            ? 'bg-sky-500/20 border border-sky-500/30 text-sky-400'
+                                            : 'bg-white/[0.04] border border-white/[0.06] text-gray-400'
+                                    }`}
+                                >
+                                    ↗️ Move
+                                </button>
+                            </div>
+
+                            {/* Day picker */}
+                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">
+                                Select target day
+                            </p>
+                            <div className="max-h-[200px] overflow-y-auto space-y-1.5">
+                                {mealDays.dates.map((date, idx) => {
+                                    const isSource = date === contextMenu.meal.planned_date;
+                                    const existing = mealMap.get(`${date}_${contextMenu.meal.meal_slot}`);
+                                    const occupied = !!existing && existing.id !== contextMenu.meal.id;
+                                    const dateLabel = new Date(date + 'T12:00:00Z').toLocaleDateString(undefined, {
+                                        weekday: 'short',
+                                        month: 'short',
+                                        day: 'numeric',
+                                    });
+                                    return (
+                                        <button
+                                            key={date}
+                                            onClick={() => handleCopyToDate(date)}
+                                            disabled={isSource || occupied}
+                                            className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                                                isSource
+                                                    ? 'border-white/[0.06] bg-white/[0.02] opacity-40 cursor-not-allowed'
+                                                    : occupied
+                                                      ? 'border-red-500/10 bg-red-500/[0.03] opacity-50 cursor-not-allowed'
+                                                      : 'border-white/[0.06] bg-white/[0.03] hover:bg-amber-500/10 hover:border-amber-500/20 active:scale-[0.98]'
+                                            }`}
+                                        >
+                                            <span className="text-[11px] font-black text-gray-500 w-12">
+                                                Day {idx + 1}
+                                            </span>
+                                            <span className="text-xs text-white flex-1 text-left">{dateLabel}</span>
+                                            {isSource && <span className="text-[9px] text-gray-600">current</span>}
+                                            {occupied && <span className="text-[9px] text-red-400">occupied</span>}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Cancel */}
+                            <button
+                                onClick={() => setContextMenu(null)}
+                                className="w-full py-3 rounded-xl bg-white/[0.04] text-sm text-gray-400 font-medium"
+                            >
+                                Cancel
+                            </button>
+                        </div>
+                    </div>,
+                    document.body,
+                )}
         </div>
     );
 };
@@ -617,7 +731,9 @@ const SlotPicker: React.FC<{
             <div
                 className="w-[calc(100%-2rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-[80vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200"
                 onClick={(e) => e.stopPropagation()}
-                onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
+                onKeyDown={(e) => {
+                    if (e.key === 'Escape') onClose();
+                }}
             >
                 {/* Header */}
                 <div className="flex items-center justify-between p-4 border-b border-white/[0.06]">
@@ -658,10 +774,37 @@ const SlotPicker: React.FC<{
                             </p>
                             <div className="flex flex-wrap gap-1.5">
                                 {(slot === 'breakfast'
-                                    ? ['Scrambled Eggs', 'Pancakes', 'Porridge', 'French Toast', 'Omelette', 'Baked Beans on Toast', 'Smoothie Bowl', 'Eggs Benedict']
+                                    ? [
+                                          'Scrambled Eggs',
+                                          'Pancakes',
+                                          'Porridge',
+                                          'French Toast',
+                                          'Omelette',
+                                          'Baked Beans on Toast',
+                                          'Smoothie Bowl',
+                                          'Eggs Benedict',
+                                      ]
                                     : slot === 'lunch'
-                                      ? ['Chicken Wrap', 'Tuna Salad', 'Fried Rice', 'BLT Sandwich', 'Soup', 'Quesadilla', 'Fish Tacos', 'Pasta Salad']
-                                      : ['Spaghetti Bolognese', 'Grilled Chicken', 'Beef Stew', 'Fish Curry', 'Stir Fry', 'Lamb Chops', 'Chilli Con Carne', 'Pad Thai']
+                                      ? [
+                                            'Chicken Wrap',
+                                            'Tuna Salad',
+                                            'Fried Rice',
+                                            'BLT Sandwich',
+                                            'Soup',
+                                            'Quesadilla',
+                                            'Fish Tacos',
+                                            'Pasta Salad',
+                                        ]
+                                      : [
+                                            'Spaghetti Bolognese',
+                                            'Grilled Chicken',
+                                            'Beef Stew',
+                                            'Fish Curry',
+                                            'Stir Fry',
+                                            'Lamb Chops',
+                                            'Chilli Con Carne',
+                                            'Pad Thai',
+                                        ]
                                 ).map((suggestion) => (
                                     <button
                                         key={suggestion}
@@ -678,9 +821,7 @@ const SlotPicker: React.FC<{
                         </div>
                     )}
 
-                    {searching && (
-                        <p className="text-center text-[11px] text-gray-500 py-4">⏳ Searching recipes…</p>
-                    )}
+                    {searching && <p className="text-center text-[11px] text-gray-500 py-4">⏳ Searching recipes…</p>}
 
                     {results.map((meal) => (
                         <button

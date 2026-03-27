@@ -962,8 +962,8 @@ export function interpolateGfsTracker(
 
     // Strategy 2: Name match (tcvitals stores names like "NARELLE", "TWENTY-EI")
     if (!positions && stormName) {
-        const nameUpper = stormName.toUpperCase();
-        for (const [_sid, pos] of trackerMap) {
+        const _nameUpper = stormName.toUpperCase();
+        for (const [_sid, _pos] of trackerMap) {
             // fetchGfsTrackerPositions stores name in the response but we only have positions here
             // Fall through to geographic matching
             break;

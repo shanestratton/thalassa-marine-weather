@@ -119,9 +119,10 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
             {vesselType === 'observer' ? (
                 <div className="text-center py-10">
                     <SearchIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                    <h2 className="text-xl font-bold text-white mb-2">Just Watching?</h2>
+                    <h2 className="text-xl font-bold text-white mb-2">Crew Member Mode</h2>
                     <p className="text-gray-400 mb-8">
-                        Observers skip vessel setup. We&apos;ll optimize the display for general sea state conditions.
+                        Crew members skip vessel setup. We&apos;ll optimize the display for general sea state
+                        conditions.
                     </p>
                     <button
                         aria-label="Next"

@@ -449,7 +449,9 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     breadcrumbs={["Ship's Office", "Ship's Stores"]}
                     subtitle={
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
-                            {stats ? `${stats.totalItems} Items · ${Math.round(stats.totalQuantity * 10) / 10} Units` : 'Loading...'}
+                            {stats
+                                ? `${stats.totalItems} Items · ${Math.round(stats.totalQuantity * 10) / 10} Units`
+                                : 'Loading...'}
                             {stats && stats.lowStock > 0 && (
                                 <span className="text-amber-400"> · {stats.lowStock} Low</span>
                             )}

@@ -22,8 +22,8 @@ const VESSEL_OPTIONS = [
     },
     {
         value: 'observer' as const,
-        label: 'Observation',
-        desc: 'Surfing, fishing, or coastal watching',
+        label: 'Crew Member',
+        desc: 'Joining a crew — no vessel setup needed',
         Icon: EyeIcon,
     },
 ];

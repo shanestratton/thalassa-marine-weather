@@ -432,11 +432,14 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                     if (result && result.vessel_name && popupRef.current) {
                         // Update spinner to show success
                         if (spinnerEl) {
-                            spinnerEl.innerHTML = `
-                                <div style="display:flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.15);border-radius:8px;font-size:10px;color:#22c55e;">
-                                    <span>\u2713 Found: ${result.flag_emoji || ''} ${result.vessel_name}</span>
-                                </div>
-                            `;
+                            spinnerEl.textContent = '';
+                            const successDiv = document.createElement('div');
+                            successDiv.style.cssText =
+                                'display:flex;align-items:center;gap:6px;padding:6px 10px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.15);border-radius:8px;font-size:10px;color:#22c55e;';
+                            const checkSpan = document.createElement('span');
+                            checkSpan.textContent = `\u2713 Found: ${result.flag_emoji || ''} ${result.vessel_name}`;
+                            successDiv.appendChild(checkSpan);
+                            spinnerEl.appendChild(successDiv);
                         }
                         // Update the name/flag in the existing popup header (in-place, no flash)
                         const popup = popupRef.current;
@@ -453,11 +456,12 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                     } else {
                         // Not found — update spinner to show result
                         if (spinnerEl) {
-                            spinnerEl.innerHTML = `
-                                <div style="padding:6px 10px;background:rgba(100,116,139,0.08);border:1px solid rgba(100,116,139,0.15);border-radius:8px;font-size:10px;color:#64748b;">
-                                    No registry data found
-                                </div>
-                            `;
+                            spinnerEl.textContent = '';
+                            const noDataDiv = document.createElement('div');
+                            noDataDiv.style.cssText =
+                                'padding:6px 10px;background:rgba(100,116,139,0.08);border:1px solid rgba(100,116,139,0.15);border-radius:8px;font-size:10px;color:#64748b;';
+                            noDataDiv.textContent = 'No registry data found';
+                            spinnerEl.appendChild(noDataDiv);
                         }
                     }
                 });
@@ -645,6 +649,8 @@ export function useAisStreamLayer(map: mapboxgl.Map | null, enabled: boolean): v
                       }).replace(/'/g, "\\'")
                     : '';
 
+            // SECURITY: All interpolated values below are API-sourced (MMSI, vessel name, SOG, COG, etc.)
+            // from AIS/VesselMetadataService — no user-generated content. Safe for setHTML().
             const html = `
                 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:rgba(15,23,42,0.95);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:14px 16px;color:#e2e8f0;min-width:240px;max-width:300px;">
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">

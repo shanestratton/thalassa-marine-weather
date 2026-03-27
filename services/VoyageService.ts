@@ -86,7 +86,10 @@ export async function createVoyage(
 
 /** Editable fields on a draft voyage */
 export type VoyageUpdate = Partial<
-    Pick<Voyage, 'voyage_name' | 'departure_port' | 'destination_port' | 'departure_time' | 'eta' | 'crew_count' | 'notes'>
+    Pick<
+        Voyage,
+        'voyage_name' | 'departure_port' | 'destination_port' | 'departure_time' | 'eta' | 'crew_count' | 'notes'
+    >
 >;
 
 /** Update a draft voyage (planning status only) */

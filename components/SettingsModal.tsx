@@ -333,7 +333,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             active={activeTab === 'vessel'}
                             onClick={() => setActiveTab('vessel')}
                             icon={<BoatIcon className="w-5 h-5" />}
-                            label={isObserver ? 'VESSEL (OBSERVER)' : 'VESSEL PROFILE'}
+                            label={isObserver ? 'VESSEL (CREW)' : 'VESSEL PROFILE'}
                         />
 
                         <NavButton
@@ -416,7 +416,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                             <p className="text-white font-bold text-sm tracking-wide">{item.label}</p>
                                             <p className="text-gray-300 text-xs mt-0.5">
                                                 {item.id === 'vessel' && isObserver
-                                                    ? 'Observer — tap to configure vessel'
+                                                    ? 'Crew Member — tap to configure vessel'
                                                     : item.description}
                                             </p>
                                         </div>

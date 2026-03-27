@@ -296,12 +296,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
         if (routeSrc) {
             if (straightLineNM < 500) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                routeSrc.setData({ type: 'FeatureCollection', features: buildFeatures(gcCoords) } as any);
+                routeSrc.setData({ type: 'FeatureCollection', features: buildFeatures(gcCoords) });
                 log.info(`[Passage] Trip Sandwich rendered (great-circle)`);
             } else {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                routeSrc.setData({ type: 'FeatureCollection', features: [] } as any);
+                routeSrc.setData({ type: 'FeatureCollection', features: [] });
             }
         }
 
@@ -348,8 +346,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             src.setData({
                                 type: 'FeatureCollection',
                                 features: buildFeatures(cached.routeCoordinates, cached.shallowFlags),
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            } as any);
+                            });
                         }
                         const depTimeStr2 = departureTime || new Date().toISOString();
                         const { detectTurnWaypoints } = await import('../../services/IsochroneRouter');
@@ -596,8 +593,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         src.setData({
                             type: 'FeatureCollection',
                             features: buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags),
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        } as any);
+                        });
                     }
 
                     const depTimeStr2 = departureTime || new Date().toISOString();
@@ -973,8 +969,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 src.setData({
                                     type: 'FeatureCollection',
                                     features: buildFeatures(combinedCoords, combinedFlags),
-                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                } as any);
+                                });
                             }
                             const updatedResult = { ...result };
                             updatedResult.totalDistance = isoResult.totalDistanceNM;
@@ -992,8 +987,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         log.warn('[Isochrone BG] Multi-leg also failed — clearing route line');
                         const src = map.getSource('route-line') as mapboxgl.GeoJSONSource;
                         if (src) {
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            src.setData({ type: 'FeatureCollection', features: [] } as any);
+                            src.setData({ type: 'FeatureCollection', features: [] });
                         }
                         try {
                             window.dispatchEvent(

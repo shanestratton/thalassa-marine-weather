@@ -91,7 +91,6 @@ describe('useSuccessFlash', () => {
 
         // Create a mock element
         const div = document.createElement('div');
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (result.current.ref as any).current = div;
 
         act(() => {

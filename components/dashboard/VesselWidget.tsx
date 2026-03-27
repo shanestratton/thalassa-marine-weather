@@ -18,14 +18,8 @@ import {
     TideCurveIcon,
 } from '../Icons';
 import { Tide, UnitPreferences, VesselProfile, WeatherMetrics, HourlyForecast, TidePoint } from '../../types';
-import { TideGUIDetails } from '../../services/weather/api/tides';
-import {
-    calculateMCR,
-    calculateCSF,
-    calculateDLR,
-    calculateHullSpeed,
-    convertDistance,
-} from '../../utils';
+import { TideGUIDetails as _TideGUIDetails } from '../../services/weather/api/tides';
+import { calculateMCR, calculateCSF, calculateDLR, calculateHullSpeed, convertDistance } from '../../utils';
 import { MoonVisual, SolarArc } from './tide/CelestialComponents';
 import { TideGraph } from './tide/TideGraph';
 

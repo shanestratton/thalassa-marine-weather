@@ -12,7 +12,6 @@ describe('ConnectionPriorityService', () => {
         vi.resetModules();
         // Default: navigator.onLine = true, no Network Info API
         Object.defineProperty(navigator, 'onLine', { value: true, writable: true, configurable: true });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (navigator as any).connection = undefined;
         mod = await import('../services/ConnectionPriorityService');
     });

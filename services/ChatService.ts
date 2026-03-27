@@ -888,19 +888,35 @@ class ChatServiceClass {
         const user = (await supabase.auth.getUser()).data.user;
         if (!user) return null;
 
-        // Check for existing voyage channel to avoid duplicates
-        const channelName = `⛵ ${voyageName}`;
+        // Check for existing voyage channel to avoid duplicates — check both old and new name format
+        const channelName = voyageName;
+        const oldChannelName = `⛵ ${voyageName}`;
         const { data: existing } = await supabase
             .from(CHANNELS_TABLE)
             .select('*')
-            .eq('name', channelName)
             .eq('owner_id', user.id)
             .eq('is_private', true)
             .eq('status', 'active')
+            .or(`name.eq.${channelName},name.eq.${oldChannelName}`)
             .limit(1);
 
         if (existing && existing.length > 0) {
-            return existing[0] as ChatChannel;
+            // Migrate old format to clean name if needed
+            const ch = existing[0];
+            if (ch.name !== channelName || ch.icon !== '👥') {
+                await supabase
+                    .from(CHANNELS_TABLE)
+                    .update({
+                        name: channelName,
+                        description: '',
+                        icon: '👥',
+                    })
+                    .eq('id', ch.id);
+                ch.name = channelName;
+                ch.description = '';
+                ch.icon = '👥';
+            }
+            return ch as ChatChannel;
         }
 
         // Create the private voyage channel
@@ -908,8 +924,8 @@ class ChatServiceClass {
             .from(CHANNELS_TABLE)
             .insert({
                 name: channelName,
-                description: `Private passage channel for ${voyageName}`,
-                icon: '⛵',
+                description: '',
+                icon: '👥',
                 region: null,
                 is_global: false,
                 is_private: true,
@@ -951,7 +967,7 @@ class ChatServiceClass {
             .eq('owner_id', captainUserId)
             .eq('is_private', true)
             .eq('status', 'active')
-            .like('icon', '⛵');
+            .like('icon', '👥');
 
         if (!channels || channels.length === 0) return;
 

@@ -52,7 +52,7 @@ import {
 import { SkeletonChannelList, SkeletonMessageList } from './ui/Skeleton';
 import { ChatErrorBoundary } from './chat/ChatErrorBoundary';
 import { MaritimeIntelCard } from './chat/MaritimeIntelCard';
-import { GalleyCard } from './chat/GalleyCard';
+
 import { type PassageStatus, getPassageStatus, getPassageStatusSync } from '../services/PassagePlanService';
 import { WelcomeBanner } from './chat/WelcomeBanner';
 import { AuthBanner } from './chat/AuthBanner';
@@ -124,7 +124,7 @@ export const ChatPage: React.FC = React.memo(() => {
     const [loadingStatus, _setLoadingStatus] = useState<string | null>(null); // Connecting to Crew Talk…
 
     // Passage Planning visibility
-    const [passageStatus, setPassageStatus] = useState<PassageStatus>(getPassageStatusSync());
+    const [_passageStatus, setPassageStatus] = useState<PassageStatus>(getPassageStatusSync());
     useEffect(() => {
         getPassageStatus()
             .then(setPassageStatus)
@@ -429,7 +429,8 @@ export const ChatPage: React.FC = React.memo(() => {
                     const fresh = await ChatService.getChannelsFresh();
                     if (fresh.length > 0) setChannels(fresh);
                     await loadProfile();
-                } catch (e) { console.warn("Suppressed:", e);
+                } catch (e) {
+                    console.warn('Suppressed:', e);
                     /* non-critical */
                 }
             } catch (e) {
@@ -749,11 +750,6 @@ export const ChatPage: React.FC = React.memo(() => {
 
                     {/* ══════ MARITIME INTEL CARD (news ticker) ══════ */}
                     {view === 'channels' && !loading && <MaritimeIntelCard />}
-
-                    {/* ══════ PASSAGE PLANNING CARD ══════ */}
-                    {view === 'channels' && !loading && passageStatus.visible && (
-                        <GalleyCard passageStatus={passageStatus} />
-                    )}
 
                     {/* ══════ CHANNEL LIST ══════ */}
                     {view === 'channels' && !loading && (

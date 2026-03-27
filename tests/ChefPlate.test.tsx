@@ -15,8 +15,9 @@ vi.mock('../services/MealPlanService', () => ({
 }));
 
 vi.mock('../services/GalleyRecipeService', () => ({
-    scaleIngredient: vi.fn((amount: number, _scalable: boolean, _base: number, crew: number) =>
-        Math.round((amount * crew / 4) * 10) / 10
+    scaleIngredient: vi.fn(
+        (amount: number, _scalable: boolean, _base: number, crew: number) =>
+            Math.round(((amount * crew) / 4) * 10) / 10,
     ),
     getRecipeImageUrl: vi.fn(() => ''),
     getGalleyDifficulty: vi.fn(() => ({ score: 2, label: 'Simple', emoji: '🟢' })),
@@ -38,6 +39,14 @@ const makeMeal = (overrides = {}) => ({
     servings_planned: 4,
     status: 'reserved' as const,
     spoonacular_id: null,
+    voyage_id: null,
+    recipe_id: null,
+    cook_started_at: null,
+    completed_at: null,
+    leftovers_saved: false,
+    notes: null,
+    created_at: '2026-03-27T00:00:00Z',
+    updated_at: '2026-03-27T00:00:00Z',
     ingredients: [
         { name: 'eggs', amount: 4, unit: 'pcs', scalable: true, aisle: 'Dairy' },
         { name: 'butter', amount: 1, unit: 'tbsp', scalable: true, aisle: 'Dairy' },

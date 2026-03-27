@@ -227,10 +227,10 @@ export async function bulkAddToShoppingList(
         if (ing.totalQty <= 0) continue;
 
         // Check for existing unpurchased item with same name to avoid duplicates
-        const existing = query<ShoppingItem>(TABLE, (i) =>
-            i.ingredient_name.toLowerCase() === ing.name.toLowerCase() &&
-            i.voyage_id === voyageId &&
-            !i.purchased,
+        const existing = query<ShoppingItem>(
+            TABLE,
+            (i) =>
+                i.ingredient_name.toLowerCase() === ing.name.toLowerCase() && i.voyage_id === voyageId && !i.purchased,
         );
 
         if (existing.length > 0) {
@@ -263,7 +263,9 @@ export async function bulkAddToShoppingList(
 
     // Immediate sync so crew sees updates
     triggerHaptic('medium');
-    syncNow().catch(() => { /* offline */ });
+    syncNow().catch(() => {
+        /* offline */
+    });
 
     return count;
 }
@@ -344,10 +346,9 @@ export async function addManualItem(opts: {
     const now = new Date().toISOString();
 
     // Check for existing unpurchased item with same name to avoid duplicates
-    const existing = query<ShoppingItem>(TABLE, (i) =>
-        i.ingredient_name.toLowerCase() === opts.name.toLowerCase() &&
-        i.voyage_id === voyageId &&
-        !i.purchased,
+    const existing = query<ShoppingItem>(
+        TABLE,
+        (i) => i.ingredient_name.toLowerCase() === opts.name.toLowerCase() && i.voyage_id === voyageId && !i.purchased,
     );
 
     if (existing.length > 0) {
@@ -356,10 +357,14 @@ export async function addManualItem(opts: {
         await updateLocal<ShoppingItem>(TABLE, existing[0].id, {
             required_qty: updated.required_qty,
             updated_at: now,
-            notes: opts.notes ? `${existing[0].notes ? existing[0].notes + ' · ' : ''}${opts.notes}` : existing[0].notes,
+            notes: opts.notes
+                ? `${existing[0].notes ? existing[0].notes + ' · ' : ''}${opts.notes}`
+                : existing[0].notes,
         } as Partial<ShoppingItem>);
         triggerHaptic('medium');
-        syncNow().catch(() => { /* offline */ });
+        syncNow().catch(() => {
+            /* offline */
+        });
         return updated;
     }
 
@@ -382,7 +387,9 @@ export async function addManualItem(opts: {
     };
     await insertLocal(TABLE, item);
     triggerHaptic('medium');
-    syncNow().catch(() => { /* offline */ });
+    syncNow().catch(() => {
+        /* offline */
+    });
     return item;
 }
 
@@ -404,9 +411,10 @@ export async function unmarkPurchased(shoppingItemId: string): Promise<void> {
 
     // 2. Remove the auto-created inventory entry (best-effort match by name + voyage)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const storesEntries = query<any>('inventory_items', (i: any) =>
-        i.item_name === item.ingredient_name &&
-        (i.notes || '').includes(item.voyage_id || '___'),
+    const storesEntries = query<any>(
+        'inventory_items',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (i: any) => i.item_name === item.ingredient_name && (i.notes || '').includes(item.voyage_id || '___'),
     );
     for (const entry of storesEntries) {
         await deleteLocal('inventory_items', entry.id);
@@ -420,6 +428,23 @@ export async function unmarkPurchased(shoppingItemId: string): Promise<void> {
 
     // 4. Notify listeners that stores changed
     window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
+}
+
+/**
+ * Remove all unpurchased items with 'Passage provision' notes.
+ * Called before re-running "Add to Shopping List" so quantities are recalculated fresh.
+ */
+export async function removeUnpurchasedProvisionItems(): Promise<number> {
+    const items = query<ShoppingItem>(TABLE, (i) => !i.purchased && (i.notes || '').includes('Passage provision'));
+    for (const item of items) {
+        await deleteLocal(TABLE, item.id);
+    }
+    if (items.length > 0) {
+        syncNow().catch(() => {
+            /* offline */
+        });
+    }
+    return items.length;
 }
 
 /**

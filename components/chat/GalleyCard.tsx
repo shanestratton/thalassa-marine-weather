@@ -10,7 +10,7 @@ import {
 } from '../../services/MealPlanService';
 import { getShoppingList, markPurchased, type ShoppingListSummary } from '../../services/ShoppingListService';
 import { triggerHaptic } from '../../utils/system';
-import { getCachedActiveVoyage, type Voyage } from '../../services/VoyageService';
+import { getCachedActiveVoyage, getActiveVoyage, getDraftVoyages, type Voyage } from '../../services/VoyageService';
 import { toPurchasable } from '../../services/PurchaseUnits';
 import { type PassageStatus } from '../../services/PassagePlanService';
 import { ChildCard } from './ChildCard';
@@ -18,14 +18,22 @@ import { MealCalendar } from './MealCalendar';
 import { ZONE_EMOJI } from './galleyTokens';
 import { useCrewCount } from '../../contexts/CrewCountContext';
 
-
 interface GalleyCardProps {
     onOpenCookingMode?: (meal: MealPlan) => void;
     /** Passage permissions — if omitted, all child cards are visible (owner mode) */
     passageStatus?: PassageStatus;
+    /** Outer wrapper className override */
+    className?: string;
+    /** Number of registered crew members (excluding captain). When set, crew count = max(settings, this + 1) */
+    registeredCrewCount?: number;
 }
 
-export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passageStatus }) => {
+export const GalleyCard: React.FC<GalleyCardProps> = ({
+    onOpenCookingMode,
+    passageStatus,
+    className,
+    registeredCrewCount,
+}) => {
     // Default: owner sees everything
     const perms = passageStatus ?? {
         visible: true,
@@ -36,7 +44,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
         canViewChecklist: true,
     };
     const [expanded, setExpanded] = useState(false);
-    const [activeTab, setActiveTab] = useState<'' | 'food' | 'chat' | 'route' | 'checklist' | 'shopping'>('food');
+    const [activeTab, setActiveTab] = useState<'' | 'food' | 'shopping'>('');
     const [activeMeals, setActiveMeals] = useState<MealPlan[]>([]);
     const [shoppingSummary, setShoppingSummary] = useState<ShoppingListSummary | null>(null);
     const [galleyMessages, setGalleyMessages] = useState<{ id: string; text: string; sender: string; time: string }[]>(
@@ -44,26 +52,70 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
     );
     const [galleyInput, setGalleyInput] = useState('');
     const [cookingMealId, setCookingMealId] = useState<string | null>(null);
+    const [provisioned, setProvisioned] = useState(() => {
+        try {
+            return localStorage.getItem('thalassa_provisioned') === 'true';
+        } catch {
+            return false;
+        }
+    });
 
     // ── Voyage context for meal calendar ──
     const [voyage, setVoyage] = useState<Voyage | null>(null);
     const [mealDays, setMealDays] = useState<MealDayInfo | null>(null);
     const { crewCount, setCrewCount: handleSetCrewCount } = useCrewCount();
 
+    // Effective crew count: max(settings count, registered crew + 1 captain)
+    const effectiveCrewCount =
+        registeredCrewCount !== undefined && registeredCrewCount > 0
+            ? Math.max(crewCount, registeredCrewCount + 1)
+            : crewCount;
+
     // Load voyage data and compute calendar dimensions
     useEffect(() => {
         if (!expanded) return;
-        const v = getCachedActiveVoyage();
-        setVoyage(v);
-        if (v?.departure_time && v?.eta) {
-            setMealDays(calculateMealDays(v.departure_time, v.eta));
-        }
-        // If no stored crew count, try loading from Supabase
-        if (!localStorage.getItem('thalassa_crew_count') && v?.id) {
-            getCrewCount(v.id).then((count) => {
-                handleSetCrewCount(count);
-            }).catch(() => { /* supabase unavailable */ });
-        }
+
+        const loadVoyage = async () => {
+            // 1. Try cached first for instant render
+            let v: Voyage | null = getCachedActiveVoyage();
+
+            // 2. Then try fetching active voyage from Supabase (also updates cache)
+            try {
+                const active = await getActiveVoyage();
+                if (active) v = active;
+            } catch {
+                /* offline — use cached */
+            }
+
+            // 3. If no active voyage, check drafts for one with dates
+            if (!v || (!v.departure_time && !v.eta)) {
+                try {
+                    const drafts = await getDraftVoyages();
+                    const withDates = drafts.find((d) => d.departure_time && d.eta);
+                    if (withDates) v = withDates;
+                } catch {
+                    /* offline */
+                }
+            }
+
+            setVoyage(v);
+            if (v?.departure_time && v?.eta) {
+                setMealDays(calculateMealDays(v.departure_time, v.eta));
+            }
+
+            // If no stored crew count, try loading from Supabase
+            if (!localStorage.getItem('thalassa_crew_count') && v?.id) {
+                getCrewCount(v.id)
+                    .then((count) => {
+                        handleSetCrewCount(count);
+                    })
+                    .catch(() => {
+                        /* supabase unavailable */
+                    });
+            }
+        };
+
+        loadVoyage();
     }, [expanded, handleSetCrewCount]);
 
     // Load active meals and shopping status
@@ -109,7 +161,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
         [onOpenCookingMode],
     );
 
-    const handleSendGalleyMsg = useCallback(() => {
+    const _handleSendGalleyMsg = useCallback(() => {
         if (!galleyInput.trim()) return;
         const msg = {
             id: Date.now().toString(),
@@ -130,25 +182,31 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
     }, [galleyInput, galleyMessages]);
 
     return (
-        <div className="mx-4 mt-3 mb-2">
+        <div className={className ?? 'mx-4 mt-3 mb-2'}>
             {/* ── Minimised Bar ── */}
             <button
                 onClick={handleToggle}
                 className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all ${
                     expanded
-                        ? 'bg-gradient-to-r from-sky-500/10 to-indigo-500/10 border-sky-500/20'
-                        : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]'
+                        ? provisioned
+                            ? 'bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border-emerald-500/20'
+                            : 'bg-gradient-to-r from-red-500/10 to-orange-500/10 border-red-500/20'
+                        : provisioned
+                          ? 'bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.03] border-emerald-500/15 hover:from-emerald-500/[0.1] hover:to-teal-500/[0.06]'
+                          : 'bg-gradient-to-r from-red-500/[0.06] to-orange-500/[0.03] border-red-500/15 hover:from-red-500/[0.1] hover:to-orange-500/[0.06]'
                 }`}
                 aria-expanded={expanded}
-                aria-label="Passage Planning"
+                aria-label="Voyage Provisioning"
             >
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-sky-500/20 to-indigo-500/10 border border-sky-500/20 flex items-center justify-center text-xl flex-shrink-0">
-                    ⛵
+                <div
+                    className={`w-11 h-11 rounded-xl bg-gradient-to-br ${provisioned ? 'from-emerald-500/20 to-teal-600/10 border-emerald-500/20' : 'from-red-500/20 to-orange-500/10 border-red-500/20'} border flex items-center justify-center text-xl flex-shrink-0`}
+                >
+                    {provisioned ? '✅' : '⛵'}
                 </div>
                 <div className="flex-1 text-left">
-                    <p className="text-xs font-bold text-white">Passage Planning</p>
-                    <p className="text-[10px] text-sky-400/70">
-                        Meals · Chat · Route · Checklist
+                    <p className="text-lg font-semibold text-white">Voyage Provisioning</p>
+                    <p className={`text-sm ${provisioned ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
+                        {provisioned ? '✅ Provisioned' : 'Meals · Shopping'}
                     </p>
                 </div>
                 <svg
@@ -172,10 +230,10 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
                             title="Meal Planner"
                             subtitle={
                                 mealDays
-                                    ? `${mealDays.totalDays} days · ${crewCount} crew`
+                                    ? `${mealDays.totalDays} days · ${effectiveCrewCount} crew`
                                     : activeMeals.length > 0
                                       ? `${activeMeals.length} meal${activeMeals.length !== 1 ? 's' : ''} planned`
-                                      : 'Set voyage dates to plan'
+                                      : 'Plan your meals'
                             }
                             color="amber"
                             defaultOpen={activeTab === 'food'}
@@ -185,7 +243,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
                             <div>
                                 <MealCalendar
                                     mealDays={mealDays}
-                                    crewCount={crewCount}
+                                    crewCount={effectiveCrewCount}
                                     voyageId={voyage?.id || null}
                                     voyageName={voyage?.voyage_name || null}
                                     activeMeals={activeMeals}
@@ -219,7 +277,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
                             <div className="p-3 space-y-3">
                                 {/* Progress bar */}
                                 <div className="space-y-1">
-                                    <div className="flex justify-between text-[10px] font-bold">
+                                    <div className="flex justify-between text-[11px] font-bold">
                                         <span className="text-gray-500 uppercase tracking-wider">Progress</span>
                                         <span className="text-emerald-400">
                                             {shoppingSummary.purchased}/{shoppingSummary.total}
@@ -228,7 +286,9 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
                                     <div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                                         <div
                                             className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
-                                            style={{ width: `${shoppingSummary.total > 0 ? (shoppingSummary.purchased / shoppingSummary.total) * 100 : 0}%` }}
+                                            style={{
+                                                width: `${shoppingSummary.total > 0 ? (shoppingSummary.purchased / shoppingSummary.total) * 100 : 0}%`,
+                                            }}
                                         />
                                     </div>
                                 </div>
@@ -243,14 +303,20 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
                                             <div key={zone.zone}>
                                                 <div className="flex items-center gap-1.5 mb-1.5">
                                                     <span className="text-xs">{ZONE_EMOJI[zone.zone] || '🛒'}</span>
-                                                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">
+                                                    <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">
                                                         {zone.zone}
                                                     </span>
-                                                    <span className="text-[9px] text-gray-600 font-bold">({unpurchased.length})</span>
+                                                    <span className="text-[10px] text-gray-600 font-bold">
+                                                        ({unpurchased.length})
+                                                    </span>
                                                 </div>
                                                 <div className="space-y-1">
                                                     {unpurchased.map((item) => {
-                                                        const purchase = toPurchasable(item.ingredient_name, item.required_qty, item.unit);
+                                                        const purchase = toPurchasable(
+                                                            item.ingredient_name,
+                                                            item.required_qty,
+                                                            item.unit,
+                                                        );
                                                         return (
                                                             <button
                                                                 key={item.id}
@@ -258,16 +324,18 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
                                                                     triggerHaptic('medium');
                                                                     await markPurchased(item.id);
                                                                     setShoppingSummary(getShoppingList());
-                                                                    window.dispatchEvent(new CustomEvent('thalassa:stores-changed'));
+                                                                    window.dispatchEvent(
+                                                                        new CustomEvent('thalassa:stores-changed'),
+                                                                    );
                                                                 }}
                                                                 className="w-full flex items-center gap-2.5 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-emerald-500/[0.06] hover:border-emerald-500/20 transition-all active:scale-[0.98] text-left"
                                                                 aria-label={`Mark ${item.ingredient_name} as purchased`}
                                                             >
                                                                 <div className="w-5 h-5 rounded-md border-2 border-gray-600 flex items-center justify-center flex-shrink-0" />
-                                                                <span className="text-[11px] font-bold text-white flex-1 truncate">
+                                                                <span className="text-xs font-bold text-white flex-1 truncate">
                                                                     {item.ingredient_name}
                                                                 </span>
-                                                                <span className="text-[10px] font-bold text-emerald-400 tabular-nums flex-shrink-0">
+                                                                <span className="text-[11px] font-bold text-emerald-400 tabular-nums flex-shrink-0">
                                                                     {purchase.matched
                                                                         ? `${purchase.packageCount} × ${purchase.packageLabel}`
                                                                         : `${Math.round(item.required_qty * 10) / 10} ${item.unit}`}
@@ -284,144 +352,52 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({ onOpenCookingMode, passa
                                 {shoppingSummary.remaining === 0 && (
                                     <div className="text-center py-4">
                                         <span className="text-2xl">✅</span>
-                                        <p className="text-[11px] font-bold text-emerald-400 mt-1">All provisioned!</p>
+                                        <p className="text-xs font-bold text-emerald-400 mt-1">All provisioned!</p>
                                     </div>
                                 )}
                             </div>
                         </ChildCard>
                     )}
 
-                    {/* ── 2. Group Chat ── */}
-                    {perms.canViewChat && (
-                        <ChildCard
-                            icon="💬"
-                            title="Group Chat"
-                            subtitle={
-                                galleyMessages.length > 0
-                                    ? `${galleyMessages.length} message${galleyMessages.length !== 1 ? 's' : ''}`
-                                    : 'Coordinate with crew'
+                    {/* ── Provisioned Toggle ── */}
+                    <button
+                        onClick={() => {
+                            const next = !provisioned;
+                            setProvisioned(next);
+                            try {
+                                localStorage.setItem('thalassa_provisioned', String(next));
+                            } catch {
+                                /* ignore */
                             }
-                            color="sky"
-                            defaultOpen={false}
-                            onToggle={() => setActiveTab(activeTab === 'chat' ? '' : 'chat')}
-                            isOpen={activeTab === 'chat'}
+                            triggerHaptic(next ? 'medium' : 'light');
+                        }}
+                        className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all active:scale-[0.98] ${
+                            provisioned
+                                ? 'bg-emerald-500/10 border-emerald-500/20'
+                                : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'
+                        }`}
+                    >
+                        <div
+                            className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-all ${
+                                provisioned ? 'bg-emerald-500 border-emerald-500' : 'border-gray-500 bg-transparent'
+                            }`}
                         >
-                            <div className="flex flex-col flex-1">
-                                {/* Messages */}
-                                <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-[120px]">
-                                    {galleyMessages.length === 0 ? (
-                                        <div className="text-center py-4">
-                                            <span className="text-2xl">💬</span>
-                                            <p className="text-[11px] text-gray-500 mt-1">
-                                                Coordinate meal prep with the crew
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        galleyMessages.map((msg) => (
-                                            <div key={msg.id} className="flex items-start gap-2">
-                                                <div className="w-6 h-6 rounded-full bg-sky-500/20 flex items-center justify-center text-[10px] text-sky-400 font-bold flex-shrink-0">
-                                                    {msg.sender[0]}
-                                                </div>
-                                                <div className="flex-1">
-                                                    <div className="flex items-baseline gap-2">
-                                                        <span className="text-[11px] font-bold text-white">
-                                                            {msg.sender}
-                                                        </span>
-                                                        <span className="text-[9px] text-gray-600">{msg.time}</span>
-                                                    </div>
-                                                    <p className="text-xs text-gray-300 leading-relaxed">{msg.text}</p>
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-
-                                {/* Compose */}
-                                <div className="border-t border-white/[0.06] p-2 flex gap-2">
-                                    <input
-                                        value={galleyInput}
-                                        onChange={(e) => setGalleyInput(e.target.value)}
-                                        onKeyDown={(e) => e.key === 'Enter' && handleSendGalleyMsg()}
-                                        placeholder="Message the crew…"
-                                        className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-sky-500/30"
-                                        aria-label="Chat message"
-                                    />
-                                    <button
-                                        onClick={handleSendGalleyMsg}
-                                        disabled={!galleyInput.trim()}
-                                        className="px-3 py-2 bg-sky-500/10 border border-sky-500/20 rounded-lg text-xs text-sky-400 font-bold disabled:opacity-30 hover:bg-sky-500/20 transition-colors"
-                                        aria-label="Send message"
-                                    >
-                                        Send
-                                    </button>
-                                </div>
-                            </div>
-                        </ChildCard>
-                    )}
-
-                    {/* ── 3. Passage Route ── */}
-                    {perms.canViewRoute && (
-                        <ChildCard
-                            icon="🗺️"
-                            title="Passage Route"
-                            subtitle="Plan your route"
-                            color="emerald"
-                            defaultOpen={false}
-                            onToggle={() => setActiveTab(activeTab === 'route' ? '' : 'route')}
-                            isOpen={activeTab === 'route'}
-                        >
-                            <div className="p-4 text-center">
-                                <span className="text-3xl">🗺️</span>
-                                <p className="text-sm font-bold text-white mt-2">Passage Route</p>
-                                <p className="text-[11px] text-gray-500 mt-1">
-                                    Set waypoints, plan your passage, and view weather routing
-                                </p>
-                                <div className="mt-3 px-4">
-                                    <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                                        <span className="text-base">📍</span>
-                                        <div className="flex-1 text-left">
-                                            <p className="text-[11px] text-gray-400">
-                                                Use the Route Planner from the main menu to set your passage route. Your
-                                                active route will appear here.
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </ChildCard>
-                    )}
-
-                    {/* ── 4. Checklist ── */}
-                    {perms.canViewChecklist && (
-                        <ChildCard
-                            icon="✅"
-                            title="Checklist"
-                            subtitle="Pre-departure checks"
-                            color="violet"
-                            defaultOpen={false}
-                            onToggle={() => setActiveTab(activeTab === 'checklist' ? '' : 'checklist')}
-                            isOpen={activeTab === 'checklist'}
-                        >
-                            <div className="p-4 text-center">
-                                <span className="text-3xl">✅</span>
-                                <p className="text-sm font-bold text-white mt-2">Pre-Departure Checklist</p>
-                                <p className="text-[11px] text-gray-500 mt-1">
-                                    Run through your safety and departure checks before casting off
-                                </p>
-                                <div className="mt-3 px-4">
-                                    <div className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                                        <span className="text-base">📋</span>
-                                        <div className="flex-1 text-left">
-                                            <p className="text-[11px] text-gray-400">
-                                                Manage your checklists from the Vessel Hub. Your active checklist will
-                                                appear here for quick access.
-                                            </p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </ChildCard>
-                    )}
+                            {provisioned && (
+                                <svg
+                                    className="w-3.5 h-3.5 text-white"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={3}
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                </svg>
+                            )}
+                        </div>
+                        <span className={`text-sm font-semibold ${provisioned ? 'text-emerald-400' : 'text-gray-400'}`}>
+                            All meals provisioned for this voyage
+                        </span>
+                    </button>
                 </div>
             )}
         </div>

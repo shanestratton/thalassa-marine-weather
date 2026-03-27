@@ -52,7 +52,7 @@ function buildTileUrl(cacheBust: number): string {
  *   Pixel 240 → 0.86 (severe convection)
  *   Pixel 255 → 1.0  (extreme overshooting tops)
  */
-const BD_ENHANCEMENT_RAMP: mapboxgl.Expression = [
+const _BD_ENHANCEMENT_RAMP: mapboxgl.Expression = [
     'interpolate',
     ['linear'],
     ['raster-value'],
@@ -247,37 +247,42 @@ function createSquallSpinnerEl(cyclone: ActiveCyclone): HTMLElement {
     const windKts = cyclone.currentPosition.windKts ?? cyclone.maxWindKts;
     const catColor = windKts >= 64 ? '#ff4444' : windKts >= 34 ? '#ffa500' : '#22c55e';
 
-    el.innerHTML = `
-        <div style="
-            font-size: 10px;
-            font-weight: 800;
-            color: #fff;
-            text-shadow: 0 1px 4px rgba(0,0,0,0.9);
-            background: rgba(0,0,0,0.55);
-            padding: 2px 8px;
-            border-radius: 6px;
-            backdrop-filter: blur(4px);
-            margin-bottom: 3px;
-            white-space: nowrap;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-        ">${name}</div>
-        <div style="
-            width: 32px; height: 32px;
-            display: flex; align-items: center; justify-content: center;
-        ">
-            <svg viewBox="0 0 100 100" width="30" height="30"
-                 style="animation: cyclone-eye-spin 4s linear infinite;">
-                <circle cx="50" cy="50" r="8" fill="${catColor}" stroke="#000" stroke-width="2"/>
-                <g fill="${catColor}" opacity="0.8" stroke="#000" stroke-width="1">
-                    <path d="M54 42 C58 28, 68 10, 82 8 C90 6, 96 14, 94 24 C92 32, 84 36, 74 34 C68 33, 62 36, 58 42 Z"/>
-                    <path d="M46 58 C42 72, 32 90, 18 92 C10 94, 4 86, 6 76 C8 68, 16 64, 26 66 C32 67, 38 64, 42 58 Z"/>
-                    <path d="M58 54 C72 58, 90 68, 92 82 C94 90, 86 96, 76 94 C68 92, 64 84, 66 74 C67 68, 64 62, 58 58 Z"/>
-                    <path d="M42 46 C28 42, 10 32, 8 18 C6 10, 14 4, 24 6 C32 8, 36 16, 34 26 C33 32, 36 38, 42 42 Z"/>
-                </g>
-            </svg>
-        </div>
+    const nameLabel = document.createElement('div');
+    nameLabel.style.cssText = `
+        font-size: 10px; font-weight: 800; color: #fff;
+        text-shadow: 0 1px 4px rgba(0,0,0,0.9);
+        background: rgba(0,0,0,0.55); padding: 2px 8px;
+        border-radius: 6px; backdrop-filter: blur(4px);
+        margin-bottom: 3px; white-space: nowrap;
+        text-transform: uppercase; letter-spacing: 0.04em;
     `;
+    nameLabel.textContent = name;
+    el.appendChild(nameLabel);
+
+    // Spinner container
+    const spinnerContainer = document.createElement('div');
+    spinnerContainer.style.cssText = `
+        width: 32px; height: 32px;
+        display: flex; align-items: center; justify-content: center;
+    `;
+
+    const svgStr = `<svg viewBox="0 0 100 100" width="30" height="30"
+         style="animation: cyclone-eye-spin 4s linear infinite;">
+        <circle cx="50" cy="50" r="8" fill="${catColor}" stroke="#000" stroke-width="2"/>
+        <g fill="${catColor}" opacity="0.8" stroke="#000" stroke-width="1">
+            <path d="M54 42 C58 28, 68 10, 82 8 C90 6, 96 14, 94 24 C92 32, 84 36, 74 34 C68 33, 62 36, 58 42 Z"/>
+            <path d="M46 58 C42 72, 32 90, 18 92 C10 94, 4 86, 6 76 C8 68, 16 64, 26 66 C32 67, 38 64, 42 58 Z"/>
+            <path d="M58 54 C72 58, 90 68, 92 82 C94 90, 86 96, 76 94 C68 92, 64 84, 66 74 C67 68, 64 62, 58 58 Z"/>
+            <path d="M42 46 C28 42, 10 32, 8 18 C6 10, 14 4, 24 6 C32 8, 36 16, 34 26 C33 32, 36 38, 42 42 Z"/>
+        </g>
+    </svg>`;
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svgStr, 'image/svg+xml');
+    const svgNode = svgDoc.documentElement;
+    if (svgNode && svgNode.nodeName === 'svg') {
+        spinnerContainer.appendChild(document.importNode(svgNode, true));
+    }
+    el.appendChild(spinnerContainer);
 
     return el;
 }
@@ -394,7 +399,6 @@ function addBorderLayer(map: mapboxgl.Map): void {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const topo = topology as any;
             const { scale, translate } = topo.transform;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const arcs: number[][][] = topo.arcs.map((arc: number[][]) => {
                 let x = 0,
                     y = 0;

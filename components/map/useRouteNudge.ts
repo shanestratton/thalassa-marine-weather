@@ -16,6 +16,7 @@
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { triggerHaptic } from '../../utils/system';
+import { createNudgeMarkerEl } from '../../utils/createMarkerEl';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('useRouteNudge');
@@ -84,36 +85,7 @@ export function useRouteNudge(mapRef: MutableRefObject<mapboxgl.Map | null>, map
             const origLat = lat;
             const origLng = lng;
 
-            const el = document.createElement('div');
-            el.style.cssText = 'display: flex; flex-direction: column; align-items: center; cursor: grab;';
-            el.innerHTML = `
-                <div style="
-                    width: 28px; height: 28px;
-                    background: linear-gradient(135deg, #f59e0b, #ef4444);
-                    border: 3px solid #fff;
-                    border-radius: 50%;
-                    box-shadow: 0 0 16px rgba(245,158,11,0.5), 0 4px 12px rgba(0,0,0,0.3);
-                    animation: pinBounce 0.3s ease-out;
-                    display: flex; align-items: center; justify-content: center;
-                ">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round">
-                        <path d="M12 6v12M6 12h12"/>
-                    </svg>
-                </div>
-                <div class="nudge-penalty-tooltip" style="
-                    margin-top: 4px; padding: 2px 8px;
-                    background: rgba(15,23,42,0.9);
-                    border: 1px solid rgba(255,255,255,0.1);
-                    border-radius: 8px;
-                    font-size: 9px; font-weight: 800;
-                    color: #fbbf24;
-                    text-transform: uppercase;
-                    letter-spacing: 0.1em;
-                    white-space: nowrap;
-                ">
-                    Drag to nudge
-                </div>
-            `;
+            const el = createNudgeMarkerEl();
 
             const marker = new mapboxgl.Marker({ element: el, draggable: true, anchor: 'center' })
                 .setLngLat([lng, lat])
@@ -189,12 +161,9 @@ export function useRouteNudge(mapRef: MutableRefObject<mapboxgl.Map | null>, map
                 map.on('mousedown', layerId, handleRouteMouseDown);
                 map.on('mouseup', layerId, cancelRoutePress);
                 map.on('mouseleave', layerId, cancelRoutePress);
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                map.on('touchstart', layerId, handleRouteTouchStart as any);
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                map.on('touchend', layerId, cancelRoutePress as any);
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                map.on('touchmove', layerId, cancelRoutePress as any);
+                map.on('touchstart', layerId, handleRouteTouchStart as (e: mapboxgl.MapLayerTouchEvent) => void);
+                map.on('touchend', layerId, cancelRoutePress as (e: mapboxgl.MapLayerTouchEvent) => void);
+                map.on('touchmove', layerId, cancelRoutePress as (e: mapboxgl.MapLayerTouchEvent) => void);
             }
         }
 
@@ -221,12 +190,9 @@ export function useRouteNudge(mapRef: MutableRefObject<mapboxgl.Map | null>, map
                     map.off('mousedown', layerId, handleRouteMouseDown);
                     map.off('mouseup', layerId, cancelRoutePress);
                     map.off('mouseleave', layerId, cancelRoutePress);
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    map.off('touchstart', layerId, handleRouteTouchStart as any);
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    map.off('touchend', layerId, cancelRoutePress as any);
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    map.off('touchmove', layerId, cancelRoutePress as any);
+                    map.off('touchstart', layerId, handleRouteTouchStart as (e: mapboxgl.MapLayerTouchEvent) => void);
+                    map.off('touchend', layerId, cancelRoutePress as (e: mapboxgl.MapLayerTouchEvent) => void);
+                    map.off('touchmove', layerId, cancelRoutePress as (e: mapboxgl.MapLayerTouchEvent) => void);
                 } catch (_) {
                     /* layer removed */
                 }

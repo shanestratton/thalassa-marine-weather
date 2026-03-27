@@ -49,12 +49,14 @@ export const ChildCard: React.FC<ChildCardProps> = ({ icon, title, subtitle, col
                 aria-label={`${title} — ${subtitle}`}
                 role="button"
             >
-                <div className={`w-11 h-11 rounded-xl ${c.iconBg} border ${c.border} flex items-center justify-center text-xl flex-shrink-0`}>
+                <div
+                    className={`w-11 h-11 rounded-xl ${c.iconBg} border ${c.border} flex items-center justify-center text-xl flex-shrink-0`}
+                >
                     {icon}
                 </div>
                 <div className="flex-1 min-w-0">
-                    <p className="text-[11px] font-bold text-white">{title}</p>
-                    <p className={`text-[10px] ${c.text} opacity-70`}>{subtitle}</p>
+                    <p className="text-base font-semibold text-white">{title}</p>
+                    <p className={`text-xs ${c.text} opacity-70`}>{subtitle}</p>
                 </div>
                 <svg
                     className="w-3.5 h-3.5 text-gray-500"
@@ -68,40 +70,58 @@ export const ChildCard: React.FC<ChildCardProps> = ({ icon, title, subtitle, col
             </button>
 
             {/* ── Full-Screen Overlay (portal to escape will-change-transform) ── */}
-            {isOpen && createPortal(
-                <div
-                    className="fixed inset-0 z-50 bg-slate-950 flex flex-col"
-                    style={{ paddingTop: 'env(safe-area-inset-top)' }}
-                    role="region"
-                    aria-label={title}
-                >
-                    {/* Header with back chevron */}
-                    <div className={`flex items-center gap-3 px-4 py-3 border-b ${c.border} bg-slate-950/95 backdrop-blur-xl flex-shrink-0`}>
-                        <button
-                            onClick={onToggle}
-                            className="p-2 -ml-2 rounded-xl hover:bg-white/5 transition-colors active:scale-90"
-                            aria-label="Back to passage planning"
+            {isOpen &&
+                createPortal(
+                    <div
+                        className="fixed inset-0 z-50 bg-slate-950 flex flex-col"
+                        style={{ paddingTop: 'env(safe-area-inset-top)' }}
+                        role="region"
+                        aria-label={title}
+                    >
+                        {/* Header with back chevron */}
+                        <div
+                            className={`flex items-center gap-3 px-4 py-3 border-b ${c.border} bg-slate-950/95 backdrop-blur-xl flex-shrink-0`}
                         >
-                            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                            </svg>
-                        </button>
-                        <div className={`w-11 h-11 rounded-xl ${c.iconBg} border ${c.border} flex items-center justify-center text-xl flex-shrink-0`}>
-                            {icon}
+                            <button
+                                onClick={onToggle}
+                                className="p-2 -ml-2 rounded-xl hover:bg-white/5 transition-colors active:scale-90"
+                                aria-label="Back to passage planning"
+                            >
+                                <svg
+                                    className="w-5 h-5 text-white"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M15.75 19.5L8.25 12l7.5-7.5"
+                                    />
+                                </svg>
+                            </button>
+                            <div
+                                className={`w-11 h-11 rounded-xl ${c.iconBg} border ${c.border} flex items-center justify-center text-xl flex-shrink-0`}
+                            >
+                                {icon}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-white">{title}</p>
+                                <p className={`text-xs ${c.text} opacity-70`}>{subtitle}</p>
+                            </div>
                         </div>
-                        <div className="flex-1 min-w-0">
-                            <p className="text-sm font-bold text-white">{title}</p>
-                            <p className={`text-[10px] ${c.text} opacity-70`}>{subtitle}</p>
-                        </div>
-                    </div>
 
-                    {/* Scrollable content */}
-                    <div className="flex-1 overflow-y-auto overscroll-contain" style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}>
-                        {children}
-                    </div>
-                </div>,
-                document.body,
-            )}
+                        {/* Scrollable content */}
+                        <div
+                            className="flex-1 overflow-y-auto overscroll-contain"
+                            style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
+                        >
+                            {children}
+                        </div>
+                    </div>,
+                    document.body,
+                )}
         </>
     );
 };

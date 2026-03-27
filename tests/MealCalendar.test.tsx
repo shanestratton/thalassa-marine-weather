@@ -59,6 +59,7 @@ describe('MealCalendar', () => {
             emergencyDates: new Set<string>(),
             passageDays: 2,
             emergencyDays: 0,
+            totalDays: 2,
         };
         render(<MealCalendar {...baseProps} mealDays={mealDays} />);
         expect(screen.getByText('Day 1')).toBeDefined();
@@ -71,6 +72,7 @@ describe('MealCalendar', () => {
             emergencyDates: new Set<string>(),
             passageDays: 1,
             emergencyDays: 0,
+            totalDays: 1,
         };
         render(<MealCalendar {...baseProps} mealDays={mealDays} />);
         expect(screen.getByRole('grid', { name: 'Meal calendar' })).toBeDefined();
@@ -82,6 +84,7 @@ describe('MealCalendar', () => {
             emergencyDates: new Set<string>(),
             passageDays: 1,
             emergencyDays: 0,
+            totalDays: 1,
         };
         render(<MealCalendar {...baseProps} mealDays={mealDays} />);
         expect(screen.getByLabelText('Decrease crew count')).toBeDefined();
@@ -94,10 +97,11 @@ describe('MealCalendar', () => {
             emergencyDates: new Set<string>(),
             passageDays: 1,
             emergencyDays: 0,
+            totalDays: 1,
         };
         render(<MealCalendar {...baseProps} mealDays={mealDays} />);
-        // 3 slots per day (breakfast, lunch, dinner)
-        expect(screen.getByLabelText(/Add Breakfast meal/)).toBeDefined();
+        // 3 slots per day (Brekky, Lunch, Dinner per SLOT_CONFIG)
+        expect(screen.getByLabelText(/Add Brekky meal/)).toBeDefined();
         expect(screen.getByLabelText(/Add Lunch meal/)).toBeDefined();
         expect(screen.getByLabelText(/Add Dinner meal/)).toBeDefined();
     });
@@ -108,6 +112,7 @@ describe('MealCalendar', () => {
             emergencyDates: new Set<string>(),
             passageDays: 1,
             emergencyDays: 0,
+            totalDays: 1,
         };
         render(<MealCalendar {...baseProps} mealDays={mealDays} />);
         expect(screen.getByText(/Brisbane to Sydney/)).toBeDefined();
@@ -119,6 +124,7 @@ describe('MealCalendar', () => {
             emergencyDates: new Set(['2026-03-28']),
             passageDays: 1,
             emergencyDays: 1,
+            totalDays: 2,
         };
         render(<MealCalendar {...baseProps} mealDays={mealDays} />);
         expect(screen.getByText('Buffer')).toBeDefined();
@@ -130,6 +136,7 @@ describe('MealCalendar', () => {
             emergencyDates: new Set<string>(),
             passageDays: 1,
             emergencyDays: 0,
+            totalDays: 1,
         };
         const meal = {
             id: 'm1',
@@ -139,6 +146,14 @@ describe('MealCalendar', () => {
             servings_planned: 4,
             status: 'reserved' as const,
             spoonacular_id: null,
+            voyage_id: null,
+            recipe_id: null,
+            cook_started_at: null,
+            completed_at: null,
+            leftovers_saved: false,
+            notes: null,
+            created_at: '2026-03-27T00:00:00Z',
+            updated_at: '2026-03-27T00:00:00Z',
             ingredients: [],
         };
         render(<MealCalendar {...baseProps} mealDays={mealDays} activeMeals={[meal]} />);

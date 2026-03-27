@@ -541,9 +541,15 @@ const App: React.FC = () => {
                         >
                             <NavButton
                                 icon={
-                                    <img src={NAV_ICON_WX} alt="" draggable={false}
+                                    <img
+                                        src={NAV_ICON_WX}
+                                        alt=""
+                                        draggable={false}
                                         className="w-full h-full object-contain"
-                                        style={{ WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)', maskImage: 'radial-gradient(circle, black 55%, transparent 75%)' }}
+                                        style={{
+                                            WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
+                                            maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
+                                        }}
                                     />
                                 }
                                 label="Wx"
@@ -552,9 +558,15 @@ const App: React.FC = () => {
                             />
                             <NavButton
                                 icon={
-                                    <img src={NAV_ICON_MAP} alt="" draggable={false}
+                                    <img
+                                        src={NAV_ICON_MAP}
+                                        alt=""
+                                        draggable={false}
                                         className="w-full h-full object-contain"
-                                        style={{ WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)', maskImage: 'radial-gradient(circle, black 55%, transparent 75%)' }}
+                                        style={{
+                                            WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
+                                            maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
+                                        }}
                                     />
                                 }
                                 label="Map"
@@ -566,9 +578,15 @@ const App: React.FC = () => {
                             />
                             <NavButton
                                 icon={
-                                    <img src={NAV_ICON_CHAT} alt="" draggable={false}
+                                    <img
+                                        src={NAV_ICON_CHAT}
+                                        alt=""
+                                        draggable={false}
                                         className="w-full h-full object-contain"
-                                        style={{ WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)', maskImage: 'radial-gradient(circle, black 55%, transparent 75%)' }}
+                                        style={{
+                                            WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
+                                            maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
+                                        }}
                                     />
                                 }
                                 label="Chat"
@@ -578,9 +596,15 @@ const App: React.FC = () => {
                             />
                             <NavButton
                                 icon={
-                                    <img src={NAV_ICON_VESSEL} alt="" draggable={false}
+                                    <img
+                                        src={NAV_ICON_VESSEL}
+                                        alt=""
+                                        draggable={false}
                                         className="w-full h-full object-contain"
-                                        style={{ WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)', maskImage: 'radial-gradient(circle, black 55%, transparent 75%)' }}
+                                        style={{
+                                            WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
+                                            maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
+                                        }}
                                     />
                                 }
                                 label="Vessel"
@@ -593,7 +617,11 @@ const App: React.FC = () => {
             </div>
 
             {effectiveMode === 'night' && (
-                <div className="fixed inset-0 z-[9999] pointer-events-none touch-none bg-red-950/40 mix-blend-multiply"></div>
+                <div
+                    className="fixed inset-0 z-[9999] pointer-events-none touch-none"
+                    style={{ backgroundColor: 'rgba(69, 10, 10, 0.25)' }}
+                    aria-hidden="true"
+                ></div>
             )}
         </div>
     );

@@ -7,6 +7,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
+import { createGradientPinMarker } from '../../utils/createMarkerEl';
 import { exportPinAsGPX } from './chatUtils';
 
 interface PinMapViewerProps {
@@ -88,20 +89,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
             });
 
             // ── Pin marker ──
-            const el = document.createElement('div');
-            el.innerHTML = `
-                <div style="
-                    width: 36px; height: 36px;
-                    background: linear-gradient(135deg, #f59e0b, #ef4444);
-                    border-radius: 50% 50% 50% 0;
-                    transform: rotate(-45deg);
-                    border: 3px solid white;
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-                    display: flex; align-items: center; justify-content: center;
-                ">
-                    <span style="transform: rotate(45deg); font-size: 14px;">📍</span>
-                </div>
-            `;
+            const el = createGradientPinMarker();
             new mapboxgl.Marker(el).setLngLat([lng, lat]).addTo(map);
 
             setMapReady(true);

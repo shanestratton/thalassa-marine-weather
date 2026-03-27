@@ -9,6 +9,7 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import mapboxgl from 'mapbox-gl';
+import { createGhostShipEl } from '../../utils/createMarkerEl';
 
 interface GhostShipProps {
     map: mapboxgl.Map | null;
@@ -120,10 +121,7 @@ export function GhostShip({
         if (markerRef.current) return markerRef.current;
         if (!map) return null;
 
-        const el = document.createElement('div');
-        el.style.cssText =
-            'width:32px;height:32px;opacity:0.6;transition:transform 0.15s ease-out,opacity 0.3s ease;pointer-events:none;';
-        el.innerHTML = SHIP_SVG;
+        const el = createGhostShipEl(SHIP_SVG);
         elRef.current = el;
 
         const marker = new mapboxgl.Marker({ element: el, anchor: 'center', rotationAlignment: 'map' })

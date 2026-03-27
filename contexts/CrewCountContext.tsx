@@ -26,6 +26,15 @@ interface CrewCountProviderProps {
 export const CrewCountProvider: React.FC<CrewCountProviderProps> = ({ children }) => {
     const [crewCount, setCrewCountRaw] = useState(() => {
         try {
+            const raw = localStorage.getItem('CapacitorStorage.thalassa_settings');
+            if (raw) {
+                const s = JSON.parse(raw);
+                if (s?.vessel?.crewCount) return s.vessel.crewCount;
+            }
+        } catch {
+            /* ignore */
+        }
+        try {
             const stored = localStorage.getItem('thalassa_crew_count');
             return stored ? parseInt(stored) || 2 : 2;
         } catch (e) {
@@ -58,9 +67,5 @@ export const CrewCountProvider: React.FC<CrewCountProviderProps> = ({ children }
         return () => window.removeEventListener('thalassa:crew-changed', handler);
     }, [crewCount]);
 
-    return (
-        <CrewCountContext.Provider value={{ crewCount, setCrewCount }}>
-            {children}
-        </CrewCountContext.Provider>
-    );
+    return <CrewCountContext.Provider value={{ crewCount, setCrewCount }}>{children}</CrewCountContext.Provider>;
 };

@@ -15,6 +15,15 @@ import { supabase } from '../../services/supabase';
 import { syncNow } from '../../services/vessel/SyncService';
 import { triggerHaptic } from '../../utils/system';
 
+interface ManifestInvite {
+    id: string;
+    owner_id: string;
+    owner_email?: string;
+    code: string;
+    status: string;
+    created_at: string;
+}
+
 interface JoinVesselProps {
     onJoined: (vesselName: string) => void;
     onClose: () => void;
@@ -80,7 +89,8 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                 setStatus('pending');
                 setVesselName('Vessel (offline)');
                 triggerHaptic('medium');
-            } catch (e) { console.warn("Suppressed:", e);
+            } catch (e) {
+                console.warn('Suppressed:', e);
                 setErrorMsg('Failed to save code locally');
                 setStatus('error');
             }
@@ -112,8 +122,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                 return;
             }
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const inv = invite as any;
+            const inv = invite as ManifestInvite;
 
             // 2. Check code hasn't expired (24h default)
             const created = new Date(inv.created_at).getTime();
@@ -152,8 +161,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                 .eq('user_id', inv.owner_id)
                 .maybeSingle();
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const vName = (vessel as any)?.vessel_name || 'Vessel';
+            const vName = (vessel as { vessel_name?: string } | null)?.vessel_name || 'Vessel';
             setVesselName(vName);
             setStatus('pending');
 
@@ -162,7 +170,8 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
             syncNow().catch(() => {
                 /* will sync when approved */
             });
-        } catch (e) { console.warn("Suppressed:", e);
+        } catch (e) {
+            console.warn('Suppressed:', e);
             setErrorMsg('Connection error — try again');
             setStatus('error');
         }

@@ -495,4 +495,3 @@ export function getAggregatedIngredients(voyageId?: string): AggregatedIngredien
         .map((i) => ({ ...i, totalQty: Math.round(i.totalQty * 10) / 10 }))
         .sort((a, b) => a.name.localeCompare(b.name));
 }
-
