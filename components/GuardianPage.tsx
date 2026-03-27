@@ -176,8 +176,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             dog_name: dogName,
             vessel_bio: vesselBio,
         };
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await GuardianService.updateProfile(updates as any);
+        await GuardianService.updateProfile(updates as Parameters<typeof GuardianService.updateProfile>[0]);
         setHasProfile(true);
         setShowSetup(false);
     }, [vesselName, ownerName, dogName, vesselBio]);

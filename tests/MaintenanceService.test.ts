@@ -4,7 +4,7 @@
  * Tests the pure functions calculateStatus and sortByUrgency,
  * plus Supabase-backed CRUD operations via mocks.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { calculateStatus, sortByUrgency, type TaskWithStatus } from '../services/MaintenanceService';
 import type { MaintenanceTask } from '../types';
 

@@ -52,7 +52,6 @@ const TideWidgetComponent = ({
     customTime?: number;
     showAllDayEvents?: boolean;
 }) => {
-
     return (
         <Card
             key={guiDetails ? JSON.stringify(guiDetails) : 'tide-widget-loading'}
@@ -115,7 +114,6 @@ const SunMoonWidgetComponent = ({
     timeZone?: string;
     lat?: number;
 }) => {
-
     return (
         <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col gap-4">
             {/* Header */}

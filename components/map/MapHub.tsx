@@ -157,12 +157,19 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // Drop a temporary pin marker
                 const el = document.createElement('div');
                 el.className = 'pin-drop-marker';
-                el.innerHTML = `
-                    <div style="display:flex;flex-direction:column;align-items:center;animation:pinDropBounce 0.5s ease-out">
-                        <span style="font-size:28px;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.4))">📍</span>
-                        <span style="font-size:10px;color:#38bdf8;font-weight:700;background:rgba(0,0,0,0.6);padding:2px 8px;border-radius:8px;margin-top:2px;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis">${label}</span>
-                    </div>
-                `;
+                const wrapper = document.createElement('div');
+                wrapper.style.cssText =
+                    'display:flex;flex-direction:column;align-items:center;animation:pinDropBounce 0.5s ease-out';
+                const pin = document.createElement('span');
+                pin.style.cssText = 'font-size:28px;filter:drop-shadow(0 2px 6px rgba(0,0,0,0.4))';
+                pin.textContent = '📍';
+                wrapper.appendChild(pin);
+                const lbl = document.createElement('span');
+                lbl.style.cssText =
+                    'font-size:10px;color:#38bdf8;font-weight:700;background:rgba(0,0,0,0.6);padding:2px 8px;border-radius:8px;margin-top:2px;white-space:nowrap;max-width:150px;overflow:hidden;text-overflow:ellipsis';
+                lbl.textContent = label;
+                wrapper.appendChild(lbl);
+                el.appendChild(wrapper);
 
                 const mapboxgl = window.mapboxgl;
                 if (mapboxgl?.Marker) {
@@ -173,7 +180,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                     setTimeout(() => {
                         try {
                             marker.remove();
-                        } catch (e) { console.warn("Suppressed:", e);
+                        } catch (e) {
+                            console.warn('Suppressed:', e);
                             /* already removed */
                         }
                     }, 10_000);
@@ -205,7 +213,8 @@ export const MapHub: React.FC<MapHubProps> = ({
             try {
                 const cyclones = await fetchActiveCyclones();
                 if (!cancelled) setAllCyclones(cyclones);
-            } catch (e) { console.warn("Suppressed:", e);
+            } catch (e) {
+                console.warn('Suppressed:', e);
                 /* non-critical */
             }
         };
@@ -495,14 +504,10 @@ export const MapHub: React.FC<MapHubProps> = ({
         // Create visual pin marker
         const el = document.createElement('div');
         el.className = 'mapbox-pin-marker';
-        el.innerHTML = `
-            <div style="
-                width: 32px; height: 32px; background: linear-gradient(135deg, #f59e0b, #ef4444);
-                border: 3px solid #fff; border-radius: 50% 50% 50% 0;
-                transform: rotate(-45deg); box-shadow: 0 4px 16px rgba(245,158,11,0.5);
-                animation: pinBounce 0.4s ease-out;
-            "></div>
-        `;
+        const pinDiv = document.createElement('div');
+        pinDiv.style.cssText =
+            'width:32px;height:32px;background:linear-gradient(135deg,#f59e0b,#ef4444);border:3px solid #fff;border-radius:50% 50% 50% 0;transform:rotate(-45deg);box-shadow:0 4px 16px rgba(245,158,11,0.5);animation:pinBounce 0.4s ease-out;';
+        el.appendChild(pinDiv);
         const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' }).setLngLat([pv.lng, pv.lat]).addTo(map);
         pinMarkerRef.current = marker;
 
@@ -662,18 +667,11 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                         // Add a temporary pulse marker at the vessel
                         const el = document.createElement('div');
-                        el.innerHTML = `
-                            <div style="
-                                width:48px;height:48px;border-radius:50%;
-                                background:radial-gradient(circle,rgba(14,165,233,0.3) 0%,transparent 70%);
-                                border:2px solid rgba(14,165,233,0.6);
-                                animation:pulse 1.5s ease-in-out infinite;
-                                display:flex;align-items:center;justify-content:center;
-                                font-size:20px;
-                            ">
-                                🎯
-                            </div>
-                        `;
+                        const pulseDiv = document.createElement('div');
+                        pulseDiv.style.cssText =
+                            'width:48px;height:48px;border-radius:50%;background:radial-gradient(circle,rgba(14,165,233,0.3) 0%,transparent 70%);border:2px solid rgba(14,165,233,0.6);animation:pulse 1.5s ease-in-out infinite;display:flex;align-items:center;justify-content:center;font-size:20px;';
+                        pulseDiv.textContent = '🎯';
+                        el.appendChild(pulseDiv);
 
                         const mapboxglLib = window.mapboxgl;
                         if (mapboxglLib?.Marker) {

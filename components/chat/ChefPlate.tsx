@@ -5,11 +5,7 @@
  * per-item stores shortfall badges, and cooking CTAs.
  */
 import React, { useState, useEffect } from 'react';
-import {
-    startCooking,
-    getStoresAvailability,
-    type MealPlan,
-} from '../../services/MealPlanService';
+import { startCooking, getStoresAvailability, type MealPlan } from '../../services/MealPlanService';
 import { scaleIngredient, getRecipeImageUrl, getGalleyDifficulty } from '../../services/GalleyRecipeService';
 import { type ShoppingListSummary } from '../../services/ShoppingListService';
 import { triggerHaptic } from '../../utils/system';
@@ -23,7 +19,13 @@ interface ChefPlateProps {
     shoppingSummary: ShoppingListSummary | null;
 }
 
-export const ChefPlate: React.FC<ChefPlateProps> = ({ meal, baseServings, cooking, onCook, shoppingSummary: _shoppingSummary }) => {
+export const ChefPlate: React.FC<ChefPlateProps> = ({
+    meal,
+    baseServings,
+    cooking,
+    onCook,
+    shoppingSummary: _shoppingSummary,
+}) => {
     const [crewCount, setCrewCount] = useState(baseServings);
     const [imgLoaded, setImgLoaded] = useState(false);
     const [imgError, setImgError] = useState(false);
@@ -143,7 +145,11 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({ meal, baseServings, cookin
     };
 
     return (
-        <div className="rounded-2xl overflow-hidden border border-white/[0.06] bg-slate-950" role="article" aria-label={`Recipe: ${meal.title}`}>
+        <div
+            className="rounded-2xl overflow-hidden border border-white/[0.06] bg-slate-950"
+            role="article"
+            aria-label={`Recipe: ${meal.title}`}
+        >
             {/* ═══════ 1. HERO IMAGE (compact 50%) ═══════ */}
             <div className="relative h-28 overflow-hidden">
                 {showImage && (
@@ -184,12 +190,18 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({ meal, baseServings, cookin
                         </span>
                         {(() => {
                             const diff = getGalleyDifficulty(meal.title, undefined, meal.ingredients?.length);
-                            const diffColors = diff.score <= 2 ? 'text-emerald-300 border-emerald-500/20 bg-emerald-500/15'
-                                : diff.score === 3 ? 'text-amber-300 border-amber-500/20 bg-amber-500/15'
-                                : diff.score === 4 ? 'text-orange-300 border-orange-500/20 bg-orange-500/15'
-                                : 'text-red-300 border-red-500/20 bg-red-500/15';
+                            const diffColors =
+                                diff.score <= 2
+                                    ? 'text-emerald-300 border-emerald-500/20 bg-emerald-500/15'
+                                    : diff.score === 3
+                                      ? 'text-amber-300 border-amber-500/20 bg-amber-500/15'
+                                      : diff.score === 4
+                                        ? 'text-orange-300 border-orange-500/20 bg-orange-500/15'
+                                        : 'text-red-300 border-red-500/20 bg-red-500/15';
                             return (
-                                <span className={`px-2 py-0.5 rounded-full backdrop-blur-sm text-[10px] font-bold border ${diffColors}`}>
+                                <span
+                                    className={`px-2 py-0.5 rounded-full backdrop-blur-sm text-[10px] font-bold border ${diffColors}`}
+                                >
                                     {diff.emoji} {diff.label}
                                 </span>
                             );
@@ -230,7 +242,13 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({ meal, baseServings, cookin
                             className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white hover:bg-white/[0.1] transition-all active:scale-90"
                             aria-label="Decrease servings"
                         >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2.5}
+                            >
                                 <path strokeLinecap="round" d="M5 12h14" />
                             </svg>
                         </button>
@@ -251,7 +269,13 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({ meal, baseServings, cookin
                             className="w-10 h-10 rounded-xl bg-white/[0.06] border border-white/[0.08] flex items-center justify-center text-white hover:bg-white/[0.1] transition-all active:scale-90"
                             aria-label="Increase servings"
                         >
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2.5}
+                            >
                                 <path strokeLinecap="round" d="M12 5v14m-7-7h14" />
                             </svg>
                         </button>

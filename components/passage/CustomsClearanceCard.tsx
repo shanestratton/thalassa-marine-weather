@@ -8,22 +8,78 @@
  * Data is sourced from data/customsDb.ts (28 countries, 1,100+ lines of clearance data).
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { VoyagePlan } from '../../types';
 import { PhoneIcon, RadioTowerIcon, AlertTriangleIcon, ShareIcon, MapPinIcon } from '../Icons';
 import { findCountryData, difficultyStyle } from '../../data/customsDb';
+import { useReadinessSync } from '../../hooks/useReadinessSync';
 
 /* ═══════════════════════════════════════════════════════════════
    COMPONENT
    ═══════════════════════════════════════════════════════════════ */
 
 interface CustomsClearanceCardProps {
+    voyageId?: string;
     voyagePlan: VoyagePlan;
+    /** Callback with (totalDocs, checkedDocs) whenever checked state changes */
+    onCheckedChange?: (total: number, checked: number) => void;
 }
 
-export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voyagePlan }) => {
+export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
+    voyageId,
+    voyagePlan,
+    onCheckedChange,
+}) => {
     const customs = voyagePlan.customs;
     const [activeTab, setActiveTab] = useState<'depart' | 'arrive'>('depart');
+    const [checkedDocs, setCheckedDocs] = useState<Record<string, boolean>>(() => {
+        try {
+            const stored = localStorage.getItem('thalassa_customs_docs');
+            return stored ? JSON.parse(stored) : {};
+        } catch {
+            return {};
+        }
+    });
+
+    const { syncCheck } = useReadinessSync(
+        voyageId,
+        'customs_clearance',
+        checkedDocs,
+        setCheckedDocs,
+        'thalassa_customs_docs',
+    );
+
+    const toggleDoc = useCallback(
+        (key: string) => {
+            setCheckedDocs((prev) => {
+                const next = { ...prev, [key]: !prev[key] };
+                try {
+                    localStorage.setItem('thalassa_customs_docs', JSON.stringify(next));
+                } catch {
+                    /* ignore */
+                }
+                syncCheck(key, next[key]);
+                return next;
+            });
+        },
+        [syncCheck],
+    );
+
+    // Notify parent of checked state changes
+    useEffect(() => {
+        if (!onCheckedChange || !customs?.required) return;
+        const departCountry = customs.departingCountry;
+        const arriveCountry = customs.destinationCountry;
+        const departData = findCountryData(departCountry);
+        const arriveData = findCountryData(arriveCountry);
+        const allDocs = [
+            ...(departData?.requiredDocuments || []).map((d) => `depart:${d.name}`),
+            ...(arriveData?.requiredDocuments || []).map((d) => `arrive:${d.name}`),
+        ];
+        const total = allDocs.length;
+        const checked = allDocs.filter((k) => checkedDocs[k]).length;
+        onCheckedChange(total, checked);
+    }, [checkedDocs, customs, onCheckedChange]);
 
     if (!customs?.required) return null;
 
@@ -140,36 +196,79 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({ voya
                         </a>
                     )}
 
-                    {/* ── Required Documents ── */}
+                    {/* ── Required Documents (Checklist) ── */}
                     <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
                         <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                             📄 Required Documents
+                            <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 border border-sky-500/20 text-sky-400">
+                                {
+                                    activeData.requiredDocuments.filter((d) => checkedDocs[`${activeTab}:${d.name}`])
+                                        .length
+                                }
+                                /{activeData.requiredDocuments.length}
+                            </span>
                         </h4>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                            {activeData.requiredDocuments.map((doc, i) => (
-                                <div
-                                    key={i}
-                                    className={`flex items-start gap-2 px-3 py-2 rounded-lg text-xs ${
-                                        doc.critical
-                                            ? 'bg-amber-500/5 border border-amber-500/15'
-                                            : 'bg-white/5 border border-white/5'
-                                    }`}
-                                >
-                                    <span
-                                        className={`shrink-0 mt-0.5 ${doc.critical ? 'text-amber-400' : 'text-gray-400'}`}
+                            {activeData.requiredDocuments.map((doc, i) => {
+                                const key = `${activeTab}:${doc.name}`;
+                                const isChecked = !!checkedDocs[key];
+                                return (
+                                    <button
+                                        key={i}
+                                        onClick={() => toggleDoc(key)}
+                                        className={`flex items-start gap-2.5 px-3 py-2.5 rounded-lg text-xs text-left transition-all active:scale-[0.98] ${
+                                            isChecked
+                                                ? 'bg-emerald-500/10 border border-emerald-500/20'
+                                                : doc.critical
+                                                  ? 'bg-amber-500/5 border border-amber-500/15 hover:bg-amber-500/10'
+                                                  : 'bg-white/5 border border-white/5 hover:bg-white/[0.08]'
+                                        }`}
                                     >
-                                        {doc.critical ? '⚠️' : '📎'}
-                                    </span>
-                                    <div className="min-w-0">
-                                        <span className={doc.critical ? 'text-amber-200 font-bold' : 'text-gray-300'}>
-                                            {doc.name}
-                                        </span>
-                                        {doc.notes && (
-                                            <div className="text-[11px] text-gray-400 mt-0.5">{doc.notes}</div>
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
+                                        <div
+                                            className={`w-4.5 h-4.5 mt-0.5 rounded border-2 flex items-center justify-center shrink-0 transition-all ${
+                                                isChecked
+                                                    ? 'bg-emerald-500 border-emerald-500'
+                                                    : doc.critical
+                                                      ? 'border-amber-500/50 bg-transparent'
+                                                      : 'border-gray-500 bg-transparent'
+                                            }`}
+                                            style={{ width: 18, height: 18 }}
+                                        >
+                                            {isChecked && (
+                                                <svg
+                                                    className="w-3 h-3 text-white"
+                                                    fill="none"
+                                                    viewBox="0 0 24 24"
+                                                    stroke="currentColor"
+                                                    strokeWidth={3}
+                                                >
+                                                    <path
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        d="M4.5 12.75l6 6 9-13.5"
+                                                    />
+                                                </svg>
+                                            )}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <span
+                                                className={`${
+                                                    isChecked
+                                                        ? 'text-emerald-300 line-through opacity-70'
+                                                        : doc.critical
+                                                          ? 'text-amber-200 font-bold'
+                                                          : 'text-gray-300'
+                                                }`}
+                                            >
+                                                {doc.name}
+                                            </span>
+                                            {doc.notes && (
+                                                <div className="text-[11px] text-gray-400 mt-0.5">{doc.notes}</div>
+                                            )}
+                                        </div>
+                                    </button>
+                                );
+                            })}
                         </div>
                     </div>
 

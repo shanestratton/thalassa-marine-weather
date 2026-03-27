@@ -60,7 +60,7 @@ jobs:
             - name: Lighthouse CI
               run: |
                   npm install -g @lhci/cli@0.14.x
-                  lhci autorun --config=lighthouserc.json || echo "::warning::Lighthouse assertions failed — check report"
+                  lhci autorun --config=lighthouserc.json
 
             - name: Install Playwright browsers
               run: npx playwright install chromium --with-deps

@@ -50,13 +50,15 @@ export const GalleyMealPlanner: React.FC<GalleyMealPlannerProps> = ({ days, crew
                 try {
                     const provResult = calculateProvisions(result, crew);
                     setProvisions(provResult);
-                } catch (e) { console.warn("Suppressed:", e);
+                } catch (e) {
+                    console.warn('Suppressed:', e);
                     /* non-critical — stores may be empty */
                 }
             } else {
                 setShowFallback(true);
             }
-        } catch (e) { console.warn("Suppressed:", e);
+        } catch (e) {
+            console.warn('Suppressed:', e);
             setError('Failed to generate meal plan');
             setShowFallback(true);
         } finally {

@@ -104,7 +104,8 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                     showHandle.remove();
                     hideHandle.remove();
                 };
-            } catch (e) { console.warn("Suppressed:", e);
+            } catch (e) {
+                console.warn('Suppressed:', e);
                 /* Not running in Capacitor — no-op */
             }
         })();
@@ -134,8 +135,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                         </button>
                     )}
                     <div className="flex-1">
-                        <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Passage Planning</h1>
-                        <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">Route Planning</p>
+                        <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Route Planner</h1>
                     </div>
                 </div>
             </div>

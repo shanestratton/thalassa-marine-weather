@@ -491,11 +491,7 @@ const SEARCH_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
  * @param mealType     - Optional: "breakfast" | "lunch" | "dinner" | "snack"
  * @param maxResults   - Max results to return (default 8)
  */
-export async function searchRecipes(
-    searchQuery: string,
-    mealType?: string,
-    maxResults = 8,
-): Promise<GalleyMeal[]> {
+export async function searchRecipes(searchQuery: string, mealType?: string, maxResults = 8): Promise<GalleyMeal[]> {
     const apiKey = getApiKey();
     const trimmed = searchQuery.trim().toLowerCase();
     if (!trimmed) return [];
@@ -635,25 +631,101 @@ const DIFFICULTY_LEVELS: Record<number, Omit<GalleyDifficulty, 'score'>> = {
 // Keywords that push difficulty UP (harder to cook underway)
 const HARD_KEYWORDS = [
     // Score 5 — harbour only
-    { words: ['flambé', 'flambe', 'sushi', 'soufflé', 'souffle', 'tempura', 'deep fry', 'deep-fry', 'multi-course'], score: 5 },
+    {
+        words: ['flambé', 'flambe', 'sushi', 'soufflé', 'souffle', 'tempura', 'deep fry', 'deep-fry', 'multi-course'],
+        score: 5,
+    },
     // Score 4 — calm only (hot liquids, long cook)
-    { words: ['stew', 'soup', 'braise', 'broth', 'chowder', 'ramen', 'pho', 'fondue', 'curry', 'risotto', 'slow cook', 'slow-cook', 'casserole', 'bolognese', 'chili', 'chilli', 'gumbo', 'laksa', 'dahl', 'dal'], score: 4 },
+    {
+        words: [
+            'stew',
+            'soup',
+            'braise',
+            'broth',
+            'chowder',
+            'ramen',
+            'pho',
+            'fondue',
+            'curry',
+            'risotto',
+            'slow cook',
+            'slow-cook',
+            'casserole',
+            'bolognese',
+            'chili',
+            'chilli',
+            'gumbo',
+            'laksa',
+            'dahl',
+            'dal',
+        ],
+        score: 4,
+    },
     // Score 3 — fair weather (oven, grill, frying)
-    { words: ['roast', 'bake', 'grill', 'bbq', 'barbecue', 'smoke', 'smoked', 'brisket', 'pizza', 'pie', 'lasagna', 'lasagne', 'quiche', 'cake', 'brownie', 'muffin', 'pancake', 'fry', 'fried', 'sauté', 'saute', 'stir-fry', 'stir fry', 'wok'], score: 3 },
+    {
+        words: [
+            'roast',
+            'bake',
+            'grill',
+            'bbq',
+            'barbecue',
+            'smoke',
+            'smoked',
+            'brisket',
+            'pizza',
+            'pie',
+            'lasagna',
+            'lasagne',
+            'quiche',
+            'cake',
+            'brownie',
+            'muffin',
+            'pancake',
+            'fry',
+            'fried',
+            'sauté',
+            'saute',
+            'stir-fry',
+            'stir fry',
+            'wok',
+        ],
+        score: 3,
+    },
 ];
 
 // Keywords that push difficulty DOWN (easy to make)
 const EASY_KEYWORDS = [
-    'sandwich', 'wrap', 'toast', 'cereal', 'muesli', 'granola', 'yogurt', 'yoghurt',
-    'cold', 'salad', 'fruit', 'smoothie', 'protein bar', 'crackers', 'cheese board',
-    'instant', 'no-cook', 'overnight oats', 'tinned', 'canned',
+    'sandwich',
+    'wrap',
+    'toast',
+    'cereal',
+    'muesli',
+    'granola',
+    'yogurt',
+    'yoghurt',
+    'cold',
+    'salad',
+    'fruit',
+    'smoothie',
+    'protein bar',
+    'crackers',
+    'cheese board',
+    'instant',
+    'no-cook',
+    'overnight oats',
+    'tinned',
+    'canned',
 ];
 
 /**
  * Score a recipe on how practical it is to cook underway.
  * Uses title keywords, cook time, and ingredient count.
  */
-export function getGalleyDifficulty(title: string, readyInMinutes?: number, ingredientCount?: number): GalleyDifficulty {
+export function getGalleyDifficulty(
+    title: string,
+    readyInMinutes?: number,
+    ingredientCount?: number,
+): GalleyDifficulty {
     const t = title.toLowerCase();
 
     // 1. Check easy keywords first — these override everything

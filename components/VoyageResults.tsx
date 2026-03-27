@@ -15,9 +15,9 @@ import {
     BugIcon,
     WaveIcon,
     WindIcon,
-    ClockIcon,
+    ClockIcon as _ClockIcon,
     AlertTriangleIcon,
-    FlagIcon,
+    FlagIcon as _FlagIcon,
     ServerIcon,
     MapPinIcon as _MapPinIcon,
     ShareIcon as _ShareIcon,
@@ -27,7 +27,6 @@ import { EmergencyPlan } from './passage/EmergencyPlan';
 import { AccordionSection } from './passage/AccordionSection';
 import { DepthSummaryCard } from './passage/DepthSummaryCard';
 import { ModelComparisonCard } from './passage/ModelComparisonCard';
-import { CustomsClearanceCard } from './passage/CustomsClearanceCard';
 import type { MultiModelResult } from '../services/weather/MultiModelWeatherService';
 
 // --- Extracted sub-components ---
@@ -168,129 +167,11 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                     displayWave={displayWave}
                     waveLabel={waveLabel}
                 />
-                {/* LIABILITY DISCLAIMER — Right under the passage plan card */}
-                <div className="w-full p-4 bg-amber-950/20 border border-amber-900/30 rounded-xl flex items-start gap-4 shadow-lg">
-                    <div className="p-2 bg-amber-900/30 rounded-full text-amber-500 shrink-0 mt-0.5">
-                        <AlertTriangleIcon className="w-5 h-5" />
-                    </div>
-                    <div>
-                        <h4 className="text-xs font-bold text-amber-500 uppercase tracking-widest mb-1">
-                            Aid to Navigation Only
-                        </h4>
-                        <p className="text-[11px] text-amber-200/80 leading-relaxed font-medium">
-                            This passage plan is generated using automated weather models and AI analysis. It is
-                            intended as a navigational aid only and does not replace proper seamanship, official charts,
-                            or local knowledge.
-                            <span className="block mt-1.5 text-amber-100/90 font-bold">
-                                The Master/Skipper is solely responsible for the safety of the vessel, crew, and all
-                                souls on board. All navigation decisions remain the exclusive responsibility of the
-                                person in command.
-                            </span>
-                        </p>
-                    </div>
-                </div>
 
                 {/* ═══════════════════════════════════════════════════════════════════
-                COLLAPSIBLE ACCORDIONS — All sections below
+                COLLAPSIBLE ACCORDIONS — Route analysis sections
                 ═══════════════════════════════════════════════════════════════════ */}
                 <div className="flex flex-col gap-3">
-                    {/* OPTIMAL DEPARTURE WINDOW */}
-                    <AccordionSection
-                        title="Optimal Departure"
-                        subtitle="Weather Window Analysis"
-                        icon={<ClockIcon className="w-5 h-5" />}
-                        accent="emerald"
-                        defaultOpen={true}
-                        badge={voyagePlan.bestDepartureWindow?.timeRange || 'No Data'}
-                    >
-                        {voyagePlan.bestDepartureWindow ? (
-                            (() => {
-                                // Parse the AI's recommended departure datetime
-                                const dw = voyagePlan.bestDepartureWindow;
-                                const isoDate = dw.dateTimeISO;
-                                let dateObj: Date | null = null;
-                                let formattedDate = '';
-                                let relativeDay = '';
-
-                                if (isoDate) {
-                                    dateObj = new Date(isoDate);
-                                    if (!isNaN(dateObj.getTime())) {
-                                        formattedDate = dateObj.toLocaleDateString('en-GB', {
-                                            weekday: 'short',
-                                            day: 'numeric',
-                                            month: 'short',
-                                            year: 'numeric',
-                                        });
-                                        // Relative context
-                                        const now = new Date();
-                                        const diffDays = Math.round((dateObj.getTime() - now.getTime()) / 86400000);
-                                        if (diffDays === 0) relativeDay = 'Today';
-                                        else if (diffDays === 1) relativeDay = 'Tomorrow';
-                                        else if (diffDays > 1) relativeDay = `In ${diffDays} days`;
-                                        else relativeDay = `${Math.abs(diffDays)} days ago`;
-                                    }
-                                }
-                                // Fallback to departureDate if no ISO provided
-                                if (!formattedDate && voyagePlan.departureDate) {
-                                    const fallback = new Date(voyagePlan.departureDate);
-                                    if (!isNaN(fallback.getTime())) {
-                                        formattedDate = fallback.toLocaleDateString('en-GB', {
-                                            weekday: 'short',
-                                            day: 'numeric',
-                                            month: 'short',
-                                            year: 'numeric',
-                                        });
-                                    } else {
-                                        formattedDate = voyagePlan.departureDate;
-                                    }
-                                }
-
-                                return (
-                                    <div className="flex flex-col md:flex-row gap-5 items-center">
-                                        <div className="shrink-0 flex flex-col items-center md:items-start gap-2 min-w-[220px]">
-                                            {/* Date — large and prominent */}
-                                            {formattedDate && (
-                                                <div className="flex items-baseline gap-2">
-                                                    <span className="text-xl md:text-2xl font-bold text-white tracking-tight">
-                                                        {formattedDate}
-                                                    </span>
-                                                    {relativeDay && (
-                                                        <span
-                                                            className={`text-xs font-bold uppercase tracking-widest px-2 py-0.5 rounded-full border ${
-                                                                relativeDay === 'Today'
-                                                                    ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
-                                                                    : relativeDay === 'Tomorrow'
-                                                                      ? 'text-sky-400 bg-sky-500/10 border-sky-500/20'
-                                                                      : 'text-amber-400 bg-amber-500/10 border-amber-500/20'
-                                                            }`}
-                                                        >
-                                                            {relativeDay}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            )}
-                                            {/* Time range */}
-                                            <div className="text-lg font-bold text-emerald-400 tracking-tight">
-                                                🕐 {dw.timeRange}
-                                            </div>
-                                        </div>
-                                        <div className="h-px w-full md:w-px md:h-20 bg-white/10 shrink-0"></div>
-                                        <div className="flex-1">
-                                            <p className="text-sm text-gray-300 leading-relaxed font-light text-center md:text-left">
-                                                {dw.reasoning}
-                                            </p>
-                                        </div>
-                                    </div>
-                                );
-                            })()
-                        ) : (
-                            <div className="text-center py-6">
-                                <span className="text-xs text-gray-400 font-bold uppercase tracking-widest">
-                                    No Departure Timing Data Available
-                                </span>
-                            </div>
-                        )}
-                    </AccordionSection>
                     {/* COMPREHENSIVE VOYAGE LOG */}
                     <AccordionSection
                         title="Comprehensive Voyage Log"
@@ -439,7 +320,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                         icon={<GearIcon className="w-5 h-5" />}
                         accent={vessel.type === 'observer' ? 'sky' : 'amber'}
                         defaultOpen={false}
-                        badge={vessel.type === 'observer' ? 'Observer' : `${vessel.crewCount || 2} crew`}
+                        badge={vessel.type === 'observer' ? 'Crew' : `${vessel.crewCount || 2} crew`}
                     >
                         <ResourceCalculator voyagePlan={voyagePlan} vessel={vessel} crewCount={vessel.crewCount || 2} />
                     </AccordionSection>
@@ -554,19 +435,6 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                     >
                         <EmergencyPlan voyagePlan={voyagePlan} vessel={vessel} />
                     </AccordionSection>
-                    {/* CUSTOMS & IMMIGRATION (if applicable) */}
-                    {voyagePlan.customs?.required && (
-                        <AccordionSection
-                            title="Customs & Immigration"
-                            subtitle="Clearance Procedures, Contacts & Required Documents"
-                            icon={<FlagIcon className="w-5 h-5" />}
-                            accent="indigo"
-                            defaultOpen={false}
-                            badge={`${voyagePlan.customs.departingCountry || 'Origin'} → ${voyagePlan.customs.destinationCountry || 'Destination'}`}
-                        >
-                            <CustomsClearanceCard voyagePlan={voyagePlan} />
-                        </AccordionSection>
-                    )}
                     {/* EXPORT & SAVE BUTTONS */}
                     <ExportButtons voyagePlan={voyagePlan} vessel={vessel} />
                 </div>

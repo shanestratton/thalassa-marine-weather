@@ -131,11 +131,13 @@ export const PassagePlanningPanel: React.FC<PassagePlanningPanelProps> = ({
                     <span className="px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/15 text-emerald-400 font-bold">
                         ✅ Dates set
                     </span>
-                    <span className={`px-2 py-1 rounded-lg font-bold ${
-                        planCrewCount > 1
-                            ? 'bg-emerald-500/10 border border-emerald-500/15 text-emerald-400'
-                            : 'bg-amber-500/10 border border-amber-500/15 text-amber-400'
-                    }`}>
+                    <span
+                        className={`px-2 py-1 rounded-lg font-bold ${
+                            planCrewCount > 1
+                                ? 'bg-emerald-500/10 border border-emerald-500/15 text-emerald-400'
+                                : 'bg-amber-500/10 border border-amber-500/15 text-amber-400'
+                        }`}
+                    >
                         {planCrewCount > 1 ? '✅' : '⚠️'} {planCrewCount} crew
                     </span>
                 </div>

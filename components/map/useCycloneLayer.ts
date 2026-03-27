@@ -196,8 +196,6 @@ function resolveStormName(cyclone: ActiveCyclone): string {
     return cyclone.name.charAt(0).toUpperCase() + cyclone.name.slice(1).toLowerCase();
 }
 
-// ── Create DOM marker for a cyclone ───────────────────────
-
 function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement {
     const _color = categoryColor(cyclone.category);
     const { windKts, pressureMb } = cyclone.currentPosition;
@@ -217,158 +215,137 @@ function createStormMarkerEl(cyclone: ActiveCyclone, zoom: number): HTMLElement 
     const zoomFactor = Math.max(0.5, Math.min(3, Math.pow(2, (zoom - 5) / 3)));
     const baseEye = isMacro ? 28 : 48;
     const eyeSize = Math.round((baseEye + catScale * 4) * zoomFactor);
-    const fontSize = Math.round((isMacro ? 12 : 18) * Math.min(zoomFactor, 1.5));
 
     const pal = categoryPalette(cyclone.category);
 
     const el = document.createElement('div');
     el.className = 'cyclone-marker';
     el.style.cssText = `
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        pointer-events: none;
-        z-index: 500;
+        display: flex; flex-direction: column; align-items: center;
+        pointer-events: none; z-index: 500;
         filter: drop-shadow(0 4px 20px ${pal.glow}80);
         transition: transform 0.3s ease;
     `;
 
-    // Build glow rings — organic blob shapes, more for higher categories
-    const glowRings = [];
+    // ── Name banner ──
+    const nameBanner = document.createElement('div');
+    nameBanner.style.cssText = `
+        font-weight: 800; color: #fff;
+        -webkit-text-stroke: 0.5px rgba(0,0,0,0.8);
+        text-shadow: 0 0 3px rgba(0,0,0,1), 0 1px 4px rgba(0,0,0,1), 0 0 8px rgba(0,0,0,0.9), 1px 1px 2px rgba(0,0,0,1), -1px -1px 2px rgba(0,0,0,1), 0 0 16px rgba(0,0,0,0.6);
+        letter-spacing: 0.5px; margin-bottom: 6px; text-align: center;
+        background: rgba(0,0,0,0.65); padding: 4px 14px; border-radius: 8px;
+        backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+        border: 1px solid rgba(0,0,0,0.5); line-height: 1.3;
+    `;
+    const classLabel = document.createElement('div');
+    classLabel.style.cssText = `font-size: ${isMacro ? 8 : 10}px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.08em;`;
+    classLabel.textContent = classification;
+    nameBanner.appendChild(classLabel);
+    const nameLabel = document.createElement('div');
+    nameLabel.style.cssText = `font-size: ${isMacro ? 12 : 15}px;`;
+    nameLabel.textContent = resolveStormName(cyclone);
+    nameBanner.appendChild(nameLabel);
+    el.appendChild(nameBanner);
+
+    // ── Eye container ──
+    const eyeContainer = document.createElement('div');
+    eyeContainer.style.cssText = `
+        position: relative; width: ${eyeSize}px; height: ${eyeSize}px;
+        display: flex; align-items: center; justify-content: center;
+    `;
+
+    // ── Glow rings ──
     const numRings = isMacro ? 1 : Math.min(catScale, 3);
     for (let i = 0; i < numRings; i++) {
         const scale = 1.3 + i * 0.4;
         const opacity = 0.35 - i * 0.1;
         const delay = i * 0.6;
-        glowRings.push(`<div style="
+        const ring = document.createElement('div');
+        const opHex = Math.round(opacity * 255)
+            .toString(16)
+            .padStart(2, '0');
+        ring.style.cssText = `
             position: absolute; inset: -${4 + i * 6}px;
             border-radius: 40% 60% 55% 45% / 55% 45% 50% 50%;
-            background: radial-gradient(ellipse 70% 80%, ${pal.outer}00 30%, ${pal.glow}${Math.round(opacity * 255)
-                .toString(16)
-                .padStart(2, '0')} 65%, transparent 100%);
+            background: radial-gradient(ellipse 70% 80%, ${pal.outer}00 30%, ${pal.glow}${opHex} 65%, transparent 100%);
             animation: cyclone-morph ${3 + i * 0.7}s ease-in-out ${delay}s infinite alternate,
                        cyclone-pulse ${2 + i * 0.5}s ease-in-out ${delay}s infinite;
             transform: scale(${scale});
-        "></div>`);
+        `;
+        eyeContainer.appendChild(ring);
     }
 
-    el.innerHTML = `
-        <div style="
-            font-weight: 800;
-            color: #fff;
-            -webkit-text-stroke: 0.5px rgba(0,0,0,0.8);
-            text-shadow: 0 0 3px rgba(0,0,0,1), 0 1px 4px rgba(0,0,0,1), 0 0 8px rgba(0,0,0,0.9), 1px 1px 2px rgba(0,0,0,1), -1px -1px 2px rgba(0,0,0,1), 0 0 16px rgba(0,0,0,0.6);
-            letter-spacing: 0.5px;
-            margin-bottom: 6px;
-            text-align: center;
-            background: rgba(0,0,0,0.65);
-            padding: 4px 14px;
-            border-radius: 8px;
-            backdrop-filter: blur(6px);
-            -webkit-backdrop-filter: blur(6px);
-            border: 1px solid rgba(0,0,0,0.5);
-            line-height: 1.3;
-        ">
-            <div style="font-size: ${isMacro ? 8 : 10}px; opacity: 0.85; text-transform: uppercase; letter-spacing: 0.08em;">${classification}</div>
-            <div style="font-size: ${isMacro ? 12 : 15}px;">${resolveStormName(cyclone)}</div>
-        </div>
-        <div style="
-            position: relative;
-            width: ${eyeSize}px;
-            height: ${eyeSize}px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        ">
-
-            <div style="
-                position: relative; z-index: 2;
-                width: ${Math.round(eyeSize * 0.9)}px;
-                height: ${Math.round(eyeSize * 0.9)}px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                animation: cyclone-eye-spin ${Math.max(2, 8 - catScale * 1.2)}s linear infinite;
-            ">
-                ${
-                    cyclone.category >= 1
-                        ? `
-                <svg viewBox="0 0 100 100" width="${Math.round(eyeSize * 0.85)}" height="${Math.round(eyeSize * 0.85)}">
-                    <!-- Filled blade arms — count increases with category -->
-                    <g fill="${pal.mid}" stroke="#000" stroke-width="1.5">
-                        <!-- Arm 1: top-right -->
-                        <path d="M54 42 C58 28, 68 10, 82 8 C90 6, 96 14, 94 24 C92 32, 84 36, 74 34 C68 33, 62 36, 58 42 Z"/>
-                        <!-- Arm 2: bottom-left -->
-                        <path d="M46 58 C42 72, 32 90, 18 92 C10 94, 4 86, 6 76 C8 68, 16 64, 26 66 C32 67, 38 64, 42 58 Z"/>
-                        ${
-                            catScale >= 2
-                                ? `
-                        <!-- Arm 3: right-bottom -->
-                        <path d="M58 54 C72 58, 90 68, 92 82 C94 90, 86 96, 76 94 C68 92, 64 84, 66 74 C67 68, 64 62, 58 58 Z"/>
-                        <!-- Arm 4: left-top -->
-                        <path d="M42 46 C28 42, 10 32, 8 18 C6 10, 14 4, 24 6 C32 8, 36 16, 34 26 C33 32, 36 38, 42 42 Z"/>
-                        `
-                                : ''
-                        }
-                        ${
-                            catScale >= 4
-                                ? `
-                        <!-- Arm 5: top-left extra -->
-                        <path d="M44 42 C36 32, 22 18, 12 22 C6 24, 4 34, 10 40 C16 44, 26 42, 34 38 C38 36, 42 38, 46 42 Z"/>
-                        <!-- Arm 6: bottom-right extra -->
-                        <path d="M56 58 C64 68, 78 82, 88 78 C94 76, 96 66, 90 60 C84 56, 74 58, 66 62 C62 64, 58 62, 54 58 Z"/>
-                        `
-                                : ''
-                        }
-                    </g>
-                    <!-- White eye circle -->
-                    <circle cx="50" cy="50" r="16" fill="#fff" stroke="#000" stroke-width="1.5"/>
-                    <circle cx="50" cy="50" r="14.5" fill="#fff" stroke="${pal.mid}" stroke-width="1.5"/>
-                    <!-- Category number -->
-                    <text x="50" y="50" text-anchor="middle" dominant-baseline="central"
-                          font-size="18" font-weight="900" fill="${pal.mid}"
-                          font-family="system-ui, -apple-system, sans-serif">${cyclone.categoryLabel}</text>
-                </svg>
-                `
-                        : `
-                <svg viewBox="0 0 100 100" width="${Math.round(eyeSize * 0.85)}" height="${Math.round(eyeSize * 0.85)}">
-                    <!-- Tropical Storm: 2 elegant swept tails -->
-                    <g fill="${pal.mid}" stroke="#000" stroke-width="1.5">
-                        <!-- Upper tail sweeping right -->
-                        <path d="M52 38 C56 24, 66 6, 80 4 C88 2, 92 10, 88 18 C82 26, 68 30, 58 34 C54 36, 52 38, 52 40 Z"/>
-                        <!-- Lower tail sweeping left -->
-                        <path d="M48 62 C44 76, 34 94, 20 96 C12 98, 8 90, 12 82 C18 74, 32 70, 42 66 C46 64, 48 62, 48 60 Z"/>
-                    </g>
-                    <!-- White eye circle -->
-                    <circle cx="50" cy="50" r="18" fill="#fff" stroke="#000" stroke-width="1.5"/>
-                    <circle cx="50" cy="50" r="16.5" fill="#fff" stroke="${pal.mid}" stroke-width="1.5"/>
-                    <!-- TS label -->
-                    <text x="50" y="50" text-anchor="middle" dominant-baseline="central"
-                          font-size="16" font-weight="900" fill="${pal.mid}"
-                          font-family="system-ui, -apple-system, sans-serif">${cyclone.categoryLabel}</text>
-                </svg>
-                `
-                }
-            </div>
-        </div>
-        ${
-            showInfoBadge
-                ? `<div style="
-            font-size: 11px;
-            font-weight: 600;
-            color: #fff;
-            text-shadow: 0 1px 4px rgba(0,0,0,1);
-            margin-top: 5px;
-            white-space: nowrap;
-            background: rgba(0,0,0,0.35);
-            padding: 3px 10px;
-            border-radius: 8px;
-            backdrop-filter: blur(4px);
-            -webkit-backdrop-filter: blur(4px);
-        ">${catStr}</div>`
-                : ''
-        }
+    // ── Spinning SVG eye ──
+    const spinWrapper = document.createElement('div');
+    spinWrapper.style.cssText = `
+        position: relative; z-index: 2;
+        width: ${Math.round(eyeSize * 0.9)}px; height: ${Math.round(eyeSize * 0.9)}px;
+        display: flex; align-items: center; justify-content: center;
+        animation: cyclone-eye-spin ${Math.max(2, 8 - catScale * 1.2)}s linear infinite;
     `;
+
+    // Build SVG string (developer-authored paths, only numeric/color interpolation)
+    const svgSize = Math.round(eyeSize * 0.85);
+    let svgStr: string;
+    if (cyclone.category >= 1) {
+        let arms = `
+            <path d="M54 42 C58 28, 68 10, 82 8 C90 6, 96 14, 94 24 C92 32, 84 36, 74 34 C68 33, 62 36, 58 42 Z"/>
+            <path d="M46 58 C42 72, 32 90, 18 92 C10 94, 4 86, 6 76 C8 68, 16 64, 26 66 C32 67, 38 64, 42 58 Z"/>`;
+        if (catScale >= 2) {
+            arms += `
+            <path d="M58 54 C72 58, 90 68, 92 82 C94 90, 86 96, 76 94 C68 92, 64 84, 66 74 C67 68, 64 62, 58 58 Z"/>
+            <path d="M42 46 C28 42, 10 32, 8 18 C6 10, 14 4, 24 6 C32 8, 36 16, 34 26 C33 32, 36 38, 42 42 Z"/>`;
+        }
+        if (catScale >= 4) {
+            arms += `
+            <path d="M44 42 C36 32, 22 18, 12 22 C6 24, 4 34, 10 40 C16 44, 26 42, 34 38 C38 36, 42 38, 46 42 Z"/>
+            <path d="M56 58 C64 68, 78 82, 88 78 C94 76, 96 66, 90 60 C84 56, 74 58, 66 62 C62 64, 58 62, 54 58 Z"/>`;
+        }
+        svgStr = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${svgSize}" height="${svgSize}">
+            <g fill="${pal.mid}" stroke="#000" stroke-width="1.5">${arms}</g>
+            <circle cx="50" cy="50" r="16" fill="#fff" stroke="#000" stroke-width="1.5"/>
+            <circle cx="50" cy="50" r="14.5" fill="#fff" stroke="${pal.mid}" stroke-width="1.5"/>
+            <text x="50" y="50" text-anchor="middle" dominant-baseline="central"
+                  font-size="18" font-weight="900" fill="${pal.mid}"
+                  font-family="system-ui, -apple-system, sans-serif">${cyclone.categoryLabel}</text>
+        </svg>`;
+    } else {
+        svgStr = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${svgSize}" height="${svgSize}">
+            <g fill="${pal.mid}" stroke="#000" stroke-width="1.5">
+                <path d="M52 38 C56 24, 66 6, 80 4 C88 2, 92 10, 88 18 C82 26, 68 30, 58 34 C54 36, 52 38, 52 40 Z"/>
+                <path d="M48 62 C44 76, 34 94, 20 96 C12 98, 8 90, 12 82 C18 74, 32 70, 42 66 C46 64, 48 62, 48 60 Z"/>
+            </g>
+            <circle cx="50" cy="50" r="18" fill="#fff" stroke="#000" stroke-width="1.5"/>
+            <circle cx="50" cy="50" r="16.5" fill="#fff" stroke="${pal.mid}" stroke-width="1.5"/>
+            <text x="50" y="50" text-anchor="middle" dominant-baseline="central"
+                  font-size="16" font-weight="900" fill="${pal.mid}"
+                  font-family="system-ui, -apple-system, sans-serif">${cyclone.categoryLabel}</text>
+        </svg>`;
+    }
+
+    const parser = new DOMParser();
+    const svgDoc = parser.parseFromString(svgStr, 'image/svg+xml');
+    const svgEl = svgDoc.documentElement;
+    if (svgEl && svgEl.nodeName === 'svg') {
+        spinWrapper.appendChild(document.importNode(svgEl, true));
+    }
+    eyeContainer.appendChild(spinWrapper);
+    el.appendChild(eyeContainer);
+
+    // ── Info badge ──
+    if (showInfoBadge) {
+        const infoBadge = document.createElement('div');
+        infoBadge.style.cssText = `
+            font-size: 11px; font-weight: 600; color: #fff;
+            text-shadow: 0 1px 4px rgba(0,0,0,1); margin-top: 5px;
+            white-space: nowrap; background: rgba(0,0,0,0.35);
+            padding: 3px 10px; border-radius: 8px;
+            backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+        `;
+        infoBadge.textContent = catStr;
+        el.appendChild(infoBadge);
+    }
 
     return el;
 }
@@ -486,7 +463,7 @@ function createTrackOverlay(map: mapboxgl.Map): {
                 }
 
                 // Use the most recent track point colour for the line
-                const trackColor = windColor(c.currentPosition.windKts);
+                const _trackColor = windColor(c.currentPosition.windKts);
 
                 // Black outline for contrast over satellite
                 const outlinePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -1419,88 +1396,32 @@ export function useCycloneLayer(
             };
             const basinStr = basinLabels[cyclone.basin] ?? cyclone.basin;
 
-            const row = (icon: string, label: string, value: string, valueColor = 'rgba(255,255,255,0.9)') =>
-                `<div style="display:flex;align-items:center;gap:6px;">
-                    <span style="font-size:11px;width:14px;text-align:center;">${icon}</span>
-                    <span style="font-size:10px;color:rgba(255,255,255,0.45);min-width:60px;">${label}</span>
-                    <span style="font-size:11px;font-weight:700;color:${valueColor};margin-left:auto;">${value}</span>
-                </div>`;
-
-            wrapper.innerHTML = `
-                <div style="
-                    background: rgba(10, 15, 30, 0.88);
-                    backdrop-filter: blur(16px);
-                    -webkit-backdrop-filter: blur(16px);
-                    border: 1px solid ${accentColor}44;
-                    border-left: 3px solid ${accentColor};
-                    border-radius: 12px;
-                    padding: 10px 14px;
-                    color: #ffffff;
-                    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
-                    min-width: 200px;
-                    max-width: 240px;
-                    pointer-events: none;
-                    z-index: 600;
-                    box-shadow: 0 4px 24px rgba(0,0,0,0.6), 0 0 12px ${accentColor}22;
-                ">
-                    <div style="
-                        font-size: 10px;
-                        font-weight: 700;
-                        letter-spacing: 1px;
-                        color: ${accentColor};
-                        text-transform: uppercase;
-                        margin-bottom: 1px;
-                        text-shadow: 0 0 8px ${accentColor}44;
-                    ">${catLabel}</div>
-                    <div style="
-                        font-size: 18px;
-                        font-weight: 800;
-                        color: #ffffff;
-                        margin-bottom: 2px;
-                        text-transform: capitalize;
-                        line-height: 1.2;
-                    ">${stormName}</div>
-                    <div style="
-                        font-size: 9px;
-                        color: rgba(255,255,255,0.35);
-                        margin-bottom: 8px;
-                    ">${basinStr} · ${cyclone.sid}</div>
-
-                    <div style="display:flex;flex-direction:column;gap:4px;">
-                        ${row('⬇', 'Pressure', pressure, accentColor)}
-                        ${row('💨', 'Sustained', sustained, '#ffffff')}
-                        ${row('🌪️', 'Gusts (est)', gusts, gustKts && gustKts >= 64 ? '#ef4444' : '#ffffff')}
-                        ${row('📍', 'Position', `${latStr}  ${lonStr}`, 'rgba(255,255,255,0.7)')}
-                    </div>
-
-                    <div style="
-                        margin-top: 8px;
-                        padding-top: 6px;
-                        border-top: 1px solid rgba(255,255,255,0.06);
-                        display: flex;
-                        flex-direction: column;
-                        gap: 3px;
-                    ">
-                        <div style="display:flex;align-items:center;gap:6px;">
-                            <span style="font-size:11px;width:14px;text-align:center;">🕐</span>
-                            <span style="font-size:9px;color:rgba(255,255,255,0.35);">${dataTimeStr}</span>
-                            <span style="font-size:9px;font-weight:700;color:#FFA500;margin-left:auto;" class="cyclone-data-age" data-advisory-time="${posTime || ''}">${dataAgeStr}</span>
-                        </div>
-                        <div style="display:flex;align-items:center;gap:6px;">
-                            <span style="font-size:11px;width:14px;text-align:center;">📡</span>
-                            <span style="font-size:9px;color:rgba(255,255,255,0.35);">Next advisory</span>
-                            <span style="font-size:9px;font-weight:700;color:rgba(255,255,255,0.55);margin-left:auto;" class="cyclone-next-adv">${nextAdvStr}</span>
-                        </div>
-                    </div>
-                </div>
-            `;
+            buildStormBadgeDOM(wrapper, {
+                accentColor,
+                catLabel,
+                stormName,
+                basinStr,
+                sid: cyclone.sid,
+                pressure,
+                sustained,
+                gusts,
+                gustKts,
+                latStr,
+                lonStr,
+                dataTimeStr,
+                dataAgeStr,
+                posTime: posTime || '',
+                nextAdvStr,
+            });
             return wrapper;
         };
 
         // ── Rebuild markers — HUD badge + geo-anchored storm eye markers ──
         const HUD_CONTAINER_ID = 'cyclone-hud-badges';
-        let focusedStorm: ActiveCyclone | null = null;
+        const closestStormRef = { current: null as ActiveCyclone | null };
         const rebuildMarkers = () => {
+            // Resolve focused storm from ref (latest user selection) or closest fallback
+            const focusedStorm = selectedStormRef.current ?? closestStormRef.current;
             // Remove old HUD
             const old = map.getContainer().querySelector(`#${HUD_CONTAINER_ID}`);
             if (old) old.remove();
@@ -1691,7 +1612,7 @@ export function useCycloneLayer(
 
                 // ── Render storm info badge for focused storm ──
                 // Use user-selected storm if available, otherwise closest
-                focusedStorm = selectedStormRef.current ?? closest;
+                closestStormRef.current = closest;
                 rebuildMarkers();
 
                 // ── Satellite IR overlay — all 4 NOAA/SSEC geostationary satellites ──
@@ -1886,80 +1807,142 @@ function createStormBadgeStatic(cyclone: ActiveCyclone): HTMLDivElement {
     };
     const basinStr = basinLabels[cyclone.basin] ?? cyclone.basin;
 
-    const row = (icon: string, label: string, value: string, valueColor = 'rgba(255,255,255,0.9)') =>
-        `<div style="display:flex;align-items:center;gap:6px;">
-            <span style="font-size:11px;width:14px;text-align:center;">${icon}</span>
-            <span style="font-size:10px;color:rgba(255,255,255,0.45);min-width:60px;">${label}</span>
-            <span style="font-size:11px;font-weight:700;color:${valueColor};margin-left:auto;">${value}</span>
-        </div>`;
-
-    wrapper.innerHTML = `
-        <div style="
-            background: rgba(10, 15, 30, 0.88);
-            backdrop-filter: blur(16px);
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid ${accentColor}44;
-            border-left: 3px solid ${accentColor};
-            border-radius: 12px;
-            padding: 10px 14px;
-            color: #ffffff;
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
-            min-width: 200px;
-            max-width: 240px;
-            pointer-events: none;
-            z-index: 600;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.6), 0 0 12px ${accentColor}22;
-        ">
-            <div style="
-                font-size: 10px;
-                font-weight: 700;
-                letter-spacing: 1px;
-                color: ${accentColor};
-                text-transform: uppercase;
-                margin-bottom: 1px;
-                text-shadow: 0 0 8px ${accentColor}44;
-            ">${catLabel}</div>
-            <div style="
-                font-size: 18px;
-                font-weight: 800;
-                color: #ffffff;
-                margin-bottom: 2px;
-                text-transform: capitalize;
-                line-height: 1.2;
-            ">${stormName}</div>
-            <div style="
-                font-size: 9px;
-                color: rgba(255,255,255,0.35);
-                margin-bottom: 8px;
-            ">${basinStr} · ${cyclone.sid}</div>
-
-            <div style="display:flex;flex-direction:column;gap:4px;">
-                ${row('⬇', 'Pressure', pressure, accentColor)}
-                ${row('💨', 'Sustained', sustained, '#ffffff')}
-                ${row('🌪️', 'Gusts (est)', gusts, gustKts && gustKts >= 64 ? '#ef4444' : '#ffffff')}
-                ${row('📍', 'Position', `${latStr}  ${lonStr}`, 'rgba(255,255,255,0.7)')}
-            </div>
-
-            <div style="
-                margin-top: 8px;
-                padding-top: 6px;
-                border-top: 1px solid rgba(255,255,255,0.06);
-                display: flex;
-                flex-direction: column;
-                gap: 3px;
-            ">
-                <div style="display:flex;align-items:center;gap:6px;">
-                    <span style="font-size:11px;width:14px;text-align:center;">🕐</span>
-                    <span style="font-size:9px;color:rgba(255,255,255,0.35);">${dataTimeStr}</span>
-                    <span style="font-size:9px;font-weight:700;color:#FFA500;margin-left:auto;" class="cyclone-data-age" data-advisory-time="${posTime || ''}">${dataAgeStr}</span>
-                </div>
-                <div style="display:flex;align-items:center;gap:6px;">
-                    <span style="font-size:11px;width:14px;text-align:center;">📡</span>
-                    <span style="font-size:9px;color:rgba(255,255,255,0.35);">Next advisory</span>
-                    <span style="font-size:9px;font-weight:700;color:rgba(255,255,255,0.55);margin-left:auto;" class="cyclone-next-adv">${nextAdvStr}</span>
-                </div>
-            </div>
-        </div>
-    `;
+    buildStormBadgeDOM(wrapper, {
+        accentColor,
+        catLabel,
+        stormName,
+        basinStr,
+        sid: cyclone.sid,
+        pressure,
+        sustained,
+        gusts,
+        gustKts,
+        latStr,
+        lonStr,
+        dataTimeStr,
+        dataAgeStr,
+        posTime: posTime || '',
+        nextAdvStr,
+    });
     return wrapper;
+}
+
+// ── Shared storm badge DOM builder (no innerHTML) ──
+interface StormBadgeData {
+    accentColor: string;
+    catLabel: string;
+    stormName: string;
+    basinStr: string;
+    sid: string;
+    pressure: string;
+    sustained: string;
+    gusts: string;
+    gustKts: number | null;
+    latStr: string;
+    lonStr: string;
+    dataTimeStr: string;
+    dataAgeStr: string;
+    posTime: string;
+    nextAdvStr: string;
+}
+
+function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData): void {
+    const card = document.createElement('div');
+    card.style.cssText = `
+        background:rgba(10,15,30,0.88);backdrop-filter:blur(16px);
+        -webkit-backdrop-filter:blur(16px);border:1px solid ${d.accentColor}44;
+        border-left:3px solid ${d.accentColor};border-radius:12px;
+        padding:10px 14px;color:#fff;
+        font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;
+        min-width:200px;max-width:240px;pointer-events:none;z-index:600;
+        box-shadow:0 4px 24px rgba(0,0,0,0.6),0 0 12px ${d.accentColor}22;
+    `;
+
+    // Category label
+    const catEl = document.createElement('div');
+    catEl.style.cssText = `font-size:10px;font-weight:700;letter-spacing:1px;color:${d.accentColor};text-transform:uppercase;margin-bottom:1px;text-shadow:0 0 8px ${d.accentColor}44;`;
+    catEl.textContent = d.catLabel;
+    card.appendChild(catEl);
+
+    // Storm name
+    const nameEl = document.createElement('div');
+    nameEl.style.cssText =
+        'font-size:18px;font-weight:800;color:#fff;margin-bottom:2px;text-transform:capitalize;line-height:1.2;';
+    nameEl.textContent = d.stormName;
+    card.appendChild(nameEl);
+
+    // Basin / SID
+    const basinEl = document.createElement('div');
+    basinEl.style.cssText = 'font-size:9px;color:rgba(255,255,255,0.35);margin-bottom:8px;';
+    basinEl.textContent = `${d.basinStr} · ${d.sid}`;
+    card.appendChild(basinEl);
+
+    // Data rows
+    const rows = document.createElement('div');
+    rows.style.cssText = 'display:flex;flex-direction:column;gap:4px;';
+    const addRow = (icon: string, label: string, value: string, color = 'rgba(255,255,255,0.9)') => {
+        const r = document.createElement('div');
+        r.style.cssText = 'display:flex;align-items:center;gap:6px;';
+        const ic = document.createElement('span');
+        ic.style.cssText = 'font-size:11px;width:14px;text-align:center;';
+        ic.textContent = icon;
+        const lb = document.createElement('span');
+        lb.style.cssText = 'font-size:10px;color:rgba(255,255,255,0.45);min-width:60px;';
+        lb.textContent = label;
+        const vl = document.createElement('span');
+        vl.style.cssText = `font-size:11px;font-weight:700;color:${color};margin-left:auto;`;
+        vl.textContent = value;
+        r.appendChild(ic);
+        r.appendChild(lb);
+        r.appendChild(vl);
+        rows.appendChild(r);
+    };
+    addRow('⬇', 'Pressure', d.pressure, d.accentColor);
+    addRow('💨', 'Sustained', d.sustained, '#ffffff');
+    addRow('🌪️', 'Gusts (est)', d.gusts, d.gustKts && d.gustKts >= 64 ? '#ef4444' : '#ffffff');
+    addRow('📍', 'Position', `${d.latStr}  ${d.lonStr}`, 'rgba(255,255,255,0.7)');
+    card.appendChild(rows);
+
+    // Footer (data age + next advisory)
+    const footer = document.createElement('div');
+    footer.style.cssText =
+        'margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;gap:3px;';
+
+    const ageRow = document.createElement('div');
+    ageRow.style.cssText = 'display:flex;align-items:center;gap:6px;';
+    const ageIcon = document.createElement('span');
+    ageIcon.style.cssText = 'font-size:11px;width:14px;text-align:center;';
+    ageIcon.textContent = '🕐';
+    const ageTime = document.createElement('span');
+    ageTime.style.cssText = 'font-size:9px;color:rgba(255,255,255,0.35);';
+    ageTime.textContent = d.dataTimeStr;
+    const ageVal = document.createElement('span');
+    ageVal.style.cssText = 'font-size:9px;font-weight:700;color:#FFA500;margin-left:auto;';
+    ageVal.className = 'cyclone-data-age';
+    ageVal.dataset.advisoryTime = d.posTime;
+    ageVal.textContent = d.dataAgeStr;
+    ageRow.appendChild(ageIcon);
+    ageRow.appendChild(ageTime);
+    ageRow.appendChild(ageVal);
+    footer.appendChild(ageRow);
+
+    const advRow = document.createElement('div');
+    advRow.style.cssText = 'display:flex;align-items:center;gap:6px;';
+    const advIcon = document.createElement('span');
+    advIcon.style.cssText = 'font-size:11px;width:14px;text-align:center;';
+    advIcon.textContent = '📡';
+    const advLabel = document.createElement('span');
+    advLabel.style.cssText = 'font-size:9px;color:rgba(255,255,255,0.35);';
+    advLabel.textContent = 'Next advisory';
+    const advVal = document.createElement('span');
+    advVal.style.cssText = 'font-size:9px;font-weight:700;color:rgba(255,255,255,0.55);margin-left:auto;';
+    advVal.className = 'cyclone-next-adv';
+    advVal.textContent = d.nextAdvStr;
+    advRow.appendChild(advIcon);
+    advRow.appendChild(advLabel);
+    advRow.appendChild(advVal);
+    footer.appendChild(advRow);
+
+    card.appendChild(footer);
+    wrapper.appendChild(card);
 }

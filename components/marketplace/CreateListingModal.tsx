@@ -193,7 +193,8 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                     setLocationWarning(null);
                 }
             }
-        } catch (e) { console.warn("Suppressed:", e);
+        } catch (e) {
+            console.warn('Suppressed:', e);
             setLocationWarning(null);
         }
     }, []);

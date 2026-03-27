@@ -13,7 +13,8 @@ const log = createLogger('useMapInit');
 import mapboxgl from 'mapbox-gl';
 import { LocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
-import { GpsService } from '../../services/GpsService';
+import { GpsService as _GpsService } from '../../services/GpsService';
+import { createPinMarker } from '../../utils/createMarkerEl';
 
 interface UseMapInitOptions {
     containerRef: MutableRefObject<HTMLDivElement | null>;
@@ -92,16 +93,8 @@ export function useMapInit(opts: UseMapInitOptions) {
                 pinMarkerRef.current.remove();
             }
 
-            const el = document.createElement('div');
+            const el = createPinMarker();
             el.className = 'mapbox-pin-marker';
-            el.innerHTML = `
-            <div style="
-                width: 24px; height: 24px; background: #38bdf8;
-                border: 3px solid #fff; border-radius: 50% 50% 50% 0;
-                transform: rotate(-45deg); box-shadow: 0 4px 12px rgba(56,189,248,0.4);
-                animation: pinBounce 0.4s ease-out;
-            "></div>
-        `;
 
             const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' }).setLngLat([lon, lat]).addTo(map);
 
@@ -182,8 +175,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             maxZoom: 18,
             minZoom: embedded ? initialZoom : 1,
             renderWorldCopies: true,
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            projection: 'mercator' as any,
+            projection: 'mercator' as mapboxgl.MapboxOptions['projection'],
             interactive: true,
             dragPan: true,
             scrollZoom: true,
@@ -565,8 +557,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                 .then((r) => r.json())
                 .then((geojson: Record<string, unknown>) => {
                     if (!map.getSource('nav-markers')) {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        map.addSource('nav-markers', { type: 'geojson', data: geojson as any });
+                        map.addSource('nav-markers', { type: 'geojson', data: geojson as unknown as GeoJSON.GeoJSON });
 
                         const markerColors = [
                             'match',
@@ -598,8 +589,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                             'anchorage',
                             '#40c4ff',
                             '#888888',
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        ] as any;
+                        ] as mapboxgl.Expression;
 
                         map.addLayer({
                             id: 'nav-markers-glow',

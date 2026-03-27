@@ -47,9 +47,7 @@ export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onCli
         <div
             className="relative flex items-center justify-center"
             style={{
-                filter: active
-                    ? 'brightness(1.2) drop-shadow(0 0 6px rgba(34, 211, 238, 0.4))'
-                    : 'none',
+                filter: active ? 'brightness(1.2) drop-shadow(0 0 6px rgba(34, 211, 238, 0.4))' : 'none',
                 transform: active ? 'scale(1.1)' : 'none',
                 transition: 'all 0.2s ease-in-out',
                 willChange: 'transform, filter',

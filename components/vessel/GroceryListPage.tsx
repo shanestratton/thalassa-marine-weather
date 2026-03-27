@@ -31,7 +31,17 @@ interface GroceryListPageProps {
     onBack: () => void;
 }
 
-const ALL_ZONES: MarketZone[] = ['General', 'Produce', 'Butcher', 'Dairy', 'Bakery', 'Bottle Shop', 'Pharmacy', 'Chandlery', 'Fuel Dock'];
+const ALL_ZONES: MarketZone[] = [
+    'General',
+    'Produce',
+    'Butcher',
+    'Dairy',
+    'Bakery',
+    'Bottle Shop',
+    'Pharmacy',
+    'Chandlery',
+    'Fuel Dock',
+];
 
 export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
     const [summary, setSummary] = useState<ShoppingListSummary | null>(null);
@@ -59,7 +69,9 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                 for (const z of b.byZone) byZoneMap[z.zone] = z.spent;
                 setBudget({ total: b.totalSpent, byZone: byZoneMap });
             }
-        } catch (e) { console.warn("Suppressed:", e); }
+        } catch (e) {
+            console.warn('Suppressed:', e);
+        }
     }, []);
 
     useEffect(() => {
@@ -95,38 +107,32 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
     }, []);
 
     // Confirm purchase with optional price + store
-    const handleConfirmPurchase = useCallback(
-        async () => {
-            if (!priceItem) return;
-            setPurchasingId(priceItem.id);
-            triggerHaptic('medium');
-            const cost = priceValue ? parseFloat(priceValue) : undefined;
-            const store = storeName.trim() || undefined;
-            await markPurchased(priceItem.id, cost, store);
-            setPurchasingId(null);
-            setPriceItem(null);
-            setPriceValue('');
-            setStoreName('');
-            loadList();
-        },
-        [priceItem, priceValue, storeName, loadList],
-    );
+    const handleConfirmPurchase = useCallback(async () => {
+        if (!priceItem) return;
+        setPurchasingId(priceItem.id);
+        triggerHaptic('medium');
+        const cost = priceValue ? parseFloat(priceValue) : undefined;
+        const store = storeName.trim() || undefined;
+        await markPurchased(priceItem.id, cost, store);
+        setPurchasingId(null);
+        setPriceItem(null);
+        setPriceValue('');
+        setStoreName('');
+        loadList();
+    }, [priceItem, priceValue, storeName, loadList]);
 
     // Skip price → just mark purchased
-    const handleSkipPrice = useCallback(
-        async () => {
-            if (!priceItem) return;
-            setPurchasingId(priceItem.id);
-            triggerHaptic('medium');
-            await markPurchased(priceItem.id);
-            setPurchasingId(null);
-            setPriceItem(null);
-            setPriceValue('');
-            setStoreName('');
-            loadList();
-        },
-        [priceItem, loadList],
-    );
+    const handleSkipPrice = useCallback(async () => {
+        if (!priceItem) return;
+        setPurchasingId(priceItem.id);
+        triggerHaptic('medium');
+        await markPurchased(priceItem.id);
+        setPurchasingId(null);
+        setPriceItem(null);
+        setPriceValue('');
+        setStoreName('');
+        loadList();
+    }, [priceItem, loadList]);
 
     // Untick — revert a purchased item back to "needs buying"
     const handleUntick = useCallback(
@@ -176,10 +182,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                             <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                                 {summary.remaining} remaining · {summary.purchased} purchased
                                 {summary.totalCost > 0 && (
-                                    <span className="text-emerald-400">
-                                        {' '}
-                                        · ${summary.totalCost.toFixed(2)}
-                                    </span>
+                                    <span className="text-emerald-400"> · ${summary.totalCost.toFixed(2)}</span>
                                 )}
                             </p>
                         ) : (
@@ -200,7 +203,11 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                     : 'text-gray-500 hover:text-gray-300'
                             }`}
                         >
-                            {f === 'remaining' ? `🛒 Need (${summary?.remaining ?? 0})` : f === 'purchased' ? `✅ Done (${summary?.purchased ?? 0})` : `📋 All (${summary?.total ?? 0})`}
+                            {f === 'remaining'
+                                ? `🛒 Need (${summary?.remaining ?? 0})`
+                                : f === 'purchased'
+                                  ? `✅ Done (${summary?.purchased ?? 0})`
+                                  : `📋 All (${summary?.total ?? 0})`}
                         </button>
                     ))}
                 </div>
@@ -210,7 +217,13 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                     {!summary || summary.total === 0 ? (
                         <EmptyState
                             icon={
-                                <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                <svg
+                                    className="w-8 h-8"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={1.5}
+                                >
                                     <path
                                         strokeLinecap="round"
                                         strokeLinejoin="round"
@@ -225,14 +238,10 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                     ) : filteredZones.length === 0 ? (
                         <EmptyState
                             icon={<span className="text-3xl">✅</span>}
-                            title={
-                                filter === 'remaining'
-                                    ? 'All Done!'
-                                    : 'No Purchased Items'
-                            }
+                            title={filter === 'remaining' ? 'All Done!' : 'No Purchased Items'}
                             subtitle={
                                 filter === 'remaining'
-                                    ? 'All items have been purchased and added to Ship\'s Stores'
+                                    ? "All items have been purchased and added to Ship's Stores"
                                     : 'Items will appear here once purchased'
                             }
                             className="py-16"
@@ -246,9 +255,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                     <span className="text-label font-black text-gray-400 uppercase tracking-widest">
                                         {zone.zone}
                                     </span>
-                                    <span className="text-micro text-gray-500 font-bold">
-                                        ({zone.items.length})
-                                    </span>
+                                    <span className="text-micro text-gray-500 font-bold">({zone.items.length})</span>
                                 </div>
 
                                 {/* Items */}
@@ -272,7 +279,9 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                             >
                                                 {/* Checkbox */}
                                                 <button
-                                                    onClick={() => item.purchased ? handleUntick(item) : handleCheckbox(item)}
+                                                    onClick={() =>
+                                                        item.purchased ? handleUntick(item) : handleCheckbox(item)
+                                                    }
                                                     disabled={isPurchasing}
                                                     className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center flex-shrink-0 transition-all active:scale-90 ${
                                                         item.purchased
@@ -281,16 +290,28 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                                               ? 'border-amber-400 animate-pulse'
                                                               : 'border-gray-600 hover:border-emerald-400'
                                                     }`}
-                                                    aria-label={item.purchased ? `Undo ${item.ingredient_name}` : `Mark ${item.ingredient_name} as purchased`}
+                                                    aria-label={
+                                                        item.purchased
+                                                            ? `Undo ${item.ingredient_name}`
+                                                            : `Mark ${item.ingredient_name} as purchased`
+                                                    }
                                                 >
                                                     {item.purchased && (
-                                                        <svg className="w-3.5 h-3.5 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                                                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                                        <svg
+                                                            className="w-3.5 h-3.5 text-black"
+                                                            fill="none"
+                                                            viewBox="0 0 24 24"
+                                                            stroke="currentColor"
+                                                            strokeWidth={3}
+                                                        >
+                                                            <path
+                                                                strokeLinecap="round"
+                                                                strokeLinejoin="round"
+                                                                d="M4.5 12.75l6 6 9-13.5"
+                                                            />
                                                         </svg>
                                                     )}
-                                                    {isPurchasing && (
-                                                        <span className="text-[10px]">⏳</span>
-                                                    )}
+                                                    {isPurchasing && <span className="text-[10px]">⏳</span>}
                                                 </button>
 
                                                 {/* Name + purchase info */}
@@ -306,14 +327,18 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                                         <p className="text-[9px] text-emerald-500/60">
                                                             ✅ {new Date(item.purchased_at).toLocaleDateString()}
                                                             {item.store_location ? ` · ${item.store_location}` : ''}
-                                                            {item.actual_cost ? ` · $${item.actual_cost.toFixed(2)}` : ''}
+                                                            {item.actual_cost
+                                                                ? ` · $${item.actual_cost.toFixed(2)}`
+                                                                : ''}
                                                         </p>
                                                     )}
                                                 </div>
 
                                                 {/* Purchase quantity */}
                                                 <div className="text-right flex-shrink-0">
-                                                    <span className={`text-[11px] font-bold tabular-nums ${item.purchased ? 'text-gray-600' : 'text-emerald-400'}`}>
+                                                    <span
+                                                        className={`text-[11px] font-bold tabular-nums ${item.purchased ? 'text-gray-600' : 'text-emerald-400'}`}
+                                                    >
                                                         {purchase.packageCount} × {purchase.packageLabel}
                                                     </span>
                                                     {purchase.matched && (
@@ -335,8 +360,12 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                 {budget && budget.total > 0 && (
                     <div className="shrink-0 mx-4 mb-3 p-3 rounded-xl bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.04] border border-emerald-500/10">
                         <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">💰 Voyage Spend</span>
-                            <span className="text-sm font-black text-emerald-400 tabular-nums">${budget.total.toFixed(2)}</span>
+                            <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
+                                💰 Voyage Spend
+                            </span>
+                            <span className="text-sm font-black text-emerald-400 tabular-nums">
+                                ${budget.total.toFixed(2)}
+                            </span>
                         </div>
                         <div className="flex flex-wrap gap-x-3 gap-y-1">
                             {Object.entries(budget.byZone)
@@ -344,7 +373,8 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                 .sort(([, a], [, b]) => b - a)
                                 .map(([zone, cost]) => (
                                     <span key={zone} className="text-[9px] text-gray-500">
-                                        {ZONE_EMOJI[zone as MarketZone] || '🛒'} {zone}: <span className="text-gray-400 font-bold">${cost.toFixed(2)}</span>
+                                        {ZONE_EMOJI[zone as MarketZone] || '🛒'} {zone}:{' '}
+                                        <span className="text-gray-400 font-bold">${cost.toFixed(2)}</span>
                                     </span>
                                 ))}
                         </div>
@@ -383,7 +413,13 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                 className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 w-14 h-14 rounded-2xl bg-gradient-to-br from-emerald-500 to-teal-500 shadow-lg shadow-emerald-500/30 flex items-center justify-center active:scale-90 transition-transform"
                 aria-label="Add item"
             >
-                <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <svg
+                    className="w-7 h-7 text-white"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth={2.5}
+                >
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
                 </svg>
             </button>
@@ -397,12 +433,12 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                         onClick={(e) => e.stopPropagation()}
                     >
                         <h3 className="text-sm font-black text-white mb-1">✅ Mark as Purchased</h3>
-                        <p className="text-[11px] text-gray-400 mb-4">
-                            {priceItem.ingredient_name}
-                        </p>
+                        <p className="text-[11px] text-gray-400 mb-4">{priceItem.ingredient_name}</p>
 
                         {/* Price input */}
-                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Price (optional)</label>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                            Price (optional)
+                        </label>
                         <div className="flex items-center gap-2 mt-1 mb-4">
                             <span className="text-lg font-bold text-gray-500">$</span>
                             <input
@@ -420,7 +456,9 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                         </div>
 
                         {/* Store name */}
-                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Store (optional)</label>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                            Store (optional)
+                        </label>
                         <input
                             type="text"
                             value={storeName}
@@ -478,7 +516,9 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                         <h3 className="text-sm font-black text-white mb-4">➕ Add to Shopping List</h3>
 
                         {/* Item name */}
-                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Item Name</label>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                            Item Name
+                        </label>
                         <input
                             ref={addNameRef}
                             type="text"
@@ -492,7 +532,9 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                         {/* Qty + Unit row */}
                         <div className="flex gap-2 mb-3">
                             <div className="flex-1">
-                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Qty</label>
+                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                                    Qty
+                                </label>
                                 <input
                                     type="number"
                                     inputMode="decimal"
@@ -503,7 +545,9 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                 />
                             </div>
                             <div className="flex-1">
-                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Unit</label>
+                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                                    Unit
+                                </label>
                                 <select
                                     value={addUnit}
                                     onChange={(e) => setAddUnit(e.target.value)}
@@ -525,7 +569,9 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                         </div>
 
                         {/* Zone picker */}
-                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Aisle / Zone</label>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                            Aisle / Zone
+                        </label>
                         <div className="flex flex-wrap gap-1.5 mt-1 mb-4">
                             {ALL_ZONES.map((z) => (
                                 <button

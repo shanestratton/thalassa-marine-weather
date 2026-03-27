@@ -33,9 +33,9 @@ import {
 import { supabase } from '../services/supabase';
 import { triggerHaptic } from '../utils/system';
 import { toast } from './Toast';
-import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
+import { scrollInputAboveKeyboard as _scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { getDraftVoyages, updateVoyage, type Voyage } from '../services/VoyageService';
-import { getCrewCount } from '../services/MealPlanService';
+import { getCrewCount as _getCrewCount } from '../services/MealPlanService';
 import { setActivePassage, getActivePassageId } from '../services/PassagePlanService';
 import { AuthModal } from './AuthModal';
 import { lazyRetry } from '../utils/lazyRetry';
@@ -52,7 +52,122 @@ interface CrewManagementProps {
 import { SwipeableCrewCard } from './crew/SwipeableCrewCard';
 import { PassagePlanningPanel } from './crew/PassagePlanningPanel';
 import { InviteCrewModal } from './crew/InviteCrewModal';
-import { RegisterButton } from './crew/RegisterButton';
+import { RegisterButton as _RegisterButton } from './crew/RegisterButton';
+import { GalleyCard } from './chat/GalleyCard';
+import { CustomsClearanceCard } from './passage/CustomsClearanceCard';
+import { WeatherBriefingCard } from './passage/WeatherBriefingCard';
+import { EssentialReservesCard } from './passage/EssentialReservesCard';
+import { PassageSummaryCard } from './passage/PassageSummaryCard';
+import { AidToNavigationCard } from './passage/AidToNavigationCard';
+import { WatchScheduleCard } from './passage/WatchScheduleCard';
+import { CommsPlanCard } from './passage/CommsPlanCard';
+import { VesselCheckCard } from './passage/VesselCheckCard';
+import { MedicalFirstAidCard } from './passage/MedicalFirstAidCard';
+
+/* ── Delegation Badge ─── */
+const DELEGATABLE_CARDS: Record<string, { label: string; roles: string[] }> = {
+    vessel_check: { label: 'Vessel Pre-Check', roles: ['Bosun', 'Engineer', 'First Mate'] },
+    medical: { label: 'Medical & First Aid', roles: ['Medic', 'Nurse', 'Doctor'] },
+    essential_reserves: { label: 'Essential Reserves', roles: ['First Mate', 'Bosun'] },
+    watch_schedule: { label: 'Watch Schedule', roles: ['First Mate', 'Watch Captain'] },
+    comms_plan: { label: 'Communications', roles: ['Radio Operator', 'First Mate'] },
+    customs_clearance: { label: 'Customs & Clearance', roles: ["Ship's Agent", 'First Mate'] },
+};
+
+/** Cards that ONLY the skipper can sign off — not delegatable */
+const SKIPPER_ONLY = ['weather_briefing', 'aid_to_navigation'];
+
+interface DelegationBadgeProps {
+    cardKey: string;
+    delegations: Record<string, string>;
+    crewList: { crew_email: string }[];
+    menuOpen: string | null;
+    onMenuToggle: (key: string | null) => void;
+    onAssign: (cardKey: string, crewEmail: string | null) => void;
+}
+
+const DelegationBadge: React.FC<DelegationBadgeProps> = ({
+    cardKey,
+    delegations,
+    crewList,
+    menuOpen,
+    onMenuToggle,
+    onAssign,
+}) => {
+    if (SKIPPER_ONLY.includes(cardKey)) {
+        return (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/15 text-[9px] font-bold text-amber-400/80 uppercase tracking-wider ml-1.5">
+                👨‍✈️ Skipper
+            </span>
+        );
+    }
+
+    const assigned = delegations[cardKey];
+    const emailPrefix = (email: string) => email.split('@')[0].slice(0, 12);
+    const isOpen = menuOpen === cardKey;
+
+    return (
+        <span className="relative inline-flex ml-1.5">
+            <button
+                onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onMenuToggle(isOpen ? null : cardKey);
+                }}
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider transition-all border ${
+                    assigned
+                        ? 'bg-sky-500/10 border-sky-500/20 text-sky-400'
+                        : 'bg-white/[0.04] border-white/[0.08] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08]'
+                }`}
+            >
+                {assigned ? `👤 ${emailPrefix(assigned)}` : '👤 Assign'}
+            </button>
+
+            {isOpen && (
+                <div
+                    className="absolute top-full left-0 mt-1 z-50 w-48 bg-gray-900/95 backdrop-blur-lg border border-white/10 rounded-xl shadow-2xl py-1 animate-in fade-in slide-in-from-top-1 duration-150"
+                    onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }}
+                >
+                    <div className="px-3 py-1.5 text-[9px] font-bold text-gray-500 uppercase tracking-widest">
+                        {DELEGATABLE_CARDS[cardKey]?.roles.join(' · ') || 'Assign To'}
+                    </div>
+                    {crewList.length === 0 ? (
+                        <div className="px-3 py-2 text-[11px] text-gray-500 italic">No crew members yet</div>
+                    ) : (
+                        crewList.map((c) => (
+                            <button
+                                key={c.crew_email}
+                                onClick={() => onAssign(cardKey, c.crew_email)}
+                                className={`w-full text-left px-3 py-2 text-xs transition-colors ${
+                                    assigned === c.crew_email
+                                        ? 'bg-sky-500/10 text-sky-400 font-bold'
+                                        : 'text-gray-300 hover:bg-white/[0.06]'
+                                }`}
+                            >
+                                <span className="mr-1.5">{assigned === c.crew_email ? '✓' : '○'}</span>
+                                {c.crew_email}
+                            </button>
+                        ))
+                    )}
+                    {assigned && (
+                        <>
+                            <div className="border-t border-white/[0.06] my-1" />
+                            <button
+                                onClick={() => onAssign(cardKey, null)}
+                                className="w-full text-left px-3 py-2 text-xs text-red-400/70 hover:bg-red-500/10 transition-colors"
+                            >
+                                ✕ Unassign
+                            </button>
+                        </>
+                    )}
+                </div>
+            )}
+        </span>
+    );
+};
 
 // ── Main Component ─────────────────────────────────────────────
 
@@ -87,11 +202,80 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
     // Cast Off state
     const [showCastOff, setShowCastOff] = useState(false);
-    const [activeVoyageName, setActiveVoyageName] = useState<string | null>(null);
+    const [_activeVoyageName, setActiveVoyageName] = useState<string | null>(null);
 
     // Draft passage plans (moved from Welcome Aboard)
     const [draftVoyages, setDraftVoyages] = useState<Voyage[]>([]);
     const [selectedPassageId, setSelectedPassageId] = useState<string>(getActivePassageId() || '');
+
+    // Customs readiness tracking
+    const [customsCleared, setCustomsCleared] = useState(false);
+    const [customsProgress, setCustomsProgress] = useState<{ total: number; checked: number }>({
+        total: 0,
+        checked: 0,
+    });
+
+    // Weather briefing tracking
+    const [weatherReviewed, setWeatherReviewed] = useState(false);
+
+    // Essential reserves tracking
+    const [reservesReady, setReservesReady] = useState(false);
+
+    // Aid to Navigation legal acknowledgment
+    const [navAcknowledged, setNavAcknowledged] = useState(false);
+
+    // Watch schedule tracking
+    const [watchBriefed, setWatchBriefed] = useState(false);
+
+    // Communications plan tracking
+    const [commsReady, setCommsReady] = useState(false);
+
+    // Vessel pre-departure check tracking
+    const [vesselChecked, setVesselChecked] = useState(false);
+
+    // Medical & first aid tracking
+    const [medicalReady, setMedicalReady] = useState(false);
+
+    // Card delegation — which crew member is responsible for each card
+    const DELEGATION_STORAGE_KEY = 'thalassa_card_delegations';
+    const [cardDelegations, setCardDelegations] = useState<Record<string, string>>(() => {
+        try {
+            const stored = localStorage.getItem(DELEGATION_STORAGE_KEY);
+            return stored ? JSON.parse(stored) : {};
+        } catch {
+            return {};
+        }
+    });
+    const [delegationMenuOpen, setDelegationMenuOpen] = useState<string | null>(null);
+
+    const assignCard = useCallback((cardKey: string, crewEmail: string | null) => {
+        setCardDelegations((prev) => {
+            const next = { ...prev };
+            if (crewEmail) {
+                next[cardKey] = crewEmail;
+            } else {
+                delete next[cardKey];
+            }
+            try {
+                localStorage.setItem(DELEGATION_STORAGE_KEY, JSON.stringify(next));
+            } catch {
+                /* ignore */
+            }
+            return next;
+        });
+        setDelegationMenuOpen(null);
+    }, []);
+
+    // Compute if ALL readiness cards are green (for Cast Off gate)
+    const allCardsReady =
+        customsCleared &&
+        weatherReviewed &&
+        reservesReady &&
+        navAcknowledged &&
+        watchBriefed &&
+        commsReady &&
+        vesselChecked &&
+        medicalReady;
 
     // Disband group
     const [showDisbandConfirm, setShowDisbandConfirm] = useState(false);
@@ -106,6 +290,15 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [planDestPort, setPlanDestPort] = useState('');
     const [planNotes, setPlanNotes] = useState('');
     const [planCrewCount, setPlanCrewCount] = useState(() => {
+        try {
+            const raw = localStorage.getItem('CapacitorStorage.thalassa_settings');
+            if (raw) {
+                const s = JSON.parse(raw);
+                if (s?.vessel?.crewCount) return s.vessel.crewCount;
+            }
+        } catch {
+            /* ignore */
+        }
         const stored = localStorage.getItem('thalassa_crew_count');
         return stored ? parseInt(stored) || 2 : 2;
     });
@@ -122,7 +315,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     }, []);
 
     // Check auth + get user email
-    const [userEmail, setUserEmail] = useState<string | null>(null);
+    const [_userEmail, setUserEmail] = useState<string | null>(null);
     useEffect(() => {
         if (!supabase) return;
         supabase.auth.getUser().then(({ data }) => {
@@ -295,16 +488,18 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         setPlanDestPort(v.destination_port || '');
         setPlanNotes(v.notes || '');
         setShowPlanning(true);
-        // Load crew count — read from shared localStorage first, Supabase as fallback
-        const storedCrew = localStorage.getItem('thalassa_crew_count');
-        if (storedCrew) {
-            setPlanCrewCount(parseInt(storedCrew) || 2);
-        } else {
-            getCrewCount(v.id).then((count) => {
-                setPlanCrewCount(count);
-                localStorage.setItem('thalassa_crew_count', String(count));
-            }).catch(() => setPlanCrewCount(2));
+        // Load crew count from vessel settings, fallback to localStorage, then Supabase
+        let settingsCrewCount = 2;
+        try {
+            const raw = localStorage.getItem('CapacitorStorage.thalassa_settings');
+            if (raw) {
+                const s = JSON.parse(raw);
+                if (s?.vessel?.crewCount) settingsCrewCount = s.vessel.crewCount;
+            }
+        } catch {
+            /* ignore */
         }
+        setPlanCrewCount(settingsCrewCount);
         triggerHaptic('light');
     }, [draftVoyages, selectedPassageId]);
 
@@ -321,9 +516,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         setSavingPlan(false);
         if (result.voyage) {
             // Update local draft list with new values
-            setDraftVoyages((prev) =>
-                prev.map((v) => (v.id === selectedPassageId ? result.voyage! : v)),
-            );
+            setDraftVoyages((prev) => prev.map((v) => (v.id === selectedPassageId ? result.voyage! : v)));
             toast.success('Passage updated');
             triggerHaptic('medium');
             setShowPlanning(false);
@@ -353,7 +546,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                         </svg>
                     </button>
-                    <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Crew</h1>
+                    <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Passage Planning</h1>
                 </div>
                 <div className="flex-1 flex items-center justify-center p-8">
                     <div className="text-center">
@@ -387,7 +580,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         );
     }
 
-    const isEmpty = visibleCrew.length === 0 && memberships.length === 0 && pendingInvites.length === 0;
+    const _isEmpty = visibleCrew.length === 0 && memberships.length === 0 && pendingInvites.length === 0;
 
     return (
         <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`}>
@@ -410,7 +603,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                             </svg>
                         </button>
-                        <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Crew</h1>
+                        <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Passage Planning</h1>
                     </div>
                     <button
                         aria-label="Invite"
@@ -421,40 +614,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         }}
                         className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 transition-colors"
                     >
-                        + Invite
+                        + Invite Crew
                     </button>
                 </div>
             </div>
 
             {/* Content */}
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-24" style={{ WebkitOverflowScrolling: 'touch' }}>
-                {/* User's email — for sharing with potential crew */}
-                {userEmail && (
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 mb-4 flex items-center justify-between">
-                        <div>
-                            <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-                                Your Email (share for invites)
-                            </p>
-                            <p className="text-sm font-bold text-white mt-0.5">{userEmail}</p>
-                        </div>
-                        <button
-                            aria-label="Text"
-                            onClick={() => {
-                                navigator.clipboard
-                                    ?.writeText(userEmail)
-                                    .then(() => {
-                                        toast.success('Email copied!');
-                                        triggerHaptic('light');
-                                    })
-                                    .catch(() => toast.error('Could not copy'));
-                            }}
-                            className="px-3 py-1.5 bg-sky-500/10 border border-sky-500/20 rounded-lg text-[11px] font-bold text-sky-300 active:scale-95 transition-transform"
-                        >
-                            📋 Copy
-                        </button>
-                    </div>
-                )}
-
                 {/* ── ACTIVE PASSAGE SELECTOR ── */}
                 <div className="mb-4">
                     <label className="text-[10px] uppercase font-bold text-violet-400/60 tracking-wider mb-1.5 block">
@@ -470,8 +636,12 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                     setActivePassage(id);
                                     triggerHaptic('light');
                                     // Update voyage name display
-                                    const v = draftVoyages.find(v => v.id === id);
-                                    if (v) setActiveVoyageName(v.voyage_name || `${v.departure_port || '?'} → ${v.destination_port || '?'}`);
+                                    const v = draftVoyages.find((v) => v.id === id);
+                                    if (v)
+                                        setActiveVoyageName(
+                                            v.voyage_name ||
+                                                `${v.departure_port || '?'} → ${v.destination_port || '?'}`,
+                                        );
                                 } else {
                                     setActiveVoyageName(null);
                                 }
@@ -489,15 +659,15 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             </option>
                             {draftVoyages.map((v) => (
                                 <option key={v.id} value={v.id} style={{ background: '#1e293b' }}>
-                                    {v.voyage_name ||
-                                        `${v.departure_port || '?'} → ${v.destination_port || '?'}`}
+                                    {v.voyage_name || `${v.departure_port || '?'} → ${v.destination_port || '?'}`}
                                 </option>
                             ))}
                         </select>
                     ) : (
                         <div className="bg-white/[0.03] border border-dashed border-white/[0.08] rounded-lg p-3 text-center">
                             <p className="text-[11px] text-gray-400">
-                                No draft passages yet. Plan a route from the <strong>Route Planner</strong> to create one.
+                                No draft passages yet. Plan a route from the <strong>Route Planner</strong> to create
+                                one.
                             </p>
                         </div>
                     )}
@@ -522,8 +692,15 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                     setShowCastOff(true);
                                     triggerHaptic('medium');
                                 }}
-                                disabled={!draftVoyages.find((v) => v.id === selectedPassageId)?.departure_time}
-                                className="flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 text-amber-300 transition-all active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed hover:from-amber-500/20 hover:to-orange-500/20 flex items-center justify-center gap-1.5"
+                                disabled={
+                                    !allCardsReady ||
+                                    !draftVoyages.find((v) => v.id === selectedPassageId)?.departure_time
+                                }
+                                className={`flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest border transition-all active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 ${
+                                    allCardsReady
+                                        ? 'bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border-emerald-500/20 text-emerald-300 hover:from-emerald-500/20 hover:to-teal-500/20'
+                                        : 'bg-white/[0.03] border-white/[0.08] text-gray-500'
+                                }`}
                             >
                                 ⚓ Cast Off
                             </button>
@@ -537,7 +714,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 planDeparturePort={planDeparturePort}
                                 planDestPort={planDestPort}
                                 planNotes={planNotes}
-                                planCrewCount={planCrewCount}
+                                planCrewCount={Math.max(planCrewCount, visibleCrew.length + 1)}
                                 savingPlan={savingPlan}
                                 onDepartureChange={setPlanDeparture}
                                 onEtaChange={setPlanEta}
@@ -550,41 +727,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         )}
                     </div>
                 )}
+
                 {loading ? (
                     <div className="flex items-center justify-center py-20">
                         <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
                     </div>
                 ) : (
                     <>
-                        {/* ── How It Works — shown at TOP when empty ── */}
-                        {isEmpty && (
-                            <div className="bg-white/[0.02] border border-white/[0.04] rounded-xl p-4 mb-6">
-                                <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-[0.15em] mb-3">
-                                    How Crew Sharing Works
-                                </h3>
-                                <div className="space-y-2.5">
-                                    {[
-                                        { icon: '📧', text: "Tap + Invite and enter your crew's email address" },
-                                        {
-                                            icon: '🔐',
-                                            text: 'Choose which registers to share (Inventory, Equipment, R&M, Documents)',
-                                        },
-                                        {
-                                            icon: '✅',
-                                            text: "They'll see the invite in their Thalassa app and accept it",
-                                        },
-                                        { icon: '✏️', text: 'Once accepted, their edits go directly to your data' },
-                                        { icon: '👈', text: 'Swipe left on any crew card to remove access' },
-                                    ].map((step, i) => (
-                                        <div key={i} className="flex items-center gap-2.5">
-                                            <span className="text-sm">{step.icon}</span>
-                                            <p className="text-[11px] text-gray-400">{step.text}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
                         {/* ── PENDING INVITES (Crew view) ── */}
                         {pendingInvites.length > 0 && (
                             <div className="mb-6">
@@ -671,6 +820,51 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             </div>
                         )}
 
+                        {/* ═══ 1. PASSAGE SUMMARY — Context setter ═══ */}
+                        {(() => {
+                            const activeVoyage = draftVoyages.find((v) => v.id === selectedPassageId);
+                            if (!activeVoyage) return null;
+                            return (
+                                <div className="mb-4">
+                                    <details className="group">
+                                        <summary className="w-full flex items-center gap-3 p-3 rounded-2xl border bg-gradient-to-r from-sky-500/[0.06] to-indigo-500/[0.03] border-sky-500/15 hover:from-sky-500/[0.1] hover:to-indigo-500/[0.06] transition-all cursor-pointer list-none">
+                                            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-sky-500/20 to-indigo-500/10 border border-sky-500/20 flex items-center justify-center text-xl flex-shrink-0">
+                                                🧭
+                                            </div>
+                                            <div className="flex-1 text-left">
+                                                <p className="text-lg font-semibold text-white">Passage Summary</p>
+                                                <p className="text-sm text-sky-400/70">
+                                                    {activeVoyage.departure_port || '—'} →{' '}
+                                                    {activeVoyage.destination_port || '—'}
+                                                </p>
+                                            </div>
+                                            <svg
+                                                className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                                stroke="currentColor"
+                                                strokeWidth={2}
+                                            >
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                                                />
+                                            </svg>
+                                        </summary>
+                                        <div className="mt-2 animate-in slide-in-from-top-2 duration-200">
+                                            <PassageSummaryCard
+                                                departPort={activeVoyage.departure_port || undefined}
+                                                destPort={activeVoyage.destination_port || undefined}
+                                                departureTime={activeVoyage.departure_time}
+                                                eta={activeVoyage.eta}
+                                            />
+                                        </div>
+                                    </details>
+                                </div>
+                            );
+                        })()}
+
                         {/* ── MY CREW (Captain view) — swipe to remove ── */}
                         <div className="mb-6">
                             <div className="flex items-center gap-2 mb-3">
@@ -725,28 +919,539 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             )}
                         </div>
 
-                        {/* ── How It Works — shown at bottom when NOT empty ── */}
-                        {!isEmpty && (
-                            <div className="bg-white/[0.02] border border-white/[0.04] rounded-xl p-4 mb-6">
-                                <h3 className="text-[11px] font-black text-gray-400 uppercase tracking-[0.15em] mb-3">
-                                    How Crew Sharing Works
-                                </h3>
-                                <div className="space-y-2">
-                                    {[
-                                        { icon: '📧', text: 'Invite crew by their email address' },
-                                        { icon: '🔐', text: 'Choose which registers to share' },
-                                        { icon: '✅', text: 'Crew must accept the invite' },
-                                        { icon: '✏️', text: 'Crew edits go to your data' },
-                                        { icon: '👈', text: 'Swipe left to remove access' },
-                                    ].map((step, i) => (
-                                        <div key={i} className="flex items-center gap-2.5">
-                                            <span className="text-sm">{step.icon}</span>
-                                            <p className="text-[11px] text-gray-400">{step.text}</p>
+                        {/* ═══ 2. WEATHER BRIEFING — Go/No-Go decision ═══ */}
+                        {(() => {
+                            const activeVoyage = draftVoyages.find((v) => v.id === selectedPassageId);
+                            const departPort = activeVoyage?.departure_port;
+                            const destPort = activeVoyage?.destination_port;
+                            return (
+                                <div className="mb-4">
+                                    <details className="group">
+                                        <summary
+                                            className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer list-none ${
+                                                weatherReviewed
+                                                    ? 'bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.03] border-emerald-500/15 hover:from-emerald-500/[0.1] hover:to-teal-500/[0.06]'
+                                                    : 'bg-gradient-to-r from-red-500/[0.06] to-orange-500/[0.03] border-red-500/15 hover:from-red-500/[0.1] hover:to-orange-500/[0.06]'
+                                            }`}
+                                        >
+                                            <div
+                                                className={`w-11 h-11 rounded-xl bg-gradient-to-br border flex items-center justify-center text-xl flex-shrink-0 ${
+                                                    weatherReviewed
+                                                        ? 'from-emerald-500/20 to-teal-600/10 border-emerald-500/20'
+                                                        : 'from-red-500/20 to-orange-500/10 border-red-500/20'
+                                                }`}
+                                            >
+                                                {weatherReviewed ? '✅' : '🌤️'}
+                                            </div>
+                                            <div className="flex-1 text-left">
+                                                <p className="text-lg font-semibold text-white inline-flex items-center">
+                                                    Weather Briefing
+                                                    <DelegationBadge
+                                                        cardKey="weather_briefing"
+                                                        delegations={cardDelegations}
+                                                        crewList={visibleCrew}
+                                                        menuOpen={delegationMenuOpen}
+                                                        onMenuToggle={setDelegationMenuOpen}
+                                                        onAssign={assignCard}
+                                                    />
+                                                </p>
+                                                <p
+                                                    className={`text-sm ${weatherReviewed ? 'text-emerald-400/70' : 'text-red-400/70'}`}
+                                                >
+                                                    {weatherReviewed
+                                                        ? '✅ Briefing reviewed — conditions accepted'
+                                                        : 'Review models & forecast before departure'}
+                                                </p>
+                                            </div>
+                                            <svg
+                                                className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                                stroke="currentColor"
+                                                strokeWidth={2}
+                                            >
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                                                />
+                                            </svg>
+                                        </summary>
+                                        <div className="mt-2 animate-in slide-in-from-top-2 duration-200">
+                                            <WeatherBriefingCard
+                                                voyageId={selectedPassageId}
+                                                departPort={departPort || undefined}
+                                                destPort={destPort || undefined}
+                                                onReviewedChange={setWeatherReviewed}
+                                            />
                                         </div>
-                                    ))}
+                                    </details>
                                 </div>
-                            </div>
-                        )}
+                            );
+                        })()}
+
+                        {/* ═══ 3. ESSENTIAL RESERVES — Boat physically ready ═══ */}
+                        <div className="mb-4">
+                            <details className="group">
+                                <summary
+                                    className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer list-none ${
+                                        reservesReady
+                                            ? 'bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.03] border-emerald-500/15 hover:from-emerald-500/[0.1] hover:to-teal-500/[0.06]'
+                                            : 'bg-gradient-to-r from-red-500/[0.06] to-orange-500/[0.03] border-red-500/15 hover:from-red-500/[0.1] hover:to-orange-500/[0.06]'
+                                    }`}
+                                >
+                                    <div
+                                        className={`w-11 h-11 rounded-xl bg-gradient-to-br border flex items-center justify-center text-xl flex-shrink-0 ${
+                                            reservesReady
+                                                ? 'from-emerald-500/20 to-teal-600/10 border-emerald-500/20'
+                                                : 'from-red-500/20 to-orange-500/10 border-red-500/20'
+                                        }`}
+                                    >
+                                        {reservesReady ? '✅' : '⛽'}
+                                    </div>
+                                    <div className="flex-1 text-left">
+                                        <p className="text-lg font-semibold text-white inline-flex items-center">
+                                            Essential Reserves
+                                            <DelegationBadge
+                                                cardKey="essential_reserves"
+                                                delegations={cardDelegations}
+                                                crewList={visibleCrew}
+                                                menuOpen={delegationMenuOpen}
+                                                onMenuToggle={setDelegationMenuOpen}
+                                                onAssign={assignCard}
+                                            />
+                                        </p>
+                                        <p
+                                            className={`text-sm ${reservesReady ? 'text-emerald-400/70' : 'text-red-400/70'}`}
+                                        >
+                                            {reservesReady
+                                                ? '✅ All critical reserves confirmed'
+                                                : 'Fuel · Water · Gas · Safety'}
+                                        </p>
+                                    </div>
+                                    <svg
+                                        className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                                        />
+                                    </svg>
+                                </summary>
+                                <div className="mt-2 animate-in slide-in-from-top-2 duration-200">
+                                    <EssentialReservesCard
+                                        voyageId={selectedPassageId}
+                                        onReviewedChange={setReservesReady}
+                                    />
+                                </div>
+                            </details>
+                        </div>
+
+                        {/* ═══ 4. VESSEL PRE-DEPARTURE CHECK — Systems verified ═══ */}
+                        <div className="mb-4">
+                            <details className="group">
+                                <summary
+                                    className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer list-none ${
+                                        vesselChecked
+                                            ? 'bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.03] border-emerald-500/15 hover:from-emerald-500/[0.1] hover:to-teal-500/[0.06]'
+                                            : 'bg-gradient-to-r from-red-500/[0.06] to-orange-500/[0.03] border-red-500/15 hover:from-red-500/[0.1] hover:to-orange-500/[0.06]'
+                                    }`}
+                                >
+                                    <div
+                                        className={`w-11 h-11 rounded-xl bg-gradient-to-br border flex items-center justify-center text-xl flex-shrink-0 ${
+                                            vesselChecked
+                                                ? 'from-emerald-500/20 to-teal-600/10 border-emerald-500/20'
+                                                : 'from-red-500/20 to-orange-500/10 border-red-500/20'
+                                        }`}
+                                    >
+                                        {vesselChecked ? '✅' : '🔧'}
+                                    </div>
+                                    <div className="flex-1 text-left">
+                                        <p className="text-lg font-semibold text-white inline-flex items-center">
+                                            Vessel Pre-Check
+                                            <DelegationBadge
+                                                cardKey="vessel_check"
+                                                delegations={cardDelegations}
+                                                crewList={visibleCrew}
+                                                menuOpen={delegationMenuOpen}
+                                                onMenuToggle={setDelegationMenuOpen}
+                                                onAssign={assignCard}
+                                            />
+                                        </p>
+                                        <p
+                                            className={`text-sm ${vesselChecked ? 'text-emerald-400/70' : 'text-red-400/70'}`}
+                                        >
+                                            {vesselChecked
+                                                ? '✅ All vessel systems verified'
+                                                : 'Engine · Electrical · Hull · Safety'}
+                                        </p>
+                                    </div>
+                                    <svg
+                                        className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                                        />
+                                    </svg>
+                                </summary>
+                                <div className="mt-2 animate-in slide-in-from-top-2 duration-200">
+                                    <VesselCheckCard voyageId={selectedPassageId} onReviewedChange={setVesselChecked} />
+                                </div>
+                            </details>
+                        </div>
+
+                        {/* ═══ 5. MEDICAL & FIRST AID — Crew medical readiness ═══ */}
+                        <div className="mb-4">
+                            <details className="group">
+                                <summary
+                                    className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer list-none ${
+                                        medicalReady
+                                            ? 'bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.03] border-emerald-500/15 hover:from-emerald-500/[0.1] hover:to-teal-500/[0.06]'
+                                            : 'bg-gradient-to-r from-red-500/[0.06] to-orange-500/[0.03] border-red-500/15 hover:from-red-500/[0.1] hover:to-orange-500/[0.06]'
+                                    }`}
+                                >
+                                    <div
+                                        className={`w-11 h-11 rounded-xl bg-gradient-to-br border flex items-center justify-center text-xl flex-shrink-0 ${
+                                            medicalReady
+                                                ? 'from-emerald-500/20 to-teal-600/10 border-emerald-500/20'
+                                                : 'from-red-500/20 to-orange-500/10 border-red-500/20'
+                                        }`}
+                                    >
+                                        {medicalReady ? '✅' : '🏥'}
+                                    </div>
+                                    <div className="flex-1 text-left">
+                                        <p className="text-lg font-semibold text-white inline-flex items-center">
+                                            Medical & First Aid
+                                            <DelegationBadge
+                                                cardKey="medical"
+                                                delegations={cardDelegations}
+                                                crewList={visibleCrew}
+                                                menuOpen={delegationMenuOpen}
+                                                onMenuToggle={setDelegationMenuOpen}
+                                                onAssign={assignCard}
+                                            />
+                                        </p>
+                                        <p
+                                            className={`text-sm ${medicalReady ? 'text-emerald-400/70' : 'text-red-400/70'}`}
+                                        >
+                                            {medicalReady
+                                                ? '✅ Crew medical info recorded · Kit verified'
+                                                : 'Allergies · Emergency contacts · First aid kit'}
+                                        </p>
+                                    </div>
+                                    <svg
+                                        className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                                        />
+                                    </svg>
+                                </summary>
+                                <div className="mt-2 animate-in slide-in-from-top-2 duration-200">
+                                    <MedicalFirstAidCard
+                                        voyageId={selectedPassageId}
+                                        onReviewedChange={setMedicalReady}
+                                    />
+                                </div>
+                            </details>
+                        </div>
+
+                        {/* ═══ 6. VOYAGE PROVISIONING — Crew fed ═══ */}
+                        <div className="mb-4">
+                            <GalleyCard className="" registeredCrewCount={visibleCrew.length} />
+                        </div>
+
+                        {/* ═══ 5. WATCH SCHEDULE — Crew organised ═══ */}
+                        <div className="mb-4">
+                            <details className="group">
+                                <summary
+                                    className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer list-none ${
+                                        watchBriefed
+                                            ? 'bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.03] border-emerald-500/15 hover:from-emerald-500/[0.1] hover:to-teal-500/[0.06]'
+                                            : 'bg-gradient-to-r from-red-500/[0.06] to-orange-500/[0.03] border-red-500/15 hover:from-red-500/[0.1] hover:to-orange-500/[0.06]'
+                                    }`}
+                                >
+                                    <div
+                                        className={`w-11 h-11 rounded-xl bg-gradient-to-br border flex items-center justify-center text-xl flex-shrink-0 ${
+                                            watchBriefed
+                                                ? 'from-emerald-500/20 to-teal-600/10 border-emerald-500/20'
+                                                : 'from-red-500/20 to-orange-500/10 border-red-500/20'
+                                        }`}
+                                    >
+                                        {watchBriefed ? '✅' : '⏰'}
+                                    </div>
+                                    <div className="flex-1 text-left">
+                                        <p className="text-lg font-semibold text-white inline-flex items-center">
+                                            Watch Schedule
+                                            <DelegationBadge
+                                                cardKey="watch_schedule"
+                                                delegations={cardDelegations}
+                                                crewList={visibleCrew}
+                                                menuOpen={delegationMenuOpen}
+                                                onMenuToggle={setDelegationMenuOpen}
+                                                onAssign={assignCard}
+                                            />
+                                        </p>
+                                        <p
+                                            className={`text-sm ${watchBriefed ? 'text-emerald-400/70' : 'text-red-400/70'}`}
+                                        >
+                                            {watchBriefed
+                                                ? '✅ Watch rotation briefed to crew'
+                                                : `${planCrewCount} crew · Set watch rotation`}
+                                        </p>
+                                    </div>
+                                    <svg
+                                        className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                                        />
+                                    </svg>
+                                </summary>
+                                <div className="mt-2 animate-in slide-in-from-top-2 duration-200">
+                                    <WatchScheduleCard
+                                        voyageId={selectedPassageId}
+                                        crewCount={planCrewCount}
+                                        onReviewedChange={setWatchBriefed}
+                                    />
+                                </div>
+                            </details>
+                        </div>
+
+                        {/* ═══ 6. COMMUNICATIONS PLAN — Shore contact & radio ═══ */}
+                        <div className="mb-4">
+                            <details className="group">
+                                <summary
+                                    className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer list-none ${
+                                        commsReady
+                                            ? 'bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.03] border-emerald-500/15 hover:from-emerald-500/[0.1] hover:to-teal-500/[0.06]'
+                                            : 'bg-gradient-to-r from-red-500/[0.06] to-orange-500/[0.03] border-red-500/15 hover:from-red-500/[0.1] hover:to-orange-500/[0.06]'
+                                    }`}
+                                >
+                                    <div
+                                        className={`w-11 h-11 rounded-xl bg-gradient-to-br border flex items-center justify-center text-xl flex-shrink-0 ${
+                                            commsReady
+                                                ? 'from-emerald-500/20 to-teal-600/10 border-emerald-500/20'
+                                                : 'from-red-500/20 to-orange-500/10 border-red-500/20'
+                                        }`}
+                                    >
+                                        {commsReady ? '✅' : '📡'}
+                                    </div>
+                                    <div className="flex-1 text-left">
+                                        <p className="text-lg font-semibold text-white inline-flex items-center">
+                                            Communications Plan
+                                            <DelegationBadge
+                                                cardKey="comms_plan"
+                                                delegations={cardDelegations}
+                                                crewList={visibleCrew}
+                                                menuOpen={delegationMenuOpen}
+                                                onMenuToggle={setDelegationMenuOpen}
+                                                onAssign={assignCard}
+                                            />
+                                        </p>
+                                        <p
+                                            className={`text-sm ${commsReady ? 'text-emerald-400/70' : 'text-red-400/70'}`}
+                                        >
+                                            {commsReady
+                                                ? '✅ Comms plan confirmed · Shore contact set'
+                                                : 'Radio · Position reports · Shore contact'}
+                                        </p>
+                                    </div>
+                                    <svg
+                                        className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                                        />
+                                    </svg>
+                                </summary>
+                                <div className="mt-2 animate-in slide-in-from-top-2 duration-200">
+                                    <CommsPlanCard voyageId={selectedPassageId} onReviewedChange={setCommsReady} />
+                                </div>
+                            </details>
+                        </div>
+
+                        {/* ═══ 7. CUSTOMS & IMMIGRATION — Paperwork (international only) ═══ */}
+                        {(() => {
+                            const activeVoyage = draftVoyages.find((v) => v.id === selectedPassageId);
+                            const departPort = activeVoyage?.departure_port;
+                            const destPort = activeVoyage?.destination_port;
+                            if (!departPort || !destPort) return null;
+                            const minimalPlan = {
+                                customs: {
+                                    required: true,
+                                    departingCountry: departPort,
+                                    destinationCountry: destPort,
+                                },
+                            };
+                            return (
+                                <div className="mb-4">
+                                    <details className="group">
+                                        <summary
+                                            className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer list-none ${
+                                                customsCleared
+                                                    ? 'bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.03] border-emerald-500/15 hover:from-emerald-500/[0.1] hover:to-teal-500/[0.06]'
+                                                    : 'bg-gradient-to-r from-red-500/[0.06] to-orange-500/[0.03] border-red-500/15 hover:from-red-500/[0.1] hover:to-orange-500/[0.06]'
+                                            }`}
+                                        >
+                                            <div
+                                                className={`w-11 h-11 rounded-xl bg-gradient-to-br border flex items-center justify-center text-xl flex-shrink-0 ${
+                                                    customsCleared
+                                                        ? 'from-emerald-500/20 to-teal-600/10 border-emerald-500/20'
+                                                        : 'from-red-500/20 to-orange-500/10 border-red-500/20'
+                                                }`}
+                                            >
+                                                {customsCleared ? '✅' : '🛂'}
+                                            </div>
+                                            <div className="flex-1 text-left">
+                                                <p className="text-lg font-semibold text-white inline-flex items-center">
+                                                    Customs & Immigration
+                                                    <DelegationBadge
+                                                        cardKey="customs_clearance"
+                                                        delegations={cardDelegations}
+                                                        crewList={visibleCrew}
+                                                        menuOpen={delegationMenuOpen}
+                                                        onMenuToggle={setDelegationMenuOpen}
+                                                        onAssign={assignCard}
+                                                    />
+                                                </p>
+                                                <p
+                                                    className={`text-sm ${customsCleared ? 'text-emerald-400/70' : 'text-red-400/70'}`}
+                                                >
+                                                    {customsCleared
+                                                        ? '✅ All documents cleared'
+                                                        : customsProgress.total > 0
+                                                          ? `${customsProgress.checked}/${customsProgress.total} documents · ${departPort} → ${destPort}`
+                                                          : `${departPort} → ${destPort}`}
+                                                </p>
+                                            </div>
+                                            <svg
+                                                className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                                stroke="currentColor"
+                                                strokeWidth={2}
+                                            >
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                                                />
+                                            </svg>
+                                        </summary>
+                                        <div className="mt-2 animate-in slide-in-from-top-2 duration-200">
+                                            <CustomsClearanceCard
+                                                voyageId={selectedPassageId}
+                                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                                voyagePlan={minimalPlan as any}
+                                                onCheckedChange={(total, checked) => {
+                                                    setCustomsProgress({ total, checked });
+                                                    setCustomsCleared(total > 0 && checked >= total);
+                                                }}
+                                            />
+                                        </div>
+                                    </details>
+                                </div>
+                            );
+                        })()}
+
+                        {/* ═══ 8. AID TO NAVIGATION — Final legal gate (always last) ═══ */}
+                        <div className="mb-4">
+                            <details className="group">
+                                <summary
+                                    className={`w-full flex items-center gap-3 p-3 rounded-2xl border transition-all cursor-pointer list-none ${
+                                        navAcknowledged
+                                            ? 'bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.03] border-emerald-500/15 hover:from-emerald-500/[0.1] hover:to-teal-500/[0.06]'
+                                            : 'bg-gradient-to-r from-amber-500/[0.06] to-orange-500/[0.03] border-amber-500/15 hover:from-amber-500/[0.1] hover:to-orange-500/[0.06]'
+                                    }`}
+                                >
+                                    <div
+                                        className={`w-11 h-11 rounded-xl bg-gradient-to-br border flex items-center justify-center text-xl flex-shrink-0 ${
+                                            navAcknowledged
+                                                ? 'from-emerald-500/20 to-teal-600/10 border-emerald-500/20'
+                                                : 'from-amber-500/20 to-orange-500/10 border-amber-500/20'
+                                        }`}
+                                    >
+                                        {navAcknowledged ? '✅' : '⚓'}
+                                    </div>
+                                    <div className="flex-1 text-left">
+                                        <p className="text-lg font-semibold text-white inline-flex items-center">
+                                            Aid to Navigation
+                                            <DelegationBadge
+                                                cardKey="aid_to_navigation"
+                                                delegations={cardDelegations}
+                                                crewList={visibleCrew}
+                                                menuOpen={delegationMenuOpen}
+                                                onMenuToggle={setDelegationMenuOpen}
+                                                onAssign={assignCard}
+                                            />
+                                        </p>
+                                        <p
+                                            className={`text-sm ${navAcknowledged ? 'text-emerald-400/70' : 'text-amber-400/70'}`}
+                                        >
+                                            {navAcknowledged
+                                                ? '✅ All acknowledgments accepted'
+                                                : "Legal disclaimers · Skipper's acknowledgment"}
+                                        </p>
+                                    </div>
+                                    <svg
+                                        className="w-4 h-4 text-gray-400 transition-transform group-open:rotate-180"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                                        />
+                                    </svg>
+                                </summary>
+                                <div className="mt-2 animate-in slide-in-from-top-2 duration-200">
+                                    <AidToNavigationCard
+                                        voyageId={selectedPassageId}
+                                        onAcknowledgedChange={setNavAcknowledged}
+                                        allOtherCardsReady={
+                                            customsCleared &&
+                                            weatherReviewed &&
+                                            reservesReady &&
+                                            watchBriefed &&
+                                            commsReady
+                                        }
+                                    />
+                                </div>
+                            </details>
+                        </div>
                     </>
                 )}
             </div>

@@ -6,11 +6,7 @@
  */
 import React from 'react';
 import { t } from '../../theme';
-import {
-    type SharedRegister,
-    VESSEL_REGISTERS,
-    PASSAGE_REGISTERS,
-} from '../../services/CrewService';
+import { type SharedRegister, VESSEL_REGISTERS, PASSAGE_REGISTERS } from '../../services/CrewService';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { RegisterButton } from './RegisterButton';
 

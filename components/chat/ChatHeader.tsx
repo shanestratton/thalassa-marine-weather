@@ -66,7 +66,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                             </button>
                         )}
                         {view === 'channels' ? (
-                            <span className={t.typography.pageTitle}>Crew Talk</span>
+                            <span className={t.typography.pageTitle}>Community</span>
                         ) : (
                             <h1 className={`${t.typography.pageTitle} flex items-center gap-2`}>
                                 {view === 'messages' &&
@@ -79,7 +79,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                 {view === 'marketplace' && '🏪 Marketplace'}
                             </h1>
                         )}
-                        {view === 'messages' && activeChannel && (
+                        {view === 'messages' && activeChannel?.description && (
                             <p className="text-xs text-white/60 ml-1">{activeChannel.description}</p>
                         )}
                     </div>
