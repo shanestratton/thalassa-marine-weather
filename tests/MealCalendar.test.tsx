@@ -130,7 +130,7 @@ describe('MealCalendar', () => {
         expect(screen.getByText('Buffer')).toBeDefined();
     });
 
-    it('renders provision passage CTA when meals exist', () => {
+    it('renders provision CTA when meals exist', () => {
         const mealDays = {
             dates: ['2026-03-27'],
             emergencyDates: new Set<string>(),
@@ -157,6 +157,6 @@ describe('MealCalendar', () => {
             ingredients: [],
         };
         render(<MealCalendar {...baseProps} mealDays={mealDays} activeMeals={[meal]} />);
-        expect(screen.getByLabelText(/Provision passage/)).toBeDefined();
+        expect(screen.getByLabelText(/items to shopping list|fully stocked/i)).toBeDefined();
     });
 });
