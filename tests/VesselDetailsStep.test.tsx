@@ -138,9 +138,9 @@ describe('VesselDetailsStep', () => {
         expect(props.onNext).toHaveBeenCalledOnce();
     });
 
-    it('renders observer mode with skip view', () => {
+    it('renders crew member mode with skip view', () => {
         renderStep({ vesselType: 'observer' });
-        expect(screen.getByText('Just Watching?')).toBeTruthy();
+        expect(screen.getByText('Crew Member Mode')).toBeTruthy();
         expect(screen.getByText('Continue to Preferences')).toBeTruthy();
     });
 
