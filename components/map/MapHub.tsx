@@ -550,7 +550,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 )}
 
                 {/* ═══ VELOCITY WIND OVERLAY ═══ */}
-                {!isPinView && (
+                {!isPinView && !embedded && (
                     <MapboxVelocityOverlay
                         mapboxMap={mapRef.current}
                         visible={weather.activeLayers.has('velocity') || weather.activeLayers.has('wind')}
@@ -561,7 +561,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 )}
 
                 {/* ═══ GHOST SHIP (route interpolation during forecast scrub) ═══ */}
-                {!isPinView && passage.showPassage && passage.routeAnalysis && (
+                {!isPinView && !embedded && passage.showPassage && passage.routeAnalysis && (
                     <GhostShip
                         map={mapRef.current}
                         routeCoords={passage.isoResultRef.current?.routeCoordinates ?? null}
@@ -756,6 +756,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* ═══ THALASSA HELIX CONTROL ═══ */}
                 {!isPinView &&
+                    !embedded &&
                     weather.activeLayers.size > 0 &&
                     (() => {
                         // Identify active weather layers (only scrubble types)
