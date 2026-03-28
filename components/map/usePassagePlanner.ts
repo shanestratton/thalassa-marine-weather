@@ -27,7 +27,7 @@ import {
     type IsochroneResult,
     type TurnWaypoint,
 } from '../../services/IsochroneRouter';
-import { preloadBathymetry, getDepthFromCache, type BathymetryGrid } from '../../services/BathymetryCache';
+import { preloadBathymetry } from '../../services/BathymetryCache';
 import { createWindFieldFromGrid } from '../../services/weather/WindFieldAdapter';
 import { DEFAULT_CRUISING_POLAR } from '../../services/defaultPolar';
 import { SmartPolarStore } from '../../services/SmartPolarStore';
@@ -217,19 +217,15 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setRouteAnalysis(result);
 
         // Build Trip Sandwich GeoJSON (or single-feature for short routes)
-        // First and last legs are marked as dashed (they cross land between port and open water)
+        // First and last legs are marked as dashed harbour legs (short "navigate yourself" zone)
         const buildFeatures = (
             passageCoords: number[][],
             shallowFlags?: boolean[],
-            bathyGridArg?: BathymetryGrid | null,
         ): GeoJSON.Feature<GeoJSON.LineString>[] => {
             const features: GeoJSON.Feature<GeoJSON.LineString>[] = [];
 
-            // Depth threshold: harbour leg ends when water is ≥ 50m deep
-            const HARBOUR_DEPTH_M = -50; // negative = underwater in ETOPO
-
-            // Fallback: max harbour leg distance if no bathymetry available
-            const HARBOUR_MAX_NM = 10;
+            // Fixed harbour leg length — short "navigate yourself" zone near port
+            const HARBOUR_NM = 5;
 
             // Haversine distance between two [lon, lat] coords in NM
             const distNM = (a: number[], b: number[]): number => {
@@ -244,32 +240,14 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
             };
 
-            // Find the index where depth first reaches 50m, walking from one end
-            const findDepthCutoff = (coords: number[][], fromEnd: boolean): number => {
-                const ordered = fromEnd ? [...coords].map((_, i) => coords.length - 1 - i) : coords.map((_, i) => i);
-                if (!bathyGridArg) return ordered[Math.min(1, ordered.length - 1)];
-
-                for (const idx of ordered) {
-                    const [lon, lat] = coords[idx];
-                    const depth = getDepthFromCache(bathyGridArg, lat, lon);
-                    // depth ≤ -50 means water is 50m+ deep — end of harbour leg
-                    if (depth !== null && depth <= HARBOUR_DEPTH_M) {
-                        return idx;
-                    }
-                }
-                // Never found 50m — use 2nd point as fallback
-                return fromEnd ? coords.length - 2 : 1;
-            };
-
-            // Interpolate a point along coords at a max distance from the start (NM fallback)
-            const interpolateAt = (coords: number[][], maxNM: number, fromEnd: boolean): number[] => {
+            // Interpolate a point exactly maxNM along the polyline from one end
+            const interpolatePoint = (coords: number[][], maxNM: number, fromEnd: boolean): number[] => {
                 const ordered = fromEnd ? [...coords].reverse() : coords;
                 let accum = 0;
                 for (let i = 1; i < ordered.length; i++) {
                     const segDist = distNM(ordered[i - 1], ordered[i]);
                     if (accum + segDist >= maxNM) {
-                        const remain = maxNM - accum;
-                        const frac = segDist > 0 ? remain / segDist : 0;
+                        const frac = segDist > 0 ? (maxNM - accum) / segDist : 0;
                         return [
                             ordered[i - 1][0] + frac * (ordered[i][0] - ordered[i - 1][0]),
                             ordered[i - 1][1] + frac * (ordered[i][1] - ordered[i - 1][1]),
@@ -280,100 +258,47 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 return ordered[ordered.length - 1];
             };
 
-            // Helper: create a dashed land-leg feature (first or last segment)
+            // Helper: create a dashed harbour-leg feature
             const makeLandLeg = (coords: number[][]): GeoJSON.Feature<GeoJSON.LineString> => ({
                 type: 'Feature',
                 properties: { safety: 'harbour', dashed: true },
                 geometry: { type: 'LineString', coordinates: coords },
             });
 
-            // Need at least 3 points to split into first-leg / ocean / last-leg
-            const canSplit = passageCoords.length >= 4;
+            // Need at least 4 points to split into harbour / ocean / harbour
+            if (passageCoords.length >= 4) {
+                // Interpolate cutoff points 5 NM from each end
+                const depCut = interpolatePoint(passageCoords, HARBOUR_NM, false);
+                const arrCut = interpolatePoint(passageCoords, HARBOUR_NM, true);
 
-            if (canSplit) {
-                let depCutIdx: number;
-                let arrCutIdx: number;
+                // Departure harbour leg (dashed)
+                features.push(makeLandLeg([passageCoords[0], depCut]));
+                // Arrival harbour leg (dashed)
+                features.push(makeLandLeg([arrCut, passageCoords[passageCoords.length - 1]]));
 
-                if (bathyGridArg) {
-                    // ── Depth-based cutoff: harbour until 50m deep ──
-                    depCutIdx = findDepthCutoff(passageCoords, false);
-                    arrCutIdx = findDepthCutoff(passageCoords, true);
+                // Ocean portion: depCut → all intermediate points → arrCut
+                const oceanCoords = [depCut, ...passageCoords.slice(1, -1), arrCut];
+                const oceanShallows = shallowFlags?.slice(1, -1);
 
-                    // Sanity: ensure they don't overlap
-                    if (depCutIdx >= arrCutIdx) {
-                        depCutIdx = 1;
-                        arrCutIdx = passageCoords.length - 2;
-                    }
-
-                    // Departure harbour leg
-                    features.push(makeLandLeg(passageCoords.slice(0, depCutIdx + 1)));
-                    // Arrival harbour leg
-                    features.push(makeLandLeg(passageCoords.slice(arrCutIdx)));
-                } else {
-                    // ── Distance-based fallback: max 10 NM ──
-                    const firstSegDist = distNM(passageCoords[0], passageCoords[1]);
-                    let depCutPoint: number[] | null = null;
-                    depCutIdx = 1;
-
-                    if (firstSegDist > HARBOUR_MAX_NM) {
-                        depCutPoint = interpolateAt(passageCoords, HARBOUR_MAX_NM, false);
-                        features.push(makeLandLeg([passageCoords[0], depCutPoint]));
-                    } else {
-                        features.push(makeLandLeg(passageCoords.slice(0, 2)));
-                    }
-
-                    const lastIdx = passageCoords.length - 1;
-                    const lastSegDist = distNM(passageCoords[lastIdx - 1], passageCoords[lastIdx]);
-                    let arrCutPoint: number[] | null = null;
-                    arrCutIdx = lastIdx - 1;
-
-                    if (lastSegDist > HARBOUR_MAX_NM) {
-                        arrCutPoint = interpolateAt(passageCoords, HARBOUR_MAX_NM, true);
-                        features.push(makeLandLeg([arrCutPoint, passageCoords[lastIdx]]));
-                    } else {
-                        features.push(makeLandLeg(passageCoords.slice(lastIdx - 1)));
-                    }
-
-                    // Build ocean coords with interpolated cut points
-                    if (depCutPoint || arrCutPoint) {
-                        const oceanParts = depCutPoint
-                            ? [depCutPoint, ...passageCoords.slice(depCutIdx)]
-                            : passageCoords.slice(depCutIdx);
-                        const oceanCoords = arrCutPoint
-                            ? [...oceanParts.slice(0, -1), arrCutPoint]
-                            : oceanParts.slice(0, -1);
-                        features.push({
-                            type: 'Feature',
-                            properties: { safety: 'safe' },
-                            geometry: { type: 'LineString', coordinates: oceanCoords },
-                        });
-                        return features;
-                    }
-                }
-
-                // ── Ocean middle portion ──
-                const oceanCoords = passageCoords.slice(depCutIdx, arrCutIdx + 1);
-                const oceanShallows = shallowFlags?.slice(depCutIdx, arrCutIdx + 1);
-
-                // ── Short route: depth-aware per-segment coloring for ocean portion ──
+                // Short route: depth-aware per-segment coloring
                 if (isShortRoute && oceanShallows && oceanShallows.length === oceanCoords.length) {
                     let segStart = 0;
                     let wasShallow = oceanShallows[0] || false;
-
                     for (let i = 1; i < oceanCoords.length; i++) {
                         const nowShallow = oceanShallows[i] || false;
                         if (nowShallow !== wasShallow || i === oceanCoords.length - 1) {
-                            const endIdx = i === oceanCoords.length - 1 ? i + 1 : i + 1;
                             features.push({
                                 type: 'Feature',
                                 properties: { safety: wasShallow ? 'danger' : 'safe' },
-                                geometry: { type: 'LineString', coordinates: oceanCoords.slice(segStart, endIdx) },
+                                geometry: {
+                                    type: 'LineString',
+                                    coordinates: oceanCoords.slice(segStart, i + 1),
+                                },
                             });
                             segStart = i;
                             wasShallow = nowShallow;
                         }
                     }
-                    // If only harbour legs were added, add the full ocean as safe
                     if (features.length === 2) {
                         features.push({
                             type: 'Feature',
@@ -382,7 +307,6 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         });
                     }
                 } else {
-                    // Single safe feature for the ocean portion
                     features.push({
                         type: 'Feature',
                         properties: { safety: 'safe' },
@@ -390,7 +314,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     });
                 }
             } else {
-                // Too few points to split — render entire route as safe
+                // Too few points — render entire route as safe
                 features.push({
                     type: 'Feature',
                     properties: { safety: 'safe' },
@@ -702,7 +626,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     if (src) {
                         src.setData({
                             type: 'FeatureCollection',
-                            features: buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags, bathyGrid),
+                            features: buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags),
                         });
                     }
 
@@ -1078,7 +1002,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             if (src) {
                                 src.setData({
                                     type: 'FeatureCollection',
-                                    features: buildFeatures(combinedCoords, combinedFlags, bathyGrid),
+                                    features: buildFeatures(combinedCoords, combinedFlags),
                                 });
                             }
                             const updatedResult = { ...result };
