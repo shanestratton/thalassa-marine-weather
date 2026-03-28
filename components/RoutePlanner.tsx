@@ -3,7 +3,19 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('RoutePlanner');
 import { createPortal } from 'react-dom';
-import { MapPinIcon, MapIcon, XIcon, LockIcon, CompassIcon, CrosshairIcon } from './Icons';
+import {
+    MapPinIcon,
+    MapIcon,
+    XIcon,
+    LockIcon,
+    CompassIcon,
+    CrosshairIcon,
+    CalendarIcon,
+    ClockIcon,
+    SailBoatIcon,
+    PowerBoatIcon,
+} from './Icons';
+import { SlideToAction } from './ui/SlideToAction';
 import { MapHub } from './map/MapHub';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { useUI } from '../context/UIContext';
@@ -18,12 +30,15 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
         setOrigin,
         destination,
         setDestination,
+        departureDate,
+        setDepartureDate,
         isMapOpen,
         setIsMapOpen,
         mapSelectionTarget,
         loading,
         loadingStep,
         error,
+        minDate,
 
         handleCalculate,
         clearVoyagePlan,
@@ -36,6 +51,9 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
         isPro,
         mapboxToken,
     } = useVoyageForm(onTriggerUpgrade);
+
+    const [departureTime, setDepartureTime] = useState('06:00');
+    const formRef = React.useRef<HTMLFormElement>(null);
 
     const [_tempMapSelection, setTempMapSelection] = useState<{ lat: number; lon: number; name: string } | null>(null);
     const { setPage } = useUI();
@@ -231,17 +249,41 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                         </div>
                     </div>
 
-                    {/* Pro gate */}
-                    {!isPro && origin.trim() && destination.trim() && (
-                        <button
-                            type="button"
-                            onClick={onTriggerUpgrade}
-                            className="w-full h-10 rounded-xl font-bold uppercase tracking-wider text-xs flex items-center justify-center gap-2 bg-slate-800 text-white hover:bg-slate-700 transition-colors border border-white/10"
-                        >
-                            <LockIcon className="w-4 h-4 text-emerald-400" />
-                            Unlock Route Planning
-                        </button>
-                    )}
+                    {/* Date & Time row */}
+                    <div className="grid grid-cols-2 gap-2.5">
+                        <div className="relative w-full min-w-0 group">
+                            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-sky-400 transition-colors">
+                                <CalendarIcon className="w-4 h-4" />
+                            </div>
+                            <input
+                                type="date"
+                                min={minDate}
+                                value={departureDate}
+                                onChange={(e) => {
+                                    const d = e.target.value;
+                                    if (!minDate || d >= minDate) setDepartureDate(d);
+                                }}
+                                onFocus={scrollInputAboveKeyboard}
+                                aria-label="Departure date"
+                                className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
+                                style={{ WebkitAppearance: 'none' }}
+                            />
+                        </div>
+                        <div className="relative w-full min-w-0 group">
+                            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-emerald-400 transition-colors">
+                                <ClockIcon className="w-4 h-4" />
+                            </div>
+                            <input
+                                type="time"
+                                value={departureTime}
+                                onChange={(e) => setDepartureTime(e.target.value)}
+                                onFocus={scrollInputAboveKeyboard}
+                                aria-label="Departure time"
+                                className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-emerald-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
+                                style={{ WebkitAppearance: 'none' }}
+                            />
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -379,6 +421,53 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                     </div>
                 )}
             </div>
+
+            {/* ─── BOTTOM: CTA pinned above nav bar ─── */}
+            {!voyagePlan && (
+                <div
+                    className="fixed bottom-0 left-0 right-0 px-4 z-10 pointer-events-none"
+                    style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+                >
+                    <div className="max-w-xl mx-auto w-full pointer-events-auto">
+                        {/* Active vessel indicator */}
+                        {vessel && (
+                            <div className="flex items-center justify-center gap-2 mb-2 opacity-60">
+                                {vessel.type === 'power' ? (
+                                    <PowerBoatIcon className="w-3.5 h-3.5 text-slate-400" />
+                                ) : (
+                                    <SailBoatIcon className="w-3.5 h-3.5 text-slate-400" />
+                                )}
+                                <span className="text-[11px] font-mono text-slate-400 tracking-wide">
+                                    Active Vessel: {vessel.name}
+                                </span>
+                            </div>
+                        )}
+                        {!isPro ? (
+                            <button
+                                aria-label="Trigger Upgrade"
+                                type="button"
+                                onClick={onTriggerUpgrade}
+                                className="h-14 w-full rounded-2xl font-bold uppercase tracking-wider text-xs transition-all shadow-lg flex items-center justify-center gap-2 bg-slate-800 text-white hover:bg-slate-700"
+                            >
+                                <LockIcon className="w-4 h-4 text-emerald-400" />
+                                Unlock Route Planning
+                            </button>
+                        ) : (
+                            <SlideToAction
+                                label="Slide to Calculate Route"
+                                thumbIcon={<CompassIcon className="w-5 h-5 text-white" rotation={0} />}
+                                onConfirm={() => {
+                                    lastCalcRef.current = '';
+                                    handleCalculate();
+                                }}
+                                loading={loading}
+                                loadingText={LOADING_PHASES[loadingStep] || 'Calculating…'}
+                                theme="emerald"
+                            />
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
