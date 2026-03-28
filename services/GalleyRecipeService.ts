@@ -8,7 +8,8 @@
  *  - Ready-in-minutes prominently tracked for galley timing
  */
 
-import { getAll, insertLocal, query, generateUUID } from './vessel/LocalDatabase';
+import { getAll, insertLocal, query, updateLocal, generateUUID } from './vessel/LocalDatabase';
+import { supabase } from './supabase';
 
 const API_BASE = 'https://api.spoonacular.com';
 const CACHE_PREFIX = 'thalassa_galley_';
@@ -24,16 +25,22 @@ export interface RecipeIngredient {
     aisle: string;
 }
 
+export type RecipeVisibility = 'personal' | 'shared';
+
 export interface StoredRecipe {
     id: string;
     spoonacular_id: number | null;
+    user_id: string | null;
     title: string;
     image_url: string;
     ready_in_minutes: number;
     servings: number; // BASE servings (what the recipe is written for)
     source_url: string;
+    instructions: string;
     ingredients: RecipeIngredient[];
     is_favorite: boolean;
+    is_custom: boolean;
+    visibility: RecipeVisibility;
     tags: string[];
     created_at: string;
     updated_at: string;
@@ -240,13 +247,17 @@ export async function persistRecipe(meal: GalleyMeal): Promise<StoredRecipe> {
     const record: StoredRecipe = {
         id: generateUUID(),
         spoonacular_id: meal.id,
+        user_id: null,
         title: meal.title,
         image_url: meal.image,
         ready_in_minutes: meal.readyInMinutes,
         servings: meal.servings,
         source_url: meal.sourceUrl,
+        instructions: '',
         ingredients: meal.ingredients || [],
         is_favorite: false,
+        is_custom: false,
+        visibility: 'personal',
         tags: [],
         created_at: now,
         updated_at: now,
@@ -754,4 +765,347 @@ export function getGalleyDifficulty(
     if (mins <= 60) return { score: 3, ...DIFFICULTY_LEVELS[3] };
     if (mins <= 120) return { score: 4, ...DIFFICULTY_LEVELS[4] };
     return { score: 5, ...DIFFICULTY_LEVELS[5] };
+}
+
+// ── Custom Recipe CRUD ─────────────────────────────────────────────────────
+
+export interface CreateRecipeInput {
+    title: string;
+    instructions: string;
+    image_url?: string;
+    ready_in_minutes: number;
+    servings: number;
+    ingredients: RecipeIngredient[];
+    tags: string[];
+    visibility: RecipeVisibility;
+}
+
+/**
+ * Create a custom recipe.
+ * Saves locally (offline-first) and syncs to Supabase.
+ */
+export async function createCustomRecipe(input: CreateRecipeInput): Promise<StoredRecipe | null> {
+    const now = new Date().toISOString();
+    let userId: string | null = null;
+
+    // Get current user ID
+    if (supabase) {
+        const { data } = await supabase.auth.getUser();
+        userId = data.user?.id || null;
+    }
+
+    const recipe: StoredRecipe = {
+        id: generateUUID(),
+        spoonacular_id: null,
+        user_id: userId,
+        title: input.title.trim(),
+        image_url: input.image_url || '',
+        ready_in_minutes: input.ready_in_minutes,
+        servings: input.servings,
+        source_url: '',
+        instructions: input.instructions.trim(),
+        ingredients: input.ingredients.map((ing) => ({
+            ...ing,
+            scalable: isScalable(ing.unit, ing.name),
+        })),
+        is_favorite: false,
+        is_custom: true,
+        visibility: input.visibility,
+        tags: input.tags,
+        created_at: now,
+        updated_at: now,
+    };
+
+    // Save locally
+    await insertLocal(RECIPE_TABLE, recipe);
+
+    // Sync to Supabase
+    if (supabase && userId) {
+        try {
+            await supabase.from('recipes').upsert({
+                id: recipe.id,
+                user_id: userId,
+                title: recipe.title,
+                instructions: recipe.instructions,
+                image_url: recipe.image_url || null,
+                ready_in_minutes: recipe.ready_in_minutes,
+                servings: recipe.servings,
+                ingredients: recipe.ingredients,
+                tags: recipe.tags,
+                visibility: recipe.visibility,
+                is_favorite: false,
+                created_at: now,
+                updated_at: now,
+            });
+        } catch {
+            // Offline — local copy is primary
+        }
+    }
+
+    return recipe;
+}
+
+/**
+ * Update a custom recipe (only user-created recipes).
+ */
+export async function updateCustomRecipe(
+    recipeId: string,
+    patch: Partial<
+        Pick<
+            StoredRecipe,
+            | 'title'
+            | 'instructions'
+            | 'image_url'
+            | 'ready_in_minutes'
+            | 'servings'
+            | 'ingredients'
+            | 'tags'
+            | 'visibility'
+            | 'is_favorite'
+        >
+    >,
+): Promise<StoredRecipe | null> {
+    const existing = query<StoredRecipe>(RECIPE_TABLE, (r) => r.id === recipeId && r.is_custom);
+    if (existing.length === 0) return null;
+
+    const now = new Date().toISOString();
+    const updated = updateLocal<StoredRecipe>(RECIPE_TABLE, recipeId, {
+        ...patch,
+        updated_at: now,
+    } as Partial<StoredRecipe>);
+
+    // Sync to Supabase
+    if (supabase) {
+        try {
+            await supabase
+                .from('recipes')
+                .update({ ...patch, updated_at: now })
+                .eq('id', recipeId);
+        } catch {
+            // Offline — local update is primary
+        }
+    }
+
+    return updated;
+}
+
+/**
+ * Delete a custom recipe.
+ */
+export async function deleteCustomRecipe(recipeId: string): Promise<boolean> {
+    const existing = query<StoredRecipe>(RECIPE_TABLE, (r) => r.id === recipeId && r.is_custom);
+    if (existing.length === 0) return false;
+
+    try {
+        const { deleteLocal: del } = await import('./vessel/LocalDatabase');
+        await del(RECIPE_TABLE, recipeId);
+    } catch {
+        return false;
+    }
+
+    // Delete from Supabase
+    if (supabase) {
+        try {
+            await supabase.from('recipes').delete().eq('id', recipeId);
+        } catch {
+            // Offline — queued for next sync
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Get all custom recipes created by the current user.
+ * Merges local + Supabase (cloud takes precedence if newer).
+ */
+export async function getMyRecipes(): Promise<StoredRecipe[]> {
+    // Local-first
+    const local = query<StoredRecipe>(RECIPE_TABLE, (r) => r.is_custom);
+
+    // Try to hydrate from Supabase
+    if (supabase) {
+        try {
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
+            if (user) {
+                const { data } = await supabase
+                    .from('recipes')
+                    .select('*')
+                    .eq('user_id', user.id)
+                    .order('created_at', { ascending: false });
+
+                if (data && data.length > 0) {
+                    // Merge: cloud recipes not in local → insert locally
+                    const localIds = new Set(local.map((r) => r.id));
+                    for (const cloudRecipe of data) {
+                        if (!localIds.has(cloudRecipe.id)) {
+                            const mapped: StoredRecipe = {
+                                id: cloudRecipe.id,
+                                spoonacular_id: null,
+                                user_id: cloudRecipe.user_id,
+                                title: cloudRecipe.title,
+                                image_url: cloudRecipe.image_url || '',
+                                ready_in_minutes: cloudRecipe.ready_in_minutes,
+                                servings: cloudRecipe.servings,
+                                source_url: '',
+                                instructions: cloudRecipe.instructions || '',
+                                ingredients: cloudRecipe.ingredients || [],
+                                is_favorite: cloudRecipe.is_favorite || false,
+                                is_custom: true,
+                                visibility: cloudRecipe.visibility || 'personal',
+                                tags: cloudRecipe.tags || [],
+                                created_at: cloudRecipe.created_at,
+                                updated_at: cloudRecipe.updated_at,
+                            };
+                            await insertLocal(RECIPE_TABLE, mapped);
+                            local.push(mapped);
+                        }
+                    }
+                }
+            }
+        } catch {
+            // Offline — return local only
+        }
+    }
+
+    return local.sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+/**
+ * Get shared recipes from the community (Supabase only).
+ * Excludes the current user's own recipes.
+ */
+export async function getSharedRecipes(limit = 50): Promise<StoredRecipe[]> {
+    if (!supabase) return [];
+
+    try {
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
+        const userId = user?.id;
+
+        let q = supabase
+            .from('recipes')
+            .select('*')
+            .eq('visibility', 'shared')
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+        // Exclude own recipes from shared feed
+        if (userId) {
+            q = q.neq('user_id', userId);
+        }
+
+        const { data } = await q;
+        if (!data) return [];
+
+        return data.map(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (r: any) =>
+                ({
+                    id: r.id,
+                    spoonacular_id: null,
+                    user_id: r.user_id,
+                    title: r.title,
+                    image_url: r.image_url || '',
+                    ready_in_minutes: r.ready_in_minutes,
+                    servings: r.servings,
+                    source_url: '',
+                    instructions: r.instructions || '',
+                    ingredients: r.ingredients || [],
+                    is_favorite: false,
+                    is_custom: true,
+                    visibility: r.visibility,
+                    tags: r.tags || [],
+                    created_at: r.created_at,
+                    updated_at: r.updated_at,
+                }) as StoredRecipe,
+        );
+    } catch {
+        return [];
+    }
+}
+
+// ── Recipe Share Payload ───────────────────────────────────────────────────
+
+export const RECIPE_SHARE_PREFIX = '🍳RECIPE:';
+
+/**
+ * Encode a recipe into a chat-shareable string.
+ * Format: 🍳RECIPE:id|title|servings|readyMin|imageUrl
+ */
+export function encodeRecipeShare(recipe: StoredRecipe): string {
+    return `${RECIPE_SHARE_PREFIX}${recipe.id}|${recipe.title}|${recipe.servings}|${recipe.ready_in_minutes}|${recipe.image_url || ''}`;
+}
+
+/**
+ * Decode a recipe share message back into structured data.
+ * Returns null if the message is not a valid recipe share.
+ */
+export function decodeRecipeShare(message: string): {
+    recipeId: string;
+    title: string;
+    servings: number;
+    readyInMinutes: number;
+    imageUrl: string;
+} | null {
+    if (!message.startsWith(RECIPE_SHARE_PREFIX)) return null;
+    const payload = message.slice(RECIPE_SHARE_PREFIX.length);
+    const parts = payload.split('|');
+    if (parts.length < 4) return null;
+
+    return {
+        recipeId: parts[0],
+        title: parts[1],
+        servings: parseInt(parts[2], 10) || 4,
+        readyInMinutes: parseInt(parts[3], 10) || 30,
+        imageUrl: parts[4] || '',
+    };
+}
+
+/**
+ * Fetch a full recipe by ID (local-first, then Supabase).
+ * Used when someone taps a recipe card in chat.
+ */
+export async function getRecipeById(recipeId: string): Promise<StoredRecipe | null> {
+    // Check local first
+    const local = query<StoredRecipe>(RECIPE_TABLE, (r) => r.id === recipeId);
+    if (local.length > 0) return local[0];
+
+    // Fetch from Supabase
+    if (supabase) {
+        try {
+            const { data } = await supabase.from('recipes').select('*').eq('id', recipeId).single();
+
+            if (data) {
+                const recipe: StoredRecipe = {
+                    id: data.id,
+                    spoonacular_id: null,
+                    user_id: data.user_id,
+                    title: data.title,
+                    image_url: data.image_url || '',
+                    ready_in_minutes: data.ready_in_minutes,
+                    servings: data.servings,
+                    source_url: '',
+                    instructions: data.instructions || '',
+                    ingredients: data.ingredients || [],
+                    is_favorite: data.is_favorite || false,
+                    is_custom: true,
+                    visibility: data.visibility || 'personal',
+                    tags: data.tags || [],
+                    created_at: data.created_at,
+                    updated_at: data.updated_at,
+                };
+                // Cache locally for offline access
+                await insertLocal(RECIPE_TABLE, recipe);
+                return recipe;
+            }
+        } catch {
+            // Offline
+        }
+    }
+
+    return null;
 }

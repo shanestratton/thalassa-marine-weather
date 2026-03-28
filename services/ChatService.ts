@@ -541,6 +541,27 @@ class ChatServiceClass {
         return this.sendDM(recipientId, encoded);
     }
 
+    // ─── RECIPE SHARING ─────────────────────────
+
+    /**
+     * Share a recipe as a DM.
+     * Encodes the recipe into a parseable message string.
+     * @param recipientId - Target user UUID
+     * @param recipePayload - Pre-encoded recipe share string from encodeRecipeShare()
+     */
+    async sendRecipeShareDM(recipientId: string, recipePayload: string): Promise<DirectMessage | null | 'blocked'> {
+        return this.sendDM(recipientId, recipePayload);
+    }
+
+    /**
+     * Share a recipe in a channel.
+     * @param channelId - Target channel UUID
+     * @param recipePayload - Pre-encoded recipe share string from encodeRecipeShare()
+     */
+    async sendRecipeShareChannel(channelId: string, recipePayload: string): Promise<ChatMessage | null> {
+        return this.sendMessage(channelId, recipePayload);
+    }
+
     // ─── DM BLOCKS ────────────────────────────
 
     /** Block a user from DMing you. Directional: A blocks B = B can't DM A. */
