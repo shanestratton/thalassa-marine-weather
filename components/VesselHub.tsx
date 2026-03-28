@@ -392,8 +392,18 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         <OfficeRow
                             icon={<UserIcon color="#9ca3af" />}
                             label="Account & Settings"
-                            status={settings.isPro ? 'Thalassa PRO' : 'Free Plan'}
-                            statusColor={settings.isPro ? '#22d3ee' : '#9ca3af'}
+                            status={(() => {
+                                const tier = (settings as Record<string, unknown>).subscriptionTier as string;
+                                if (tier === 'owner') return 'Vessel Owner';
+                                if (tier === 'crew') return 'Crew Plan';
+                                return 'Free Plan';
+                            })()}
+                            statusColor={(() => {
+                                const tier = (settings as Record<string, unknown>).subscriptionTier as string;
+                                if (tier === 'owner') return '#f59e0b';
+                                if (tier === 'crew') return '#22d3ee';
+                                return '#9ca3af';
+                            })()}
                             onClick={() => onNavigate('settings')}
                         />
                     </div>

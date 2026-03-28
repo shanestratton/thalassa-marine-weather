@@ -46,6 +46,7 @@ const App: React.FC = () => {
     // 1. DATA STATE
     const { weatherData, loading, loadingMessage, error, fetchWeather, refreshData } = useWeather();
     const { settings, togglePro, updateSettings, loading: settingsLoading } = useSettings();
+    const { setTier } = useSettings();
     const { currentView, previousView, setPage, isOffline, transitionDirection } = useUI();
     const isVesselView = VESSEL_VIEWS.has(currentView);
 
@@ -170,7 +171,14 @@ const App: React.FC = () => {
             {/* MODALS & OVERLAYS */}
             <Suspense fallback={null}>
                 {showOnboarding && <OnboardingWizard onComplete={handleOnboardingComplete} />}
-                <UpgradeModal isOpen={isUpgradeOpen} onClose={() => setIsUpgradeOpen(false)} onUpgrade={togglePro} />
+                <UpgradeModal
+                    isOpen={isUpgradeOpen}
+                    onClose={() => setIsUpgradeOpen(false)}
+                    onUpgrade={(tier) => {
+                        if (tier) setTier(tier);
+                        else togglePro();
+                    }}
+                />
             </Suspense>
 
             <Suspense fallback={null}>
@@ -270,9 +278,15 @@ const App: React.FC = () => {
                                         <h2 className="text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">
                                             Thalassa
                                         </h2>
-                                        {settings.isPro && (
-                                            <span className="px-1.5 py-0.5 rounded bg-gradient-to-r from-sky-500 to-blue-600 text-[11px] font-bold text-white uppercase tracking-wider shadow-lg">
-                                                PRO
+                                        {settings.subscriptionTier && settings.subscriptionTier !== 'free' && (
+                                            <span
+                                                className={`px-1.5 py-0.5 rounded text-[11px] font-bold text-white uppercase tracking-wider shadow-lg ${
+                                                    settings.subscriptionTier === 'owner'
+                                                        ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                                                        : 'bg-gradient-to-r from-cyan-500 to-blue-600'
+                                                }`}
+                                            >
+                                                {settings.subscriptionTier === 'owner' ? 'OWNER' : 'CREW'}
                                             </span>
                                         )}
                                     </div>

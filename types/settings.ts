@@ -16,8 +16,22 @@ export interface ComfortParams {
     maxGustKts?: number; // Max gust (default: off)
 }
 
+/**
+ * Subscription tiers for Thalassa.
+ *
+ *  - `free`  — Crew (Free): basic weather, read-only chat/chandlery
+ *  - `crew`  — Crew (Paid, $49.95/yr): GPS tracking, DMs, AI advice, full weather
+ *  - `owner` — Vessel Owner ($79.95/yr): full feature set inc. route planning, passage legs, galley
+ */
+export type SubscriptionTier = 'free' | 'crew' | 'owner';
+
 export interface UserSettings {
-    isPro: boolean;
+    /** @deprecated Use `subscriptionTier` instead. Kept for migration only. */
+    isPro?: boolean;
+    /** Active subscription tier */
+    subscriptionTier: SubscriptionTier;
+    /** ISO date when subscription expires (undefined = free tier) */
+    subscriptionExpiry?: string;
     firstName?: string;
     lastName?: string;
     alwaysOn?: boolean;
