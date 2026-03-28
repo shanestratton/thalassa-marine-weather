@@ -81,6 +81,34 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
         };
     }, [origin, destination, isPro, loading, handleCalculate]);
 
+    // ── Auto-Navigate to Main Map when route completes ──
+    const prevVoyagePlanRef = useRef(voyagePlan);
+    useEffect(() => {
+        // Only fire when voyagePlan transitions from null → populated
+        if (voyagePlan && !prevVoyagePlanRef.current) {
+            const detail: Record<string, unknown> = {};
+            if (voyagePlan.originCoordinates) {
+                detail.departure = {
+                    lat: voyagePlan.originCoordinates.lat,
+                    lon: voyagePlan.originCoordinates.lon,
+                    name: origin,
+                };
+            }
+            if (voyagePlan.destinationCoordinates) {
+                detail.arrival = {
+                    lat: voyagePlan.destinationCoordinates.lat,
+                    lon: voyagePlan.destinationCoordinates.lon,
+                    name: destination,
+                };
+            }
+            log.info('[AutoNav] Route calculated, switching to main map');
+            setPage('map');
+            setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('thalassa:passage-mode', { detail }));
+            }, 300);
+        }
+        prevVoyagePlanRef.current = voyagePlan;
+    }, [voyagePlan, origin, destination, setPage]);
     return (
         <div className="relative flex-1 bg-slate-950 overflow-hidden flex flex-col">
             {/* ═══ HEADER ═══ */}
