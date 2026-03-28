@@ -53,33 +53,9 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
     } = useVoyageForm(onTriggerUpgrade);
 
     const [departureTime, setDepartureTime] = useState('06:00');
-    const formRef = React.useRef<HTMLFormElement>(null);
 
     const [_tempMapSelection, setTempMapSelection] = useState<{ lat: number; lon: number; name: string } | null>(null);
     const { setPage } = useUI();
-
-    // ── Auto-Calculate: trigger when both inputs have values ──
-    const autoCalcTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const lastCalcRef = useRef<string>('');
-
-    useEffect(() => {
-        // Only auto-calc when we have both, user is pro, and not already loading
-        if (!origin.trim() || !destination.trim() || !isPro || loading) return;
-
-        const calcKey = `${origin}||${destination}`;
-        if (calcKey === lastCalcRef.current) return; // Already calculated this combo
-
-        // Debounce: wait 1.2s after last keystroke before firing
-        if (autoCalcTimerRef.current) clearTimeout(autoCalcTimerRef.current);
-        autoCalcTimerRef.current = setTimeout(() => {
-            lastCalcRef.current = calcKey;
-            handleCalculate();
-        }, 1200);
-
-        return () => {
-            if (autoCalcTimerRef.current) clearTimeout(autoCalcTimerRef.current);
-        };
-    }, [origin, destination, isPro, loading, handleCalculate]);
 
     // ── Auto-Navigate to Main Map when route completes ──
     const prevVoyagePlanRef = useRef(voyagePlan);
@@ -139,7 +115,6 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                         <button
                             onClick={() => {
                                 clearVoyagePlan();
-                                lastCalcRef.current = '';
                             }}
                             className="p-2 bg-slate-800/80 hover:bg-red-500/20 border border-white/10 rounded-xl text-gray-400 hover:text-red-400 transition-all"
                             aria-label="Clear route"
@@ -473,7 +448,6 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                 label="Slide to Calculate Route"
                                 thumbIcon={<CompassIcon className="w-5 h-5 text-white" rotation={0} />}
                                 onConfirm={() => {
-                                    lastCalcRef.current = '';
                                     handleCalculate();
                                 }}
                                 loading={loading}
