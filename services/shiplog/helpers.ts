@@ -169,6 +169,7 @@ export function toDbFormat(entry: Partial<ShipLogEntry>): Record<string, any> {
         isOnWater: 'is_on_water',
         archived: 'archived',
         linkedPlanId: 'linked_plan_id',
+        legNumber: 'leg_number',
     };
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -221,6 +222,7 @@ export function fromDbFormat(row: Record<string, any>): ShipLogEntry {
         isOnWater: row.is_on_water,
         archived: row.archived ?? false,
         linkedPlanId: row.linked_plan_id,
+        legNumber: row.leg_number ?? undefined,
     };
 }
 

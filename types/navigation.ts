@@ -51,6 +51,8 @@ export interface ShipLogEntry {
     isOnWater?: boolean;
     archived?: boolean;
     linkedPlanId?: string;
+    /** Passage leg number (1-indexed). Legs increment on each port departure. */
+    legNumber?: number;
 }
 
 export interface Waypoint {
@@ -109,6 +111,30 @@ export interface VoyagePlan {
     __multiModelComparison?: import('../services/weather/MultiModelWeatherService').MultiModelResult;
     /** Spatiotemporal weather routing payload — stashed by enhanceVoyagePlanWithWeather */
     __spatiotemporalPayload?: import('../types/spatiotemporal').SpatiotemporalPayload;
+}
+
+/**
+ * PassageLeg — A single leg of a multi-stop voyage.
+ *
+ * Every departure from a port creates a new leg. Example:
+ *   Voyage: "Brisbane → Fiji"
+ *   Leg 1: Brisbane → Nouméa (departure_port → arrival_port)
+ *   Leg 2: Nouméa → Suva    (departure_port → arrival_port)
+ *
+ * Rule: Any port you leave from that is not your home port counts as a new leg.
+ */
+export interface PassageLeg {
+    id: string;
+    voyage_id: string;
+    leg_number: number; // 1-indexed
+    departure_port: string;
+    arrival_port: string | null; // null while leg is active (at sea)
+    departure_time: string; // ISO timestamp
+    arrival_time: string | null; // null while leg is active
+    distance_nm: number | null; // Calculated on leg close from cumulative ship log
+    status: 'active' | 'completed';
+    notes: string | null;
+    created_at: string;
 }
 
 /** GEBCO depth analysis result — attached to VoyagePlan by the passage planner */

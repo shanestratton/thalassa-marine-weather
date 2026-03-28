@@ -8,6 +8,7 @@
  */
 
 import { supabase } from './supabase';
+import { startLeg, closeLeg, getActiveLeg, deleteLegsForVoyage } from './VoyageLegService';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -226,16 +227,33 @@ export async function castOff(voyageId: string): Promise<{ ok: boolean; voyage?:
         /* offline — log entry will sync later */
     }
 
+    // Create Leg 1 — every cast off starts the first passage leg
+    startLeg(voyageId, voyage.departure_port || 'Unknown Port');
+
     return { ok: true, voyage };
 }
 
-/** End a passage */
+/** End a passage — closes active leg and archives the voyage */
 export async function endVoyage(voyageId: string, status: 'completed' | 'aborted' = 'completed'): Promise<boolean> {
+    // Close any active leg before ending the voyage
+    const activeLeg = getActiveLeg(voyageId);
+    if (activeLeg) {
+        // Use the voyage destination as the arrival port for the final leg
+        const cached = getCachedActiveVoyage();
+        closeLeg(voyageId, cached?.destination_port || 'Destination');
+    }
+
     if (!supabase) return false;
 
     const { error } = await supabase.from('voyages').update({ status }).eq('id', voyageId);
 
-    if (!error) cacheVoyage(null);
+    if (!error) {
+        cacheVoyage(null);
+        // Clean up legs if voyage was aborted
+        if (status === 'aborted') {
+            deleteLegsForVoyage(voyageId);
+        }
+    }
     return !error;
 }
 

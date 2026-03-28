@@ -17,6 +17,8 @@ import {
     createVoyage,
     type Voyage,
 } from '../../services/VoyageService';
+import { getActiveLeg, getLegsForVoyage, closeLeg, startLeg, getLegSummary } from '../../services/VoyageLegService';
+import type { PassageLeg } from '../../types/navigation';
 import { triggerHaptic } from '../../utils/system';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { ChatService } from '../../services/ChatService';
@@ -27,7 +29,7 @@ interface CastOffPanelProps {
     onNavigateToGalley?: () => void;
 }
 
-type Step = 'select' | 'create' | 'preflight' | 'track_prompt' | 'active';
+type Step = 'select' | 'create' | 'preflight' | 'track_prompt' | 'active' | 'arrive' | 'depart_leg';
 
 export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, onNavigateToGalley }) => {
     const [step, setStep] = useState<Step>('select');
@@ -51,6 +53,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const [newCrew, setNewCrew] = useState(2);
     const [creating, setCreating] = useState(false);
 
+    // Passage legs state
+    const [currentLeg, setCurrentLeg] = useState<PassageLeg | null>(null);
+    const [completedLegs, setCompletedLegs] = useState<PassageLeg[]>([]);
+    const [arrivalPort, setArrivalPort] = useState('');
+
     // Load drafts + check active
     useEffect(() => {
         const load = async () => {
@@ -60,6 +67,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
             if (active) {
                 setActiveVoyage(active);
                 setStep('active');
+                // Load leg state
+                const activeLeg = getActiveLeg(active.id);
+                setCurrentLeg(activeLeg);
+                const allLegs = getLegsForVoyage(active.id).filter((l) => l.status === 'completed');
+                setCompletedLegs(allLegs);
             }
             setLoading(false);
         };
@@ -143,11 +155,48 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         triggerHaptic('medium');
         await endVoyage(activeVoyage.id, 'completed');
         setActiveVoyage(null);
+        setCurrentLeg(null);
+        setCompletedLegs([]);
         setStep('select');
         // Reload drafts
         const d = await getDraftVoyages();
         setDrafts(d);
     }, [activeVoyage]);
+
+    // ── Passage Leg Handlers ──
+
+    const handleArriveAtPort = useCallback(() => {
+        if (!activeVoyage || !currentLeg) return;
+        triggerHaptic('light');
+        setArrivalPort(activeVoyage.destination_port || '');
+        setStep('arrive');
+    }, [activeVoyage, currentLeg]);
+
+    const handleConfirmArrival = useCallback(() => {
+        if (!activeVoyage || !arrivalPort.trim()) return;
+        triggerHaptic('medium');
+        const closed = closeLeg(activeVoyage.id, arrivalPort.trim());
+        if (closed) {
+            setCompletedLegs((prev) => [...prev, closed]);
+            setCurrentLeg(null);
+            setStep('depart_leg');
+        }
+    }, [activeVoyage, arrivalPort]);
+
+    const handleDepartNextLeg = useCallback(() => {
+        if (!activeVoyage || !arrivalPort.trim()) return;
+        triggerHaptic('heavy');
+        // The departure port for the next leg = the arrival port of the previous leg
+        const newLeg = startLeg(activeVoyage.id, arrivalPort.trim());
+        setCurrentLeg(newLeg);
+        setArrivalPort('');
+        setStep('active');
+    }, [activeVoyage, arrivalPort]);
+
+    const handleSkipToActive = useCallback(() => {
+        setArrivalPort('');
+        setStep('active');
+    }, []);
 
     return (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-stretch justify-center">
@@ -168,7 +217,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                         ? 'Ready to Sail?'
                                         : step === 'create'
                                           ? 'New Voyage'
-                                          : 'Select Voyage'}
+                                          : step === 'arrive'
+                                            ? 'Port Arrival'
+                                            : step === 'depart_leg'
+                                              ? 'Next Leg'
+                                              : 'Select Voyage'}
                             </h2>
                             <p className="text-[10px] text-amber-400/60 uppercase tracking-widest">
                                 {step === 'active'
@@ -179,7 +232,11 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                         ? 'Pre-Departure Check'
                                         : step === 'create'
                                           ? 'Quick Create'
-                                          : 'Draft Voyages'}
+                                          : step === 'arrive'
+                                            ? 'Passage Legs'
+                                            : step === 'depart_leg'
+                                              ? 'Passage Legs'
+                                              : 'Draft Voyages'}
                             </p>
                         </div>
                     </div>
@@ -235,14 +292,26 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest">
                                     Live
                                 </span>
+                                {currentLeg && (
+                                    <span className="ml-auto px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-sky-500/10 text-sky-400 border border-sky-500/15">
+                                        Leg {currentLeg.leg_number}
+                                    </span>
+                                )}
                             </div>
                             <h3 className="text-lg font-black text-white">{activeVoyage.voyage_name}</h3>
                             <div className="grid grid-cols-2 gap-2 text-[11px]">
-                                {activeVoyage.departure_port && (
+                                {currentLeg ? (
                                     <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
                                         <span className="text-gray-500">From</span>
-                                        <p className="text-white font-bold">{activeVoyage.departure_port}</p>
+                                        <p className="text-white font-bold">{currentLeg.departure_port}</p>
                                     </div>
+                                ) : (
+                                    activeVoyage.departure_port && (
+                                        <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
+                                            <span className="text-gray-500">From</span>
+                                            <p className="text-white font-bold">{activeVoyage.departure_port}</p>
+                                        </div>
+                                    )
                                 )}
                                 {activeVoyage.destination_port && (
                                     <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06]">
@@ -270,12 +339,147 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             </div>
                         </div>
 
+                        {/* Completed legs timeline */}
+                        {completedLegs.length > 0 && (
+                            <div className="space-y-1.5">
+                                <div className="flex items-center gap-2 px-1">
+                                    <div className="w-1 h-3 rounded-full bg-sky-500" />
+                                    <span className="text-[10px] font-bold text-sky-400 uppercase tracking-widest">
+                                        Passage Legs
+                                    </span>
+                                </div>
+                                {completedLegs.map((leg) => {
+                                    const summary = getLegSummary(leg);
+                                    return (
+                                        <div
+                                            key={leg.id}
+                                            className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04] flex items-center gap-2.5"
+                                        >
+                                            <span className="w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-black flex items-center justify-center shrink-0">
+                                                {summary.legNumber}
+                                            </span>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-[11px] font-bold text-white truncate">
+                                                    {summary.route}
+                                                </p>
+                                                <p className="text-[10px] text-gray-500">
+                                                    {summary.durationHours ? `${summary.durationHours}h` : '—'}
+                                                    {summary.distanceNm ? ` · ${summary.distanceNm.toFixed(0)} NM` : ''}
+                                                </p>
+                                            </div>
+                                            <span className="text-emerald-400 text-[10px]">✓</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {/* Arrive at Port — Stopover */}
+                        {currentLeg && (
+                            <button
+                                onClick={handleArriveAtPort}
+                                className="w-full py-3.5 bg-sky-500/10 border border-sky-500/20 rounded-xl text-sm font-bold text-sky-400 uppercase tracking-widest hover:bg-sky-500/20 transition-colors active:scale-[0.97]"
+                            >
+                                ⚓ Arrive at Port
+                            </button>
+                        )}
+
                         <button
                             onClick={handleEndVoyage}
                             className="w-full py-3.5 bg-red-500/10 border border-red-500/20 rounded-xl text-sm font-bold text-red-400 uppercase tracking-widest hover:bg-red-500/20 transition-colors active:scale-[0.97]"
                         >
                             🏁 End Voyage &amp; Archive
                         </button>
+                    </div>
+                )}
+
+                {/* ── Arrive at Port (close current leg) ── */}
+                {step === 'arrive' && activeVoyage && (
+                    <div className="p-5 pt-2 space-y-4">
+                        <div className="text-center py-2">
+                            <div className="text-4xl mb-2">⚓</div>
+                            <h3 className="text-lg font-black text-white mb-1">Arrive at Port</h3>
+                            <p className="text-xs text-gray-400">
+                                Close Leg {currentLeg?.leg_number || completedLegs.length + 1} and log your arrival
+                            </p>
+                        </div>
+
+                        <div>
+                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">
+                                Arrival Port *
+                            </label>
+                            <input
+                                type="text"
+                                value={arrivalPort}
+                                onChange={(e) => setArrivalPort(e.target.value)}
+                                onFocus={scrollInputAboveKeyboard}
+                                placeholder="e.g. Nouméa, New Caledonia"
+                                className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-600 focus:border-sky-500/40 outline-none transition-colors"
+                                autoFocus
+                            />
+                        </div>
+
+                        <div className="space-y-2">
+                            <button
+                                onClick={handleConfirmArrival}
+                                disabled={!arrivalPort.trim()}
+                                className="w-full py-3.5 bg-gradient-to-r from-sky-500 to-sky-500 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-20 shadow-lg shadow-sky-500/20"
+                            >
+                                ⚓ Confirm Arrival
+                            </button>
+                            <button
+                                onClick={handleSkipToActive}
+                                className="w-full py-3 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                            >
+                                ← Back
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* ── Depart on Next Leg (or end voyage) ── */}
+                {step === 'depart_leg' && activeVoyage && (
+                    <div className="p-5 pt-2 space-y-4">
+                        <div className="text-center py-2">
+                            <div className="text-4xl mb-2">🚢</div>
+                            <h3 className="text-lg font-black text-white mb-1">Arrived at {arrivalPort || 'port'}</h3>
+                            <p className="text-xs text-gray-400">
+                                Leg {completedLegs.length} complete. Ready to depart on the next leg?
+                            </p>
+                        </div>
+
+                        {/* Quick leg summary */}
+                        {completedLegs.length > 0 && (
+                            <div className="p-3 rounded-xl bg-emerald-500/[0.04] border border-emerald-500/10">
+                                {completedLegs.map((leg) => {
+                                    const s = getLegSummary(leg);
+                                    return (
+                                        <div key={leg.id} className="flex items-center gap-2 py-1 text-[11px]">
+                                            <span className="text-emerald-400 font-black">L{s.legNumber}</span>
+                                            <span className="text-gray-300 truncate flex-1">{s.route}</span>
+                                            <span className="text-gray-500">
+                                                {s.durationHours ? `${s.durationHours}h` : ''}
+                                            </span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        <div className="space-y-2">
+                            <button
+                                onClick={handleDepartNextLeg}
+                                className="w-full py-4 bg-gradient-to-r from-amber-500 to-orange-500 rounded-xl text-base font-black text-black uppercase tracking-[0.15em] transition-all active:scale-[0.96] shadow-lg shadow-amber-500/20"
+                            >
+                                🚢 Depart — Start Leg {completedLegs.length + 1}
+                            </button>
+                            <button
+                                onClick={handleEndVoyage}
+                                className="w-full py-3.5 bg-red-500/10 border border-red-500/20 rounded-xl text-sm font-bold text-red-400 uppercase tracking-widest hover:bg-red-500/20 transition-colors active:scale-[0.97]"
+                            >
+                                🏁 End Voyage Here
+                            </button>
+                        </div>
                     </div>
                 )}
 
