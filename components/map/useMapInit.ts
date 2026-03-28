@@ -395,10 +395,10 @@ export function useMapInit(opts: UseMapInitOptions) {
                 filter: ['==', ['get', 'dashed'], true],
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: {
-                    'line-color': '#38bdf8',
-                    'line-width': 2,
-                    'line-opacity': 0.6,
-                    'line-dasharray': [4, 4],
+                    'line-color': '#fbbf24',
+                    'line-width': 3,
+                    'line-opacity': 0.8,
+                    'line-dasharray': [6, 6],
                 },
             });
 
