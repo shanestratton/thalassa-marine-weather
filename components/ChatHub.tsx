@@ -182,7 +182,7 @@ export const ChatHub: React.FC = () => {
                                 d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"
                             />
                         </svg>
-                        <span className="text-xs font-black uppercase tracking-widest">Marketplace</span>
+                        <span className="text-xs font-black uppercase tracking-widest">Chandlery</span>
                         {unreadMarketplace > 0 && (
                             <span className="absolute -top-0.5 -right-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-[11px] font-black text-white min-w-[16px] text-center">
                                 {unreadMarketplace}
@@ -222,7 +222,7 @@ export const ChatHub: React.FC = () => {
                                 </div>
                                 <p className="text-gray-400 text-sm font-bold">No active negotiations</p>
                                 <p className="text-gray-400 text-xs mt-1">
-                                    Message a seller from the Gear Exchange to start
+                                    Message a seller from the Chandlery to start
                                 </p>
                             </div>
                         ) : (

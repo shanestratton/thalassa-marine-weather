@@ -99,7 +99,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
 
     const effectiveCrewCount = crewCount || vessel.crewCount || 2;
 
-    // ─── OBSERVER MODE ──────────────────────────────────────
+    // ─── CREW MEMBER MODE ────────────────────────────────────
     if (isObserver) {
         return (
             <div className="space-y-4">
@@ -121,7 +121,7 @@ export const ResourceCalculator: React.FC<ResourceCalculatorProps> = ({ voyagePl
                 <div className="flex items-start gap-3 p-4 bg-amber-500/5 border border-amber-500/15 rounded-xl">
                     <AlertTriangleIcon className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
                     <div>
-                        <h4 className="text-xs font-bold text-amber-300 mb-1">Observer Mode</h4>
+                        <h4 className="text-xs font-bold text-amber-300 mb-1">Crew Member Mode</h4>
                         <p className="text-xs text-gray-400 leading-relaxed">
                             Configure your vessel in{' '}
                             <span className="text-white font-medium">Settings → Vessel Profile</span> to unlock detailed

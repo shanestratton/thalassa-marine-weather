@@ -38,7 +38,7 @@ const VesselWidgetComponent = ({ vessel, vesselStatus }: { vessel: VesselProfile
         return (
             <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-center items-center h-full text-center min-h-[220px]">
                 <SearchIcon className="w-12 h-12 text-gray-400 mb-3" />
-                <h3 className="text-lg font-medium text-white mb-1">Observer Mode</h3>
+                <h3 className="text-lg font-medium text-white mb-1">Crew Member Mode</h3>
                 <p className="text-xs text-gray-400 max-w-[200px]">Configure a vessel profile to see hydrostatics.</p>
             </Card>
         );
@@ -330,7 +330,7 @@ const VesselStatusWidgetComponent = ({
             ) : (
                 <Card className="bg-slate-900/60 border border-white/10 p-5 flex flex-col justify-center items-center h-full text-center min-h-[220px]">
                     <SearchIcon className="w-12 h-12 text-gray-400 mb-3" />
-                    <h3 className="text-lg font-medium text-white mb-1">Observer Mode</h3>
+                    <h3 className="text-lg font-medium text-white mb-1">Crew Member Mode</h3>
                     <p className="text-xs text-gray-400 max-w-[200px]">
                         Configure a vessel profile to see hydrostatics.
                     </p>

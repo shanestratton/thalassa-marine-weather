@@ -882,7 +882,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 : 'bg-gradient-to-r from-sky-500 to-sky-500 text-white shadow-lg shadow-sky-500/20'
                         }`}
                     >
-                        {submitting ? '⏳ Creating Listing...' : '🏪 Post to Marketplace'}
+                        {submitting ? '⏳ Creating Listing...' : '⚓ Post to Chandlery'}
                     </button>
                 </div>
             </div>

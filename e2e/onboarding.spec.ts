@@ -13,7 +13,7 @@ test.describe('Onboarding Wizard', () => {
         const hasOnboarding =
             body?.includes('Sailboat') ||
             body?.includes('Powerboat') ||
-            body?.includes('Observer') ||
+            body?.includes('Crew Member') ||
             body?.includes('vessel') ||
             body?.includes('Welcome');
 
