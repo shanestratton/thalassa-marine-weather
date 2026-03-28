@@ -50,7 +50,7 @@ export function useChatMessages(options: UseChatMessagesOptions) {
                 setView('find_crew');
                 return;
             }
-            if (channel.name === 'Marketplace') {
+            if (channel.name === 'Chandlery' || channel.name === 'Marketplace') {
                 setNavDirection('forward');
                 setView('marketplace');
                 return;
