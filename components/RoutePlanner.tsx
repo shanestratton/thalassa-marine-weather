@@ -81,10 +81,12 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
             setPage('map');
             setTimeout(() => {
                 window.dispatchEvent(new CustomEvent('thalassa:passage-mode', { detail }));
+                // Clear so CTA is visible when user navigates back
+                clearVoyagePlan();
             }, 300);
         }
         prevVoyagePlanRef.current = voyagePlan;
-    }, [voyagePlan, origin, destination, setPage]);
+    }, [voyagePlan, origin, destination, setPage, clearVoyagePlan]);
     return (
         <div className="relative flex-1 bg-slate-950 overflow-hidden flex flex-col">
             {/* ═══ HEADER ═══ */}
@@ -110,18 +112,6 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                     <div className="flex-1">
                         <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Route Planner</h1>
                     </div>
-                    {/* Clear / New Route when results exist */}
-                    {voyagePlan && (
-                        <button
-                            onClick={() => {
-                                clearVoyagePlan();
-                            }}
-                            className="p-2 bg-slate-800/80 hover:bg-red-500/20 border border-white/10 rounded-xl text-gray-400 hover:text-red-400 transition-all"
-                            aria-label="Clear route"
-                        >
-                            <XIcon className="w-5 h-5" />
-                        </button>
-                    )}
                 </div>
             </div>
 
@@ -414,7 +404,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
             </div>
 
             {/* ─── BOTTOM: CTA pinned above nav bar ─── */}
-            {!voyagePlan && (
+            {
                 <div
                     className="fixed bottom-0 left-0 right-0 px-4 z-10 pointer-events-none"
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
@@ -457,7 +447,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                         )}
                     </div>
                 </div>
-            )}
+            }
         </div>
     );
 };
