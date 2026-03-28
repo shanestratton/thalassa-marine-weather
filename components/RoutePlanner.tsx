@@ -406,19 +406,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                     </>
                 ) : (
                     /* Empty state — subtle map placeholder */
-                    <div className="w-full h-full flex items-center justify-center relative">
-                        <MapHub mapboxToken={mapboxToken} pickerMode={false} embedded initialZoom={3} />
-                        {/* Overlay hint when no route */}
-                        {!loading && !origin.trim() && !destination.trim() && (
-                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-                                <div className="text-center px-8 py-6 rounded-2xl bg-slate-900/80 backdrop-blur-sm border border-white/5">
-                                    <div className="text-3xl mb-2">🧭</div>
-                                    <p className="text-sm font-bold text-white mb-1">Enter Origin & Destination</p>
-                                    <p className="text-xs text-gray-400">Route calculates automatically</p>
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                    <div className="w-full h-full bg-slate-950" />
                 )}
             </div>
 
