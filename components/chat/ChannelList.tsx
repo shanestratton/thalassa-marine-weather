@@ -21,6 +21,7 @@ const getChannelName = (ch: { name: string }) => NAME_OVERRIDES[ch.name] ?? ch.n
 
 const CHANNEL_PRIORITY: Record<string, number> = {
     'Neighbourhood Watch': 0,
+    Chandlery: 1,
     Marketplace: 1,
     'Find Crew': 2,
     General: 3,
@@ -109,7 +110,9 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
         });
 
     // Top-level channels that can be parents (for proposal dropdown)
-    const parentOptions = topLevel.filter((ch) => ch.name !== 'Marketplace' && ch.name !== 'Find Crew');
+    const parentOptions = topLevel.filter(
+        (ch) => ch.name !== 'Marketplace' && ch.name !== 'Chandlery' && ch.name !== 'Find Crew',
+    );
 
     const renderChannelCard = (ch: ChatChannel, isSub: boolean, _index: number) => {
         const isPrivateLocked = ch.is_private && !memberChannelIds.has(ch.id) && !isAdmin;
