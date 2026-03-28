@@ -14,13 +14,25 @@ vi.mock('../utils/keyboardScroll', () => ({
 }));
 vi.mock('../hooks/useVoyageForm', () => ({
     useVoyageForm: () => ({
-        form: { departure: '', arrival: '', date: new Date().toISOString(), passengers: 2 },
-        setField: vi.fn(),
-        submit: vi.fn(),
+        origin: '',
+        setOrigin: vi.fn(),
+        destination: '',
+        setDestination: vi.fn(),
+        isMapOpen: false,
+        setIsMapOpen: vi.fn(),
+        mapSelectionTarget: null,
         loading: false,
+        loadingStep: 0,
         error: null,
-        result: null,
-        phase: null,
+        handleCalculate: vi.fn(),
+        clearVoyagePlan: vi.fn(),
+        handleOriginLocation: vi.fn(),
+        handleMapSelect: vi.fn(),
+        openMap: vi.fn(),
+        voyagePlan: null,
+        vessel: null,
+        isPro: true,
+        mapboxToken: 'test-token',
     }),
     LOADING_PHASES: [],
 }));
@@ -33,25 +45,13 @@ vi.mock('../context/UIContext', () => ({
 vi.mock('../components/map/MapHub', () => ({
     MapHub: () => <div data-testid="map-hub">Map</div>,
 }));
-vi.mock('../components/ui/SlideToAction', () => ({
-    SlideToAction: ({ children }: { children: React.ReactNode }) => <div data-testid="slide-to-action">{children}</div>,
-}));
-vi.mock('../components/VoyageResults', () => ({
-    VoyageResults: () => <div data-testid="voyage-results">Results</div>,
-}));
 vi.mock('../components/Icons', () => ({
     MapPinIcon: () => <span>📍</span>,
     MapIcon: () => <span>🗺️</span>,
-    RouteIcon: () => <span>🛤️</span>,
-    CalendarIcon: () => <span>📅</span>,
-    CrosshairIcon: () => <span>⊕</span>,
     XIcon: () => <span>✕</span>,
-    ClockIcon: () => <span>🕐</span>,
+    CrosshairIcon: () => <span>⊕</span>,
     LockIcon: () => <span>🔒</span>,
-    BugIcon: () => <span>🐛</span>,
     CompassIcon: () => <span>🧭</span>,
-    PowerBoatIcon: () => <span>🚤</span>,
-    SailBoatIcon: () => <span>⛵</span>,
 }));
 
 import { RoutePlanner } from '../components/RoutePlanner';
