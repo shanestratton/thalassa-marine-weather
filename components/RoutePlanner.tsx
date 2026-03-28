@@ -350,6 +350,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                         <MapHub
                             mapboxToken={mapboxToken}
                             pickerMode={false}
+                            embedded
                             initialZoom={5}
                             center={
                                 voyagePlan.originCoordinates
@@ -364,7 +365,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                 ) : (
                     /* Empty state — subtle map placeholder */
                     <div className="w-full h-full flex items-center justify-center relative">
-                        <MapHub mapboxToken={mapboxToken} pickerMode={false} initialZoom={3} />
+                        <MapHub mapboxToken={mapboxToken} pickerMode={false} embedded initialZoom={3} />
                         {/* Overlay hint when no route */}
                         {!loading && !origin.trim() && !destination.trim() && (
                             <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
