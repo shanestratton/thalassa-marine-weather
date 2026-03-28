@@ -16,11 +16,13 @@ import { Capacitor } from '@capacitor/core';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { supabase } from '../services/supabase';
 import { getErrorMessage } from '../utils/logger';
+import { tierIsPro } from '../services/SubscriptionService';
 
 const DAILY_STORMGLASS_LIMIT = 100;
 
 export const DEFAULT_SETTINGS: UserSettings = {
-    isPro: true,
+    subscriptionTier: 'owner', // Default to owner for development
+    isPro: true, // Backward compat — derived from subscriptionTier
     alwaysOn: false,
     notifications: {
         wind: { enabled: false, threshold: 20 },
@@ -52,9 +54,12 @@ export const DEFAULT_SETTINGS: UserSettings = {
 
 interface SettingsState {
     settings: UserSettings;
+    /** Backward-compat: true if tier is crew or owner */
+    isPro: boolean;
     loading: boolean;
     quotaLimit: number;
     updateSettings: (patch: Partial<UserSettings>) => void;
+    setTier: (tier: UserSettings['subscriptionTier']) => void;
     togglePro: () => void;
     resetSettings: () => void;
     /** @internal — called once by init to wire up auth-based cloud sync */
@@ -127,6 +132,7 @@ function migrateRowOrder(saved: string[]): string[] {
 
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
     settings: DEFAULT_SETTINGS,
+    isPro: tierIsPro(DEFAULT_SETTINGS.subscriptionTier),
     loading: true,
     quotaLimit: DAILY_STORMGLASS_LIMIT,
 
@@ -138,7 +144,9 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
         if (get().loading) return;
 
         const updated = { ...get().settings, ...patch };
-        set({ settings: updated });
+        // Keep isPro in sync with subscriptionTier
+        updated.isPro = tierIsPro(updated.subscriptionTier);
+        set({ settings: updated, isPro: tierIsPro(updated.subscriptionTier) });
 
         try {
             await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(updated) });
@@ -155,7 +163,9 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
         manageScreenEffects(updated);
     },
 
-    togglePro: () => get().updateSettings({ isPro: true }),
+    togglePro: () => get().updateSettings({ subscriptionTier: 'owner', isPro: true }),
+
+    setTier: (tier) => get().updateSettings({ subscriptionTier: tier, isPro: tierIsPro(tier) }),
 
     resetSettings: async () => {
         set({ settings: DEFAULT_SETTINGS });
@@ -189,10 +199,12 @@ async function loadSettings() {
                 rowOrder: migrateRowOrder(
                     Array.isArray(parsed.rowOrder) ? parsed.rowOrder : [...(DEFAULT_SETTINGS.rowOrder || [])],
                 ),
-                isPro: true,
+                // Tier migration: legacy isPro users → owner tier
+                subscriptionTier: parsed.subscriptionTier || (parsed.isPro !== false ? 'owner' : 'free'),
+                isPro: tierIsPro(parsed.subscriptionTier || (parsed.isPro !== false ? 'owner' : 'free')),
             };
 
-            useSettingsStore.setState({ settings: merged, loading: false });
+            useSettingsStore.setState({ settings: merged, isPro: tierIsPro(merged.subscriptionTier), loading: false });
             _addDebugLog(`LOADED: [${validHeroWidgets.join(', ')}] from Disk.`);
             manageScreenEffects(merged);
         } else {
