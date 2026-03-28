@@ -475,6 +475,16 @@ export const MapHub: React.FC<MapHubProps> = ({
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
     weatherRef.current = weather;
 
+    // ── Clear weather layers when passage mode activates ──
+    const prevShowPassageRef = useRef(passage.showPassage);
+    useEffect(() => {
+        if (passage.showPassage && !prevShowPassageRef.current) {
+            weather.setActiveLayer('none');
+        }
+        prevShowPassageRef.current = passage.showPassage;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [passage.showPassage]);
+
     // ── Cyclone-aware temporal snap — REMOVED ──
     // Previously this scanned all GFS forecast hours to find the vortex center
     // closest to the ATCF position and overrode the wind scrubber. However, this
