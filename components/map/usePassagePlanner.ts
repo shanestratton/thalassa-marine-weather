@@ -224,6 +224,41 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         ): GeoJSON.Feature<GeoJSON.LineString>[] => {
             const features: GeoJSON.Feature<GeoJSON.LineString>[] = [];
 
+            // Max harbour leg length in NM — beyond this we split
+            const HARBOUR_MAX_NM = 10;
+
+            // Haversine distance between two [lon, lat] coords in NM
+            const distNM = (a: number[], b: number[]): number => {
+                const R = 3440.065;
+                const dLat = ((b[1] - a[1]) * Math.PI) / 180;
+                const dLon = ((b[0] - a[0]) * Math.PI) / 180;
+                const lat1 = (a[1] * Math.PI) / 180;
+                const lat2 = (b[1] * Math.PI) / 180;
+                const sinDLat = Math.sin(dLat / 2);
+                const sinDLon = Math.sin(dLon / 2);
+                const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon;
+                return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+            };
+
+            // Interpolate a point along coords at a max distance from the start
+            const interpolateAt = (coords: number[][], maxNM: number, fromEnd: boolean): number[] => {
+                const ordered = fromEnd ? [...coords].reverse() : coords;
+                let accum = 0;
+                for (let i = 1; i < ordered.length; i++) {
+                    const segDist = distNM(ordered[i - 1], ordered[i]);
+                    if (accum + segDist >= maxNM) {
+                        const remain = maxNM - accum;
+                        const frac = segDist > 0 ? remain / segDist : 0;
+                        return [
+                            ordered[i - 1][0] + frac * (ordered[i][0] - ordered[i - 1][0]),
+                            ordered[i - 1][1] + frac * (ordered[i][1] - ordered[i - 1][1]),
+                        ];
+                    }
+                    accum += segDist;
+                }
+                return ordered[ordered.length - 1];
+            };
+
             // Helper: create a dashed land-leg feature (first or last segment)
             const makeLandLeg = (coords: number[][]): GeoJSON.Feature<GeoJSON.LineString> => ({
                 type: 'Feature',
@@ -235,12 +270,37 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             const canSplit = passageCoords.length >= 4;
 
             if (canSplit) {
-                // First leg: departure → 2nd point (dashed)
-                features.push(makeLandLeg(passageCoords.slice(0, 2)));
+                // ── First harbour leg: departure → cutoff (max 10 NM) ──
+                const firstSegDist = distNM(passageCoords[0], passageCoords[1]);
+                let depCutIdx = 1; // default: use 2nd point
+                let depCutPoint: number[] | null = null;
+                if (firstSegDist > HARBOUR_MAX_NM) {
+                    depCutPoint = interpolateAt(passageCoords, HARBOUR_MAX_NM, false);
+                    features.push(makeLandLeg([passageCoords[0], depCutPoint]));
+                } else {
+                    features.push(makeLandLeg(passageCoords.slice(0, 2)));
+                    depCutIdx = 1;
+                }
 
-                // Ocean middle portion
-                const oceanCoords = passageCoords.slice(1, passageCoords.length - 1);
-                const oceanShallows = shallowFlags?.slice(1, shallowFlags.length - 1);
+                // ── Last harbour leg: cutoff → arrival (max 10 NM) ──
+                const lastIdx = passageCoords.length - 1;
+                const lastSegDist = distNM(passageCoords[lastIdx - 1], passageCoords[lastIdx]);
+                let arrCutPoint: number[] | null = null;
+                if (lastSegDist > HARBOUR_MAX_NM) {
+                    arrCutPoint = interpolateAt(passageCoords, HARBOUR_MAX_NM, true);
+                    features.push(makeLandLeg([arrCutPoint, passageCoords[lastIdx]]));
+                } else {
+                    features.push(makeLandLeg(passageCoords.slice(lastIdx - 1)));
+                }
+
+                // ── Ocean middle portion ──
+                const oceanStart = depCutPoint
+                    ? [depCutPoint, ...passageCoords.slice(depCutIdx)]
+                    : passageCoords.slice(depCutIdx);
+                const oceanCoords = arrCutPoint
+                    ? [...oceanStart.slice(0, oceanStart.length - 1), arrCutPoint]
+                    : oceanStart.slice(0, oceanStart.length - 1);
+                const oceanShallows = shallowFlags?.slice(depCutIdx, passageCoords.length - 1);
 
                 // ── Short route: depth-aware per-segment coloring for ocean portion ──
                 if (isShortRoute && oceanShallows && oceanShallows.length === oceanCoords.length) {
@@ -260,8 +320,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             wasShallow = nowShallow;
                         }
                     }
-                    if (features.length === 1) {
-                        // Only the first dashed leg was added — add the full ocean as safe
+                    // If only harbour legs were added, add the full ocean as safe
+                    if (features.length === 2) {
                         features.push({
                             type: 'Feature',
                             properties: { safety: 'safe' },
@@ -276,9 +336,6 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         geometry: { type: 'LineString', coordinates: oceanCoords },
                     });
                 }
-
-                // Last leg: 2nd-to-last → arrival (dashed)
-                features.push(makeLandLeg(passageCoords.slice(passageCoords.length - 2)));
             } else {
                 // Too few points to split — render entire route as safe
                 features.push({
