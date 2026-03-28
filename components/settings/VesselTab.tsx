@@ -207,9 +207,9 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     <div className="flex items-start gap-3">
                         <span className="text-2xl">🔭</span>
                         <div>
-                            <h4 className="text-sm font-bold text-sky-300 mb-1">Observer Mode Active</h4>
+                            <h4 className="text-sm font-bold text-sky-300 mb-1">Crew Member Mode Active</h4>
                             <p className="text-[11px] text-gray-400 leading-relaxed">
-                                You're currently in observer mode — weather only, no vessel features. Select{' '}
+                                You're currently in crew member mode — weather only, no vessel features. Select{' '}
                                 <strong className="text-white">Sail</strong> or{' '}
                                 <strong className="text-white">Power</strong> below to unlock Passage Planning, Polars,
                                 and hydrostatics.

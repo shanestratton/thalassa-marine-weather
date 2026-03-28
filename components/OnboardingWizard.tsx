@@ -385,7 +385,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
 
         const vesselData: VesselProfile = {
             name:
-                (finalVesselType === 'observer' ? 'Observer' : sanitizeText(name)) ||
+                (finalVesselType === 'observer' ? 'Crew Member' : sanitizeText(name)) ||
                 (finalVesselType === 'sail' ? 'S/Y Ocean' : 'M/Y Ocean'),
             type: finalVesselType,
             riggingType: finalVesselType === 'sail' ? riggingType : undefined,

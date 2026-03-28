@@ -47,10 +47,10 @@ export const DEFAULT_CHANNELS: Omit<ChatChannel, 'id' | 'created_at'>[] = [
         parent_id: null,
     },
     {
-        name: 'Marketplace',
-        description: 'Buy, sell, and trade gear, boats, and services',
+        name: 'Chandlery',
+        description: 'Buy, sell, and trade new & used gear, boats, and services',
         region: null,
-        icon: '🏪',
+        icon: '⚓',
         is_global: true,
         is_private: false,
         owner_id: null,

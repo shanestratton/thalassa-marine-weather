@@ -24,7 +24,7 @@ describe('VesselWidget', () => {
         const observerVessel = { name: 'Observer', type: 'observer', length: 0 } as VesselProfile;
         render(<VesselWidget vessel={observerVessel} vesselStatus={{}} />);
 
-        expect(screen.getByText('Observer Mode')).toBeDefined();
+        expect(screen.getByText('Crew Member Mode')).toBeDefined();
         expect(screen.getByText(/configure a vessel/i)).toBeDefined();
     });
 
