@@ -27,7 +27,7 @@ import {
     type IsochroneResult,
     type TurnWaypoint,
 } from '../../services/IsochroneRouter';
-import { preloadBathymetry } from '../../services/BathymetryCache';
+import { preloadBathymetry, getDepthFromCache, type BathymetryGrid } from '../../services/BathymetryCache';
 import { createWindFieldFromGrid } from '../../services/weather/WindFieldAdapter';
 import { DEFAULT_CRUISING_POLAR } from '../../services/defaultPolar';
 import { SmartPolarStore } from '../../services/SmartPolarStore';
@@ -221,10 +221,14 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         const buildFeatures = (
             passageCoords: number[][],
             shallowFlags?: boolean[],
+            bathyGridArg?: BathymetryGrid | null,
         ): GeoJSON.Feature<GeoJSON.LineString>[] => {
             const features: GeoJSON.Feature<GeoJSON.LineString>[] = [];
 
-            // Max harbour leg length in NM — beyond this we split
+            // Depth threshold: harbour leg ends when water is ≥ 50m deep
+            const HARBOUR_DEPTH_M = -50; // negative = underwater in ETOPO
+
+            // Fallback: max harbour leg distance if no bathymetry available
             const HARBOUR_MAX_NM = 10;
 
             // Haversine distance between two [lon, lat] coords in NM
@@ -240,7 +244,24 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
             };
 
-            // Interpolate a point along coords at a max distance from the start
+            // Find the index where depth first reaches 50m, walking from one end
+            const findDepthCutoff = (coords: number[][], fromEnd: boolean): number => {
+                const ordered = fromEnd ? [...coords].map((_, i) => coords.length - 1 - i) : coords.map((_, i) => i);
+                if (!bathyGridArg) return ordered[Math.min(1, ordered.length - 1)];
+
+                for (const idx of ordered) {
+                    const [lon, lat] = coords[idx];
+                    const depth = getDepthFromCache(bathyGridArg, lat, lon);
+                    // depth ≤ -50 means water is 50m+ deep — end of harbour leg
+                    if (depth !== null && depth <= HARBOUR_DEPTH_M) {
+                        return idx;
+                    }
+                }
+                // Never found 50m — use 2nd point as fallback
+                return fromEnd ? coords.length - 2 : 1;
+            };
+
+            // Interpolate a point along coords at a max distance from the start (NM fallback)
             const interpolateAt = (coords: number[][], maxNM: number, fromEnd: boolean): number[] => {
                 const ordered = fromEnd ? [...coords].reverse() : coords;
                 let accum = 0;
@@ -270,37 +291,69 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             const canSplit = passageCoords.length >= 4;
 
             if (canSplit) {
-                // ── First harbour leg: departure → cutoff (max 10 NM) ──
-                const firstSegDist = distNM(passageCoords[0], passageCoords[1]);
-                let depCutIdx = 1; // default: use 2nd point
-                let depCutPoint: number[] | null = null;
-                if (firstSegDist > HARBOUR_MAX_NM) {
-                    depCutPoint = interpolateAt(passageCoords, HARBOUR_MAX_NM, false);
-                    features.push(makeLandLeg([passageCoords[0], depCutPoint]));
-                } else {
-                    features.push(makeLandLeg(passageCoords.slice(0, 2)));
-                    depCutIdx = 1;
-                }
+                let depCutIdx: number;
+                let arrCutIdx: number;
 
-                // ── Last harbour leg: cutoff → arrival (max 10 NM) ──
-                const lastIdx = passageCoords.length - 1;
-                const lastSegDist = distNM(passageCoords[lastIdx - 1], passageCoords[lastIdx]);
-                let arrCutPoint: number[] | null = null;
-                if (lastSegDist > HARBOUR_MAX_NM) {
-                    arrCutPoint = interpolateAt(passageCoords, HARBOUR_MAX_NM, true);
-                    features.push(makeLandLeg([arrCutPoint, passageCoords[lastIdx]]));
+                if (bathyGridArg) {
+                    // ── Depth-based cutoff: harbour until 50m deep ──
+                    depCutIdx = findDepthCutoff(passageCoords, false);
+                    arrCutIdx = findDepthCutoff(passageCoords, true);
+
+                    // Sanity: ensure they don't overlap
+                    if (depCutIdx >= arrCutIdx) {
+                        depCutIdx = 1;
+                        arrCutIdx = passageCoords.length - 2;
+                    }
+
+                    // Departure harbour leg
+                    features.push(makeLandLeg(passageCoords.slice(0, depCutIdx + 1)));
+                    // Arrival harbour leg
+                    features.push(makeLandLeg(passageCoords.slice(arrCutIdx)));
                 } else {
-                    features.push(makeLandLeg(passageCoords.slice(lastIdx - 1)));
+                    // ── Distance-based fallback: max 10 NM ──
+                    const firstSegDist = distNM(passageCoords[0], passageCoords[1]);
+                    let depCutPoint: number[] | null = null;
+                    depCutIdx = 1;
+
+                    if (firstSegDist > HARBOUR_MAX_NM) {
+                        depCutPoint = interpolateAt(passageCoords, HARBOUR_MAX_NM, false);
+                        features.push(makeLandLeg([passageCoords[0], depCutPoint]));
+                    } else {
+                        features.push(makeLandLeg(passageCoords.slice(0, 2)));
+                    }
+
+                    const lastIdx = passageCoords.length - 1;
+                    const lastSegDist = distNM(passageCoords[lastIdx - 1], passageCoords[lastIdx]);
+                    let arrCutPoint: number[] | null = null;
+                    arrCutIdx = lastIdx - 1;
+
+                    if (lastSegDist > HARBOUR_MAX_NM) {
+                        arrCutPoint = interpolateAt(passageCoords, HARBOUR_MAX_NM, true);
+                        features.push(makeLandLeg([arrCutPoint, passageCoords[lastIdx]]));
+                    } else {
+                        features.push(makeLandLeg(passageCoords.slice(lastIdx - 1)));
+                    }
+
+                    // Build ocean coords with interpolated cut points
+                    if (depCutPoint || arrCutPoint) {
+                        const oceanParts = depCutPoint
+                            ? [depCutPoint, ...passageCoords.slice(depCutIdx)]
+                            : passageCoords.slice(depCutIdx);
+                        const oceanCoords = arrCutPoint
+                            ? [...oceanParts.slice(0, -1), arrCutPoint]
+                            : oceanParts.slice(0, -1);
+                        features.push({
+                            type: 'Feature',
+                            properties: { safety: 'safe' },
+                            geometry: { type: 'LineString', coordinates: oceanCoords },
+                        });
+                        return features;
+                    }
                 }
 
                 // ── Ocean middle portion ──
-                const oceanStart = depCutPoint
-                    ? [depCutPoint, ...passageCoords.slice(depCutIdx)]
-                    : passageCoords.slice(depCutIdx);
-                const oceanCoords = arrCutPoint
-                    ? [...oceanStart.slice(0, oceanStart.length - 1), arrCutPoint]
-                    : oceanStart.slice(0, oceanStart.length - 1);
-                const oceanShallows = shallowFlags?.slice(depCutIdx, passageCoords.length - 1);
+                const oceanCoords = passageCoords.slice(depCutIdx, arrCutIdx + 1);
+                const oceanShallows = shallowFlags?.slice(depCutIdx, arrCutIdx + 1);
 
                 // ── Short route: depth-aware per-segment coloring for ocean portion ──
                 if (isShortRoute && oceanShallows && oceanShallows.length === oceanCoords.length) {
@@ -649,7 +702,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     if (src) {
                         src.setData({
                             type: 'FeatureCollection',
-                            features: buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags),
+                            features: buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags, bathyGrid),
                         });
                     }
 
@@ -1025,7 +1078,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             if (src) {
                                 src.setData({
                                     type: 'FeatureCollection',
-                                    features: buildFeatures(combinedCoords, combinedFlags),
+                                    features: buildFeatures(combinedCoords, combinedFlags, bathyGrid),
                                 });
                             }
                             const updatedResult = { ...result };

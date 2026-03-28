@@ -389,20 +389,6 @@ export function useMapInit(opts: UseMapInitOptions) {
             });
 
             map.addLayer({
-                id: 'route-harbour-dash',
-                type: 'line',
-                source: 'route-line',
-                filter: ['==', ['get', 'dashed'], true],
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: {
-                    'line-color': '#fbbf24',
-                    'line-width': 3,
-                    'line-opacity': 0.8,
-                    'line-dasharray': [6, 6],
-                },
-            });
-
-            map.addLayer({
                 id: 'route-core',
                 type: 'line',
                 source: 'route-line',
@@ -546,6 +532,21 @@ export function useMapInit(opts: UseMapInitOptions) {
                 source: 'confidence-route-ecmwf',
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: { 'line-color': '#e879f9', 'line-width': 2, 'line-opacity': 0.9 },
+            });
+
+            // ── Harbour Dash: rendered ABOVE confidence braid so it's always visible ──
+            map.addLayer({
+                id: 'route-harbour-dash',
+                type: 'line',
+                source: 'route-line',
+                filter: ['==', ['get', 'dashed'], true],
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    'line-color': '#fbbf24',
+                    'line-width': 3,
+                    'line-opacity': 0.8,
+                    'line-dasharray': [6, 6],
+                },
             });
 
             // ── Seamark Navigation Markers ──
