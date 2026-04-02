@@ -16,12 +16,14 @@ export const SignalKTab: React.FC = () => {
     const [charts, setCharts] = useState<SignalKChart[]>(SignalKService.getCharts());
     const [apiVersion, setApiVersion] = useState<string | null>(SignalKService.getApiVersion());
     const [lastError, setLastError] = useState<string | null>(SignalKService.getLastError());
+    const [serverType, setServerType] = useState<'signalk' | 'avnav' | null>(SignalKService.getServerType());
 
     useEffect(() => {
         const unsubStatus = SignalKService.onStatusChange((s) => {
             setStatus(s);
             setApiVersion(SignalKService.getApiVersion());
             setLastError(SignalKService.getLastError());
+            setServerType(SignalKService.getServerType());
         });
         const unsubCharts = SignalKService.onChartsChange((c) => setCharts(c));
         return () => {
@@ -50,10 +52,8 @@ export const SignalKTab: React.FC = () => {
                     <span className="text-lg">⚓</span>
                 </div>
                 <div>
-                    <h3 className="text-lg font-black text-white tracking-wide">Signal K</h3>
-                    <p className="text-[11px] text-gray-400">
-                        Connect to your vessel's Signal K server for nautical charts
-                    </p>
+                    <h3 className="text-lg font-black text-white tracking-wide">Chart Server</h3>
+                    <p className="text-[11px] text-gray-400">Connect to Signal K or AvNav for nautical charts</p>
                 </div>
             </div>
 
@@ -81,9 +81,14 @@ export const SignalKTab: React.FC = () => {
                                     ? 'Connection Error'
                                     : 'Disconnected'}
                         </p>
-                        {isConnected && apiVersion && (
+                        {isConnected && (
                             <p className="text-[11px] text-gray-400">
-                                Signal K API {apiVersion} · {host}:{port}
+                                {serverType === 'avnav'
+                                    ? 'AvNav'
+                                    : apiVersion
+                                      ? `Signal K API ${apiVersion}`
+                                      : 'Connected'}{' '}
+                                · {host}:{port}
                             </p>
                         )}
                         {lastError && !isConnected && <p className="text-[11px] text-red-400 mt-0.5">{lastError}</p>}
@@ -148,7 +153,7 @@ export const SignalKTab: React.FC = () => {
                             <>
                                 <p className="text-sm text-gray-400 font-bold">Connect to discover charts</p>
                                 <p className="text-[11px] text-gray-500 mt-1">
-                                    Enter your Signal K server address above and tap Connect.
+                                    Enter your Signal K or AvNav server address above and tap Connect.
                                 </p>
                             </>
                         )}

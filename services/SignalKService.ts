@@ -48,6 +48,7 @@ class SignalKServiceClass {
     private port = DEFAULT_PORT;
     private status: SignalKConnectionStatus = 'disconnected';
     private apiVersion: 'v1' | 'v2' | null = null; // Detected API version
+    private serverType: 'signalk' | 'avnav' | null = null; // Auto-detected server type
     private charts: SignalKChart[] = [];
     private enabled = false;
 
@@ -88,6 +89,9 @@ class SignalKServiceClass {
     }
     isEnabled(): boolean {
         return this.enabled;
+    }
+    getServerType(): 'signalk' | 'avnav' | null {
+        return this.serverType;
     }
 
     /**
@@ -169,13 +173,30 @@ class SignalKServiceClass {
         const baseUrl = `http://${this.host}:${this.port}`;
 
         try {
-            // Probe API version — try v2 first, fall back to v1
+            // Probe server type — try AvNav first, then SignalK
+
+            // ── Try AvNav ──
+            const isAvNav = await this.detectAvNav(baseUrl);
+            if (isAvNav) {
+                this.serverType = 'avnav';
+                this.apiVersion = null;
+                log.info(`Connected to AvNav at ${baseUrl}`);
+                this.reconnectAttempts = 0;
+                this.setStatus('connected');
+                await this.fetchAvNavCharts();
+                this.startHealthCheck();
+                this.startChartRefresh();
+                return;
+            }
+
+            // ── Try SignalK ──
             this.apiVersion = await this.detectApiVersion(baseUrl);
 
             if (!this.apiVersion) {
-                throw new Error('No Signal K API detected');
+                throw new Error('No Signal K or AvNav server detected');
             }
 
+            this.serverType = 'signalk';
             log.info(`Connected to Signal K ${this.apiVersion} at ${baseUrl}`);
             this.reconnectAttempts = 0;
             this.setStatus('connected');
@@ -238,6 +259,111 @@ class SignalKServiceClass {
         }
 
         return null;
+    }
+
+    /**
+     * Detect if the server is AvNav by probing its API.
+     */
+    private async detectAvNav(baseUrl: string): Promise<boolean> {
+        try {
+            // AvNav serves its web UI at the root — check for its API
+            const res = await fetch(`${baseUrl}/api/status`, {
+                signal: AbortSignal.timeout(5000),
+            });
+            if (res.ok) return true;
+        } catch {
+            /* not AvNav status endpoint */
+        }
+
+        // Alternative: probe for the viewer page (AvNav always has this)
+        try {
+            const res = await fetch(`${baseUrl}/viewer/avnav_navi.php`, {
+                signal: AbortSignal.timeout(5000),
+            });
+            if (res.ok || res.status === 302) return true;
+        } catch {
+            /* not AvNav */
+        }
+
+        // Final fallback: try the chart list endpoint directly
+        try {
+            const res = await fetch(`${baseUrl}/api/list?type=chart`, {
+                signal: AbortSignal.timeout(5000),
+            });
+            if (res.ok) return true;
+        } catch {
+            /* not AvNav */
+        }
+
+        return false;
+    }
+
+    /**
+     * Fetch available charts from an AvNav server.
+     * AvNav serves tiles at: /tiles/{chartName}/{z}/{x}/{y}.png
+     */
+    private async fetchAvNavCharts() {
+        const baseUrl = `http://${this.host}:${this.port}`;
+
+        try {
+            const res = await fetch(`${baseUrl}/api/list?type=chart`, {
+                signal: AbortSignal.timeout(10_000),
+            });
+
+            if (!res.ok) {
+                log.info('AvNav: no charts available');
+                this.charts = [];
+                this.emitCharts();
+                return;
+            }
+
+            const data = await res.json();
+            this.charts = this.parseAvNavCharts(data, baseUrl);
+            log.info(`AvNav: discovered ${this.charts.length} chart(s)`);
+            this.emitCharts();
+        } catch (e) {
+            log.warn('AvNav: failed to fetch charts:', e);
+        }
+    }
+
+    /**
+     * Parse AvNav chart list response.
+     * Response is typically an array of objects with name, url, etc.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    private parseAvNavCharts(data: any, baseUrl: string): SignalKChart[] {
+        const charts: SignalKChart[] = [];
+        const items = Array.isArray(data) ? data : data?.items || data?.data || [];
+
+        for (const item of items) {
+            if (!item || typeof item !== 'object') continue;
+
+            const name = String(item.name || item.chartKey || item.url || 'Unknown');
+            const chartPath = item.url || item.chartUrl || `/tiles/${encodeURIComponent(name)}`;
+
+            // Build tile URL — AvNav uses /tiles/{chartName}/{z}/{x}/{y}.png
+            let tilesUrl = chartPath;
+            if (tilesUrl.startsWith('/')) {
+                tilesUrl = `${baseUrl}${tilesUrl}`;
+            }
+            if (!tilesUrl.includes('{z}')) {
+                tilesUrl = `${tilesUrl}/{z}/{x}/{y}.png`;
+            }
+
+            charts.push({
+                id: `avnav-${name}`,
+                name: name.replace(/\.(gemf|mbtiles)$/i, ''),
+                description: `AvNav chart: ${name}`,
+                tilesUrl,
+                format: 'png',
+                minZoom: Number(item.minzoom ?? 1),
+                maxZoom: Number(item.maxzoom ?? 18),
+                bounds: item.bounds ? item.bounds : undefined,
+                type: 'raster',
+            });
+        }
+
+        return charts;
     }
 
     /**
@@ -351,6 +477,17 @@ class SignalKServiceClass {
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
         } catch {
+            // If it's an AvNav server, try AvNav health check instead
+            if (this.serverType === 'avnav') {
+                try {
+                    const res2 = await fetch(`${baseUrl}/api/status`, {
+                        signal: AbortSignal.timeout(5000),
+                    });
+                    if (res2.ok) return; // AvNav is healthy
+                } catch {
+                    /* AvNav also down */
+                }
+            }
             log.warn('Health check failed — reconnecting');
             this.setStatus('disconnected');
             this.scheduleReconnect();
@@ -360,7 +497,13 @@ class SignalKServiceClass {
     private startChartRefresh() {
         if (this.chartRefreshTimer) clearInterval(this.chartRefreshTimer);
         this.chartRefreshTimer = setInterval(() => {
-            if (this.status === 'connected') this.fetchCharts();
+            if (this.status === 'connected') {
+                if (this.serverType === 'avnav') {
+                    this.fetchAvNavCharts();
+                } else {
+                    this.fetchCharts();
+                }
+            }
         }, CHART_REFRESH_INTERVAL_MS);
     }
 
