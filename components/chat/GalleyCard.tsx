@@ -17,6 +17,8 @@ import { ChildCard } from './ChildCard';
 import { MealCalendar } from './MealCalendar';
 import { ZONE_EMOJI } from './galleyTokens';
 import { useCrewCount } from '../../contexts/CrewCountContext';
+import { DelegationBadge } from '../crew/DelegationBadge';
+import { type CrewMember } from '../../services/CrewService';
 
 interface GalleyCardProps {
     onOpenCookingMode?: (meal: MealPlan) => void;
@@ -26,6 +28,12 @@ interface GalleyCardProps {
     className?: string;
     /** Number of registered crew members (excluding captain). When set, crew count = max(settings, this + 1) */
     registeredCrewCount?: number;
+    /** Delegation props — when provided, shows an Assign badge on the header */
+    cardDelegations?: Record<string, string>;
+    delegationMenuOpen?: string | null;
+    onDelegationMenuToggle?: (key: string | null) => void;
+    onAssignCard?: (cardKey: string, crewEmail: string | null) => void;
+    crewList?: CrewMember[];
 }
 
 export const GalleyCard: React.FC<GalleyCardProps> = ({
@@ -33,6 +41,11 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
     passageStatus,
     className,
     registeredCrewCount,
+    cardDelegations,
+    delegationMenuOpen,
+    onDelegationMenuToggle,
+    onAssignCard,
+    crewList,
 }) => {
     // Default: owner sees everything
     const perms = passageStatus ?? {
@@ -204,7 +217,19 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                     {provisioned ? '✅' : '⛵'}
                 </div>
                 <div className="flex-1 text-left">
-                    <p className="text-lg font-semibold text-white">Voyage Provisioning</p>
+                    <p className="text-lg font-semibold text-white inline-flex items-center">
+                        Voyage Provisioning
+                        {cardDelegations && onDelegationMenuToggle && onAssignCard && crewList && (
+                            <DelegationBadge
+                                cardKey="voyage_provisioning"
+                                delegations={cardDelegations}
+                                crewList={crewList}
+                                menuOpen={delegationMenuOpen ?? null}
+                                onMenuToggle={onDelegationMenuToggle}
+                                onAssign={onAssignCard}
+                            />
+                        )}
+                    </p>
                     <p className={`text-sm ${provisioned ? 'text-emerald-400/70' : 'text-red-400/70'}`}>
                         {provisioned ? '✅ Provisioned' : 'Meals · Shopping'}
                     </p>

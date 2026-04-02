@@ -90,7 +90,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
             const cutoff = Date.now() - 15 * 60 * 1000;
             const active = new Set<string>();
             for (const m of messages) {
-                if (m.user_id !== 'self' && new Date(m.created_at).getTime() > cutoff) {
+                if (new Date(m.created_at).getTime() > cutoff) {
                     active.add(m.user_id);
                 }
             }
@@ -285,11 +285,11 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                             </div>
                                                         )}
                                                     </button>
-                                                    {/* Online status dot — based on real message recency (last 15min) */}
-                                                    {!isSelf && !isDeleted && recentlyActiveUsers.has(msg.user_id) && (
+                                                    {/* Online status dot — always for self (you're online!), recency-based for others */}
+                                                    {!isDeleted && (isSelf || recentlyActiveUsers.has(msg.user_id)) && (
                                                         <span
                                                             className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-slate-900 status-pulse"
-                                                            aria-label="Recently active"
+                                                            aria-label={isSelf ? 'Online' : 'Recently active'}
                                                         />
                                                     )}
                                                 </div>

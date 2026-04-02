@@ -8,9 +8,12 @@
  * - Draws the active route as a dashed sky-blue line
  * - If route has changed, also draws the previous route as a gray dashed line
  * - Adds waypoint circle markers along the route
+ *
+ * Automatically suppresses during passage planning mode to avoid visual
+ * conflict (both use dashed sky-blue lines).
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { useFollowRoute } from '../context/FollowRouteContext';
 
@@ -22,28 +25,75 @@ const LAYER_PREVIOUS = 'follow-route-previous-line';
 const LAYER_MARKERS = 'follow-route-markers-circle';
 const LAYER_MARKER_LABELS = 'follow-route-markers-labels';
 
+const ALL_LAYERS = [LAYER_MARKER_LABELS, LAYER_MARKERS, LAYER_ACTIVE, LAYER_PREVIOUS];
+const ALL_SOURCES = [SOURCE_ACTIVE, SOURCE_PREVIOUS, SOURCE_MARKERS];
+
+/** Remove all Follow Route layers and sources from the map */
+function removeFollowRouteLayers(map: mapboxgl.Map) {
+    for (const id of ALL_LAYERS) {
+        try {
+            if (map.getLayer(id)) map.removeLayer(id);
+        } catch {
+            /* already removed */
+        }
+    }
+    for (const id of ALL_SOURCES) {
+        try {
+            if (map.getSource(id)) map.removeSource(id);
+        } catch {
+            /* already removed */
+        }
+    }
+}
+
 export const useFollowRouteMapbox = (mapRef: React.MutableRefObject<mapboxgl.Map | null>, mapReady: boolean) => {
     const { isFollowing, routeCoords, previousRouteCoords, voyagePlan } = useFollowRoute();
     const addedRef = useRef(false);
 
+    // ── Direct passage-mode detection ──
+    // Listen for the passage-mode event directly rather than relying on
+    // a prop from MapHub. This eliminates timing gaps where showPassage
+    // hasn't yet propagated through React re-renders.
+    const [passageActive, setPassageActive] = useState(false);
+
+    useEffect(() => {
+        const onPassageMode = () => {
+            setPassageActive(true);
+            // Immediately remove layers — don't wait for React re-render
+            const map = mapRef.current;
+            if (map) removeFollowRouteLayers(map);
+        };
+        const onPassageClear = () => setPassageActive(false);
+
+        window.addEventListener('thalassa:passage-mode', onPassageMode);
+        window.addEventListener('thalassa:passage-clear', onPassageClear);
+        return () => {
+            window.removeEventListener('thalassa:passage-mode', onPassageMode);
+            window.removeEventListener('thalassa:passage-clear', onPassageClear);
+        };
+    }, [mapRef]);
+
+    // ── Main render effect ──
     useEffect(() => {
         const map = mapRef.current;
-        if (!map || !mapReady) return;
 
-        // Clean up any existing layers/sources
-        const cleanup = () => {
-            [LAYER_MARKER_LABELS, LAYER_MARKERS, LAYER_ACTIVE, LAYER_PREVIOUS].forEach((id) => {
-                if (map.getLayer(id)) map.removeLayer(id);
-            });
-            [SOURCE_ACTIVE, SOURCE_PREVIOUS, SOURCE_MARKERS].forEach((id) => {
-                if (map.getSource(id)) map.removeSource(id);
-            });
-            addedRef.current = false;
-        };
+        // Always clean up existing layers first (handles transitions)
+        if (map) removeFollowRouteLayers(map);
+        addedRef.current = false;
 
-        cleanup();
-
-        if (!isFollowing || routeCoords.length < 2) return;
+        // Don't render if disabled, map not ready, or passage planner is active
+        if (!map || !mapReady)
+            return () => {
+                if (map) removeFollowRouteLayers(map);
+            };
+        if (passageActive)
+            return () => {
+                if (map) removeFollowRouteLayers(map);
+            };
+        if (!isFollowing || routeCoords.length < 2)
+            return () => {
+                if (map) removeFollowRouteLayers(map);
+            };
 
         // Build GeoJSON for the active route
         const activeGeoJSON: GeoJSON.Feature = {
@@ -188,7 +238,9 @@ export const useFollowRouteMapbox = (mapRef: React.MutableRefObject<mapboxgl.Map
         }
 
         addedRef.current = true;
-        return cleanup;
+        return () => {
+            if (map) removeFollowRouteLayers(map);
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mapRef.current, mapReady, isFollowing, routeCoords, previousRouteCoords, voyagePlan]);
+    }, [mapRef.current, mapReady, isFollowing, routeCoords, previousRouteCoords, voyagePlan, passageActive]);
 };

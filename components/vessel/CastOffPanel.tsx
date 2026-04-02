@@ -26,12 +26,11 @@ import { ChatService } from '../../services/ChatService';
 interface CastOffPanelProps {
     onCastOff?: (voyage: Voyage) => void;
     onClose: () => void;
-    onNavigateToGalley?: () => void;
 }
 
 type Step = 'select' | 'create' | 'preflight' | 'track_prompt' | 'active' | 'arrive' | 'depart_leg';
 
-export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, onNavigateToGalley }) => {
+export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }) => {
     const [step, setStep] = useState<Step>('select');
     const [drafts, setDrafts] = useState<Voyage[]>([]);
     const [selected, setSelected] = useState<Voyage | null>(null);
@@ -40,11 +39,6 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
     const [casting, setCasting] = useState(false);
     const [error, setError] = useState('');
     const [safetyConfirmed, setSafetyConfirmed] = useState(false);
-
-    // Pre-departure checklist state
-    const [crewReady, setCrewReady] = useState(false);
-    const [storesCleared, setStoresCleared] = useState(false);
-    const [weatherChecked, setWeatherChecked] = useState(false);
 
     // Quick-create state
     const [newName, setNewName] = useState('');
@@ -82,9 +76,6 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         setSelected(voyage);
         setStep('preflight');
         setSafetyConfirmed(false);
-        setCrewReady(false);
-        setStoresCleared(false);
-        setWeatherChecked(false);
         triggerHaptic('light');
 
         // Fire-and-forget: create private voyage channel for planning
@@ -636,57 +627,26 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                     </div>
                 )}
 
-                {/* ── Step 2: Pre-Departure Summary ── */}
+                {/* ── Step 2: Cast Off Confirmation ── */}
                 {step === 'preflight' && selected && (
                     <div className="p-5 pt-2 space-y-4">
-                        {/* Voyage title */}
+                        {/* Voyage summary */}
                         <div className="text-center pb-2">
                             <h3 className="text-lg font-black text-white">{selected.voyage_name}</h3>
                             <p className="text-[11px] text-gray-500">
                                 {selected.departure_port || '?'} → {selected.destination_port || '?'}
                             </p>
+                            {selected.departure_time && (
+                                <p className="text-[10px] text-amber-400/60 mt-1">
+                                    Departure:{' '}
+                                    {new Date(selected.departure_time).toLocaleDateString([], {
+                                        weekday: 'short',
+                                        month: 'short',
+                                        day: 'numeric',
+                                    })}
+                                </p>
+                            )}
                         </div>
-
-                        {/* Checklist */}
-                        <div className="space-y-2">
-                            <CheckItem
-                                label="Crew Confirmed"
-                                detail={`${selected.crew_count} crew aboard`}
-                                icon="👥"
-                                checked={crewReady}
-                                onToggle={() => setCrewReady((v) => !v)}
-                            />
-                            <CheckItem
-                                label="Stores Shortfalls Cleared"
-                                detail="All provisions aboard"
-                                icon="📦"
-                                checked={storesCleared}
-                                onToggle={() => setStoresCleared((v) => !v)}
-                            />
-                            <CheckItem
-                                label="Weather GRIBs Updated"
-                                detail="Forecast current"
-                                icon="🌤️"
-                                checked={weatherChecked}
-                                onToggle={() => setWeatherChecked((v) => !v)}
-                            />
-                        </div>
-
-                        {/* Galley & Meals Quick Access */}
-                        <button
-                            onClick={() => {
-                                onClose();
-                                onNavigateToGalley?.();
-                            }}
-                            className="w-full flex items-center gap-3 p-3 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/15 hover:bg-emerald-500/10 transition-colors"
-                        >
-                            <span className="text-2xl">🍳</span>
-                            <div className="text-left flex-1">
-                                <p className="text-xs font-bold text-emerald-300">Galley & Meals</p>
-                                <p className="text-[10px] text-gray-500">Plan provisions for this voyage</p>
-                            </div>
-                            <span className="text-gray-600 text-sm">→</span>
-                        </button>
 
                         {/* Safety Confirm */}
                         <div className="p-4 rounded-xl bg-amber-500/[0.04] border border-amber-500/15">
@@ -754,47 +714,3 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         </div>
     );
 };
-
-/** Pre-departure checklist item */
-const CheckItem: React.FC<{
-    label: string;
-    detail: string;
-    icon: string;
-    checked: boolean;
-    onToggle: () => void;
-}> = ({ label, detail, icon, checked, onToggle }) => (
-    <button
-        onClick={() => {
-            onToggle();
-            triggerHaptic('light');
-        }}
-        className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all active:scale-[0.98] ${
-            checked
-                ? 'bg-emerald-500/[0.06] border-emerald-500/15'
-                : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'
-        }`}
-    >
-        <span className="text-lg">{icon}</span>
-        <div className="flex-1 text-left">
-            <p className={`text-xs font-bold ${checked ? 'text-emerald-400' : 'text-white'}`}>{label}</p>
-            <p className="text-[10px] text-gray-500">{detail}</p>
-        </div>
-        <div
-            className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                checked ? 'bg-emerald-500 border-emerald-500' : 'border-gray-600'
-            }`}
-        >
-            {checked && (
-                <svg
-                    className="w-3 h-3 text-black"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={3}
-                >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                </svg>
-            )}
-        </div>
-    </button>
-);

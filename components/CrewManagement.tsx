@@ -6,7 +6,6 @@
  *   - CrewRoster: crew list, invites, memberships
  *   - ReadinessCardStack: all 8 passage readiness cards
  *   - DelegationBadge: card delegation UI
- *   - PassagePlanningPanel: departure/ETA form
  *   - InviteCrewModal: invite form
  */
 
@@ -41,7 +40,6 @@ import { AuthModal } from './AuthModal';
 import { lazyRetry } from '../utils/lazyRetry';
 
 // ── Extracted sub-components ──
-import { PassagePlanningPanel } from './crew/PassagePlanningPanel';
 import { InviteCrewModal } from './crew/InviteCrewModal';
 import { CrewRoster } from './crew/CrewRoster';
 import { ReadinessCardStack } from './crew/ReadinessCardStack';
@@ -151,36 +149,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [disbanding, setDisbanding] = useState(false);
 
     // Planning panel state
-    const [showPlanning, setShowPlanning] = useState(false);
     const [planDeparture, setPlanDeparture] = useState('');
-    const [planEta, setPlanEta] = useState('');
-    const [planDeparturePort, setPlanDeparturePort] = useState('');
-    const [planDestPort, setPlanDestPort] = useState('');
-    const [planNotes, setPlanNotes] = useState('');
-    const [planCrewCount, setPlanCrewCount] = useState(() => {
-        try {
-            const raw = localStorage.getItem('CapacitorStorage.thalassa_settings');
-            if (raw) {
-                const s = JSON.parse(raw);
-                if (s?.vessel?.crewCount) return s.vessel.crewCount;
-            }
-        } catch {
-            /* ignore */
-        }
-        const stored = localStorage.getItem('thalassa_crew_count');
-        return stored ? parseInt(stored) || 2 : 2;
-    });
-    const [savingPlan, setSavingPlan] = useState(false);
-
-    // Listen for crew count changes from other components
-    useEffect(() => {
-        const handler = (e: Event) => {
-            const detail = (e as CustomEvent).detail;
-            if (typeof detail === 'number') setPlanCrewCount(detail);
-        };
-        window.addEventListener('thalassa:crew-changed', handler);
-        return () => window.removeEventListener('thalassa:crew-changed', handler);
-    }, []);
 
     // Auth check
     const [_userEmail, setUserEmail] = useState<string | null>(null);
@@ -212,7 +181,15 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             const v = getCachedActiveVoyage();
             if (v) setActiveVoyageName(v.voyage_name);
         });
-        getDraftVoyages().then(setDraftVoyages);
+        getDraftVoyages().then((drafts) => {
+            setDraftVoyages(drafts);
+            // Pre-fill departure date for the active passage
+            const activeId = getActivePassageId();
+            if (activeId) {
+                const v = drafts.find((d) => d.id === activeId);
+                if (v?.departure_time) setPlanDeparture(v.departure_time.slice(0, 16));
+            }
+        });
     }, []);
 
     // ── Handlers ──
@@ -339,51 +316,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         }
     };
 
-    // Planning panel
-    const openPlanning = useCallback(() => {
-        const v = draftVoyages.find((d) => d.id === selectedPassageId);
-        if (!v) return;
-        setPlanDeparture(v.departure_time ? v.departure_time.slice(0, 16) : '');
-        setPlanEta(v.eta ? v.eta.slice(0, 16) : '');
-        setPlanDeparturePort(v.departure_port || '');
-        setPlanDestPort(v.destination_port || '');
-        setPlanNotes(v.notes || '');
-        setShowPlanning(true);
-        let settingsCrewCount = 2;
-        try {
-            const raw = localStorage.getItem('CapacitorStorage.thalassa_settings');
-            if (raw) {
-                const s = JSON.parse(raw);
-                if (s?.vessel?.crewCount) settingsCrewCount = s.vessel.crewCount;
-            }
-        } catch {
-            /* ignore */
-        }
-        setPlanCrewCount(settingsCrewCount);
-        triggerHaptic('light');
-    }, [draftVoyages, selectedPassageId]);
-
-    const handleSavePlan = useCallback(async () => {
-        if (!selectedPassageId) return;
-        setSavingPlan(true);
-        const result = await updateVoyage(selectedPassageId, {
-            departure_time: planDeparture ? new Date(planDeparture).toISOString() : null,
-            eta: planEta ? new Date(planEta).toISOString() : null,
-            departure_port: planDeparturePort.trim() || null,
-            destination_port: planDestPort.trim() || null,
-            notes: planNotes.trim() || null,
-        });
-        setSavingPlan(false);
-        if (result.voyage) {
-            setDraftVoyages((prev) => prev.map((v) => (v.id === selectedPassageId ? result.voyage! : v)));
-            toast.success('Passage updated');
-            triggerHaptic('medium');
-            setShowPlanning(false);
-        } else {
-            toast.error(result.error || 'Failed to save');
-        }
-    }, [selectedPassageId, planDeparture, planEta, planDeparturePort, planDestPort, planNotes]);
-
     // Filter out declined invites older than 7 days
     const visibleCrew = myCrew.filter((m) => {
         if (m.status !== 'declined') return true;
@@ -492,11 +424,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                     setActivePassage(id);
                                     triggerHaptic('light');
                                     const v = draftVoyages.find((v) => v.id === id);
-                                    if (v)
+                                    if (v) {
                                         setActiveVoyageName(
                                             v.voyage_name ||
                                                 `${v.departure_port || '?'} → ${v.destination_port || '?'}`,
                                         );
+                                        // Pre-fill departure date for inline picker
+                                        setPlanDeparture(v.departure_time ? v.departure_time.slice(0, 16) : '');
+                                    }
                                 } else {
                                     setActiveVoyageName(null);
                                 }
@@ -528,57 +463,52 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     )}
                 </div>
 
-                {/* ── PLANNING + CAST OFF BUTTONS ── */}
+                {/* ── DEPARTURE DATE + CAST OFF (single row) ── */}
                 {selectedPassageId && (
-                    <div className="mb-4 space-y-2">
-                        <div className="flex gap-2">
-                            <button
-                                onClick={openPlanning}
-                                className={`flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all active:scale-[0.97] flex items-center justify-center gap-1.5 ${
-                                    showPlanning
-                                        ? 'bg-violet-500/15 border border-violet-500/30 text-violet-300'
-                                        : 'bg-white/[0.04] border border-white/[0.08] text-gray-400 hover:bg-white/[0.06] hover:text-white'
-                                }`}
-                            >
-                                🧭 Planning
-                            </button>
-                            <button
-                                onClick={() => {
-                                    setShowCastOff(true);
-                                    triggerHaptic('medium');
+                    <div className="mb-4 flex items-end gap-2">
+                        {/* Departure date — date only, time decided later */}
+                        <div className="flex-1 min-w-0">
+                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1 block">
+                                📅 Departure Date
+                            </label>
+                            <input
+                                type="date"
+                                value={planDeparture ? planDeparture.slice(0, 10) : ''}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setPlanDeparture(val);
+                                    // Auto-save to voyage
+                                    if (selectedPassageId && val) {
+                                        updateVoyage(selectedPassageId, {
+                                            departure_time: new Date(val + 'T00:00:00').toISOString(),
+                                        }).then((result) => {
+                                            if (result.voyage) {
+                                                setDraftVoyages((prev) =>
+                                                    prev.map((v) => (v.id === selectedPassageId ? result.voyage! : v)),
+                                                );
+                                            }
+                                        });
+                                    }
                                 }}
-                                disabled={
-                                    !allCardsReady ||
-                                    !draftVoyages.find((v) => v.id === selectedPassageId)?.departure_time
-                                }
-                                className={`flex-1 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest border transition-all active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 ${
-                                    allCardsReady
-                                        ? 'bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border-emerald-500/20 text-emerald-300 hover:from-emerald-500/20 hover:to-teal-500/20'
-                                        : 'bg-white/[0.03] border-white/[0.08] text-gray-500'
-                                }`}
-                            >
-                                ⚓ Cast Off
-                            </button>
+                                className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/30 transition-colors [color-scheme:dark]"
+                            />
                         </div>
 
-                        {showPlanning && (
-                            <PassagePlanningPanel
-                                planDeparture={planDeparture}
-                                planEta={planEta}
-                                planDeparturePort={planDeparturePort}
-                                planDestPort={planDestPort}
-                                planNotes={planNotes}
-                                planCrewCount={Math.max(planCrewCount, visibleCrew.length + 1)}
-                                savingPlan={savingPlan}
-                                onDepartureChange={setPlanDeparture}
-                                onEtaChange={setPlanEta}
-                                onDeparturePortChange={setPlanDeparturePort}
-                                onDestPortChange={setPlanDestPort}
-                                onNotesChange={setPlanNotes}
-                                onSave={handleSavePlan}
-                                onCancel={() => setShowPlanning(false)}
-                            />
-                        )}
+                        {/* Cast Off CTA */}
+                        <button
+                            onClick={() => {
+                                setShowCastOff(true);
+                                triggerHaptic('medium');
+                            }}
+                            disabled={!allCardsReady}
+                            className={`shrink-0 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest border transition-all active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 ${
+                                allCardsReady
+                                    ? 'bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border-emerald-500/20 text-emerald-300 hover:from-emerald-500/20 hover:to-teal-500/20'
+                                    : 'bg-white/[0.03] border-white/[0.08] text-gray-500'
+                            }`}
+                        >
+                            ⚓ Cast Off
+                        </button>
                     </div>
                 )}
 
@@ -605,7 +535,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         selectedPassageId={selectedPassageId}
                         draftVoyages={draftVoyages}
                         visibleCrew={visibleCrew}
-                        planCrewCount={planCrewCount}
+                        planCrewCount={Math.max(visibleCrew.length + 1, 2)}
                         weatherReviewed={weatherReviewed}
                         reservesReady={reservesReady}
                         vesselChecked={vesselChecked}
@@ -795,9 +725,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     onCastOff={(voyage) => {
                         setActiveVoyageName(voyage.voyage_name);
                         setShowCastOff(false);
-                    }}
-                    onNavigateToGalley={() => {
-                        window.dispatchEvent(new CustomEvent('thalassa:navigate', { detail: { tab: 'chat' } }));
                     }}
                 />
             )}

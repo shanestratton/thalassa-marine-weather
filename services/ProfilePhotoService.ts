@@ -57,8 +57,10 @@ export const getCachedAvatar = (userId: string): string | null => {
 /**
  * Resize and compress an image file to max dimensions and JPEG quality.
  * Returns a Blob ready for upload.
+ * @param file — raw File from input
+ * @param maxSizePx — max width/height in pixels (default 512 for avatars, use 800 for recipe photos)
  */
-export const compressImage = (file: File): Promise<Blob> => {
+export const compressImage = (file: File | Blob, maxSizePx: number = MAX_SIZE_PX): Promise<Blob> => {
     return new Promise((resolve, reject) => {
         const img = new Image();
         const reader = new FileReader();
@@ -69,8 +71,8 @@ export const compressImage = (file: File): Promise<Blob> => {
                 let { width, height } = img;
 
                 // Scale down proportionally
-                if (width > MAX_SIZE_PX || height > MAX_SIZE_PX) {
-                    const ratio = Math.min(MAX_SIZE_PX / width, MAX_SIZE_PX / height);
+                if (width > maxSizePx || height > maxSizePx) {
+                    const ratio = Math.min(maxSizePx / width, maxSizePx / height);
                     width = Math.round(width * ratio);
                     height = Math.round(height * ratio);
                 }
@@ -120,7 +122,7 @@ export const compressImage = (file: File): Promise<Blob> => {
             img.src = e.target?.result as string;
         };
         reader.onerror = () => reject(new Error('File read failed'));
-        reader.readAsDataURL(file);
+        reader.readAsDataURL(file as File);
     });
 };
 

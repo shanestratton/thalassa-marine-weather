@@ -41,6 +41,15 @@ export default defineConfig(({ mode }) => {
                     changeOrigin: true,
                     rewrite: (path: string) => path.replace(/^\/api\/rainbow/, '/tiles/v1'),
                 },
+                // Proxy Signal K mock server (dev only) — avoids CORS for localhost:3100
+                '/signalk': {
+                    target: 'http://localhost:3100',
+                    changeOrigin: true,
+                },
+                '/tiles': {
+                    target: 'http://localhost:3100',
+                    changeOrigin: true,
+                },
             },
         },
         plugins: [

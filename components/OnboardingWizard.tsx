@@ -9,7 +9,7 @@ import { UnitPreferencesStep } from './onboarding/UnitPreferencesStep';
 import { WelcomeStep } from './onboarding/WelcomeStep';
 import { QuickTipsStep } from './onboarding/QuickTipsStep';
 import { HomePortStep } from './onboarding/HomePortStep';
-import { VesselTypeStep } from './onboarding/VesselTypeStep';
+import { RoleSelectionStep } from './onboarding/RoleSelectionStep';
 import { DisplayPrefsStep } from './onboarding/DisplayPrefsStep';
 import {
     UserSettings,
@@ -23,6 +23,7 @@ import {
     WeatherModel,
     PolarData,
 } from '../types';
+import type { SubscriptionTier } from '../types/settings';
 import { ArrowRightIcon } from './Icons';
 import { reverseGeocode, parseLocation } from '../services/weatherService';
 import { fetchWeatherByStrategy } from '../services/weather';
@@ -87,7 +88,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
 
     // Core Vessel Data
     const [vesselType, setVesselType] = useState<'sail' | 'power' | 'observer'>('sail');
+    const [subscriptionTier, setSubscriptionTier] = useState<SubscriptionTier>('owner');
     const [name, setName] = useState('');
+    const [registration, setRegistration] = useState('');
+    const [mmsi, setMmsi] = useState('');
     const [riggingType, setRiggingType] = useState<
         'Sloop' | 'Cutter' | 'Ketch' | 'Yawl' | 'Schooner' | 'Catboat' | 'Solent' | 'Other'
     >('Sloop');
@@ -161,10 +165,21 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                 });
         }
 
+        // Conditional step routing: non-Skippers skip vessel details (step 5)
+        if (step === 4 && subscriptionTier !== 'owner') {
+            setStep(6); // Jump to unit preferences
+            return;
+        }
+
         setStep((s) => s + 1);
     };
 
     const handleBack = () => {
+        // If going back from step 6 and non-Skipper, jump to step 4 (skip vessel details)
+        if (step === 6 && subscriptionTier !== 'owner') {
+            setStep(4);
+            return;
+        }
         setStep((s) => Math.max(1, s - 1));
     };
 
@@ -443,7 +458,15 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
         localStorage.setItem('thalassa_v3_onboarded', 'true');
         localStorage.setItem('thalassa_tutorial_completed', 'true'); // Tips now shown during onboarding
         localStorage.setItem('thalassa_crew_count', String(crewCount ? parseInt(crewCount) || 2 : 2));
-        onComplete(settings);
+        onComplete({
+            ...settings,
+            subscriptionTier,
+            vessel: {
+                ...settings.vessel!,
+                registration: registration || undefined,
+                mmsi: mmsi || undefined,
+            },
+        });
     };
 
     return (
@@ -491,16 +514,26 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                     />
                 )}
 
-                {/* STEP 4: VESSEL TYPE */}
+                {/* STEP 4: ROLE & TIER SELECTION */}
                 {step === 4 && (
-                    <VesselTypeStep vesselType={vesselType} onVesselTypeChange={setVesselType} onNext={handleNext} />
+                    <RoleSelectionStep
+                        selectedTier={subscriptionTier}
+                        onTierChange={setSubscriptionTier}
+                        onVesselTypeChange={setVesselType}
+                        onNext={handleNext}
+                    />
                 )}
 
                 {step === 5 && (
                     <VesselDetailsStep
                         vesselType={vesselType}
+                        onVesselTypeChange={setVesselType}
                         name={name}
                         onNameChange={setName}
+                        registration={registration}
+                        onRegistrationChange={setRegistration}
+                        mmsi={mmsi}
+                        onMmsiChange={setMmsi}
                         hullType={hullType}
                         onHullTypeChange={setHullType}
                         keelType={keelType}

@@ -363,8 +363,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 </div>
             ) : (
                 <div className="flex flex-col h-full">
-                    {/* ── Header: SHIP'S LOG + 3-dot menu ── */}
-                    <div className="shrink-0 px-4 pt-3 pb-2">
+                    {/* ── Header: Maritime Journal aesthetic ── */}
+                    <div className="shrink-0 px-4 pt-3 pb-1 relative z-30">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 {onBack && (
@@ -388,20 +388,33 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         </svg>
                                     </button>
                                 )}
-                                <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">
-                                    Ship's Log
-                                </h1>
-                                {isTracking && (
-                                    <span
-                                        className={`w-2.5 h-2.5 rounded-full ${
-                                            gpsStatus === 'locked'
-                                                ? 'bg-emerald-400 animate-pulse'
-                                                : gpsStatus === 'stale'
-                                                  ? 'bg-amber-400 animate-pulse'
-                                                  : 'bg-red-500 animate-pulse'
-                                        }`}
-                                    />
-                                )}
+                                <div>
+                                    <h1 className="text-lg font-extrabold text-white uppercase tracking-[0.2em] leading-tight">
+                                        Ship's Log
+                                    </h1>
+                                    <div className="flex items-center gap-1.5 mt-0.5">
+                                        {isTracking ? (
+                                            <>
+                                                <span
+                                                    className={`w-1.5 h-1.5 rounded-full ${
+                                                        gpsStatus === 'locked'
+                                                            ? 'bg-emerald-400 animate-pulse'
+                                                            : gpsStatus === 'stale'
+                                                              ? 'bg-amber-400 animate-pulse'
+                                                              : 'bg-red-500 animate-pulse'
+                                                    }`}
+                                                />
+                                                <span className="text-[10px] font-bold text-emerald-400/80 uppercase tracking-widest">
+                                                    Recording
+                                                </span>
+                                            </>
+                                        ) : (
+                                            <span className="text-[10px] font-medium text-slate-600 uppercase tracking-widest">
+                                                GPS Voyage Recorder
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
                             <div className="relative">
                                 <button
@@ -485,40 +498,39 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         </div>
                     </div>
 
-                    {/* ── Career Totals Strip ── */}
-                    <div className="shrink-0 px-4 pb-3">
-                        <div className="rounded-2xl bg-gradient-to-r from-sky-500/15 via-indigo-500/10 to-purple-500/15 backdrop-blur-md border border-sky-400/20 p-3">
-                            <div className="flex items-center justify-center mb-2">
-                                <span className="px-2.5 py-0.5 rounded-full bg-sky-500/25 border border-sky-400/30 text-[11px] font-bold text-sky-300 uppercase tracking-widest shadow-[0_0_8px_rgba(56,189,248,0.15)]">
-                                    Career Totals
-                                </span>
+                    {/* ── Career Totals — Vertical Gauge Tiles ── */}
+                    <div className="shrink-0 px-4 pb-2">
+                        <div className="grid grid-cols-3 gap-2">
+                            {/* NM Sailed */}
+                            <div className="relative rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 overflow-hidden">
+                                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-sky-500/60 to-sky-500/0" />
+                                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
+                                    NM Sailed
+                                </div>
+                                <div className="text-xl font-black text-white tabular-nums leading-tight">
+                                    {(careerTotals.totalDistance ?? 0).toFixed(1)}
+                                </div>
                             </div>
-                            <div className="grid grid-cols-3 divide-x divide-white/10">
-                                <div className="text-center px-2">
-                                    <div className="text-lg font-extrabold text-sky-300">
-                                        {(careerTotals.totalDistance ?? 0).toFixed(1)}
-                                    </div>
-                                    <div className="text-[11px] text-white/60 uppercase tracking-wider font-medium">
-                                        NM Sailed
-                                    </div>
+                            {/* Time at Sea */}
+                            <div className="relative rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 overflow-hidden">
+                                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-emerald-500/60 to-emerald-500/0" />
+                                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
+                                    At Sea
                                 </div>
-                                <div className="text-center px-2">
-                                    <div className="text-lg font-extrabold text-emerald-300">
-                                        {careerTotals.totalTimeAtSeaHrs < 24
-                                            ? `${careerTotals.totalTimeAtSeaHrs}h`
-                                            : `${Math.round(careerTotals.totalTimeAtSeaHrs / 24)}d`}
-                                    </div>
-                                    <div className="text-[11px] text-white/60 uppercase tracking-wider font-medium">
-                                        At Sea
-                                    </div>
+                                <div className="text-xl font-black text-white tabular-nums leading-tight">
+                                    {careerTotals.totalTimeAtSeaHrs < 24
+                                        ? `${careerTotals.totalTimeAtSeaHrs}h`
+                                        : `${Math.round(careerTotals.totalTimeAtSeaHrs / 24)}d`}
                                 </div>
-                                <div className="text-center px-2">
-                                    <div className="text-lg font-extrabold text-amber-300">
-                                        {careerTotals.totalVoyages}
-                                    </div>
-                                    <div className="text-[11px] text-white/60 uppercase tracking-wider font-medium">
-                                        Voyages
-                                    </div>
+                            </div>
+                            {/* Voyages */}
+                            <div className="relative rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 overflow-hidden">
+                                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-amber-500/60 to-amber-500/0" />
+                                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
+                                    Voyages
+                                </div>
+                                <div className="text-xl font-black text-white tabular-nums leading-tight">
+                                    {careerTotals.totalVoyages}
                                 </div>
                             </div>
                         </div>
@@ -664,33 +676,52 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             >
                                 {/* Past Voyage Cards */}
                                 {voyageGroups.length === 0 ? (
-                                    <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-16">
-                                        <div className="relative w-20 h-20 mb-5">
-                                            <svg
-                                                viewBox="0 0 96 96"
-                                                fill="none"
-                                                className="w-full h-full text-sky-500/30"
-                                            >
+                                    <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-12">
+                                        {/* Decorative maritime line art */}
+                                        <div className="relative w-24 h-24 mb-6">
+                                            <svg viewBox="0 0 96 96" fill="none" className="w-full h-full">
+                                                {/* Outer ring — dashed */}
                                                 <circle
                                                     cx="48"
                                                     cy="48"
                                                     r="44"
-                                                    stroke="currentColor"
-                                                    strokeWidth="1.5"
-                                                    strokeDasharray="4 4"
+                                                    stroke="rgba(56,189,248,0.12)"
+                                                    strokeWidth="1"
+                                                    strokeDasharray="3 5"
                                                 />
-                                                <circle cx="48" cy="48" r="6" fill="currentColor" fillOpacity="0.3" />
-                                                <path d="M48 8L52 44H44L48 8Z" fill="currentColor" fillOpacity="0.6" />
+                                                {/* Middle ring — solid faint */}
+                                                <circle
+                                                    cx="48"
+                                                    cy="48"
+                                                    r="32"
+                                                    stroke="rgba(56,189,248,0.08)"
+                                                    strokeWidth="0.5"
+                                                />
+                                                {/* Compass rose petals */}
+                                                <path d="M48 4L51 44H45L48 4Z" fill="rgba(56,189,248,0.25)" />
+                                                <path d="M48 92L45 52H51L48 92Z" fill="rgba(56,189,248,0.10)" />
+                                                <path d="M4 48L44 45V51L4 48Z" fill="rgba(56,189,248,0.10)" />
+                                                <path d="M92 48L52 51V45L92 48Z" fill="rgba(56,189,248,0.10)" />
+                                                {/* Center dot */}
+                                                <circle cx="48" cy="48" r="3" fill="rgba(56,189,248,0.30)" />
+                                                {/* Track line suggestion — curved */}
                                                 <path
-                                                    d="M48 88L44 52H52L48 88Z"
-                                                    fill="currentColor"
-                                                    fillOpacity="0.3"
+                                                    d="M20 70 C32 55, 64 42, 76 28"
+                                                    stroke="rgba(52,211,153,0.25)"
+                                                    strokeWidth="1.5"
+                                                    strokeDasharray="4 3"
+                                                    strokeLinecap="round"
                                                 />
+                                                {/* Waypoint dots on the track */}
+                                                <circle cx="20" cy="70" r="2.5" fill="rgba(52,211,153,0.35)" />
+                                                <circle cx="48" cy="49" r="2" fill="rgba(52,211,153,0.25)" />
+                                                <circle cx="76" cy="28" r="2.5" fill="rgba(52,211,153,0.35)" />
                                             </svg>
                                         </div>
-                                        <p className="text-base font-bold text-white mb-1">Your Voyage Awaits</p>
-                                        <p className="text-sm text-white/60 max-w-[240px] text-center">
-                                            Start tracking to record GPS positions, waypoints, and voyage data.
+                                        <p className="text-base font-bold text-white mb-1.5">Begin Your Log</p>
+                                        <p className="text-[13px] text-white/40 max-w-[260px] text-center leading-relaxed">
+                                            Every great voyage starts with a single position. Slide below to begin GPS
+                                            tracking.
                                         </p>
                                     </div>
                                 ) : (

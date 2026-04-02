@@ -6,7 +6,13 @@
  */
 import React, { useState, useEffect } from 'react';
 import { startCooking, getStoresAvailability, type MealPlan } from '../../services/MealPlanService';
-import { scaleIngredient, getRecipeImageUrl, getGalleyDifficulty } from '../../services/GalleyRecipeService';
+import {
+    scaleIngredient,
+    getRecipeImageUrl,
+    getGalleyDifficulty,
+    getRecipeInstructions,
+    type RecipeStep,
+} from '../../services/GalleyRecipeService';
 import { type ShoppingListSummary } from '../../services/ShoppingListService';
 import { triggerHaptic } from '../../utils/system';
 import { getIngredientEmoji, getStorageLocation, STRIP_WORDS } from './galleyTokens';
@@ -17,6 +23,8 @@ interface ChefPlateProps {
     cooking: boolean;
     onCook: () => void;
     shoppingSummary: ShoppingListSummary | null;
+    /** Names of ingredients that are short across ALL meals (aggregate). */
+    aggregateShortfallNames?: Set<string>;
 }
 
 export const ChefPlate: React.FC<ChefPlateProps> = ({
@@ -25,15 +33,21 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
     cooking,
     onCook,
     shoppingSummary: _shoppingSummary,
+    aggregateShortfallNames,
 }) => {
     const [crewCount, setCrewCount] = useState(baseServings);
     const [imgLoaded, setImgLoaded] = useState(false);
     const [imgError, setImgError] = useState(false);
     const [prepStarted, setPrepStarted] = useState(meal.status === 'cooking');
-    const [addedItems, setAddedItems] = useState<Set<string>>(new Set());
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [storesVersion, setStoresVersion] = useState(0);
     const ratio = crewCount / baseServings;
+
+    // Cooking directions state
+    const [activeTab, setActiveTab] = useState<'ingredients' | 'directions'>('ingredients');
+    const [instructions, setInstructions] = useState<RecipeStep[]>([]);
+    const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
+    const [loadingInstructions, setLoadingInstructions] = useState(false);
 
     // Refresh stores data when items are purchased
     useEffect(() => {
@@ -45,7 +59,8 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
     // Scale ingredients in real-time
     const scaledIngredients = meal.ingredients.map((ing) => ({
         ...ing,
-        scaledAmount: Math.round(scaleIngredient(ing.amount, ing.scalable, baseServings, crewCount) * 10) / 10,
+        scaledAmount:
+            Math.round(scaleIngredient(ing.amount, ing.scalable, baseServings, crewCount, ing.unit) * 10) / 10,
     }));
 
     // Get stores availability for per-ingredient shortfall (re-reads on storesVersion change)
@@ -68,13 +83,27 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
         });
     };
 
-    // Shortfall count — add back THIS meal's own reservation to avoid circular logic
+    // Per-recipe shortfall: items missing or insufficient for THIS recipe
     const shortfallIngredients = scaledIngredients.filter((ing) => {
         const store = findStoreMatch(ing.name);
         if (!store) return true;
         const effectiveAvailable = Math.round((store.available + ing.amount) * 10) / 10;
         return effectiveAvailable < ing.scaledAmount;
     });
+
+    // Aggregate shortfall: items OK for this recipe but short across ALL meals
+    const aggregateShortfallCount = aggregateShortfallNames
+        ? scaledIngredients.filter((ing) => {
+              // Only count items that are green per-recipe but amber aggregate
+              const store = findStoreMatch(ing.name);
+              const effectiveAvailable = store ? Math.round((store.available + ing.amount) * 10) / 10 : 0;
+              const hasEnoughHere = effectiveAvailable >= ing.scaledAmount;
+              return hasEnoughHere && aggregateShortfallNames.has(ing.name.toLowerCase());
+          }).length
+        : 0;
+
+    // Total shortfall = red (per-recipe) + amber (aggregate)
+    const totalShortfallCount = shortfallIngredients.length + aggregateShortfallCount;
 
     // Recipe image — cache-first
     const realSpoonacularId = meal.spoonacular_id && meal.spoonacular_id < 10_000_000 ? meal.spoonacular_id : null;
@@ -117,31 +146,36 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
         '',
     ].join('\n');
 
-    // ── Start Prep broadcast ──
+    // ── Start Prep: fetch instructions + switch to directions tab ──
     const handleStartPrep = async () => {
         setPrepStarted(true);
         triggerHaptic('heavy');
         await startCooking(meal.id);
+
+        // Fetch instructions if we don't have them yet
+        if (instructions.length === 0) {
+            setLoadingInstructions(true);
+            try {
+                const steps = await getRecipeInstructions(meal.spoonacular_id);
+                setInstructions(steps);
+            } catch (e) {
+                console.warn('Failed to load instructions:', e);
+            }
+            setLoadingInstructions(false);
+        }
+
+        // Switch to directions view
+        setActiveTab('directions');
     };
 
-    // ── Add shortfall directly to shopping list ──
-    const handleAddToList = async (ing: (typeof scaledIngredients)[0]) => {
-        try {
-            const { addManualItem } = await import('../../services/ShoppingListService');
-            const store = findStoreMatch(ing.name);
-            const effectiveAvailable = store ? Math.round((store.available + ing.amount) * 10) / 10 : 0;
-            const shortfall = Math.max(0, ing.scaledAmount - effectiveAvailable);
-            if (shortfall <= 0) return;
-            await addManualItem({
-                name: ing.name,
-                qty: Math.round(shortfall * 10) / 10,
-                unit: ing.unit,
-                notes: `For ${meal.title}`,
-            });
-            setAddedItems((prev) => new Set(prev).add(ing.name.toLowerCase()));
-        } catch (e) {
-            console.warn('Failed to add shortfall to shopping list:', e);
-        }
+    const toggleStep = (stepNum: number) => {
+        setCompletedSteps((prev) => {
+            const next = new Set(prev);
+            if (next.has(stepNum)) next.delete(stepNum);
+            else next.add(stepNum);
+            return next;
+        });
+        triggerHaptic('light');
     };
 
     return (
@@ -299,91 +333,226 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                 </div>
                 <div
                     className={`flex-1 p-3 border-b border-white/[0.06] flex items-center gap-2 ${
-                        shortfallIngredients.length === 0 ? 'bg-emerald-950/30' : 'bg-red-950/30'
+                        totalShortfallCount === 0
+                            ? 'bg-emerald-950/30'
+                            : shortfallIngredients.length > 0
+                              ? 'bg-red-950/30'
+                              : 'bg-amber-950/30'
                     }`}
                 >
-                    <span className="text-base">{shortfallIngredients.length === 0 ? '✅' : '⚠️'}</span>
+                    <span className="text-base">{totalShortfallCount === 0 ? '✅' : '⚠️'}</span>
                     <div>
                         <p className="text-[10px] text-gray-500 uppercase tracking-widest">Stores</p>
                         <p
-                            className={`text-sm font-black ${shortfallIngredients.length === 0 ? 'text-emerald-400' : 'text-red-400'}`}
+                            className={`text-sm font-black ${
+                                totalShortfallCount === 0
+                                    ? 'text-emerald-400'
+                                    : shortfallIngredients.length > 0
+                                      ? 'text-red-400'
+                                      : 'text-amber-400'
+                            }`}
                         >
-                            {shortfallIngredients.length === 0 ? 'READY' : `SHORTFALL (${shortfallIngredients.length})`}
+                            {totalShortfallCount === 0 ? 'READY' : `SHORTFALL (${totalShortfallCount})`}
                         </p>
                     </div>
                 </div>
             </div>
 
-            {/* ═══════ 4. INGREDIENT LIST ═══════ */}
-            <div className="p-4 space-y-1.5" role="list" aria-label="Ingredients">
-                {scaledIngredients.map((ing, i) => {
-                    const store = findStoreMatch(ing.name);
-                    const available = store ? Math.round((store.available + ing.amount) * 10) / 10 : 0;
-                    const hasEnough = available >= ing.scaledAmount;
-                    const isLow = store && !hasEnough;
-                    const isMissing = !store;
-                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                    const alreadyAdded = addedItems.has(ing.name.toLowerCase());
-
-                    return (
-                        <div
-                            key={i}
-                            className={`flex items-center gap-3 p-2.5 rounded-xl border transition-colors ${
-                                hasEnough
-                                    ? 'bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.04]'
-                                    : 'bg-red-500/[0.04] border-red-500/10'
-                            }`}
-                            role="listitem"
-                        >
-                            {/* Status indicator */}
-                            <span className="text-base w-6 text-center flex-shrink-0">
-                                {hasEnough ? '✅' : isLow ? '⚠️' : '🔴'}
-                            </span>
-
-                            {/* Ingredient info */}
-                            <div className="flex-1 min-w-0">
-                                <p className="text-xs font-bold text-white truncate">
-                                    {ing.scaledAmount} {ing.unit} {ing.name}
-                                </p>
-                                <p className="text-[10px] text-gray-500">
-                                    {hasEnough
-                                        ? `📍 ${getStorageLocation(ing.aisle)} · ${available} on hand`
-                                        : isMissing
-                                          ? 'Not in stores'
-                                          : `Only ${available} ${ing.unit} on hand`}
-                                </p>
-                            </div>
-
-                            {/* Scale indicator */}
-                            {ing.scalable && crewCount !== baseServings && (
-                                <span className="text-[9px] text-amber-400/50 flex-shrink-0 hidden sm:block">
-                                    was {ing.amount}
-                                </span>
-                            )}
-                        </div>
-                    );
-                })}
-
-                {/* ═══ Master "Add All Shortfall" button ═══ */}
-                {shortfallIngredients.length > 0 && (
+            {/* ═══════ 4. TABS: Ingredients / Directions ═══════ */}
+            {prepStarted && (
+                <div className="flex border-b border-white/[0.06]">
+                    <button
+                        onClick={() => setActiveTab('ingredients')}
+                        className={`flex-1 py-2.5 text-[10px] font-bold uppercase tracking-widest transition-all ${
+                            activeTab === 'ingredients'
+                                ? 'text-amber-400 border-b-2 border-amber-400 bg-amber-500/[0.05]'
+                                : 'text-gray-500 hover:text-gray-400'
+                        }`}
+                    >
+                        📦 Ingredients
+                    </button>
                     <button
                         onClick={async () => {
-                            for (const ing of shortfallIngredients) {
-                                if (!addedItems.has(ing.name.toLowerCase())) {
-                                    await handleAddToList(ing);
+                            setActiveTab('directions');
+                            if (instructions.length === 0 && !loadingInstructions) {
+                                setLoadingInstructions(true);
+                                try {
+                                    const steps = await getRecipeInstructions(meal.spoonacular_id);
+                                    setInstructions(steps);
+                                } catch (e) {
+                                    console.warn('Failed to load instructions:', e);
                                 }
+                                setLoadingInstructions(false);
                             }
                         }}
-                        disabled={shortfallIngredients.every((ing) => addedItems.has(ing.name.toLowerCase()))}
-                        className="w-full mt-2 py-3 rounded-xl bg-gradient-to-r from-red-500/15 to-orange-500/15 border border-red-500/20 text-[11px] font-bold uppercase tracking-widest text-red-300 hover:from-red-500/25 hover:to-orange-500/25 transition-all active:scale-[0.97] disabled:opacity-30"
-                        aria-label={`Add ${shortfallIngredients.filter((ing) => !addedItems.has(ing.name.toLowerCase())).length} shortfall items to shopping list`}
+                        className={`flex-1 py-2.5 text-[10px] font-bold uppercase tracking-widest transition-all ${
+                            activeTab === 'directions'
+                                ? 'text-orange-400 border-b-2 border-orange-400 bg-orange-500/[0.05]'
+                                : 'text-gray-500 hover:text-gray-400'
+                        }`}
                     >
-                        {shortfallIngredients.every((ing) => addedItems.has(ing.name.toLowerCase()))
-                            ? '✅ All Shortfall Added'
-                            : `🛒 Add ${shortfallIngredients.filter((ing) => !addedItems.has(ing.name.toLowerCase())).length} Shortfall to List`}
+                        👨‍🍳 Directions
+                        {instructions.length > 0 && (
+                            <span className="ml-1.5 text-[9px] opacity-60">
+                                ({completedSteps.size}/{instructions.length})
+                            </span>
+                        )}
                     </button>
-                )}
-            </div>
+                </div>
+            )}
+
+            {/* ═══════ 4a. INGREDIENT LIST ═══════ */}
+            {(!prepStarted || activeTab === 'ingredients') && (
+                <div className="p-4 space-y-1.5" role="list" aria-label="Ingredients">
+                    {scaledIngredients.map((ing, i) => {
+                        const store = findStoreMatch(ing.name);
+                        const available = store ? Math.round((store.available + ing.amount) * 10) / 10 : 0;
+                        const hasEnough = available >= ing.scaledAmount;
+                        const isLow = store && !hasEnough;
+                        const isMissing = !store;
+                        // Check if this ingredient is short across ALL meals (aggregate)
+                        const isAggregateShort = hasEnough && aggregateShortfallNames?.has(ing.name.toLowerCase());
+
+                        return (
+                            <div
+                                key={i}
+                                className={`flex items-center gap-3 p-2.5 rounded-xl border transition-colors ${
+                                    !hasEnough
+                                        ? 'bg-red-500/[0.04] border-red-500/10'
+                                        : isAggregateShort
+                                          ? 'bg-amber-500/[0.04] border-amber-500/10'
+                                          : 'bg-white/[0.02] border-white/[0.05] hover:bg-white/[0.04]'
+                                }`}
+                                role="listitem"
+                            >
+                                {/* Status indicator */}
+                                <span className="text-base w-6 text-center flex-shrink-0">
+                                    {hasEnough ? (isAggregateShort ? '⚠️' : '✅') : isLow ? '⚠️' : '🔴'}
+                                </span>
+
+                                {/* Ingredient info */}
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-xs font-bold text-white truncate">
+                                        {ing.scaledAmount} {ing.unit} {ing.name}
+                                    </p>
+                                    <p className="text-[10px] text-gray-500">
+                                        {hasEnough
+                                            ? isAggregateShort
+                                                ? `⚠️ Enough here, short across all meals · ${available} on hand`
+                                                : `📍 ${getStorageLocation(ing.aisle)} · ${available} on hand`
+                                            : isMissing
+                                              ? 'Not in stores'
+                                              : `Only ${available} ${ing.unit} on hand`}
+                                    </p>
+                                </div>
+
+                                {/* Scale indicator */}
+                                {ing.scalable && crewCount !== baseServings && (
+                                    <span className="text-[9px] text-amber-400/50 flex-shrink-0 hidden sm:block">
+                                        was {ing.amount}
+                                    </span>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* ═══════ 4b. DIRECTIONS (Step-by-Step) ═══════ */}
+            {prepStarted && activeTab === 'directions' && (
+                <div className="p-4 space-y-2" role="list" aria-label="Cooking directions">
+                    {loadingInstructions ? (
+                        <div className="flex items-center justify-center py-8 gap-3">
+                            <div className="w-4 h-4 border-2 border-orange-400/30 border-t-orange-400 rounded-full animate-spin" />
+                            <p className="text-xs text-gray-400">Loading directions…</p>
+                        </div>
+                    ) : instructions.length === 0 ? (
+                        <div className="text-center py-8">
+                            <p className="text-2xl mb-2">📝</p>
+                            <p className="text-xs text-gray-400">No directions available for this recipe.</p>
+                            {meal.spoonacular_id && meal.spoonacular_id < 10_000_000 && (
+                                <a
+                                    href={`https://spoonacular.com/recipes/${meal.title.toLowerCase().replace(/\s+/g, '-')}-${meal.spoonacular_id}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-block mt-3 px-4 py-2 rounded-lg bg-white/[0.06] border border-white/[0.1] text-[10px] font-bold text-sky-400 hover:bg-white/[0.1] transition-all"
+                                >
+                                    🔗 View on Spoonacular
+                                </a>
+                            )}
+                        </div>
+                    ) : (
+                        <>
+                            {/* Progress bar */}
+                            <div className="mb-3">
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">
+                                        Progress
+                                    </p>
+                                    <p className="text-[10px] text-orange-400 font-bold">
+                                        {completedSteps.size}/{instructions.length} steps
+                                    </p>
+                                </div>
+                                <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                                    <div
+                                        className="h-full bg-gradient-to-r from-orange-500 to-amber-400 rounded-full transition-all duration-500"
+                                        style={{ width: `${(completedSteps.size / instructions.length) * 100}%` }}
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Steps */}
+                            {instructions.map((step) => {
+                                const done = completedSteps.has(step.number);
+                                return (
+                                    <button
+                                        key={step.number}
+                                        onClick={() => toggleStep(step.number)}
+                                        className={`w-full flex gap-3 p-3 rounded-xl border text-left transition-all active:scale-[0.99] ${
+                                            done
+                                                ? 'bg-emerald-500/[0.06] border-emerald-500/15'
+                                                : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]'
+                                        }`}
+                                        role="listitem"
+                                        aria-label={`Step ${step.number}: ${step.step}`}
+                                    >
+                                        {/* Step number / check */}
+                                        <div
+                                            className={`w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-[11px] font-black transition-all ${
+                                                done
+                                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                                    : 'bg-orange-500/10 text-orange-400 border border-orange-500/20'
+                                            }`}
+                                        >
+                                            {done ? '✓' : step.number}
+                                        </div>
+
+                                        {/* Step text */}
+                                        <p
+                                            className={`text-xs leading-relaxed flex-1 transition-all ${
+                                                done ? 'text-gray-500 line-through' : 'text-gray-200'
+                                            }`}
+                                        >
+                                            {step.step}
+                                        </p>
+                                    </button>
+                                );
+                            })}
+
+                            {/* All done message */}
+                            {completedSteps.size === instructions.length && (
+                                <div className="text-center py-4 rounded-xl bg-emerald-500/[0.08] border border-emerald-500/15">
+                                    <p className="text-lg mb-1">🎉</p>
+                                    <p className="text-xs font-bold text-emerald-400">All steps complete!</p>
+                                    <p className="text-[10px] text-gray-500 mt-0.5">
+                                        Tap ‘Complete Meal’ to subtract from stores
+                                    </p>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+            )}
 
             {/* ═══════ 5. ACTIONS: Start Prep + Share ═══════ */}
             <div className="px-4 pb-4 flex gap-2">

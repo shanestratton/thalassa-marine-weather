@@ -46,6 +46,8 @@ import { useAisStreamLayer } from './useAisStreamLayer';
 import { useChokepointLayer } from './useChokepointLayer';
 import { useCycloneLayer } from './useCycloneLayer';
 import { useSquallMap } from './useSquallMap';
+import { useVesselTracker } from './useVesselTracker';
+import { useSignalKCharts } from './useSignalKCharts';
 import { type ActiveCyclone, fetchActiveCyclones } from '../../services/weather/CycloneTrackingService';
 import { AisLegend } from './AisLegend';
 import { AisGuardAlert } from './AisGuardAlert';
@@ -56,6 +58,7 @@ import { GhostShip } from './GhostShip';
 import { LayerFABMenu } from './MapHubOverlays';
 import { MapActionFabs } from './MapActionFabs';
 import { ThalassaHelixControl, LegendDock, type HelixLayer } from './ThalassaHelixControl';
+import { RouteLegend } from './RouteLegend';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 import { PassageDataPanel } from './PassageDataPanel';
 import { WeatherInspectPopup } from './WeatherInspectPopup';
@@ -125,10 +128,60 @@ export const MapHub: React.FC<MapHubProps> = ({
                     frontSize: d.frontSize,
                     phase: d.phase,
                 });
+
+            // ── Progressive route rendering ──
+            // Draw the partial route as the wavefronts expand so the user
+            // sees the line growing — use a separate preview source to avoid
+            // wiping out the harbour leg features on 'route-line'.
+            if (d?.partialRoute && d.partialRoute.length >= 2) {
+                const map = mapRef.current;
+                if (!map) return;
+                // Lazily create preview source/layer
+                if (!map.getSource('route-preview')) {
+                    map.addSource('route-preview', {
+                        type: 'geojson',
+                        data: { type: 'FeatureCollection', features: [] },
+                    });
+                    map.addLayer({
+                        id: 'route-preview-layer',
+                        type: 'line',
+                        source: 'route-preview',
+                        layout: { 'line-join': 'round', 'line-cap': 'round' },
+                        paint: {
+                            'line-color': '#00e676',
+                            'line-width': 2,
+                            'line-opacity': 0.5,
+                            'line-dasharray': [4, 4],
+                        },
+                    });
+                }
+                const src = map.getSource('route-preview') as mapboxgl.GeoJSONSource;
+                if (src) {
+                    src.setData({
+                        type: 'FeatureCollection',
+                        features: [
+                            {
+                                type: 'Feature',
+                                properties: {},
+                                geometry: {
+                                    type: 'LineString',
+                                    coordinates: d.partialRoute,
+                                },
+                            },
+                        ],
+                    });
+                }
+            }
         };
         const onComplete = () => {
             log.info('Isochrone complete — clearing progress');
             setIsoProgress(null);
+            // Clean up the progressive preview layer
+            const map = mapRef.current;
+            if (map) {
+                if (map.getLayer('route-preview-layer')) map.removeLayer('route-preview-layer');
+                if (map.getSource('route-preview')) map.removeSource('route-preview');
+            }
         };
         window.addEventListener('thalassa:isochrone-progress', onProgress);
         window.addEventListener('thalassa:isochrone-complete', onComplete);
@@ -202,6 +255,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [chokepointVisible, setChokepointVisible] = useState(false);
     const [cycloneVisible, setCycloneVisible] = useState(false);
     const [squallVisible, setSquallVisible] = useState(false);
+    const [vesselTrackingVisible, setVesselTrackingVisible] = useState(true); // On by default
+    const [skChartIds, setSkChartIds] = useState<Set<string>>(new Set());
+    const [skChartOpacity, setSkChartOpacity] = useState(0.7);
     const [closestStorm, setClosestStorm] = useState<ActiveCyclone | null>(null);
     const [allCyclones, setAllCyclones] = useState<ActiveCyclone[]>([]);
     const skipAutoFlyRef = useRef(false);
@@ -256,7 +312,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     const passage = usePassagePlanner(mapRef, mapReady);
 
     // Follow Route overlay — renders the followed planned route on the map
-    useFollowRouteMapbox(mapRef, mapReady);
+    // Suppressed during passage planning to avoid visual conflict
+    // (both use dashed sky-blue lines, causing confusion)
+    useFollowRouteMapbox(mapRef, mapReady && !passage.showPassage);
 
     // ── Cyclone Tracking Layer ──
     useCycloneLayer(
@@ -462,8 +520,11 @@ export const MapHub: React.FC<MapHubProps> = ({
         },
     });
 
-    // ── Location Dot ──
-    useLocationDot(mapRef, locationDotRef, mapReady);
+    // ── Location Dot (basic fallback — disabled when vessel tracker is active) ──
+    useLocationDot(mapRef, locationDotRef, mapReady && !vesselTrackingVisible);
+
+    // ── GPS Vessel Tracker Layer ──
+    const { flyToVessel } = useVesselTracker(mapRef, mapReady, vesselTrackingVisible);
 
     // ── Picker Mode ──
     usePickerMode(mapRef, pinMarkerRef, pickerMode, onLocationSelect);
@@ -475,11 +536,29 @@ export const MapHub: React.FC<MapHubProps> = ({
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
     weatherRef.current = weather;
 
-    // ── Clear weather layers when passage mode activates ──
+    // ── Clear weather layers + Follow Route when passage mode activates ──
     const prevShowPassageRef = useRef(passage.showPassage);
     useEffect(() => {
         if (passage.showPassage && !prevShowPassageRef.current) {
             weather.setActiveLayer('none');
+            // Force-remove Follow Route layers — the hook's useEffect cleanup
+            // has a timing gap when mapReady transitions while routeCoords changes
+            const map = mapRef.current;
+            if (map) {
+                const FR_LAYERS = [
+                    'follow-route-markers-labels',
+                    'follow-route-markers-circle',
+                    'follow-route-active-line',
+                    'follow-route-previous-line',
+                ];
+                const FR_SOURCES = ['follow-route-active', 'follow-route-previous', 'follow-route-markers'];
+                for (const id of FR_LAYERS) {
+                    if (map.getLayer(id)) map.removeLayer(id);
+                }
+                for (const id of FR_SOURCES) {
+                    if (map.getSource(id)) map.removeSource(id);
+                }
+            }
         }
         prevShowPassageRef.current = passage.showPassage;
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -501,6 +580,9 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Chokepoint Tracker ──
     useChokepointLayer(mapReady ? mapRef.current : null, chokepointVisible);
+
+    // ── Signal K Nautical Charts ──
+    const skCharts = useSignalKCharts(mapRef, mapReady, skChartIds, skChartOpacity);
 
     // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
     useEffect(() => {
@@ -638,6 +720,23 @@ export const MapHub: React.FC<MapHubProps> = ({
                             // Mutually exclusive with storm layer
                             if (willBeVisible) setCycloneVisible(false);
                         }}
+                        vesselTrackingVisible={vesselTrackingVisible}
+                        onToggleVesselTracking={() => setVesselTrackingVisible((v) => !v)}
+                        onLocateVessel={flyToVessel}
+                        skCharts={skCharts.availableCharts}
+                        skChartIds={skChartIds}
+                        skChartOpacity={skChartOpacity}
+                        skConnectionStatus={skCharts.connectionStatus}
+                        onToggleSkChart={(id: string) => {
+                            setSkChartIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(id)) next.delete(id);
+                                else next.add(id);
+                                return next;
+                            });
+                        }}
+                        onSkChartOpacityChange={setSkChartOpacity}
+                        onFlyToChart={skCharts.flyToChart}
                     />
                 )}
 
@@ -700,6 +799,12 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* ═══ AIS GUARD ZONE ALERT TOAST ═══ */}
                 <AisGuardAlert />
+
+                {/* ═══ ROUTE LEGEND (during passage mode) ═══ */}
+                <RouteLegend
+                    visible={passage.showPassage && !!passage.routeAnalysis && !isPinView}
+                    embedded={embedded}
+                />
 
                 {/* ═══ CONSENSUS MATRIX FAB (during passage mode) ═══ */}
                 {passage.showPassage && passage.routeAnalysis && consensusData && !embedded && !isPinView && (

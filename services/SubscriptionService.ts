@@ -3,8 +3,8 @@
  *
  * Three tiers (annual billing):
  *   - Free Crew    ($0)      — basic weather, browse chandlery, crew finder
- *   - Paid Crew    ($49.95)  — GPS tracking, DMs, AI advice, full weather
- *   - Vessel Owner ($79.95)  — full feature set inc. route planning, passage legs, galley
+ *   - First Mate   ($49.95)  — GPS tracking, DMs, AI advice, full weather
+ *   - Skipper      ($79.95)  — full feature set inc. route planning, passage legs, galley
  *
  * Usage:
  *   import { canAccess } from '../services/SubscriptionService';
@@ -27,28 +27,28 @@ export const TIER_INFO: Record<
     }
 > = {
     free: {
-        label: 'Crew (Free)',
-        shortLabel: 'Free',
+        label: 'Deckhand',
+        shortLabel: 'Deckhand',
         priceAnnual: 0,
         priceMonthly: 'Free',
         color: '#9ca3af', // gray-400
-        badge: 'FREE',
+        badge: 'DECKHAND',
     },
     crew: {
-        label: 'Crew',
-        shortLabel: 'Crew',
+        label: 'First Mate',
+        shortLabel: 'First Mate',
         priceAnnual: 49.95,
         priceMonthly: '$4.16',
         color: '#22d3ee', // cyan-400
-        badge: 'CREW',
+        badge: 'FIRST MATE',
     },
     owner: {
-        label: 'Vessel Owner',
-        shortLabel: 'Owner',
+        label: 'Skipper',
+        shortLabel: 'Skipper',
         priceAnnual: 79.95,
         priceMonthly: '$6.66',
         color: '#f59e0b', // amber-500
-        badge: 'OWNER',
+        badge: 'SKIPPER',
     },
 };
 

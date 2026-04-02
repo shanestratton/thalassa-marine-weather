@@ -4,7 +4,9 @@
  * Premium glassmorphic vertical hierarchy:
  *   Section A: Active Watch Hero (Anchor + Passages) + Secondary (Guardian + Radio)
  *   Section B: Log Book slim strip
- *   Section C: Ship's Office vertical list (all office cards + crew + settings)
+ *   Section B½: Passage Planning (standalone)
+ *   Section C: Ship's Office vertical list (all office cards)
+ *   Section D: Account (settings)
  */
 import React, { useState, useEffect } from 'react';
 import { AnchorWatchService } from '../services/AnchorWatchService';
@@ -268,6 +270,32 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
+                {/* SECTION B½: PASSAGE PLANNING — Standalone  */}
+                {/* ═══════════════════════════════════════════ */}
+                <div className="mb-4">
+                    <SectionLabel color="#8b5cf6" label="Passage Planning" />
+                    <div style={GLASS.listContainer}>
+                        <OfficeRow
+                            icon={<CrewIcon color="#8b5cf6" />}
+                            label="Passage Planning"
+                            status={
+                                passageCrewCount > 0
+                                    ? `${passageCrewCount} crew`
+                                    : pendingCrewInvites > 0
+                                      ? `${pendingCrewInvites} Pending`
+                                      : 'Plan Your Voyage'
+                            }
+                            statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#8b5cf6'}
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('crew');
+                            }}
+                            badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
+                        />
+                    </div>
+                </div>
+
+                {/* ═══════════════════════════════════════════ */}
                 {/* SECTION C: SHIP'S OFFICE — Vertical list   */}
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
@@ -366,29 +394,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
-                {/* SECTION D: CREW & ADMIN — Consolidated     */}
+                {/* SECTION D: ACCOUNT — Settings only         */}
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-6">
-                    <SectionLabel color="#8b5cf6" label="Crew & Admin" />
+                    <SectionLabel color="#9ca3af" label="Account" />
                     <div style={GLASS.listContainer}>
-                        <OfficeRow
-                            icon={<CrewIcon color="#8b5cf6" />}
-                            label="Passage Planning"
-                            status={
-                                passageCrewCount > 0
-                                    ? `${passageCrewCount} crew`
-                                    : pendingCrewInvites > 0
-                                      ? `${pendingCrewInvites} Pending`
-                                      : 'Plan Your Voyage'
-                            }
-                            statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#8b5cf6'}
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate('crew');
-                            }}
-                            badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
-                        />
-                        <ListDivider />
                         <OfficeRow
                             icon={<UserIcon color="#9ca3af" />}
                             label="Account & Settings"

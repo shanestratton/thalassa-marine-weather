@@ -256,6 +256,64 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         />
                     </div>
                 </Row>
+            </Section>
+
+            {/* Vessel Identity */}
+            <div className="mx-4 mb-4">
+                <div className="flex items-center gap-2 mb-3">
+                    <div className="w-1 h-4 rounded-full bg-purple-500" />
+                    <span className="text-[11px] font-bold text-purple-400 uppercase tracking-widest">
+                        Vessel Identity
+                    </span>
+                </div>
+                <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-4">
+                        <div>
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                Registration No.
+                            </label>
+                            <input
+                                type="text"
+                                value={settings.vessel?.registration || ''}
+                                onChange={(e) => updateVessel('registration', e.target.value)}
+                                placeholder="e.g. ABC-1234"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-sky-500"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                MMSI
+                            </label>
+                            <input
+                                type="text"
+                                inputMode="numeric"
+                                maxLength={9}
+                                value={settings.vessel?.mmsi || ''}
+                                onChange={(e) => updateVessel('mmsi', e.target.value.replace(/\D/g, '').slice(0, 9))}
+                                placeholder="9-digit number"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-sky-500"
+                            />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
+                                Call Sign
+                            </label>
+                            <input
+                                type="text"
+                                value={settings.vessel?.callSign || ''}
+                                onChange={(e) => updateVessel('callSign', e.target.value.toUpperCase())}
+                                placeholder="e.g. VH2ABC"
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-2.5 py-2.5 text-white text-sm font-medium outline-none transition-colors focus:border-sky-500 uppercase"
+                            />
+                        </div>
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-3">
+                        Used for AIS identification and vessel documentation
+                    </p>
+                </div>
+            </div>
+
+            <Section title="Hull & Keel">
                 <Row>
                     <div className="w-full">
                         <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
@@ -621,7 +679,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </div>
                     <div className="mt-4">
                         <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-1.5">
-                            Crew Aboard (incl. Captain)
+                            Crew Aboard (incl. Skipper)
                         </label>
                         <input
                             type="number"

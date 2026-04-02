@@ -97,5 +97,12 @@
         <key>NSAllowsArbitraryLoads</key>
         <true/>
     </dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_signalk-http._tcp</string>
+		<string>_signalk-ws._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Thalassa uses local network access to discover Signal K servers on your boat's network for nautical chart overlays and instrument data.</string>
 </dict>
 </plist>

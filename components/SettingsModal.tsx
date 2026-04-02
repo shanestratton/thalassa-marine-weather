@@ -14,6 +14,7 @@ import { VesselTab } from './settings/VesselTab';
 import { GeneralTab } from './settings/GeneralTab';
 import { AccountTab } from './settings/AccountTab';
 import { LocationsTab } from './settings/LocationsTab';
+
 import { ConfirmDialog } from './ui/ConfirmDialog';
 
 interface SettingsViewProps {
@@ -398,7 +399,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                 </div>
                             </div>
                         </div>
-                        <div className="flex-1 px-4 pb-6 space-y-2">
+                        <div className="flex-1 px-4 pb-32 space-y-2">
                             {MENU_ITEMS.map((item) => {
                                 return (
                                     <button
@@ -454,7 +455,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             </h3>
                         </div>
                     )}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-10 pb-32">
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 md:p-10 pb-48">
                         {activeTab === 'locations' && (
                             <LocationsTab settings={settings} onSave={onSave} onLocationSelect={onLocationSelect} />
                         )}

@@ -17,8 +17,13 @@ vi.mock('../components/settings/YachtDatabaseSearch', () => ({
 function renderStep(overrides: Record<string, unknown> = {}) {
     const defaultProps = {
         vesselType: 'sail' as const,
+        onVesselTypeChange: vi.fn(),
         name: 'Test Vessel',
         onNameChange: vi.fn(),
+        registration: '',
+        onRegistrationChange: vi.fn(),
+        mmsi: '',
+        onMmsiChange: vi.fn(),
         hullType: 'monohull' as const,
         onHullTypeChange: vi.fn(),
         keelType: 'fin' as const,

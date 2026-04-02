@@ -405,8 +405,12 @@ export function useLogPageState() {
 
     const handleStartTracking = useCallback(async () => {
         const voyages = groupEntriesByVoyage(state.entries);
-        if (voyages.length > 0) {
-            const recentVoyageId = voyages[0]?.voyageId;
+        // Only offer to continue real device-tracked voyages, not suggested/imported tracks
+        const realVoyages = voyages.filter(
+            (v) => !v.entries.some((e) => e.source === 'planned_route' || (e.source && e.source !== 'device')),
+        );
+        if (realVoyages.length > 0) {
+            const recentVoyageId = realVoyages[0]?.voyageId;
             if (recentVoyageId) {
                 dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: true, lastVoyageId: recentVoyageId });
                 return;

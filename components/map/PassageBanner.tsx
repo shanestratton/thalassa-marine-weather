@@ -190,6 +190,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                     <button
                         onClick={() => {
                             passage.setShowPassage(false);
+                            window.dispatchEvent(new CustomEvent('thalassa:passage-clear'));
                             triggerHaptic('light');
                         }}
                         className="w-7 h-7 flex items-center justify-center rounded-lg border border-white/10 bg-white/[0.05] hover:bg-white/10 transition-colors shrink-0 active:scale-95"

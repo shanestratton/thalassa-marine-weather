@@ -19,9 +19,9 @@ export interface ComfortParams {
 /**
  * Subscription tiers for Thalassa.
  *
- *  - `free`  — Crew (Free): basic weather, read-only chat/chandlery
- *  - `crew`  — Crew (Paid, $49.95/yr): GPS tracking, DMs, AI advice, full weather
- *  - `owner` — Vessel Owner ($79.95/yr): full feature set inc. route planning, passage legs, galley
+ *  - `free`  — Deckhand (Free): basic weather, read-only chat/chandlery
+ *  - `crew`  — First Mate ($49.95/yr): GPS tracking, DMs, AI advice, full weather
+ *  - `owner` — Skipper ($79.95/yr): full feature set inc. route planning, passage legs, galley
  */
 export type SubscriptionTier = 'free' | 'crew' | 'owner';
 

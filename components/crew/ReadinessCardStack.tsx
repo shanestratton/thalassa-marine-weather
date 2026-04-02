@@ -5,7 +5,7 @@
  * Each card is a <details> accordion with delegation badge + inner card.
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { type CrewMember } from '../../services/CrewService';
 import { type Voyage } from '../../services/VoyageService';
 
@@ -18,6 +18,7 @@ import { CommsPlanCard } from '../passage/CommsPlanCard';
 import { VesselCheckCard } from '../passage/VesselCheckCard';
 import { MedicalFirstAidCard } from '../passage/MedicalFirstAidCard';
 import { CustomsClearanceCard } from '../passage/CustomsClearanceCard';
+import { isSameCountry } from '../../data/customsDb';
 import { GalleyCard } from '../chat/GalleyCard';
 import { DelegationBadge } from './DelegationBadge';
 
@@ -192,6 +193,14 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
         onAssign: onAssignCard,
     };
 
+    // Auto-clear customs for domestic routes
+    const isDomestic = !!(departPort && destPort && isSameCountry(departPort, destPort));
+    useEffect(() => {
+        if (isDomestic && !customsCleared) {
+            onCustomsChange(1, 1);
+        }
+    }, [isDomestic, customsCleared, onCustomsChange]);
+
     return (
         <>
             {/* 1. PASSAGE SUMMARY */}
@@ -281,7 +290,15 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
 
             {/* 6. VOYAGE PROVISIONING */}
             <div className="mb-4">
-                <GalleyCard className="" registeredCrewCount={visibleCrew.length} />
+                <GalleyCard
+                    className=""
+                    registeredCrewCount={visibleCrew.length}
+                    cardDelegations={cardDelegations}
+                    delegationMenuOpen={delegationMenuOpen}
+                    onDelegationMenuToggle={onDelegationMenuToggle}
+                    onAssignCard={onAssignCard}
+                    crewList={visibleCrew}
+                />
             </div>
 
             {/* 7. WATCH SCHEDULE */}
@@ -318,6 +335,29 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
             {departPort &&
                 destPort &&
                 (() => {
+                    if (isDomestic) {
+                        return (
+                            <CardAccordion
+                                isReady={true}
+                                emoji="🛂"
+                                title="Customs & Immigration"
+                                subtitle={`${departPort} → ${destPort}`}
+                                readySubtitle="✅ Domestic route — no clearance required"
+                                cardKey="customs_clearance"
+                                {...delegationProps}
+                            >
+                                <div className="p-4 text-center">
+                                    <p className="text-2xl mb-2">🏠</p>
+                                    <p className="text-sm font-bold text-emerald-400 mb-1">No Customs Required</p>
+                                    <p className="text-xs text-gray-400 leading-relaxed max-w-xs mx-auto">
+                                        Both ports are in the same country. No international clearance, immigration, or
+                                        customs procedures are needed for this passage.
+                                    </p>
+                                </div>
+                            </CardAccordion>
+                        );
+                    }
+
                     const minimalPlan = {
                         customs: {
                             required: true,

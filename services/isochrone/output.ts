@@ -42,7 +42,15 @@ export function detectTurnWaypoints(
         eta: departureTime,
     });
 
-    // Walk route looking for significant bearing changes
+    // Walk route looking for significant bearing changes.
+    // Two detection modes:
+    //   1. Sharp turn: single-node delta >= threshold (immediate waypoint)
+    //   2. Gradual turn: cumulative heading drift since last waypoint >= threshold
+    // This catches both sharp course changes AND gentle arcs (e.g., following trade winds)
+
+    // Track the reference bearing from where we last placed a waypoint
+    let refBearing = bearingBetween(first.lat, first.lon, route[1].lat, route[1].lon);
+
     for (let i = 1; i < route.length - 1; i++) {
         const prev = route[i - 1];
         const curr = route[i];
@@ -51,12 +59,22 @@ export function detectTurnWaypoints(
         const bearingIn = bearingBetween(prev.lat, prev.lon, curr.lat, curr.lon);
         const bearingOut = bearingBetween(curr.lat, curr.lon, next.lat, next.lon);
 
-        let delta = bearingOut - bearingIn;
-        while (delta > 180) delta -= 360;
-        while (delta < -180) delta += 360;
+        // Per-node sharp turn delta
+        let sharpDelta = bearingOut - bearingIn;
+        while (sharpDelta > 180) sharpDelta -= 360;
+        while (sharpDelta < -180) sharpDelta += 360;
 
-        if (Math.abs(delta) >= threshold) {
+        // Cumulative drift since last waypoint
+        let cumulativeDelta = bearingOut - refBearing;
+        while (cumulativeDelta > 180) cumulativeDelta -= 360;
+        while (cumulativeDelta < -180) cumulativeDelta += 360;
+
+        const isSharpTurn = Math.abs(sharpDelta) >= threshold;
+        const isGradualDrift = Math.abs(cumulativeDelta) >= threshold;
+
+        if (isSharpTurn || isGradualDrift) {
             wpNumber++;
+            const delta = isSharpTurn ? sharpDelta : cumulativeDelta;
             waypoints.push({
                 id: `WP${wpNumber}`,
                 lat: curr.lat,
@@ -70,6 +88,8 @@ export function detectTurnWaypoints(
                 twa: curr.twa,
                 eta: new Date(depTime + curr.timeHours * 3600_000).toISOString(),
             });
+            // Reset reference bearing from this new waypoint
+            refBearing = bearingOut;
         }
     }
 

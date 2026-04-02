@@ -72,7 +72,7 @@ export const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mo
                                           : 'Declined'}
                                 </p>
                             ) : (
-                                <p className="text-[11px] text-emerald-400 font-bold mt-0.5">Captain's Registers</p>
+                                <p className="text-[11px] text-emerald-400 font-bold mt-0.5">Skipper's Registers</p>
                             )}
                         </div>
                     </div>
@@ -92,7 +92,7 @@ export const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mo
                 {/* Explanation for crew */}
                 {!isCaptain && (
                     <p className="text-[11px] text-gray-400 mb-2.5">
-                        You have access to the following registers. Any changes you make will update the captain's data.
+                        You have access to the following registers. Any changes you make will update the Skipper's data.
                     </p>
                 )}
 

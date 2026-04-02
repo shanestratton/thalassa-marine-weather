@@ -14,6 +14,7 @@ type ChatView =
     | 'profile'
     | 'find_crew'
     | 'marketplace'
+    | 'captains_table'
     | 'admin_panel';
 
 export interface ChatHeaderProps {
@@ -77,6 +78,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
 
                                 {view === 'find_crew' && '👥 Crew Finder'}
                                 {view === 'marketplace' && '⚓ Chandlery'}
+                                {view === 'captains_table' && "☸ The Captain's Table"}
                             </h1>
                         )}
                         {view === 'messages' && activeChannel?.description && (
@@ -110,20 +112,24 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                 <button
                                     aria-label="Open Profile"
                                     onClick={onOpenProfile}
-                                    className="relative w-10 h-10 rounded-xl overflow-hidden border border-white/[0.12] hover:border-white/[0.18] bg-white/[0.08] hover:bg-white/[0.12] transition-all active:scale-95"
+                                    className="relative w-10 h-10 rounded-xl border border-white/[0.12] hover:border-white/[0.18] bg-white/[0.08] hover:bg-white/[0.12] transition-all active:scale-95"
                                 >
-                                    {myAvatarUrl ? (
-                                        <img
-                                            src={myAvatarUrl}
-                                            loading="lazy"
-                                            alt=""
-                                            className="w-full h-full object-cover"
-                                        />
-                                    ) : (
-                                        <div className="w-full h-full bg-white/[0.04] flex items-center justify-center">
-                                            <span className="text-xl">⚓</span>
-                                        </div>
-                                    )}
+                                    <div className="w-full h-full rounded-xl overflow-hidden">
+                                        {myAvatarUrl ? (
+                                            <img
+                                                src={myAvatarUrl}
+                                                loading="lazy"
+                                                alt=""
+                                                className="w-full h-full object-cover"
+                                            />
+                                        ) : (
+                                            <div className="w-full h-full bg-white/[0.04] flex items-center justify-center">
+                                                <span className="text-xl">⚓</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                    {/* Online indicator dot */}
+                                    <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-500 border-2 border-[#0a0f1a] shadow-sm shadow-emerald-500/40" />
                                 </button>
                                 <button
                                     aria-label="Open DMInbox"
