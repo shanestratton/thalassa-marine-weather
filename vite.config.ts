@@ -92,9 +92,20 @@ export default defineConfig(({ mode }) => {
                             headers: cleanHeaders,
                         };
                         const proxyReq = http.request(options, (proxyRes) => {
-                            // Add CORS headers so Mapbox GL WebGL can read tile pixels
+                            // Fix content-type: AvNav download handler sends application/octet-stream
+                            // but Mapbox GL needs image/* to decode tiles
+                            const contentType = targetPath?.match(/\.png(\?|$)/i)
+                                ? 'image/png'
+                                : targetPath?.match(/\.jpe?g(\?|$)/i)
+                                  ? 'image/jpeg'
+                                  : targetPath?.match(/\.webp(\?|$)/i)
+                                    ? 'image/webp'
+                                    : targetPath?.match(/\.pbf(\?|$)/i)
+                                      ? 'application/x-protobuf'
+                                      : proxyRes.headers['content-type'] || 'application/octet-stream';
                             const responseHeaders = {
                                 ...proxyRes.headers,
+                                'content-type': contentType,
                                 'access-control-allow-origin': '*',
                                 'access-control-allow-methods': 'GET, OPTIONS',
                             };
