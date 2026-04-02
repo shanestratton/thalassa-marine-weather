@@ -10,9 +10,14 @@ import type { PolarDatabaseEntry } from '../../data/polarDatabase';
 
 interface VesselDetailsStepProps {
     vesselType: 'sail' | 'power' | 'observer';
+    onVesselTypeChange: (v: 'sail' | 'power' | 'observer') => void;
     // Vessel identity
     name: string;
     onNameChange: (v: string) => void;
+    registration: string;
+    onRegistrationChange: (v: string) => void;
+    mmsi: string;
+    onMmsiChange: (v: string) => void;
     // Hull / keel / rigging
     hullType: 'monohull' | 'catamaran' | 'trimaran';
     onHullTypeChange: (v: 'monohull' | 'catamaran' | 'trimaran') => void;
@@ -71,8 +76,13 @@ const UnitToggle: React.FC<{ value: string; onClick: () => void }> = ({ value, o
 export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
     ({
         vesselType,
+        onVesselTypeChange,
         name,
         onNameChange,
+        registration,
+        onRegistrationChange,
+        mmsi,
+        onMmsiChange,
         hullType,
         onHullTypeChange,
         keelType,
@@ -139,12 +149,36 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                         Search our database or enter details manually.
                     </p>
 
+                    {/* Sail vs Power toggle */}
+                    <div className="mb-6">
+                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
+                            Vessel Type
+                        </label>
+                        <div className="flex bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
+                            <button
+                                aria-label="Select sailing vessel"
+                                onClick={() => onVesselTypeChange('sail')}
+                                className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${vesselType === 'sail' ? 'bg-sky-500 text-white' : 'text-gray-400 hover:text-white/60'}`}
+                            >
+                                ⛵ Sailing
+                            </button>
+                            <button
+                                aria-label="Select power vessel"
+                                onClick={() => onVesselTypeChange('power')}
+                                className={`flex-1 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-2 ${vesselType === 'power' ? 'bg-sky-500 text-white' : 'text-gray-400 hover:text-white/60'}`}
+                            >
+                                🚤 Power
+                            </button>
+                        </div>
+                    </div>
+
                     {/* Yacht Database Search */}
                     <div className="mb-6">
                         <YachtDatabaseSearch selectedModel={selectedPolarModel} onSelect={onYachtSelect} compact />
                     </div>
 
                     <div className="space-y-6">
+                        {/* Vessel Identity */}
                         <div>
                             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
                                 Vessel Name
@@ -156,6 +190,34 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                 placeholder="e.g. Black Pearl"
                                 className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none text-lg font-medium"
                             />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
+                                    Registration
+                                </label>
+                                <input
+                                    type="text"
+                                    value={registration}
+                                    onChange={(e) => onRegistrationChange(e.target.value)}
+                                    placeholder="e.g. ABC-1234"
+                                    className={INPUT_CLASS}
+                                />
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
+                                    MMSI
+                                </label>
+                                <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    maxLength={9}
+                                    value={mmsi}
+                                    onChange={(e) => onMmsiChange(e.target.value.replace(/\D/g, '').slice(0, 9))}
+                                    placeholder="9 digits"
+                                    className={INPUT_CLASS}
+                                />
+                            </div>
                         </div>
 
                         {/* Hull Type */}
@@ -325,7 +387,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                         {/* Crew */}
                         <div>
                             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex items-center gap-1">
-                                <AnchorIcon className="w-3 h-3 text-sky-400" /> Crew Aboard (incl. Captain)
+                                <AnchorIcon className="w-3 h-3 text-sky-400" /> Crew Aboard (incl. Skipper)
                             </label>
                             <input
                                 type="number"

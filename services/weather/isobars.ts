@@ -775,7 +775,11 @@ export async function generateIsobars(
 }
 
 /** Generate isobars for a specific hour from a cached grid (used by scrubber) */
-export function generateIsobarsFromGrid(grid: PressureGrid, hour: number): IsobarResult {
+/** Cache for heatmap reuse across interpolated sub-frames */
+let _heatmapCache: { dataUrl: string; bounds: [number, number, number, number] } | null = null;
+let _heatmapCacheHour = -1;
+
+export function generateIsobarsFromGrid(grid: PressureGrid, hour: number, skipHeatmap = false): IsobarResult {
     const hourGrid = extractHourGrid(grid, hour);
 
     // Determine pressure range
@@ -822,8 +826,23 @@ export function generateIsobarsFromGrid(grid: PressureGrid, hour: number): Isoba
     // Generate movement tracks (current hour → +12h)
     const trackFeatures = generateMovementTracks(centers, hourGrid);
 
-    // Generate pressure gradient heatmap
-    const heatmap = generatePressureHeatmap(hourGrid, minP, maxP);
+    // Generate pressure gradient heatmap (skip for interpolated sub-frames — reuse cache)
+    let heatmapDataUrl: string | null = null;
+    let heatmapBounds: [number, number, number, number] | null = null;
+
+    if (!skipHeatmap) {
+        const heatmap = generatePressureHeatmap(hourGrid, minP, maxP);
+        if (heatmap) {
+            heatmapDataUrl = heatmap.dataUrl;
+            heatmapBounds = heatmap.bounds;
+            _heatmapCache = heatmap;
+            _heatmapCacheHour = hour;
+        }
+    } else if (_heatmapCache) {
+        // Reuse nearest keyframe's heatmap for smooth scrubbing without re-rendering
+        heatmapDataUrl = _heatmapCache.dataUrl;
+        heatmapBounds = _heatmapCache.bounds;
+    }
 
     return {
         contours: { type: 'FeatureCollection', features: contourFeatures },
@@ -831,8 +850,8 @@ export function generateIsobarsFromGrid(grid: PressureGrid, hour: number): Isoba
         barbs: { type: 'FeatureCollection', features: barbFeatures },
         arrows: { type: 'FeatureCollection', features: arrowFeatures },
         tracks: { type: 'FeatureCollection', features: trackFeatures },
-        heatmapDataUrl: heatmap?.dataUrl ?? null,
-        heatmapBounds: heatmap?.bounds ?? null,
+        heatmapDataUrl,
+        heatmapBounds,
     };
 }
 
@@ -862,19 +881,21 @@ function generatePressureHeatmap(
     const imgData = ctx.createImageData(cols, rows);
 
     // Pressure color stops (hPa → RGBA)
-    // Windy-inspired: intense magenta/red for deep lows → cyan/blue for highs
+    // Zoom Earth-inspired: distinct blue for lows → narrow neutral → distinct red/salmon for highs
     const colorStops: [number, number, number, number, number][] = [
         // [pressure_hPa, R, G, B, A]
-        [960, 180, 30, 30, 220], // Intense red — extreme cyclone
-        [975, 200, 40, 100, 210], // Deep magenta — severe low
-        [985, 210, 60, 150, 200], // Hot magenta — cyclone
-        [995, 180, 80, 200, 185], // Purple-magenta — moderate low
-        [1005, 120, 100, 210, 170], // Blue-violet — mild low
-        [1012, 80, 160, 220, 140], // Ocean blue — standard (anchor)
-        [1018, 60, 190, 230, 150], // Bright cyan — neutral-high
-        [1025, 50, 140, 220, 165], // Deep blue — moderate high
-        [1035, 40, 100, 200, 180], // Royal blue — strong high
-        [1045, 30, 60, 160, 190], // Deep navy — extreme high
+        [960, 10, 20, 110, 230], // Deep navy — extreme cyclone
+        [975, 20, 50, 155, 220], // Rich blue — severe low
+        [985, 35, 85, 185, 210], // Royal blue — cyclone
+        [995, 50, 125, 200, 195], // Ocean blue — low pressure
+        [1005, 80, 170, 205, 175], // Cyan/teal — mild low
+        [1010, 140, 195, 195, 155], // Teal-grey — transition
+        [1013, 200, 190, 170, 130], // Warm sand — standard (narrow neutral band)
+        [1016, 215, 170, 155, 150], // Light peach — transition
+        [1020, 225, 145, 130, 170], // Salmon — moderate high
+        [1025, 220, 115, 100, 185], // Warm red — high
+        [1032, 210, 85, 75, 195], // Strong red — strong high
+        [1042, 185, 60, 60, 205], // Deep red — extreme anticyclone
     ];
 
     // Clamp range to observed data (with padding)
@@ -943,7 +964,7 @@ function generatePressureHeatmap(
     const north = lats[rows - 1];
 
     return {
-        dataUrl: (sCtx ? smooth : canvas).toDataURL('image/png'),
+        dataUrl: (sCtx ? smooth : canvas).toDataURL('image/jpeg', 0.85),
         bounds: [west, south, east, north],
     };
 }

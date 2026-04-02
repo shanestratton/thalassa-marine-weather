@@ -174,7 +174,7 @@ export function calculateProvisions(
         for (const meal of day.meals) {
             for (const ing of meal.ingredients || []) {
                 const key = `${ing.name.toLowerCase()}_${ing.unit.toLowerCase()}`;
-                const scaled = scaleIngredient(ing.amount, ing.scalable, meal.servings, crewCount);
+                const scaled = scaleIngredient(ing.amount, ing.scalable, meal.servings, crewCount, ing.unit);
 
                 const existing = aggregated.get(key);
                 if (existing) {

@@ -1339,80 +1339,7 @@ export function useCycloneLayer(
         // ── Create storm info badge element ──
         const createStormBadge = (cyclone: ActiveCyclone): HTMLDivElement => {
             const wrapper = document.createElement('div');
-            const accentColor = categoryColor(cyclone.category);
-            const catLabel = categoryLabels[cyclone.categoryLabel] ?? `Cat ${cyclone.categoryLabel}`;
-            const stormName = resolveStormName(cyclone);
-
-            // Pressure display
-            const pressure = cyclone.minPressureMb ? `${cyclone.minPressureMb} hPa` : '—';
-            // Sustained wind
-            const sustained = cyclone.maxWindKts > 0 ? `${cyclone.maxWindKts} kts` : '—';
-            // Estimated gusts (typically 1.2–1.25× sustained)
-            const gustKts = cyclone.maxWindKts > 0 ? Math.round(cyclone.maxWindKts * 1.25) : null;
-            const gusts = gustKts ? `~${gustKts} kts` : '—';
-
-            // Position
-            const lat = cyclone.currentPosition.lat;
-            const lon = cyclone.currentPosition.lon;
-            const latStr = `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? 'N' : 'S'}`;
-            const lonStr = `${Math.abs(lon).toFixed(1)}°${lon >= 0 ? 'E' : 'W'}`;
-
-            // Data age — use original advisory time, not interpolated "now" time
-            const posTime = cyclone.lastAdvisoryTime || cyclone.currentPosition.time;
-            let dataAgeStr = '—';
-            let dataTimeStr = '—';
-            if (posTime) {
-                const posDate = new Date(posTime);
-                const ageMin = Math.round((Date.now() - posDate.getTime()) / 60000);
-                if (ageMin < 60) dataAgeStr = `${ageMin} min ago`;
-                else if (ageMin < 1440) dataAgeStr = `${Math.floor(ageMin / 60)}h ${ageMin % 60}m ago`;
-                else dataAgeStr = `${Math.floor(ageMin / 1440)}d ago`;
-                dataTimeStr = posDate.toISOString().replace('T', ' ').slice(0, 16) + 'Z';
-            }
-
-            // Next advisory (ATCF updates at 00/06/12/18Z, ~3h processing)
-            const now = new Date();
-            const utcH = now.getUTCHours();
-            const advisorySlots = [0, 6, 12, 18];
-            // Find the next advisory slot after current hour (+3h for processing)
-            let nextAdv = advisorySlots.find((h) => h > utcH) ?? advisorySlots[0] + 24;
-            if (nextAdv < utcH) nextAdv += 24;
-            const nextAdvDate = new Date(now);
-            nextAdvDate.setUTCHours(nextAdv % 24, 0, 0, 0);
-            if (nextAdv >= 24) nextAdvDate.setUTCDate(nextAdvDate.getUTCDate() + 1);
-            const nextAdvMin = Math.round((nextAdvDate.getTime() - now.getTime()) / 60000);
-            const nextAdvStr =
-                nextAdvMin < 60 ? `~${nextAdvMin} min` : `~${Math.floor(nextAdvMin / 60)}h ${nextAdvMin % 60}m`;
-
-            // Basin label
-            const basinLabels: Record<string, string> = {
-                WP: 'W. Pacific',
-                EP: 'E. Pacific',
-                AL: 'Atlantic',
-                IO: 'Indian Ocean',
-                SI: 'S. Indian',
-                SP: 'S. Pacific',
-                SH: 'S. Hemisphere',
-            };
-            const basinStr = basinLabels[cyclone.basin] ?? cyclone.basin;
-
-            buildStormBadgeDOM(wrapper, {
-                accentColor,
-                catLabel,
-                stormName,
-                basinStr,
-                sid: cyclone.sid,
-                pressure,
-                sustained,
-                gusts,
-                gustKts,
-                latStr,
-                lonStr,
-                dataTimeStr,
-                dataAgeStr,
-                posTime: posTime || '',
-                nextAdvStr,
-            });
+            buildStormBadgeDOM(wrapper, buildBadgeData(cyclone));
             return wrapper;
         };
 
@@ -1756,24 +1683,79 @@ export function useCycloneLayer(
     }, [selectedStorm?.sid, visible, mapReady]);
 }
 
-// ── Static badge builder (accessible outside the main effect closure) ──
-function createStormBadgeStatic(cyclone: ActiveCyclone): HTMLDivElement {
-    const wrapper = document.createElement('div');
+// ── Shared helpers for building badge data from an ActiveCyclone ──
+
+/** Extract last N advisory rows from track for the table display */
+function extractAdvisories(cyclone: ActiveCyclone, count = 5): StormBadgeData['advisories'] {
+    // Combine track + current position, sort by time descending
+    const allPositions = [...cyclone.track];
+    // Ensure current position is included
+    const currentTime = new Date(cyclone.currentPosition.time).getTime();
+    const hasCurrentInTrack = allPositions.some(
+        (p) => Math.abs(new Date(p.time).getTime() - currentTime) < 30 * 60 * 1000,
+    );
+    if (!hasCurrentInTrack) allPositions.push(cyclone.currentPosition);
+
+    // Sort descending (most recent first)
+    allPositions.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
+    // Take last N, filter out entries without valid times
+    const recent = allPositions.filter((p) => p.time && !isNaN(new Date(p.time).getTime())).slice(0, count);
+
+    return recent.map((p, i) => {
+        const d = new Date(p.time);
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const dateStr = `${d.getUTCDate()} ${monthNames[d.getUTCMonth()]}`;
+        const timeStr = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+        return {
+            date: dateStr,
+            time: timeStr,
+            windKts: p.windKts,
+            pressureMb: p.pressureMb,
+            isLatest: i === 0,
+        };
+    });
+}
+
+/** Determine pressure trend from last 2 advisory positions */
+function computePressureTrend(cyclone: ActiveCyclone): 'deepening' | 'steady' | 'filling' {
+    const positions = [...cyclone.track]
+        .filter((p) => p.pressureMb != null && p.pressureMb > 0)
+        .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    if (positions.length < 2) return 'steady';
+    const prev = positions[positions.length - 2].pressureMb!;
+    const curr = positions[positions.length - 1].pressureMb!;
+    const delta = curr - prev;
+    if (delta <= -2) return 'deepening'; // Pressure dropping ≥ 2 hPa
+    if (delta >= 2) return 'filling'; // Pressure rising ≥ 2 hPa
+    return 'steady';
+}
+
+/** Approximate intensification probability from pressure trend + current wind speed */
+function computeDevProbability(cyclone: ActiveCyclone): 'LOW' | 'MODERATE' | 'HIGH' {
+    const trend = computePressureTrend(cyclone);
+    const windKts = cyclone.maxWindKts;
+    // Deepening + already strong = HIGH risk of further intensification
+    if (trend === 'deepening') return windKts >= 50 ? 'HIGH' : 'MODERATE';
+    // Steady but already hurricane-force = MODERATE
+    if (trend === 'steady') return windKts >= 64 ? 'MODERATE' : 'LOW';
+    // Filling (pressure rising) = LOW
+    return 'LOW';
+}
+
+/** Build common StormBadgeData from an ActiveCyclone */
+function buildBadgeData(cyclone: ActiveCyclone, onClose?: () => void): StormBadgeData {
     const accentColor = categoryColor(cyclone.category);
     const catLabel = categoryLabels[cyclone.categoryLabel] ?? `Cat ${cyclone.categoryLabel}`;
     const stormName = resolveStormName(cyclone);
-
-    const pressure = cyclone.minPressureMb ? `${cyclone.minPressureMb} hPa` : '—';
-    const sustained = cyclone.maxWindKts > 0 ? `${cyclone.maxWindKts} kts` : '—';
-    const gustKts = cyclone.maxWindKts > 0 ? Math.round(cyclone.maxWindKts * 1.25) : null;
-    const gusts = gustKts ? `~${gustKts} kts` : '—';
+    const classification = stormClassification(cyclone.basin, cyclone.maxWindKts);
 
     const lat = cyclone.currentPosition.lat;
     const lon = cyclone.currentPosition.lon;
     const latStr = `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? 'N' : 'S'}`;
     const lonStr = `${Math.abs(lon).toFixed(1)}°${lon >= 0 ? 'E' : 'W'}`;
 
-    const posTime = cyclone.currentPosition.time;
+    const posTime = cyclone.lastAdvisoryTime || cyclone.currentPosition.time;
     let dataAgeStr = '—';
     let dataTimeStr = '—';
     if (posTime) {
@@ -1807,23 +1789,30 @@ function createStormBadgeStatic(cyclone: ActiveCyclone): HTMLDivElement {
     };
     const basinStr = basinLabels[cyclone.basin] ?? cyclone.basin;
 
-    buildStormBadgeDOM(wrapper, {
+    return {
         accentColor,
         catLabel,
         stormName,
+        classification,
         basinStr,
         sid: cyclone.sid,
-        pressure,
-        sustained,
-        gusts,
-        gustKts,
         latStr,
         lonStr,
         dataTimeStr,
         dataAgeStr,
         posTime: posTime || '',
         nextAdvStr,
-    });
+        advisories: extractAdvisories(cyclone),
+        pressureTrend: computePressureTrend(cyclone),
+        devProbability: computeDevProbability(cyclone),
+        onClose,
+    };
+}
+
+// ── Static badge builder (accessible outside the main effect closure) ──
+function createStormBadgeStatic(cyclone: ActiveCyclone): HTMLDivElement {
+    const wrapper = document.createElement('div');
+    buildStormBadgeDOM(wrapper, buildBadgeData(cyclone));
     return wrapper;
 }
 
@@ -1832,89 +1821,224 @@ interface StormBadgeData {
     accentColor: string;
     catLabel: string;
     stormName: string;
+    classification: string;
     basinStr: string;
     sid: string;
-    pressure: string;
-    sustained: string;
-    gusts: string;
-    gustKts: number | null;
     latStr: string;
     lonStr: string;
     dataTimeStr: string;
     dataAgeStr: string;
     posTime: string;
     nextAdvStr: string;
+    /** Last N track positions for the advisory table */
+    advisories: { date: string; time: string; windKts: number | null; pressureMb: number | null; isLatest: boolean }[];
+    /** Pressure trend: 'deepening' | 'steady' | 'filling' */
+    pressureTrend: 'deepening' | 'steady' | 'filling';
+    /** Intensification probability label */
+    devProbability: 'LOW' | 'MODERATE' | 'HIGH';
+    /** Callback to dismiss the HUD badge */
+    onClose?: () => void;
 }
 
 function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData): void {
     const card = document.createElement('div');
     card.style.cssText = `
-        background:rgba(10,15,30,0.88);backdrop-filter:blur(16px);
-        -webkit-backdrop-filter:blur(16px);border:1px solid ${d.accentColor}44;
-        border-left:3px solid ${d.accentColor};border-radius:12px;
-        padding:10px 14px;color:#fff;
+        background:rgba(10,15,30,0.92);backdrop-filter:blur(20px);
+        -webkit-backdrop-filter:blur(20px);border:1px solid ${d.accentColor}33;
+        border-top:3px solid ${d.accentColor};border-radius:14px;
+        padding:0;color:#fff;
         font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;
-        min-width:200px;max-width:240px;pointer-events:none;z-index:600;
-        box-shadow:0 4px 24px rgba(0,0,0,0.6),0 0 12px ${d.accentColor}22;
+        min-width:280px;max-width:320px;z-index:600;
+        box-shadow:0 8px 32px rgba(0,0,0,0.7),0 0 16px ${d.accentColor}15;
+        overflow:hidden;
     `;
 
-    // Category label
-    const catEl = document.createElement('div');
-    catEl.style.cssText = `font-size:10px;font-weight:700;letter-spacing:1px;color:${d.accentColor};text-transform:uppercase;margin-bottom:1px;text-shadow:0 0 8px ${d.accentColor}44;`;
-    catEl.textContent = d.catLabel;
-    card.appendChild(catEl);
+    // ── Header: Storm name + classification + close button ──
+    const header = document.createElement('div');
+    header.style.cssText = `
+        display:flex;align-items:flex-start;justify-content:space-between;
+        padding:12px 14px 8px;
+    `;
 
-    // Storm name
-    const nameEl = document.createElement('div');
-    nameEl.style.cssText =
-        'font-size:18px;font-weight:800;color:#fff;margin-bottom:2px;text-transform:capitalize;line-height:1.2;';
-    nameEl.textContent = d.stormName;
-    card.appendChild(nameEl);
+    const headerLeft = document.createElement('div');
+    headerLeft.style.cssText = 'flex:1;min-width:0;';
 
-    // Basin / SID
-    const basinEl = document.createElement('div');
-    basinEl.style.cssText = 'font-size:9px;color:rgba(255,255,255,0.35);margin-bottom:8px;';
-    basinEl.textContent = `${d.basinStr} · ${d.sid}`;
-    card.appendChild(basinEl);
+    const titleEl = document.createElement('div');
+    titleEl.style.cssText = `
+        font-size:15px;font-weight:800;color:#fff;line-height:1.2;
+        text-transform:capitalize;
+    `;
+    titleEl.textContent = d.stormName;
+    headerLeft.appendChild(titleEl);
 
-    // Data rows
-    const rows = document.createElement('div');
-    rows.style.cssText = 'display:flex;flex-direction:column;gap:4px;';
-    const addRow = (icon: string, label: string, value: string, color = 'rgba(255,255,255,0.9)') => {
-        const r = document.createElement('div');
-        r.style.cssText = 'display:flex;align-items:center;gap:6px;';
-        const ic = document.createElement('span');
-        ic.style.cssText = 'font-size:11px;width:14px;text-align:center;';
-        ic.textContent = icon;
-        const lb = document.createElement('span');
-        lb.style.cssText = 'font-size:10px;color:rgba(255,255,255,0.45);min-width:60px;';
-        lb.textContent = label;
-        const vl = document.createElement('span');
-        vl.style.cssText = `font-size:11px;font-weight:700;color:${color};margin-left:auto;`;
-        vl.textContent = value;
-        r.appendChild(ic);
-        r.appendChild(lb);
-        r.appendChild(vl);
-        rows.appendChild(r);
-    };
-    addRow('⬇', 'Pressure', d.pressure, d.accentColor);
-    addRow('💨', 'Sustained', d.sustained, '#ffffff');
-    addRow('🌪️', 'Gusts (est)', d.gusts, d.gustKts && d.gustKts >= 64 ? '#ef4444' : '#ffffff');
-    addRow('📍', 'Position', `${d.latStr}  ${d.lonStr}`, 'rgba(255,255,255,0.7)');
-    card.appendChild(rows);
+    const subtitleEl = document.createElement('div');
+    subtitleEl.style.cssText = `font-size:10px;color:${d.accentColor};font-weight:600;margin-top:2px;text-transform:uppercase;letter-spacing:0.5px;`;
+    subtitleEl.textContent = d.classification;
+    headerLeft.appendChild(subtitleEl);
 
-    // Footer (data age + next advisory)
+    const metaEl = document.createElement('div');
+    metaEl.style.cssText = 'font-size:9px;color:rgba(255,255,255,0.3);margin-top:2px;';
+    metaEl.textContent = `${d.basinStr} · ${d.sid} · ${d.latStr} ${d.lonStr}`;
+    headerLeft.appendChild(metaEl);
+
+    header.appendChild(headerLeft);
+
+    // Close button
+    if (d.onClose) {
+        const closeBtn = document.createElement('button');
+        closeBtn.style.cssText = `
+            width:24px;height:24px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);
+            background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.5);
+            display:flex;align-items:center;justify-content:center;
+            cursor:pointer;font-size:13px;font-weight:700;line-height:1;
+            pointer-events:auto;margin-left:8px;flex-shrink:0;
+            transition:background 0.15s,color 0.15s;
+        `;
+        closeBtn.textContent = '✕';
+        closeBtn.addEventListener('mouseenter', () => {
+            closeBtn.style.background = 'rgba(255,255,255,0.15)';
+            closeBtn.style.color = '#fff';
+        });
+        closeBtn.addEventListener('mouseleave', () => {
+            closeBtn.style.background = 'rgba(255,255,255,0.06)';
+            closeBtn.style.color = 'rgba(255,255,255,0.5)';
+        });
+        closeBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            d.onClose!();
+        });
+        header.appendChild(closeBtn);
+    }
+
+    card.appendChild(header);
+
+    // ── Advisory History Table ──
+    if (d.advisories.length > 0) {
+        const tableWrap = document.createElement('div');
+        tableWrap.style.cssText = 'padding:0 14px 10px;';
+
+        // Column headers
+        const headerRow = document.createElement('div');
+        headerRow.style.cssText = `
+            display:grid;grid-template-columns:1fr 1fr 1fr 1fr;
+            gap:0;padding:4px 8px;margin-bottom:2px;
+        `;
+        const cols = [
+            { label: 'DATE', sub: 'UTC' },
+            { label: 'TIME', sub: '' },
+            { label: 'WIND', sub: 'kts' },
+            { label: 'PRESSURE', sub: 'hPa' },
+        ];
+        for (const col of cols) {
+            const hd = document.createElement('div');
+            hd.style.cssText = `
+                font-size:9px;font-weight:700;color:rgba(255,255,255,0.35);
+                text-transform:uppercase;letter-spacing:0.8px;
+                text-align:${col === cols[0] ? 'left' : 'center'};
+            `;
+            hd.textContent = col.label;
+            if (col.sub) {
+                const sub = document.createElement('div');
+                sub.style.cssText = 'font-size:8px;font-weight:500;color:rgba(255,255,255,0.2);letter-spacing:0;';
+                sub.textContent = col.sub;
+                hd.appendChild(sub);
+            }
+            headerRow.appendChild(hd);
+        }
+        tableWrap.appendChild(headerRow);
+
+        // Data rows (most recent first)
+        for (const adv of d.advisories) {
+            const row = document.createElement('div');
+            row.style.cssText = `
+                display:grid;grid-template-columns:1fr 1fr 1fr 1fr;
+                gap:0;padding:5px 8px;border-radius:6px;
+                margin-bottom:1px;
+                ${adv.isLatest ? `background:${d.accentColor}18;` : ''}
+            `;
+
+            // Date
+            const dateCell = document.createElement('div');
+            dateCell.style.cssText = `font-size:11px;font-weight:${adv.isLatest ? '700' : '500'};color:${adv.isLatest ? '#fff' : 'rgba(255,255,255,0.7)'};text-align:left;`;
+            dateCell.textContent = adv.date;
+            row.appendChild(dateCell);
+
+            // Time
+            const timeCell = document.createElement('div');
+            timeCell.style.cssText = `font-size:11px;font-weight:${adv.isLatest ? '700' : '500'};color:${adv.isLatest ? '#fff' : 'rgba(255,255,255,0.6)'};text-align:center;`;
+            timeCell.textContent = adv.time;
+            row.appendChild(timeCell);
+
+            // Wind
+            const windCell = document.createElement('div');
+            windCell.style.cssText = `font-size:11px;font-weight:700;color:${adv.isLatest ? d.accentColor : 'rgba(255,255,255,0.8)'};text-align:center;`;
+            windCell.textContent = adv.windKts != null ? String(adv.windKts) : '—';
+            row.appendChild(windCell);
+
+            // Pressure
+            const presCell = document.createElement('div');
+            presCell.style.cssText = `font-size:11px;font-weight:${adv.isLatest ? '700' : '500'};color:${adv.isLatest ? '#fff' : 'rgba(255,255,255,0.6)'};text-align:center;`;
+            presCell.textContent = adv.pressureMb != null ? String(adv.pressureMb) : '—';
+            row.appendChild(presCell);
+
+            tableWrap.appendChild(row);
+        }
+
+        card.appendChild(tableWrap);
+    }
+
+    // ── Footer: Pressure trend + Data age + Next advisory ──
     const footer = document.createElement('div');
-    footer.style.cssText =
-        'margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.06);display:flex;flex-direction:column;gap:3px;';
+    footer.style.cssText = `
+        padding:8px 14px 10px;
+        border-top:1px solid rgba(255,255,255,0.06);
+        display:flex;flex-direction:column;gap:4px;
+        background:rgba(0,0,0,0.15);
+    `;
 
+    // Pressure trend pill
+    const trendRow = document.createElement('div');
+    trendRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:2px;';
+    const trendArrow = d.pressureTrend === 'deepening' ? '↓' : d.pressureTrend === 'filling' ? '↑' : '→';
+    const trendColor =
+        d.pressureTrend === 'deepening' ? '#ef4444' : d.pressureTrend === 'filling' ? '#22c55e' : '#94a3b8';
+    const trendLabel =
+        d.pressureTrend === 'deepening' ? 'Deepening' : d.pressureTrend === 'filling' ? 'Weakening' : 'Steady';
+
+    const trendPill = document.createElement('span');
+    trendPill.style.cssText = `
+        display:inline-flex;align-items:center;gap:3px;
+        font-size:9px;font-weight:700;color:${trendColor};
+        background:${trendColor}15;border:1px solid ${trendColor}30;
+        padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.5px;
+    `;
+    trendPill.textContent = `${trendArrow} ${trendLabel}`;
+    trendRow.appendChild(trendPill);
+
+    // Development probability pill
+    const probColor = d.devProbability === 'HIGH' ? '#ef4444' : d.devProbability === 'MODERATE' ? '#f59e0b' : '#22c55e';
+    const probBgColor =
+        d.devProbability === 'HIGH' ? '#ef444420' : d.devProbability === 'MODERATE' ? '#f59e0b20' : '#22c55e20';
+    const probPill = document.createElement('span');
+    probPill.style.cssText = `
+        display:inline-flex;align-items:center;gap:3px;
+        font-size:9px;font-weight:700;color:${probColor};
+        background:${probBgColor};border:1px solid ${probColor}30;
+        padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.3px;
+    `;
+    probPill.textContent = `${d.devProbability} intensification risk`;
+    trendRow.appendChild(probPill);
+
+    footer.appendChild(trendRow);
+
+    // Data age row
     const ageRow = document.createElement('div');
     ageRow.style.cssText = 'display:flex;align-items:center;gap:6px;';
     const ageIcon = document.createElement('span');
-    ageIcon.style.cssText = 'font-size:11px;width:14px;text-align:center;';
+    ageIcon.style.cssText = 'font-size:10px;width:14px;text-align:center;';
     ageIcon.textContent = '🕐';
     const ageTime = document.createElement('span');
-    ageTime.style.cssText = 'font-size:9px;color:rgba(255,255,255,0.35);';
+    ageTime.style.cssText = 'font-size:9px;color:rgba(255,255,255,0.3);';
     ageTime.textContent = d.dataTimeStr;
     const ageVal = document.createElement('span');
     ageVal.style.cssText = 'font-size:9px;font-weight:700;color:#FFA500;margin-left:auto;';
@@ -1926,16 +2050,17 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData): void {
     ageRow.appendChild(ageVal);
     footer.appendChild(ageRow);
 
+    // Next advisory row
     const advRow = document.createElement('div');
     advRow.style.cssText = 'display:flex;align-items:center;gap:6px;';
     const advIcon = document.createElement('span');
-    advIcon.style.cssText = 'font-size:11px;width:14px;text-align:center;';
+    advIcon.style.cssText = 'font-size:10px;width:14px;text-align:center;';
     advIcon.textContent = '📡';
     const advLabel = document.createElement('span');
-    advLabel.style.cssText = 'font-size:9px;color:rgba(255,255,255,0.35);';
+    advLabel.style.cssText = 'font-size:9px;color:rgba(255,255,255,0.3);';
     advLabel.textContent = 'Next advisory';
     const advVal = document.createElement('span');
-    advVal.style.cssText = 'font-size:9px;font-weight:700;color:rgba(255,255,255,0.55);margin-left:auto;';
+    advVal.style.cssText = 'font-size:9px;font-weight:700;color:rgba(255,255,255,0.5);margin-left:auto;';
     advVal.className = 'cyclone-next-adv';
     advVal.textContent = d.nextAdvStr;
     advRow.appendChild(advIcon);

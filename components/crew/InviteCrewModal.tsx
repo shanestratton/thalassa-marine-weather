@@ -1,12 +1,12 @@
 /**
  * InviteCrewModal — Invite form content for crew invitations.
  *
- * Renders inside a ModalSheet with email input, grouped register
- * selection (Vessel + Passage registers), error display, and send CTA.
+ * Renders inside a ModalSheet with email input, vessel register
+ * selection, error display, and send CTA.
  */
 import React from 'react';
 import { t } from '../../theme';
-import { type SharedRegister, VESSEL_REGISTERS, PASSAGE_REGISTERS } from '../../services/CrewService';
+import { type SharedRegister, VESSEL_REGISTERS } from '../../services/CrewService';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { RegisterButton } from './RegisterButton';
 
@@ -80,23 +80,6 @@ export const InviteCrewModal: React.FC<InviteCrewModalProps> = ({
                     </label>
                     <div className="grid grid-cols-2 gap-2">
                         {VESSEL_REGISTERS.map((reg) => (
-                            <RegisterButton
-                                key={reg}
-                                reg={reg}
-                                selected={inviteRegisters.includes(reg)}
-                                onToggle={() => onToggleRegister(reg)}
-                            />
-                        ))}
-                    </div>
-                </div>
-
-                {/* Passage Planning */}
-                <div>
-                    <label className="text-[11px] uppercase font-bold text-sky-400 mb-2 ml-1 block tracking-wide">
-                        🧭 Passage Planning
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                        {PASSAGE_REGISTERS.map((reg) => (
                             <RegisterButton
                                 key={reg}
                                 reg={reg}

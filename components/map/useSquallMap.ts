@@ -315,8 +315,8 @@ function addSquallLayer(map: mapboxgl.Map): void {
             source: SQUALL_SOURCE,
             paint: {
                 'raster-opacity': 0.85,
-                'raster-fade-duration': 0,
-                'raster-resampling': 'nearest',
+                'raster-fade-duration': 300,
+                'raster-resampling': 'linear',
             },
         },
         insertBefore,
@@ -362,8 +362,8 @@ async function addRadarLayer(map: mapboxgl.Map): Promise<void> {
                 source: RADAR_SOURCE,
                 paint: {
                     'raster-opacity': 0.65,
-                    'raster-fade-duration': 0,
-                    'raster-resampling': 'nearest',
+                    'raster-fade-duration': 300,
+                    'raster-resampling': 'linear',
                 },
             },
             insertBefore,
@@ -555,39 +555,12 @@ function addSquallHUD(map: mapboxgl.Map): void {
 
 function refreshSquallSource(map: mapboxgl.Map): void {
     try {
-        if (!map.getSource(SQUALL_SOURCE)) return;
+        const src = map.getSource(SQUALL_SOURCE) as mapboxgl.RasterTileSource | undefined;
+        if (!src) return;
         const cacheBust = Math.floor(Date.now() / (10 * 60 * 1000));
-        // Swap source for fresh tile URL
-        const opacity = map.getLayer(SQUALL_LAYER)
-            ? (map.getPaintProperty(SQUALL_LAYER, 'raster-opacity') as number) || 0.85
-            : 0.85;
-
-        if (map.getLayer(SQUALL_LAYER)) map.removeLayer(SQUALL_LAYER);
-        if (map.getSource(SQUALL_SOURCE)) map.removeSource(SQUALL_SOURCE);
-
-        map.addSource(SQUALL_SOURCE, {
-            type: 'raster',
-            tiles: [buildTileUrl(cacheBust)],
-            tileSize: 256,
-            maxzoom: 8,
-        });
-
-        const insertBefore = map.getLayer('route-line-layer') ? 'route-line-layer' : undefined;
-
-        map.addLayer(
-            {
-                id: SQUALL_LAYER,
-                type: 'raster',
-                source: SQUALL_SOURCE,
-                paint: {
-                    'raster-opacity': opacity,
-                    'raster-fade-duration': 0,
-                    'raster-resampling': 'nearest',
-                },
-            },
-            insertBefore,
-        );
-        log.info('🔄 Squall map refreshed');
+        // Update tile URL in-place — avoids flash from remove+re-add
+        src.setTiles([buildTileUrl(cacheBust)]);
+        log.info('🔄 Squall map refreshed (in-place tile swap)');
     } catch (err) {
         log.warn('Failed to refresh squall map:', err);
     }

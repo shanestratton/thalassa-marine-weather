@@ -221,3 +221,33 @@ export function isLand(grid: BathymetryGrid, lat: number, lon: number): boolean 
     }
     return false;
 }
+
+/**
+ * Check if a point is near shore — has ANY land cell within `radius` grid cells.
+ *
+ * This provides a safety buffer for routing: the wavefront should stay well
+ * clear of coastlines to avoid clipping headlands and peninsulas that the
+ * grid resolution can't fully resolve.
+ *
+ * At stride=10 (0.17° cells), radius=2 ≈ 20 NM buffer, radius=3 ≈ 30 NM.
+ * At stride=6 (0.1° cells), radius=3 ≈ 18 NM buffer, radius=4 ≈ 24 NM.
+ */
+export function isNearShore(grid: BathymetryGrid, lat: number, lon: number, radius: number = 2): boolean {
+    if (lat < grid.south || lat > grid.north || lon < grid.west || lon > grid.east) {
+        return false; // Out of grid — assume open ocean
+    }
+
+    const fi = Math.round((lat - grid.south) / grid.latStep);
+    const fj = Math.round((lon - grid.west) / grid.lonStep);
+
+    for (let di = -radius; di <= radius; di++) {
+        for (let dj = -radius; dj <= radius; dj++) {
+            const ri = fi + di;
+            const ci = fj + dj;
+            if (ri < 0 || ri >= grid.rows || ci < 0 || ci >= grid.cols) continue;
+            const val = grid.data[ri * grid.cols + ci];
+            if (!isNaN(val) && val >= 0) return true;
+        }
+    }
+    return false;
+}

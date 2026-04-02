@@ -397,20 +397,20 @@ export const VoyageCard: React.FC<{
                     </button>
                 </div>
                 <div
-                    className={`w-full rounded-2xl overflow-hidden transition-all flex relative backdrop-blur-md ${
+                    className={`w-full rounded-2xl overflow-hidden transition-all flex relative ${
                         isSelected
-                            ? 'bg-sky-900/30 border-2 border-sky-400/50 shadow-[0_0_12px_rgba(56,189,248,0.15)]'
+                            ? 'bg-white/[0.05] border-2 border-sky-400/40 shadow-[0_0_12px_rgba(56,189,248,0.1)]'
                             : isPlannedRoute
                               ? isExpanded
-                                  ? 'bg-purple-900/30 border border-purple-500/30'
-                                  : 'bg-purple-950/30 border border-purple-500/15 hover:border-purple-500/25'
+                                  ? 'bg-purple-900/20 border border-purple-500/25'
+                                  : 'bg-white/[0.02] border border-purple-500/10 hover:border-purple-500/20'
                               : isImported
                                 ? isExpanded
-                                    ? 'bg-amber-900/30 border border-amber-500/30'
-                                    : 'bg-amber-950/30 border border-amber-500/15 hover:border-amber-500/25'
+                                    ? 'bg-amber-900/20 border border-amber-500/25'
+                                    : 'bg-white/[0.02] border border-amber-500/10 hover:border-amber-500/20'
                                 : isExpanded
-                                  ? 'bg-slate-800/50 border border-sky-500/30'
-                                  : 'bg-slate-900/40 border border-white/5 hover:border-white/15'
+                                  ? 'bg-white/[0.04] border border-white/10'
+                                  : 'bg-white/[0.02] border border-white/[0.06] hover:border-white/10'
                     }`}
                     style={{
                         transform: `translateX(-${swipeOffset}px)`,
@@ -421,7 +421,7 @@ export const VoyageCard: React.FC<{
                     onTouchMove={handleSwipeMove}
                     onTouchEnd={handleSwipeEnd}
                 >
-                    {/* LEFT — route info, expands timeline */}
+                    {/* LEFT — route info, date anchor with spine */}
                     <button
                         aria-label="Toggle"
                         onClick={(e) => {
@@ -429,7 +429,6 @@ export const VoyageCard: React.FC<{
                                 setSwipeOffset(0);
                                 return;
                             }
-                            // Left third → select + expand; rest → select only
                             const rect = e.currentTarget.getBoundingClientRect();
                             const clickX = e.clientX - rect.left;
                             onSelect();
@@ -437,61 +436,69 @@ export const VoyageCard: React.FC<{
                                 onToggle();
                             }
                         }}
-                        className="flex-1 p-4 text-left min-w-0"
+                        className="flex-1 p-3.5 text-left min-w-0"
                     >
-                        <div className="flex items-start justify-between mb-1">
-                            <div className="text-[11px] text-slate-500 uppercase tracking-wider font-medium">
-                                {dateLabel}
-                            </div>
-                            <div className="flex items-center gap-1.5">
-                                {isSelected && (
-                                    <span className="px-1.5 py-0.5 rounded bg-sky-500/20 border border-sky-400/30 text-[11px] font-bold text-sky-300 uppercase mr-1">
-                                        ● Selected
-                                    </span>
+                        {/* Top row: route + distance */}
+                        <div className="flex items-start justify-between mb-1.5">
+                            <div className="min-w-0 flex-1">
+                                {startLabel || endLabel ? (
+                                    <div className="text-[15px] font-bold text-white truncate leading-tight">
+                                        {startLabel || '—'} → {endLabel || '…'}
+                                    </div>
+                                ) : (
+                                    <div className="text-[15px] font-bold text-white/60 truncate leading-tight">
+                                        Voyage
+                                    </div>
                                 )}
-                                <span className="text-base font-extrabold text-white">
-                                    {(dist ?? 0).toFixed(1)}{' '}
-                                    <span className="text-[11px] text-slate-400 font-normal">NM</span>
-                                </span>
-                                <span className="text-[11px] text-slate-500">|</span>
-                                <span className="text-xs font-bold text-slate-300">{durationLabel}</span>
                             </div>
-                        </div>
-                        {(startLabel || endLabel) && (
-                            <div className="text-sm text-slate-300 mb-1 truncate">
-                                {startLabel || '—'} → {endLabel || '…'}
-                            </div>
-                        )}
-                        <div className="flex items-center gap-2">
-                            <span className="text-[11px] text-slate-500">{voyage.entries.length} entries</span>
-                            {avgSpeed > 0 && (
-                                <span className="text-[11px] text-slate-500">
-                                    · {(avgSpeed ?? 0).toFixed(1)} kts avg
-                                </span>
+                            {isSelected && (
+                                <span className="ml-2 flex-shrink-0 w-2 h-2 rounded-full bg-sky-400 mt-1.5" />
                             )}
+                        </div>
+
+                        {/* Stats row — compact inline */}
+                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mb-1">
+                            <span className="font-bold text-white/70 tabular-nums">{(dist ?? 0).toFixed(1)} NM</span>
+                            <span className="text-white/10">·</span>
+                            <span className="tabular-nums">{durationLabel}</span>
+                            <span className="text-white/10">·</span>
+                            <span>{dateLabel}</span>
+                            {avgSpeed > 0 && (
+                                <>
+                                    <span className="text-white/10">·</span>
+                                    <span className="tabular-nums">{(avgSpeed ?? 0).toFixed(1)} kts</span>
+                                </>
+                            )}
+                        </div>
+
+                        {/* Badge row */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] text-slate-600 tabular-nums">
+                                {voyage.entries.length} entries
+                            </span>
                             {hasManual && (
-                                <span className="px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/20 text-[11px] font-bold text-purple-400 uppercase">
+                                <span className="px-1.5 py-0.5 rounded-full bg-purple-500/10 text-[9px] font-bold text-purple-400/80 uppercase tracking-wider">
                                     Manual
                                 </span>
                             )}
                             {isPlannedRoute && (
-                                <span className="px-1.5 py-0.5 rounded bg-purple-500/15 border border-purple-500/20 text-[11px] font-bold text-purple-400 uppercase">
+                                <span className="px-1.5 py-0.5 rounded-full bg-purple-500/10 text-[9px] font-bold text-purple-400/80 uppercase tracking-wider">
                                     Suggested
                                 </span>
                             )}
                             {isImported && !isPlannedRoute && (
-                                <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/20 text-[11px] font-bold text-amber-400 uppercase">
+                                <span className="px-1.5 py-0.5 rounded-full bg-amber-500/10 text-[9px] font-bold text-amber-400/80 uppercase tracking-wider">
                                     Imported
                                 </span>
                             )}
                         </div>
                         {isPlannedRoute && (
-                            <div className="text-[11px] text-purple-400/60 mt-1">
+                            <div className="text-[10px] text-purple-400/50 mt-1.5">
                                 📐 Suggested route — not from onboard GPS
                             </div>
                         )}
                         {isImported && !isPlannedRoute && (
-                            <div className="text-[11px] text-amber-400/60 mt-1">
+                            <div className="text-[10px] text-amber-400/50 mt-1.5">
                                 ⚠ Unverified track — not from onboard GPS
                             </div>
                         )}

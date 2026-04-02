@@ -82,7 +82,7 @@ export function showIsobarLayers(
                         const current = map.getPaintProperty(layer.id, 'fill-color');
                         if (current) savedLandColors.set(layer.id, current);
                     }
-                    map.setPaintProperty(layer.id, 'fill-color', '#1a1a1a');
+                    map.setPaintProperty(layer.id, 'fill-color', 'rgba(20, 20, 20, 0.35)');
                 } catch (_) {
                     /* skip */
                 }
@@ -195,8 +195,8 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         type: 'line',
         source: 'isobar-contours',
         paint: {
-            'line-color': ['case', ['==', ['get', 'pressure'], 1012], '#d4a843', 'rgba(255, 255, 255, 0.4)'],
-            'line-width': ['case', ['==', ['get', 'pressure'], 1012], 2.0, 1.0],
+            'line-color': 'rgba(255, 255, 255, 0.55)',
+            'line-width': 1.2,
             'line-opacity': 0.9,
         },
     });
@@ -214,8 +214,8 @@ export function initIsobarLayers(map: mapboxgl.Map) {
             'text-keep-upright': true,
         },
         paint: {
-            'text-color': ['case', ['==', ['get', 'pressure'], 1012], '#d4a843', '#e2e8f0'],
-            'text-halo-color': '#0f172a',
+            'text-color': '#e2e8f0',
+            'text-halo-color': 'rgba(15, 23, 42, 0.7)',
             'text-halo-width': 1.5,
         },
     });
@@ -226,14 +226,15 @@ export function initIsobarLayers(map: mapboxgl.Map) {
         source: 'isobar-centers',
         layout: {
             'text-field': ['get', 'label'],
-            'text-size': 14,
+            'text-size': 18,
             'text-font': ['DIN Pro Bold', 'Arial Unicode MS Bold'],
             'text-allow-overlap': true,
+            'text-letter-spacing': 0.05,
         },
         paint: {
-            'text-color': ['match', ['get', 'type'], 'H', '#ef4444', 'L', '#3b82f6', '#e2e8f0'],
-            'text-halo-color': '#0f172a',
-            'text-halo-width': 1.5,
+            'text-color': ['match', ['get', 'type'], 'H', '#ff5252', 'L', '#4da6ff', '#e2e8f0'],
+            'text-halo-color': 'rgba(10, 15, 30, 0.85)',
+            'text-halo-width': 2.5,
         },
     });
 

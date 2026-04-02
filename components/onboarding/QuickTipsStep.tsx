@@ -1,67 +1,157 @@
-import React from 'react';
-import { ArrowRightIcon } from '../Icons';
+/**
+ * QuickTipsStep — Onboarding Step 2: Swipeable intro cards for each main tab.
+ * 4 cards: WX → MAP → CHAT → VESSEL, each highlighting accurate features.
+ */
+import React, { useState } from 'react';
 
 interface QuickTipsStepProps {
     onNext: () => void;
 }
 
-export const QuickTipsStep: React.FC<QuickTipsStepProps> = ({ onNext }) => (
-    <div className="text-center animate-in fade-in slide-in-from-bottom-8 duration-700 relative">
-        <div className="absolute inset-0 bg-gradient-to-b from-sky-500/20 to-transparent blur-3xl rounded-full pointer-events-none transform -translate-y-10"></div>
+const CARDS = [
+    {
+        badge: 'WX TAB',
+        emoji: '🌊',
+        title: 'Your Weather',
+        subtitle: 'Real-time marine forecasts at your fingertips',
+        features: [
+            { icon: '🌤️', text: 'Live conditions with multi-model AI blending' },
+            { icon: '🌊', text: 'Tide charts, wave height, and swell periods' },
+            { icon: '📊', text: '10-day forecast with hourly detail' },
+        ],
+        gradient: 'from-sky-900/60 to-slate-900/80',
+        accentColor: 'sky',
+    },
+    {
+        badge: 'MAP TAB',
+        emoji: '🗺️',
+        title: 'Your Charts',
+        subtitle: 'Wind, waves, and weather right on the map',
+        features: [
+            { icon: '🌬️', text: 'Real-time wind particle overlay (NOAA GFS)' },
+            { icon: '⛈️', text: 'Squall detection and satellite IR overlay' },
+            { icon: '📍', text: 'Track your vessel live with GPS wake trail' },
+        ],
+        gradient: 'from-teal-900/60 to-slate-900/80',
+        accentColor: 'teal',
+    },
+    {
+        badge: 'CHAT TAB',
+        emoji: '💬',
+        title: 'Crew Talk',
+        subtitle: 'Connect with sailors worldwide',
+        features: [
+            { icon: '📡', text: 'Join channels and chat with the fleet' },
+            { icon: '📌', text: 'Share pins, tracks, and points of interest' },
+            { icon: '🍳', text: "The Captain's Table — community recipes" },
+        ],
+        gradient: 'from-indigo-900/60 to-slate-900/80',
+        accentColor: 'indigo',
+    },
+    {
+        badge: 'VESSEL TAB',
+        emoji: '⛵',
+        title: 'Your Vessel',
+        subtitle: 'Everything about your boat in one place',
+        features: [
+            { icon: '📓', text: 'Logbook, diary, and voyage tracking' },
+            { icon: '🔧', text: "Ship's stores, galley, and maintenance" },
+            { icon: '📡', text: 'NMEA instrument gauges from your backbone' },
+        ],
+        gradient: 'from-amber-900/40 to-slate-900/80',
+        accentColor: 'amber',
+    },
+];
 
-        <h1 className="text-3xl font-black text-white mb-3 tracking-tight drop-shadow-xl relative z-10">Quick Tips</h1>
-        <p className="text-base text-slate-300 mb-8 max-w-sm mx-auto leading-relaxed font-light relative z-10">
-            A few gestures to get you started
-        </p>
+export const QuickTipsStep: React.FC<QuickTipsStepProps> = ({ onNext }) => {
+    const [cardIndex, setCardIndex] = useState(0);
+    const card = CARDS[cardIndex];
+    const isLast = cardIndex === CARDS.length - 1;
 
-        <div className="space-y-3 mb-8 relative z-10">
-            {[
-                {
-                    icon: '👆',
-                    title: 'Swipe for Forecast',
-                    desc: 'Swipe left/right on the weather cards to scrub through hours. Swipe up/down to change days.',
-                },
-                {
-                    icon: '🔄',
-                    title: 'Essential & Full Views',
-                    desc: 'Toggle between a quick glance and detailed marine data using the chevron button in the header.',
-                },
-                {
-                    icon: '🗺️',
-                    title: 'Passage Planner',
-                    desc: "Plan routes, check conditions, and export GPX tracks from the Ship's Office > Passages tab.",
-                },
-                {
-                    icon: '💬',
-                    title: 'Crew Talk Community',
-                    desc: 'Join channels, share pins and voyage tracks, and connect with sailors worldwide via Cloud.',
-                },
-            ].map((tip) => (
+    const handleNext = () => {
+        if (isLast) {
+            onNext();
+        } else {
+            setCardIndex((i) => i + 1);
+        }
+    };
+
+    const handleSkip = () => {
+        onNext();
+    };
+
+    return (
+        <div className="animate-in fade-in slide-in-from-bottom-8 duration-700 relative flex flex-col items-center">
+            {/* Card */}
+            <div
+                key={cardIndex}
+                className="w-full max-w-sm rounded-2xl overflow-hidden border border-white/[0.08] shadow-2xl animate-in fade-in slide-in-from-right-6 duration-400"
+            >
+                {/* Hero area with gradient + emoji */}
                 <div
-                    key={tip.title}
-                    className="relative overflow-hidden rounded-2xl bg-white/[0.04] border border-white/[0.08] p-4 backdrop-blur-sm hover:border-white/[0.15] transition-all"
+                    className={`relative bg-gradient-to-b ${card.gradient} h-[200px] flex flex-col items-center justify-center`}
                 >
-                    <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center text-xl shrink-0 shadow-[0_8px_24px_rgba(14,165,233,0.25)] ring-2 ring-white/10">
-                            {tip.icon}
+                    {/* Tab badge */}
+                    <div className="absolute top-3 right-3">
+                        <span className="px-3 py-1 bg-white/[0.12] backdrop-blur-md rounded-full text-[10px] font-bold text-white/70 uppercase tracking-[0.15em]">
+                            {card.badge}
+                        </span>
+                    </div>
+                    {/* Large emoji */}
+                    <span className="text-7xl drop-shadow-2xl">{card.emoji}</span>
+                </div>
+
+                {/* Content area */}
+                <div className="bg-slate-900/95 px-6 py-5">
+                    <h2 className="text-xl font-black text-white mb-1">{card.title}</h2>
+                    <p className="text-sm text-white/50 mb-5">{card.subtitle}</p>
+
+                    <div className="space-y-3.5">
+                        {card.features.map((f) => (
+                            <div key={f.text} className="flex items-start gap-3">
+                                <span className="text-base flex-shrink-0 mt-0.5">{f.icon}</span>
+                                <span className="text-sm text-white/70 leading-snug">{f.text}</span>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Progress dots + navigation */}
+                    <div className="flex items-center justify-between mt-6">
+                        <div className="flex gap-1.5">
+                            {CARDS.map((_, i) => (
+                                <div
+                                    key={i}
+                                    className={`h-2 rounded-full transition-all duration-300 ${
+                                        i === cardIndex
+                                            ? 'w-5 bg-sky-500'
+                                            : i < cardIndex
+                                              ? 'w-2 bg-sky-500/40'
+                                              : 'w-2 bg-white/15'
+                                    }`}
+                                />
+                            ))}
                         </div>
-                        <div className="min-w-0 text-left">
-                            <h4 className="text-sm font-bold text-white tracking-wide">{tip.title}</h4>
-                            <p className="text-xs text-slate-400 leading-relaxed mt-0.5">{tip.desc}</p>
+                        <div className="flex items-center gap-3">
+                            {!isLast && (
+                                <button
+                                    aria-label="Skip tips"
+                                    onClick={handleSkip}
+                                    className="text-sm text-white/40 hover:text-white/60 transition-colors py-2 px-2"
+                                >
+                                    Skip
+                                </button>
+                            )}
+                            <button
+                                aria-label={isLast ? 'Get Started' : 'Next tip'}
+                                onClick={handleNext}
+                                className="px-5 py-2 rounded-xl border border-sky-500/30 text-sm font-bold text-sky-400 hover:bg-sky-500/10 transition-all active:scale-95"
+                            >
+                                {isLast ? 'Get Started' : 'Next'}
+                            </button>
                         </div>
                     </div>
                 </div>
-            ))}
+            </div>
         </div>
-
-        <button
-            aria-label="Next"
-            onClick={onNext}
-            className="group bg-white text-slate-950 font-bold py-4 px-12 rounded-2xl hover:bg-sky-50 transition-all transform hover:scale-105 hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] flex items-center gap-3 mx-auto relative overflow-hidden"
-        >
-            <span className="relative z-10">Next</span>
-            <ArrowRightIcon className="w-5 h-5 relative z-10 group-hover:translate-x-1 transition-transform" />
-            <div className="absolute inset-0 bg-gradient-to-r from-sky-100 to-white opacity-0 group-hover:opacity-100 transition-opacity"></div>
-        </button>
-    </div>
-);
+    );
+};

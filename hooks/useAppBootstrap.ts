@@ -57,6 +57,11 @@ export function useAppBootstrap() {
         import('../services/AnchorWatchService').then((m) => m.AnchorWatchService.restoreWatchState()).catch(() => {});
     }, []);
 
+    // ── Signal K auto-reconnect ───────────────────────────────────
+    useEffect(() => {
+        import('../services/SignalKService').then(({ SignalKService }) => SignalKService.autoStart()).catch(() => {});
+    }, []);
+
     // ── Local-first DB + sync engine ───────────────────────────────
     useEffect(() => {
         let stopSync: (() => void) | null = null;

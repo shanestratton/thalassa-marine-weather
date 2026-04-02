@@ -14,6 +14,7 @@ export const DELEGATABLE_CARDS: Record<string, { label: string; roles: string[] 
     vessel_check: { label: 'Vessel Pre-Check', roles: ['Bosun', 'Engineer', 'First Mate'] },
     medical: { label: 'Medical & First Aid', roles: ['Medic', 'Nurse', 'Doctor'] },
     essential_reserves: { label: 'Essential Reserves', roles: ['First Mate', 'Bosun'] },
+    voyage_provisioning: { label: 'Voyage Provisioning', roles: ['Cook', 'First Mate', 'Bosun'] },
     watch_schedule: { label: 'Watch Schedule', roles: ['First Mate', 'Watch Captain'] },
     comms_plan: { label: 'Communications', roles: ['Radio Operator', 'First Mate'] },
     customs_clearance: { label: 'Customs & Clearance', roles: ["Ship's Agent", 'First Mate'] },

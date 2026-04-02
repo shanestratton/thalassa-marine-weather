@@ -599,19 +599,19 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
                         id="dep-harbour-glow"
                         type="line"
                         paint={{
-                            'line-color': '#87CEEB',
+                            'line-color': '#1a1a1a',
                             'line-width': 4,
                             'line-blur': 3,
-                            'line-opacity': 0.25,
+                            'line-opacity': 0.15,
                         }}
                     />
                     <Layer
                         id="dep-harbour-line"
                         type="line"
                         paint={{
-                            'line-color': '#87CEEB',
+                            'line-color': '#1a1a1a',
                             'line-width': 1.5,
-                            'line-opacity': 0.7,
+                            'line-opacity': 0.9,
                             'line-dasharray': [3, 4],
                         }}
                     />
@@ -623,19 +623,19 @@ const SpatiotemporalMap: React.FC<SpatiotemporalMapProps> = ({
                         id="arr-harbour-glow"
                         type="line"
                         paint={{
-                            'line-color': '#87CEEB',
+                            'line-color': '#1a1a1a',
                             'line-width': 4,
                             'line-blur': 3,
-                            'line-opacity': 0.25,
+                            'line-opacity': 0.15,
                         }}
                     />
                     <Layer
                         id="arr-harbour-line"
                         type="line"
                         paint={{
-                            'line-color': '#87CEEB',
+                            'line-color': '#1a1a1a',
                             'line-width': 1.5,
-                            'line-opacity': 0.7,
+                            'line-opacity': 0.9,
                             'line-dasharray': [3, 4],
                         }}
                     />

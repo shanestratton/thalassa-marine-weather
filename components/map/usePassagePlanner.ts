@@ -65,6 +65,35 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     useEffect(() => {
         const handlePassageMode = (e: Event) => {
             setShowPassage(true);
+
+            // ── Kill Follow Route layers IMMEDIATELY on passage activation ──
+            // Must happen synchronously before React re-renders — the Follow
+            // Route uses identical dashed sky-blue styling and hooks have timing gaps.
+            const map = mapRef.current;
+            if (map) {
+                const ids = [
+                    'follow-route-markers-labels',
+                    'follow-route-markers-circle',
+                    'follow-route-active-line',
+                    'follow-route-previous-line',
+                ];
+                const srcs = ['follow-route-active', 'follow-route-previous', 'follow-route-markers'];
+                for (const id of ids) {
+                    try {
+                        if (map.getLayer(id)) map.removeLayer(id);
+                    } catch {
+                        /* */
+                    }
+                }
+                for (const id of srcs) {
+                    try {
+                        if (map.getSource(id)) map.removeSource(id);
+                    } catch {
+                        /* */
+                    }
+                }
+            }
+
             const detail = (e as CustomEvent)?.detail;
             if (detail?.departure) {
                 setDeparture(detail.departure);
@@ -111,6 +140,31 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         if (!map) {
             log.warn('[Passage] No map ref');
             return;
+        }
+
+        // ── Kill Follow Route overlay IMMEDIATELY ──
+        // The Follow Route hook uses identical dashed sky-blue styling.
+        // Remove its layers imperatively — React hook cleanup has timing gaps.
+        const FR_LAYERS = [
+            'follow-route-markers-labels',
+            'follow-route-markers-circle',
+            'follow-route-active-line',
+            'follow-route-previous-line',
+        ];
+        const FR_SOURCES = ['follow-route-active', 'follow-route-previous', 'follow-route-markers'];
+        for (const id of FR_LAYERS) {
+            try {
+                if (map.getLayer(id)) map.removeLayer(id);
+            } catch {
+                /* */
+            }
+        }
+        for (const id of FR_SOURCES) {
+            try {
+                if (map.getSource(id)) map.removeSource(id);
+            } catch {
+                /* */
+            }
         }
 
         // Forward / reverse bearings (needed for both short and long route paths)
@@ -171,13 +225,100 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             `[Passage] Distance: ${Math.round(straightLineNM)} NM — ${isShortRoute ? 'SHORT (coastal, minDepth=' + minDepthM + 'm)' : 'LONG (ocean)'}`,
         );
 
-        // ── Deep water only: route directly from departure to arrival ──
-        // No sea buoy gates, no harbour exit routing.
-        const depGate = { lat: departure.lat, lon: departure.lon };
-        const arrGate = { lat: arrival.lat, lon: arrival.lon };
+        // ── Sea Buoy Gate Finder: find NEAREST ≥50m depth in any direction ──
+        // The harbour leg represents "navigate to deep water at your discretion."
+        // For Brisbane→Perth, the ocean is EAST even though Perth is WEST.
+        // So we search ALL 360° and pick the CLOSEST 50m water point.
+        const SAFE_WATER_DEPTH_M = -50; // 50m below sea level (GEBCO uses negative = ocean)
+        const GATE_BEARINGS = 12; // Every 30° = full 360° coverage
+        const GATE_DISTANCES = [15, 25, 35, 45, 55]; // NM — skip <15 NM (harbour channels)
 
-        log.info(`[Passage] Departure: ${depGate.lat.toFixed(3)}, ${depGate.lon.toFixed(3)}`);
-        log.info(`[Passage] Arrival: ${arrGate.lat.toFixed(3)}, ${arrGate.lon.toFixed(3)}`);
+        const findSeaBuoyGate = async (from: { lat: number; lon: number }): Promise<{ lat: number; lon: number }> => {
+            // Build search grid: 12 bearings × 5 distances = 60 points
+            const bearings: number[] = [];
+            for (let b = 0; b < 360; b += 360 / GATE_BEARINGS) {
+                bearings.push(b);
+            }
+
+            // Build flat array: nearest ring first so we find closest 50m first
+            const allPoints: { lat: number; lon: number; distNM: number; brg: number }[] = [];
+            for (const distNM of GATE_DISTANCES) {
+                for (const brg of bearings) {
+                    const pt = _project(from.lat, from.lon, brg, distNM);
+                    allPoints.push({ ...pt, distNM, brg });
+                }
+            }
+
+            log.info(
+                `[SeaBuoy] Searching ALL 360° from ${from.lat.toFixed(3)}, ${from.lon.toFixed(3)} ` +
+                    `(${allPoints.length} points: ${GATE_BEARINGS} bearings × ${GATE_DISTANCES.length} distances)`,
+            );
+
+            const { GebcoDepthService } = await import('../../services/GebcoDepthService');
+
+            try {
+                const allDepths = await GebcoDepthService.queryDepths(
+                    allPoints.map((p) => ({ lat: p.lat, lon: p.lon })),
+                );
+
+                // Scan nearest ring first → finds closest 50m water
+                for (let i = 0; i < allPoints.length; i++) {
+                    const d = allDepths[i]?.depth_m;
+                    if (d !== null && d !== undefined && d <= SAFE_WATER_DEPTH_M) {
+                        const pt = allPoints[i];
+                        log.info(
+                            `[SeaBuoy] ✓ Gate at ${pt.lat.toFixed(3)}, ${pt.lon.toFixed(3)} ` +
+                                `(${pt.distNM} NM, bearing ${Math.round(pt.brg)}°, depth ${Math.round(d)}m)`,
+                        );
+                        console.warn(
+                            `[SeaBuoy] Gate: ${pt.lat.toFixed(4)}, ${pt.lon.toFixed(4)} (${pt.distNM} NM, ${Math.round(pt.brg)}°, ${Math.round(d)}m)`,
+                        );
+                        return { lat: pt.lat, lon: pt.lon };
+                    }
+                }
+            } catch (err) {
+                log.warn(`[SeaBuoy] Depth query failed:`, err);
+            }
+
+            // Fallback: project 25 NM toward nearest ocean based on longitude
+            // East coast AU (lon > 140) → go east (90°)
+            // West coast AU (lon < 125) → go west (270°)
+            // South coast → go south (180°)
+            const oceanBrg = from.lon > 140 ? 90 : from.lon < 125 ? 270 : 180;
+            log.warn(`[SeaBuoy] No 50m gate found — fallback ${oceanBrg}° (ocean side)`);
+            console.warn(`[SeaBuoy] Fallback: 25 NM at ${oceanBrg}°`);
+            return _project(from.lat, from.lon, oceanBrg, 25);
+        };
+
+        // For short routes (<100 NM), skip sea buoy gates — route directly
+        let depGate: { lat: number; lon: number };
+        let arrGate: { lat: number; lon: number };
+
+        if (isShortRoute) {
+            depGate = { lat: departure.lat, lon: departure.lon };
+            arrGate = { lat: arrival.lat, lon: arrival.lon };
+            log.info(`[Passage] Short route — skipping sea buoy gates`);
+        } else {
+            // Find deep water gates — 30s timeout with ocean-side fallback
+            const oceanFallback = (from: { lat: number; lon: number }) => {
+                const brg = from.lon > 140 ? 90 : from.lon < 125 ? 270 : 180;
+                log.warn(`[SeaBuoy] Timeout — fallback ${brg}° at 25 NM`);
+                return _project(from.lat, from.lon, brg, 25);
+            };
+            const withTimeout = <T>(promise: Promise<T>, fallback: T, ms: number): Promise<T> =>
+                Promise.race([promise, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
+            [depGate, arrGate] = await Promise.all([
+                withTimeout(findSeaBuoyGate(departure), oceanFallback(departure), 30_000),
+                withTimeout(findSeaBuoyGate(arrival), oceanFallback(arrival), 30_000),
+            ]);
+        }
+
+        // Loud logging so gate coordinates are visible in any debug context
+        console.warn(
+            `[Passage] DEP gate: ${depGate.lat.toFixed(4)}, ${depGate.lon.toFixed(4)} | ARR gate: ${arrGate.lat.toFixed(4)}, ${arrGate.lon.toFixed(4)}`,
+        );
+        log.info(`[Passage] Departure gate: ${depGate.lat.toFixed(3)}, ${depGate.lon.toFixed(3)}`);
+        log.info(`[Passage] Arrival gate: ${arrGate.lat.toFixed(3)}, ${arrGate.lon.toFixed(3)}`);
 
         // Great-circle passage
         const gcCoords: number[][] = [];
@@ -205,6 +346,138 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             gcCoords.push([lon, lat]);
         }
 
+        // ── Water-aware great-circle: detect land crossings & insert bypass waypoints ──
+        // Uses a simple lat/lon bounding box check for major landmasses.
+        // This ensures the preview line never cuts through continents.
+        const CONTINENTAL_BYPASS_REGIONS: {
+            name: string;
+            latMin: number;
+            latMax: number;
+            lonMin: number;
+            lonMax: number;
+            // Bypass waypoints: route either south or north around the landmass
+            southRoute: [number, number][]; // [lon, lat]
+            northRoute: [number, number][]; // [lon, lat]
+        }[] = [
+            {
+                name: 'Australia',
+                latMin: -44,
+                latMax: -10,
+                lonMin: 113,
+                lonMax: 154,
+                southRoute: [
+                    [112, -36], // South of Cape Leeuwin
+                    [117, -37], // Great Australian Bight approach
+                    [130, -38], // Southern Ocean
+                    [140, -40], // South of Tasmania
+                    [150, -40], // Southeast approach
+                ],
+                northRoute: [
+                    [142, -10], // Torres Strait
+                    [136, -11], // North of Arnhem Land
+                    [127, -13], // Timor Sea
+                    [120, -14], // Northwest approach
+                ],
+            },
+            {
+                name: 'New Zealand',
+                latMin: -47,
+                latMax: -34,
+                lonMin: 166,
+                lonMax: 179,
+                southRoute: [
+                    [167, -48], // South of Stewart Island
+                ],
+                northRoute: [
+                    [174, -33], // North of Auckland
+                ],
+            },
+            {
+                name: 'Papua New Guinea',
+                latMin: -11,
+                latMax: 0,
+                lonMin: 140,
+                lonMax: 156,
+                southRoute: [
+                    [147, -12], // South of PNG
+                ],
+                northRoute: [
+                    [148, 1], // North of PNG
+                ],
+            },
+        ];
+
+        // Check if the GC arc crosses any continental region
+        const waterAwareCoords = (() => {
+            for (const region of CONTINENTAL_BYPASS_REGIONS) {
+                // Check if any GC point falls inside the landmass bounding box
+                const crossesLand = gcCoords.some(
+                    ([lon, lat]) =>
+                        lat >= region.latMin && lat <= region.latMax && lon >= region.lonMin && lon <= region.lonMax,
+                );
+                if (!crossesLand) continue;
+
+                log.info(`[Passage] Great-circle crosses ${region.name} — inserting bypass waypoints`);
+
+                // Decide south vs north: pick the route that's closer to the midpoint of dep/arr
+                const midLat = (depGate.lat + arrGate.lat) / 2;
+                const regionMidLat = (region.latMin + region.latMax) / 2;
+                const useSouth = midLat <= regionMidLat;
+                const bypassWaypoints = useSouth ? region.southRoute : region.northRoute;
+
+                // Build water-aware path: depGate → bypass waypoints → arrGate
+                const result: number[][] = [[depGate.lon, depGate.lat]];
+
+                // Filter bypass waypoints to only include those between dep and arr longitudes
+                const minLon = Math.min(depGate.lon, arrGate.lon) - 5;
+                const maxLon = Math.max(depGate.lon, arrGate.lon) + 5;
+                const relevantWaypoints = bypassWaypoints.filter(([lon]) => lon >= minLon && lon <= maxLon);
+
+                // Sort bypass waypoints by longitude in the direction of travel
+                const goingEast = arrGate.lon > depGate.lon;
+                relevantWaypoints.sort((a, b) => (goingEast ? a[0] - b[0] : b[0] - a[0]));
+
+                for (const wp of relevantWaypoints) {
+                    result.push(wp);
+                }
+                result.push([arrGate.lon, arrGate.lat]);
+
+                // Interpolate between waypoints for a smooth curve
+                const interpolated: number[][] = [];
+                for (let i = 0; i < result.length - 1; i++) {
+                    const [lon1, lat1] = result[i];
+                    const [lon2, lat2] = result[i + 1];
+                    const segPoints = Math.max(5, Math.round(NUM_POINTS / result.length));
+                    for (let j = 0; j <= segPoints; j++) {
+                        const t = j / segPoints;
+                        // Use great-circle interpolation for each sub-segment
+                        const p1R = (lat1 * Math.PI) / 180;
+                        const l1R = (lon1 * Math.PI) / 180;
+                        const p2R = (lat2 * Math.PI) / 180;
+                        const l2R = (lon2 * Math.PI) / 180;
+                        const dd = Math.acos(
+                            Math.sin(p1R) * Math.sin(p2R) + Math.cos(p1R) * Math.cos(p2R) * Math.cos(l2R - l1R),
+                        );
+                        if (dd < 1e-10) {
+                            interpolated.push([lon1, lat1]);
+                            continue;
+                        }
+                        const aa = Math.sin((1 - t) * dd) / Math.sin(dd);
+                        const bb = Math.sin(t * dd) / Math.sin(dd);
+                        const xx = aa * Math.cos(p1R) * Math.cos(l1R) + bb * Math.cos(p2R) * Math.cos(l2R);
+                        const yy = aa * Math.cos(p1R) * Math.sin(l1R) + bb * Math.cos(p2R) * Math.sin(l2R);
+                        const zz = aa * Math.sin(p1R) + bb * Math.sin(p2R);
+                        interpolated.push([
+                            (Math.atan2(yy, xx) * 180) / Math.PI,
+                            (Math.atan2(zz, Math.sqrt(xx * xx + yy * yy)) * 180) / Math.PI,
+                        ]);
+                    }
+                }
+                return interpolated;
+            }
+            return gcCoords; // No land crossing detected — use original GC
+        })();
+
         // Route stats
         const waypoints: RouteWaypoint[] = [
             { id: 'dep', lat: departure.lat, lon: departure.lon, name: departure.name },
@@ -217,46 +490,13 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setRouteAnalysis(result);
 
         // Build Trip Sandwich GeoJSON (or single-feature for short routes)
-        // First and last legs are marked as dashed harbour legs (short "navigate yourself" zone)
+        // For long routes: harbour legs connect departure↔depGate and arrGate↔arrival
+        // For short routes: fixed 5 NM interpolation from each end
         const buildFeatures = (
             passageCoords: number[][],
             shallowFlags?: boolean[],
         ): GeoJSON.Feature<GeoJSON.LineString>[] => {
             const features: GeoJSON.Feature<GeoJSON.LineString>[] = [];
-
-            // Fixed harbour leg length — short "navigate yourself" zone near port
-            const HARBOUR_NM = 5;
-
-            // Haversine distance between two [lon, lat] coords in NM
-            const distNM = (a: number[], b: number[]): number => {
-                const R = 3440.065;
-                const dLat = ((b[1] - a[1]) * Math.PI) / 180;
-                const dLon = ((b[0] - a[0]) * Math.PI) / 180;
-                const lat1 = (a[1] * Math.PI) / 180;
-                const lat2 = (b[1] * Math.PI) / 180;
-                const sinDLat = Math.sin(dLat / 2);
-                const sinDLon = Math.sin(dLon / 2);
-                const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon;
-                return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-            };
-
-            // Interpolate a point exactly maxNM along the polyline from one end
-            const interpolatePoint = (coords: number[][], maxNM: number, fromEnd: boolean): number[] => {
-                const ordered = fromEnd ? [...coords].reverse() : coords;
-                let accum = 0;
-                for (let i = 1; i < ordered.length; i++) {
-                    const segDist = distNM(ordered[i - 1], ordered[i]);
-                    if (accum + segDist >= maxNM) {
-                        const frac = segDist > 0 ? (maxNM - accum) / segDist : 0;
-                        return [
-                            ordered[i - 1][0] + frac * (ordered[i][0] - ordered[i - 1][0]),
-                            ordered[i - 1][1] + frac * (ordered[i][1] - ordered[i - 1][1]),
-                        ];
-                    }
-                    accum += segDist;
-                }
-                return ordered[ordered.length - 1];
-            };
 
             // Helper: create a dashed harbour-leg feature
             const makeLandLeg = (coords: number[][]): GeoJSON.Feature<GeoJSON.LineString> => ({
@@ -265,11 +505,73 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 geometry: { type: 'LineString', coordinates: coords },
             });
 
-            // Need at least 4 points to split into harbour / ocean / harbour
-            if (passageCoords.length >= 4) {
-                // Interpolate cutoff points 5 NM from each end
-                const depCut = interpolatePoint(passageCoords, HARBOUR_NM, false);
-                const arrCut = interpolatePoint(passageCoords, HARBOUR_NM, true);
+            // Haversine distance between two [lon, lat] coords in NM
+            const distNM = (a: number[], b: number[]): number => {
+                const R = 3440.065;
+                const dLat2 = ((b[1] - a[1]) * Math.PI) / 180;
+                const dLon2 = ((b[0] - a[0]) * Math.PI) / 180;
+                const lat1 = (a[1] * Math.PI) / 180;
+                const lat2 = (b[1] * Math.PI) / 180;
+                const sinDLat = Math.sin(dLat2 / 2);
+                const sinDLon = Math.sin(dLon2 / 2);
+                const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon;
+                return R * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+            };
+
+            // Interpolate a point exactly maxNM along the polyline from one end
+            const interpolatePoint = (
+                coords: number[][],
+                maxNM: number,
+                fromEnd: boolean,
+            ): { point: number[]; index: number } => {
+                const ordered = fromEnd ? [...coords].reverse() : coords;
+                let accum = 0;
+                for (let i = 1; i < ordered.length; i++) {
+                    const segDist = distNM(ordered[i - 1], ordered[i]);
+                    if (accum + segDist >= maxNM) {
+                        const frac = segDist > 0 ? (maxNM - accum) / segDist : 0;
+                        const origIdx = fromEnd ? coords.length - 1 - i : i;
+                        return {
+                            point: [
+                                ordered[i - 1][0] + frac * (ordered[i][0] - ordered[i - 1][0]),
+                                ordered[i - 1][1] + frac * (ordered[i][1] - ordered[i - 1][1]),
+                            ],
+                            index: origIdx,
+                        };
+                    }
+                    accum += segDist;
+                }
+                const lastIdx = fromEnd ? 0 : coords.length - 1;
+                return { point: ordered[ordered.length - 1], index: lastIdx };
+            };
+
+            // ── Long routes: straight harbour legs to sea buoy gates ──
+            // The gate finder places gates directly seaward (toward open ocean).
+            // The dashed line is allowed to visually cross islands/land — it
+            // represents "navigate harbour exit at your own discretion."
+            if (!isShortRoute) {
+                const depCoord = [departure.lon, departure.lat];
+                const depGateCoord = [depGate.lon, depGate.lat];
+                const arrGateCoord = [arrGate.lon, arrGate.lat];
+                const arrCoord = [arrival.lon, arrival.lat];
+
+                // Departure harbour leg (dashed): departure → depGate
+                features.push(makeLandLeg([depCoord, depGateCoord]));
+                // Arrival harbour leg (dashed): arrGate → arrival
+                features.push(makeLandLeg([arrGateCoord, arrCoord]));
+
+                // Ocean portion: the passage coords (gate-to-gate)
+                features.push({
+                    type: 'Feature',
+                    properties: { safety: 'safe' },
+                    geometry: { type: 'LineString', coordinates: passageCoords },
+                });
+            } else if (passageCoords.length >= 4) {
+                // Short route: use fixed 5 NM interpolation from each end
+                const HARBOUR_NM = 5;
+
+                const depCut = interpolatePoint(passageCoords, HARBOUR_NM, false).point;
+                const arrCut = interpolatePoint(passageCoords, HARBOUR_NM, true).point;
 
                 // Departure harbour leg (dashed)
                 features.push(makeLandLeg([passageCoords[0], depCut]));
@@ -325,16 +627,14 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             return features;
         };
 
-        // Only show great-circle line for short-ish routes where it's likely ocean-only.
-        // For very long routes (> 500 NM) the great-circle may go through continents — hide it.
+        // Always show great-circle line immediately as a preview.
+        // For long routes, the isochrone engine will replace it once computed.
         const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
         if (routeSrc) {
-            if (straightLineNM < 500) {
-                routeSrc.setData({ type: 'FeatureCollection', features: buildFeatures(gcCoords) });
-                log.info(`[Passage] Trip Sandwich rendered (great-circle)`);
-            } else {
-                routeSrc.setData({ type: 'FeatureCollection', features: [] });
-            }
+            routeSrc.setData({ type: 'FeatureCollection', features: buildFeatures(waterAwareCoords) });
+            log.info(
+                `[Passage] Trip Sandwich rendered (${waterAwareCoords !== gcCoords ? 'water-aware bypass' : 'great-circle'} preview: ${Math.round(straightLineNM)} NM)`,
+            );
         }
 
         // Waypoint markers
@@ -557,10 +857,21 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 } catch (_) {
                     log.warn(``, _);
                 }
-                // Use coarser 0.25° grid (stride=15) for the engine — fine 0.1° traps
-                // wavefronts in reef-enclosed areas like Townsville/GBR.
-                // pushRouteOffshore post-processing still catches land clips via 2NM sampling.
-                const bathyGrid = await preloadBathymetry(depGate, arrGate, 15);
+                // Use base 0.1° grid (stride=6) for maximum land detection accuracy.
+                // Combined with isNearShore coastal buffer in the engine + directional
+                // seeder stall recovery, this provides the best land avoidance.
+                // 15s timeout — if GEBCO is slow, proceed without bathymetry grid.
+                let bathyGrid: Awaited<ReturnType<typeof preloadBathymetry>> = null;
+                try {
+                    bathyGrid = await Promise.race([
+                        preloadBathymetry(depGate, arrGate, 6),
+                        new Promise<null>((r) => setTimeout(() => r(null), 15_000)),
+                    ]);
+                    if (!bathyGrid)
+                        log.warn('[Isochrone BG] Bathymetry preload timed out — routing without land avoidance');
+                } catch (bathyErr) {
+                    log.warn('[Isochrone BG] Bathymetry preload failed:', bathyErr);
+                }
 
                 log.info('[Isochrone BG] Running isochrone engine...');
                 try {
@@ -629,6 +940,41 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             features: buildFeatures(isoResult.routeCoordinates, isoResult.shallowFlags),
                         });
                     }
+
+                    // ── Deferred: GEBCO island validation (runs AFTER route is visible) ──
+                    // The route renders immediately; this background pass detects and
+                    // fixes small island crossings the coarse 0.1° grid missed.
+                    (async () => {
+                        try {
+                            const { validateRouteSegments } = await import('../../services/isochrone/landAvoidance');
+                            const validated = await Promise.race([
+                                validateRouteSegments(isoResult.route),
+                                new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
+                            ]);
+                            if (!validated || computeGenRef.current !== gen) return; // stale or timed out
+
+                            // Check if validation actually changed anything
+                            if (validated.length !== isoResult.route.length) {
+                                const newCoords = validated.map((n) => [n.lon, n.lat] as [number, number]);
+                                isoResult.route = validated;
+                                isoResult.routeCoordinates = newCoords;
+
+                                const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
+                                if (routeSrc) {
+                                    const newShallowFlags = validated.map(() => false);
+                                    routeSrc.setData({
+                                        type: 'FeatureCollection',
+                                        features: buildFeatures(newCoords, newShallowFlags),
+                                    });
+                                }
+                                log.info(
+                                    `[IslandValidation] Route updated: ${isoResult.routeCoordinates.length} → ${newCoords.length} points`,
+                                );
+                            }
+                        } catch (err) {
+                            log.warn('[IslandValidation] Non-critical failure:', err);
+                        }
+                    })();
 
                     const depTimeStr2 = departureTime || new Date().toISOString();
                     const wps = detectTurnWaypoints(isoResult.route, depTimeStr2);
@@ -851,9 +1197,17 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                         return R_NM2 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
                                     };
 
-                                    const DIVERGE_NM = 5;
-                                    const ecmwfCoords = ecmwfRoute.routeCoordinates;
-                                    const gfsCoords = isoResult.routeCoordinates;
+                                    // ── Post-process ECMWF route to remove zig-zags ──
+                                    // Apply the same smoothing/crossing elimination as the primary route
+                                    let ecmwfCoords = ecmwfRoute.routeCoordinates;
+                                    if (bathyGrid && ecmwfRoute.route.length > 3) {
+                                        const { smoothRoute } = await import('../../services/isochrone/smoothing');
+                                        const { eliminateCrossings: elimCross } =
+                                            await import('../../services/isochrone/landAvoidance');
+                                        let ecmwfSmoothed = smoothRoute(ecmwfRoute.route, bathyGrid);
+                                        ecmwfSmoothed = elimCross(ecmwfSmoothed, bathyGrid, arrGate);
+                                        ecmwfCoords = ecmwfSmoothed.map((n) => [n.lon, n.lat] as [number, number]);
+                                    }
 
                                     // Render: show the FULL ECMWF route as magenta
                                     // Where routes agree, lines overlap (natural braid)
@@ -879,6 +1233,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                     }
 
                                     // Count divergent points for logging
+                                    const DIVERGE_NM = 5;
+                                    const gfsCoords = isoResult.routeCoordinates;
                                     let divergentCount = 0;
                                     for (let i = 0; i < ecmwfCoords.length; i++) {
                                         let minDist = Infinity;
@@ -946,9 +1302,15 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         `[Isochrone BG] Multi-leg intermediate: ${intermediateLat.toFixed(1)}°, ${intermediateLon.toFixed(1)}°`,
                     );
 
-                    // Load separate bathy grids for each leg
-                    const bathyGrid1 = await preloadBathymetry(depGate, intermediate, 15);
-                    const bathyGrid2 = await preloadBathymetry(intermediate, arrGate, 15);
+                    // Load separate bathy grids for each leg (15s timeout each)
+                    const bathyGrid1 = await Promise.race([
+                        preloadBathymetry(depGate, intermediate, 15),
+                        new Promise<null>((r) => setTimeout(() => r(null), 15_000)),
+                    ]);
+                    const bathyGrid2 = await Promise.race([
+                        preloadBathymetry(intermediate, arrGate, 15),
+                        new Promise<null>((r) => setTimeout(() => r(null), 15_000)),
+                    ]);
 
                     // Run Leg 1: departure → intermediate
                     log.info('[Isochrone BG] Running Leg 1...');
@@ -1018,11 +1380,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             log.warn(``, _);
                         }
                     } else {
-                        log.warn('[Isochrone BG] Multi-leg also failed — clearing route line');
-                        const src = map.getSource('route-line') as mapboxgl.GeoJSONSource;
-                        if (src) {
-                            src.setData({ type: 'FeatureCollection', features: [] });
-                        }
+                        log.warn('[Isochrone BG] Multi-leg also failed — keeping great-circle preview');
                         try {
                             window.dispatchEvent(
                                 new CustomEvent('thalassa:isochrone-complete', { detail: { success: false } }),

@@ -9,6 +9,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { type WeatherLayer } from './mapConstants';
 import { type ActiveCyclone } from '../../services/weather/CycloneTrackingService';
+import { type SignalKChart } from '../../services/SignalKService';
+import { type SignalKConnectionStatus } from '../../services/SignalKService';
 import { triggerHaptic } from '../../utils/system';
 
 // ── Resolve truncated ATCF storm names (10-char limit) ──
@@ -260,6 +262,16 @@ export const LayerFABMenu: React.FC<{
     onSelectStorm?: (storm: ActiveCyclone) => void;
     squallVisible?: boolean;
     onToggleSquall?: () => void;
+    vesselTrackingVisible?: boolean;
+    onToggleVesselTracking?: () => void;
+    onLocateVessel?: () => void;
+    skCharts?: SignalKChart[];
+    skChartIds?: Set<string>;
+    skChartOpacity?: number;
+    skConnectionStatus?: SignalKConnectionStatus;
+    onToggleSkChart?: (id: string) => void;
+    onSkChartOpacityChange?: (opacity: number) => void;
+    onFlyToChart?: (chart: SignalKChart) => void;
 }> = ({
     activeLayers,
     showLayerMenu,
@@ -285,6 +297,16 @@ export const LayerFABMenu: React.FC<{
     onSelectStorm,
     squallVisible = false,
     onToggleSquall,
+    vesselTrackingVisible = false,
+    onToggleVesselTracking,
+    onLocateVessel,
+    skCharts = [],
+    skChartIds = new Set<string>(),
+    skChartOpacity = 0.7,
+    skConnectionStatus = 'disconnected',
+    onToggleSkChart,
+    onSkChartOpacityChange,
+    onFlyToChart,
 }) => {
     const activeCount = activeLayers.size;
     const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -370,7 +392,7 @@ export const LayerFABMenu: React.FC<{
                     className="bg-slate-900/95 border border-white/[0.08] rounded-2xl overflow-hidden overflow-y-auto shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200"
                     style={{ maxHeight: 'calc(100vh - 240px)' }}
                 >
-                    {/* ── Major Storms (top of menu) ── */}
+                    {/* ── Severe Weather Warnings (top of menu) ── */}
                     {onToggleCyclones && (
                         <>
                             <button
@@ -391,7 +413,7 @@ export const LayerFABMenu: React.FC<{
                                 }`}
                             >
                                 <span className="text-xl">🌀</span>
-                                <span className="text-sm font-bold flex-1">Major Storms</span>
+                                <span className="text-sm font-bold flex-1">Severe Weather Warnings</span>
                                 {cycloneVisible ? (
                                     <span className="flex items-center gap-1.5">
                                         <span className="w-1.5 h-1.5 rounded-full bg-red-400 shadow-lg shadow-red-400/50 animate-pulse" />
@@ -595,6 +617,66 @@ export const LayerFABMenu: React.FC<{
                         </>
                     )}
 
+                    {/* ── My Vessel (GPS Tracking) ── */}
+                    {onToggleVesselTracking && (
+                        <>
+                            <button
+                                aria-label="Toggle vessel tracking"
+                                onClick={() => {
+                                    onToggleVesselTracking();
+                                    triggerHaptic('light');
+                                }}
+                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${vesselTrackingVisible ? 'bg-sky-500/20 text-sky-400 border-l-2 border-sky-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                            >
+                                <span className="text-xl">📍</span>
+                                <span className="text-sm font-bold flex-1">My Vessel</span>
+                                {vesselTrackingVisible ? (
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50 animate-pulse" />
+                                        <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+                                            Live
+                                        </span>
+                                        {onLocateVessel && (
+                                            <span
+                                                role="button"
+                                                tabIndex={0}
+                                                aria-label="Fly to vessel position"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onLocateVessel();
+                                                    setShowLayerMenu(false);
+                                                    triggerHaptic('medium');
+                                                }}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        e.stopPropagation();
+                                                        onLocateVessel();
+                                                        setShowLayerMenu(false);
+                                                    }
+                                                }}
+                                                className="ml-1 w-6 h-6 rounded-full bg-sky-500/20 border border-sky-500/30 flex items-center justify-center hover:bg-sky-500/40 transition-all active:scale-90 cursor-pointer"
+                                            >
+                                                <svg
+                                                    className="w-3 h-3 text-sky-400"
+                                                    fill="none"
+                                                    viewBox="0 0 24 24"
+                                                    stroke="currentColor"
+                                                    strokeWidth={2.5}
+                                                >
+                                                    <circle cx="12" cy="12" r="3" />
+                                                    <path strokeLinecap="round" d="M12 2v4m0 12v4M2 12h4m12 0h4" />
+                                                </svg>
+                                            </span>
+                                        )}
+                                    </span>
+                                ) : (
+                                    <span className="text-[11px] text-gray-500">GPS</span>
+                                )}
+                            </button>
+                            <div className="h-px bg-white/[0.06] mx-3" />
+                        </>
+                    )}
+
                     {/* ── Weather layers: Rain, Wind, Temp, Clouds, Sea Marks ── */}
                     {(
                         [
@@ -654,6 +736,136 @@ export const LayerFABMenu: React.FC<{
                                     </span>
                                 )}
                             </button>
+                        </>
+                    )}
+
+                    {/* ── Nautical Charts (Signal K) ── */}
+                    {skCharts.length > 0 && onToggleSkChart && (
+                        <>
+                            <div className="h-px bg-white/[0.06] mx-3" />
+                            <div className="px-4 pt-3 pb-1">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-black text-emerald-400/80 uppercase tracking-[0.2em]">
+                                        ⚓ Nautical Charts
+                                    </span>
+                                    <span
+                                        className={`w-1.5 h-1.5 rounded-full ${
+                                            skConnectionStatus === 'connected'
+                                                ? 'bg-emerald-400 shadow-lg shadow-emerald-400/50'
+                                                : skConnectionStatus === 'connecting'
+                                                  ? 'bg-amber-400 animate-pulse'
+                                                  : 'bg-gray-500'
+                                        }`}
+                                    />
+                                    <span className="text-[10px] text-gray-500 ml-auto">Signal K</span>
+                                </div>
+                            </div>
+                            {skCharts.map((chart) => {
+                                const isActive = skChartIds.has(chart.id);
+                                return (
+                                    <button
+                                        aria-label={`Toggle chart ${chart.name}`}
+                                        key={chart.id}
+                                        onClick={() => {
+                                            onToggleSkChart(chart.id);
+                                            triggerHaptic('light');
+                                        }}
+                                        className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                                            isActive
+                                                ? 'bg-emerald-500/15 text-emerald-400 border-l-2 border-emerald-400'
+                                                : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'
+                                        }`}
+                                    >
+                                        <span className="text-lg">🗺️</span>
+                                        <div className="flex-1 min-w-0">
+                                            <span className="text-sm font-bold block truncate">{chart.name}</span>
+                                            {chart.description && (
+                                                <span className="text-[10px] text-gray-500 block truncate">
+                                                    {chart.description}
+                                                </span>
+                                            )}
+                                        </div>
+                                        {isActive ? (
+                                            <span className="flex items-center gap-1">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
+                                                <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+                                                    On
+                                                </span>
+                                                {chart.bounds && onFlyToChart && (
+                                                    <span
+                                                        role="button"
+                                                        tabIndex={0}
+                                                        aria-label="Fly to chart area"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            onFlyToChart(chart);
+                                                            setShowLayerMenu(false);
+                                                            triggerHaptic('medium');
+                                                        }}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                                e.stopPropagation();
+                                                                onFlyToChart(chart);
+                                                                setShowLayerMenu(false);
+                                                            }
+                                                        }}
+                                                        className="ml-1 w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center hover:bg-emerald-500/40 transition-all active:scale-90 cursor-pointer"
+                                                    >
+                                                        <svg
+                                                            className="w-3 h-3 text-emerald-400"
+                                                            fill="none"
+                                                            viewBox="0 0 24 24"
+                                                            stroke="currentColor"
+                                                            strokeWidth={2.5}
+                                                        >
+                                                            <path
+                                                                strokeLinecap="round"
+                                                                strokeLinejoin="round"
+                                                                d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+                                                            />
+                                                            <path
+                                                                strokeLinecap="round"
+                                                                strokeLinejoin="round"
+                                                                d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                                                            />
+                                                        </svg>
+                                                    </span>
+                                                )}
+                                            </span>
+                                        ) : (
+                                            <span className="text-[11px] text-gray-500">
+                                                z{chart.minZoom}–{chart.maxZoom}
+                                            </span>
+                                        )}
+                                    </button>
+                                );
+                            })}
+                            {/* Opacity slider */}
+                            {skChartIds.size > 0 && onSkChartOpacityChange && (
+                                <div className="px-4 py-2 flex items-center gap-2">
+                                    <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider shrink-0">
+                                        Opacity
+                                    </span>
+                                    <input
+                                        type="range"
+                                        min={0.1}
+                                        max={1}
+                                        step={0.05}
+                                        value={skChartOpacity}
+                                        onChange={(e) => onSkChartOpacityChange(parseFloat(e.target.value))}
+                                        className="flex-1 h-1 accent-emerald-400 cursor-pointer"
+                                        style={{
+                                            WebkitAppearance: 'none',
+                                            background: `linear-gradient(to right, rgba(52,211,153,0.6) ${skChartOpacity * 100}%, rgba(255,255,255,0.1) ${skChartOpacity * 100}%)`,
+                                            borderRadius: 4,
+                                            height: 4,
+                                        }}
+                                    />
+                                    <span className="text-[10px] text-gray-400 font-mono w-8 text-right">
+                                        {Math.round(skChartOpacity * 100)}%
+                                    </span>
+                                </div>
+                            )}
                         </>
                     )}
 

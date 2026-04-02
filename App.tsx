@@ -21,6 +21,7 @@ import { checkDisclaimerAccepted } from './modules/LegalGuard';
 import { DisclaimerOverlay } from './modules/DisclaimerOverlay';
 import { lazyRetry } from './utils/lazyRetry';
 import { VIEW_REGISTRY, VESSEL_VIEWS, PULL_REFRESH_DISABLED_VIEWS, type ViewContext } from './viewRegistry';
+import { TIER_INFO } from './services/SubscriptionService';
 
 // Only components NOT in the registry are lazy-loaded here
 const ForecastSheet = lazyRetry(() => import('./components/ForecastSheet').then((m) => ({ default: m.ForecastSheet })));
@@ -286,7 +287,7 @@ const App: React.FC = () => {
                                                         : 'bg-gradient-to-r from-cyan-500 to-blue-600'
                                                 }`}
                                             >
-                                                {settings.subscriptionTier === 'owner' ? 'OWNER' : 'CREW'}
+                                                {TIER_INFO[settings.subscriptionTier].badge}
                                             </span>
                                         )}
                                     </div>
@@ -544,7 +545,7 @@ const App: React.FC = () => {
                             background: 'rgba(10, 15, 20, 0.95)',
                             backdropFilter: 'blur(10px)',
                             WebkitBackdropFilter: 'blur(10px)',
-                            borderColor: 'rgba(34, 211, 238, 0.1)',
+                            borderColor: 'rgba(0, 230, 118, 0.1)',
                         }}
                         aria-label="Main"
                     >

@@ -81,7 +81,7 @@ export async function scheduleMeal(
     // Scale ingredients to planned servings
     const scaledIngredients = (meal.ingredients || []).map((ing) => ({
         ...ing,
-        amount: scaleIngredient(ing.amount, ing.scalable, meal.servings, servings),
+        amount: scaleIngredient(ing.amount, ing.scalable, meal.servings, servings, ing.unit),
     }));
 
     const plan: MealPlan = {

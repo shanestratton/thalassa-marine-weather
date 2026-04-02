@@ -21,9 +21,10 @@ import {
     getGalleyDifficulty,
     type GalleyMeal,
 } from '../../services/GalleyRecipeService';
-import { type ShoppingListSummary } from '../../services/ShoppingListService';
+import { type ShoppingListSummary, getShoppingList } from '../../services/ShoppingListService';
 import { triggerHaptic } from '../../utils/system';
 import { ChefPlate } from './ChefPlate';
+import { CustomRecipeForm } from './CustomRecipeForm';
 import { SLOT_CONFIG, STRIP_WORDS } from './galleyTokens';
 
 export interface MealCalendarProps {
@@ -123,19 +124,26 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
         }
     }, []);
 
-    // ── Add to Shopping List: aggregate all shortfalls at once ──
-    const [provisioning, setProvisioning] = useState(false);
-    const [lastAddedCount, setLastAddedCount] = useState<number | null>(null);
+    // ── Shared shortfall computation ──
+    // Single source of truth for what needs to go on the shopping list.
+    // Used by both the CTA badge count AND the add-to-list handler.
+    const computeShortfalls = useCallback(() => {
+        if (!mealDays || activeMeals.length === 0) return [];
 
-    // Reset success state when meals change (new meal added/removed)
-    useEffect(() => {
-        setLastAddedCount(null);
-    }, [activeMeals]);
-
-    // Pre-compute how many unique ingredients need purchasing
-    const shortfallCount = (() => {
-        if (!mealDays || activeMeals.length === 0) return 0;
         const storesAvail = getStoresAvailability();
+
+        // Build map of quantities already on the shopping list (unpurchased)
+        const shoppingNow = getShoppingList();
+        const onListQty = new Map<string, number>();
+        for (const zone of shoppingNow.zones) {
+            for (const item of zone.items) {
+                if (!item.purchased) {
+                    const key = item.ingredient_name.toLowerCase();
+                    onListQty.set(key, (onListQty.get(key) || 0) + item.required_qty);
+                }
+            }
+        }
+
         const fuzzyMatch = (name: string) => {
             const lower = name.toLowerCase().trim();
             const exact = storesAvail.find((s) => s.item_name.toLowerCase() === lower);
@@ -150,11 +158,13 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                 return sl.includes(core) || core.includes(sl);
             });
         };
+
+        // Aggregate all ingredients across all scheduled meals
         const needs = new Map<string, { qty: number; unit: string; name: string }>();
         for (const meal of activeMeals) {
             const servings = meal.servings_planned || crewCount;
             for (const ing of meal.ingredients || []) {
-                const scaled = scaleIngredient(ing.amount, ing.scalable, ing.amount, servings);
+                const scaled = scaleIngredient(ing.amount, ing.scalable, ing.amount, servings, ing.unit);
                 const key = ing.name.toLowerCase();
                 const prev = needs.get(key);
                 if (prev) {
@@ -164,13 +174,45 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                 }
             }
         }
-        let count = 0;
-        for (const [, need] of needs) {
+
+        // Calculate remaining shortfall for each ingredient
+        const shortfalls: { name: string; qty: number; unit: string }[] = [];
+        for (const [key, need] of needs) {
             const store = fuzzyMatch(need.name);
-            const available = store ? store.available : 0;
-            if (Math.round((need.qty - available) * 10) / 10 > 0) count++;
+            // Use on_hand (not available) — available subtracts reservations from
+            // these same meals, which we're already counting in `needs`.
+            const inStores = store ? store.on_hand : 0;
+            const onList = onListQty.get(key) || 0;
+            const remaining = Math.round((need.qty - inStores - onList) * 10) / 10;
+            if (remaining > 0) {
+                shortfalls.push({ name: need.name, qty: remaining, unit: need.unit });
+            }
         }
-        return count;
+        return shortfalls;
+    }, [mealDays, activeMeals, crewCount]);
+
+    // ── Add to Shopping List: aggregate all shortfalls at once ──
+    const [provisioning, setProvisioning] = useState(false);
+    const [lastAddedCount, setLastAddedCount] = useState<number | null>(null);
+
+    // Force re-render when stores change (e.g. after shopping/purchasing)
+    const [storesVersion, setStoresVersion] = useState(0);
+    useEffect(() => {
+        const handler = () => setStoresVersion((v) => v + 1);
+        window.addEventListener('thalassa:stores-changed', handler);
+        return () => window.removeEventListener('thalassa:stores-changed', handler);
+    }, []);
+
+    // Reset success state when meals change (new meal added/removed)
+    useEffect(() => {
+        setLastAddedCount(null);
+    }, [activeMeals]);
+
+    // CTA badge: how many items still need adding
+    const shortfallCount = (() => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
+        storesVersion; // reactive dependency — re-runs when stores change
+        return computeShortfalls().length;
     })();
 
     const handleAddToShoppingList = useCallback(async () => {
@@ -178,57 +220,20 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
         setProvisioning(true);
         setLastAddedCount(null);
         try {
-            const { addManualItem, removeUnpurchasedProvisionItems } =
-                await import('../../services/ShoppingListService');
+            const { addManualItem } = await import('../../services/ShoppingListService');
 
-            // Clear previous unpurchased provision items so we rebuild fresh
-            await removeUnpurchasedProvisionItems();
-            const storesAvail = getStoresAvailability();
-
-            const fuzzyMatch = (name: string) => {
-                const lower = name.toLowerCase().trim();
-                const exact = storesAvail.find((s) => s.item_name.toLowerCase() === lower);
-                if (exact) return exact;
-                const core = lower
-                    .split(/\s+/)
-                    .filter((w) => !STRIP_WORDS.has(w) && w.length > 2)
-                    .join(' ');
-                if (!core) return undefined;
-                return storesAvail.find((s) => {
-                    const sl = s.item_name.toLowerCase();
-                    return sl.includes(core) || core.includes(sl);
-                });
-            };
-
-            const needs = new Map<string, { qty: number; unit: string; name: string }>();
-            for (const meal of activeMeals) {
-                const servings = meal.servings_planned || crewCount;
-                for (const ing of meal.ingredients || []) {
-                    const scaled = scaleIngredient(ing.amount, ing.scalable, ing.amount, servings);
-                    const key = ing.name.toLowerCase();
-                    const prev = needs.get(key);
-                    if (prev) {
-                        prev.qty += scaled;
-                    } else {
-                        needs.set(key, { qty: scaled, unit: ing.unit, name: ing.name });
-                    }
-                }
-            }
+            // Use the SAME computation as the badge count
+            const shortfalls = computeShortfalls();
 
             let added = 0;
-            for (const [, need] of needs) {
-                const store = fuzzyMatch(need.name);
-                const available = store ? store.available : 0;
-                const shortfall = Math.round((need.qty - available) * 10) / 10;
-                if (shortfall > 0) {
-                    await addManualItem({
-                        name: need.name,
-                        qty: shortfall,
-                        unit: need.unit,
-                        notes: 'Passage provision',
-                    });
-                    added++;
-                }
+            for (const sf of shortfalls) {
+                await addManualItem({
+                    name: sf.name,
+                    qty: sf.qty,
+                    unit: sf.unit,
+                    notes: 'Passage provision',
+                });
+                added++;
             }
 
             triggerHaptic('medium');
@@ -240,7 +245,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
             console.error('Add to shopping list error:', e);
         }
         setProvisioning(false);
-    }, [mealDays, activeMeals, crewCount, onShoppingChanged]);
+    }, [mealDays, activeMeals, crewCount, onShoppingChanged, computeShortfalls]);
 
     // No dates set — prompt user
     if (!mealDays) {
@@ -344,7 +349,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                         {provisioning
                             ? 'Adding to list…'
                             : shortfallCount > 0
-                              ? `Add ${shortfallCount} Item${shortfallCount !== 1 ? 's' : ''} to Shopping List`
+                              ? `Add All ${shortfallCount} Missing Item${shortfallCount !== 1 ? 's' : ''} to Shopping List`
                               : '✅ Fully Stocked'}
                     </button>
                 ))}
@@ -492,6 +497,9 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                     cooking={cookingMealId === expandedMeal}
                                     onCook={() => onCookNow(activeMeals.find((m) => m.id === expandedMeal)!)}
                                     shoppingSummary={shoppingSummary}
+                                    aggregateShortfallNames={
+                                        new Set(computeShortfalls().map((s) => s.name.toLowerCase()))
+                                    }
                                 />
                             </div>
                         )}
@@ -505,6 +513,9 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                     cooking={cookingMealId === expandedMeal}
                                     onCook={() => onCookNow(activeMeals.find((m) => m.id === expandedMeal)!)}
                                     shoppingSummary={shoppingSummary}
+                                    aggregateShortfallNames={
+                                        new Set(computeShortfalls().map((s) => s.name.toLowerCase()))
+                                    }
                                 />
                             </div>
                         )}
@@ -518,6 +529,9 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                     cooking={cookingMealId === expandedMeal}
                                     onCook={() => onCookNow(activeMeals.find((m) => m.id === expandedMeal)!)}
                                     shoppingSummary={shoppingSummary}
+                                    aggregateShortfallNames={
+                                        new Set(computeShortfalls().map((s) => s.name.toLowerCase()))
+                                    }
                                 />
                             </div>
                         )}
@@ -659,6 +673,43 @@ const SlotPicker: React.FC<{
     const [scheduling, setScheduling] = useState(false);
     const [customName, setCustomName] = useState('');
     const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const customInputRef = useRef<HTMLInputElement>(null);
+    const scrollContainerRef = useRef<HTMLDivElement>(null);
+    const [keyboardOpen, setKeyboardOpen] = useState(false);
+    const [showRecipeForm, setShowRecipeForm] = useState(false);
+
+    // ── Keyboard tracking for iOS ──
+    useEffect(() => {
+        let cleanup: (() => void) | undefined;
+
+        // Use Capacitor keyboard events if available
+        import('@capacitor/keyboard')
+            .then(({ Keyboard }) => {
+                const showHandle = Keyboard.addListener('keyboardDidShow', () => {
+                    setKeyboardOpen(true);
+                });
+                const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                    setKeyboardOpen(false);
+                });
+                cleanup = () => {
+                    showHandle.then((h) => h.remove());
+                    hideHandle.then((h) => h.remove());
+                };
+            })
+            .catch(() => {
+                // Web fallback: use visualViewport
+                const vp = window.visualViewport;
+                if (vp) {
+                    const handler = () => {
+                        setKeyboardOpen(vp.height < window.innerHeight - 150);
+                    };
+                    vp.addEventListener('resize', handler);
+                    cleanup = () => vp.removeEventListener('resize', handler);
+                }
+            });
+
+        return () => cleanup?.();
+    }, []);
 
     const slotLabel = SLOT_CONFIG.find((s) => s.slot === slot);
     const dateLabel = new Date(date + 'T12:00:00Z').toLocaleDateString(undefined, {
@@ -720,166 +771,226 @@ const SlotPicker: React.FC<{
         setScheduling(false);
     };
 
+    // Auto-scroll custom meal input into view when focused
+    const handleCustomFocus = () => {
+        setTimeout(() => {
+            customInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 450); // Wait for keyboard animation
+    };
+
     return (
-        <div
-            className="fixed inset-0 z-[900] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-            onClick={onClose}
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Add ${slotLabel?.label} recipe for ${dateLabel}`}
-        >
+        <>
             <div
-                className="w-[calc(100%-2rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-[80vh] flex flex-col shadow-2xl animate-in zoom-in-95 duration-200"
-                onClick={(e) => e.stopPropagation()}
-                onKeyDown={(e) => {
-                    if (e.key === 'Escape') onClose();
-                }}
+                className={`fixed inset-0 z-[900] flex ${keyboardOpen ? 'items-start pt-[max(1rem,env(safe-area-inset-top))]' : 'items-center'} justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200`}
+                onClick={onClose}
+                role="dialog"
+                aria-modal="true"
+                aria-label={`Add ${slotLabel?.label} recipe for ${dateLabel}`}
             >
-                {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-white/[0.06]">
-                    <div>
-                        <p className="text-sm font-bold text-white">
-                            {slotLabel?.emoji} {slotLabel?.label}
-                        </p>
-                        <p className="text-[10px] text-gray-500">{dateLabel}</p>
-                    </div>
-                    <button
-                        onClick={onClose}
-                        className="w-8 h-8 rounded-full bg-white/[0.06] flex items-center justify-center text-gray-400 hover:text-white transition-colors"
-                        aria-label="Close recipe picker"
-                    >
-                        ✕
-                    </button>
-                </div>
-
-                {/* Search */}
-                <div className="p-3">
-                    <input
-                        value={searchQuery}
-                        onChange={(e) => handleSearch(e.target.value)}
-                        placeholder="🔍 Search recipes…"
-                        autoFocus
-                        className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
-                        aria-label="Search recipes"
-                    />
-                </div>
-
-                {/* Results */}
-                <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2" role="listbox" aria-label="Recipe results">
-                    {/* Quick suggestions when search is empty */}
-                    {!searchQuery && results.length === 0 && !searching && (
-                        <div className="space-y-2 pb-2">
-                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider px-1">
-                                💡 Suggestions for {slotLabel?.label || 'this meal'}
+                <div
+                    className={`w-[calc(100%-2rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl ${keyboardOpen ? 'max-h-[50vh]' : 'max-h-[80vh]'} flex flex-col shadow-2xl animate-in zoom-in-95 duration-200 transition-all`}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Escape') onClose();
+                    }}
+                >
+                    {/* Header */}
+                    <div className="flex items-center justify-between p-4 border-b border-white/[0.06]">
+                        <div>
+                            <p className="text-sm font-bold text-white">
+                                {slotLabel?.emoji} {slotLabel?.label}
                             </p>
-                            <div className="flex flex-wrap gap-1.5">
-                                {(slot === 'breakfast'
-                                    ? [
-                                          'Scrambled Eggs',
-                                          'Pancakes',
-                                          'Porridge',
-                                          'French Toast',
-                                          'Omelette',
-                                          'Baked Beans on Toast',
-                                          'Smoothie Bowl',
-                                          'Eggs Benedict',
-                                      ]
-                                    : slot === 'lunch'
-                                      ? [
-                                            'Chicken Wrap',
-                                            'Tuna Salad',
-                                            'Fried Rice',
-                                            'BLT Sandwich',
-                                            'Soup',
-                                            'Quesadilla',
-                                            'Fish Tacos',
-                                            'Pasta Salad',
-                                        ]
-                                      : [
-                                            'Spaghetti Bolognese',
-                                            'Grilled Chicken',
-                                            'Beef Stew',
-                                            'Fish Curry',
-                                            'Stir Fry',
-                                            'Lamb Chops',
-                                            'Chilli Con Carne',
-                                            'Pad Thai',
-                                        ]
-                                ).map((suggestion) => (
-                                    <button
-                                        key={suggestion}
-                                        onClick={() => {
-                                            setSearchQuery(suggestion);
-                                            handleSearch(suggestion);
-                                        }}
-                                        className="px-2.5 py-1.5 rounded-lg bg-amber-500/[0.06] border border-amber-500/15 text-[11px] text-amber-400/80 font-medium hover:bg-amber-500/15 hover:text-amber-300 transition-all active:scale-95"
-                                    >
-                                        {suggestion}
-                                    </button>
-                                ))}
-                            </div>
+                            <p className="text-[10px] text-gray-500">{dateLabel}</p>
                         </div>
-                    )}
-
-                    {searching && <p className="text-center text-[11px] text-gray-500 py-4">⏳ Searching recipes…</p>}
-
-                    {results.map((meal) => (
                         <button
-                            key={meal.id}
-                            onClick={() => handleSelectRecipe(meal)}
-                            disabled={scheduling}
-                            className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-amber-500/[0.06] hover:border-amber-500/20 transition-all text-left disabled:opacity-40"
-                            role="option"
-                            aria-label={`${meal.title} — ${meal.readyInMinutes} minutes, ${meal.ingredients.length} ingredients`}
+                            onClick={onClose}
+                            className="w-8 h-8 rounded-full bg-white/[0.06] flex items-center justify-center text-gray-400 hover:text-white transition-colors"
+                            aria-label="Close recipe picker"
                         >
-                            {meal.image && (
-                                <img
-                                    src={meal.image}
-                                    alt=""
-                                    className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
-                                    loading="lazy"
-                                    onError={(e) => {
-                                        (e.target as HTMLImageElement).style.display = 'none';
-                                    }}
-                                />
-                            )}
-                            <div className="flex-1 min-w-0">
-                                <p className="text-xs font-bold text-white truncate">{meal.title}</p>
-                                <p className="text-[10px] text-gray-500">
-                                    ⏱️ {meal.readyInMinutes}min · {meal.ingredients.length} ingredients
-                                </p>
-                            </div>
+                            ✕
                         </button>
-                    ))}
+                    </div>
 
-                    {!searching && results.length === 0 && searchQuery.trim() && (
-                        <p className="text-center text-[11px] text-gray-500 py-4">
-                            No recipes found. Try a different search or add a custom meal below.
-                        </p>
-                    )}
-                </div>
-
-                {/* Custom meal fallback */}
-                <div className="p-3 border-t border-white/[0.06]">
-                    <div className="flex gap-2">
+                    {/* Search */}
+                    <div className="p-3">
                         <input
-                            value={customName}
-                            onChange={(e) => setCustomName(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleCustomMeal()}
-                            placeholder="Or type a custom meal…"
-                            className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
-                            aria-label="Custom meal name"
+                            value={searchQuery}
+                            onChange={(e) => handleSearch(e.target.value)}
+                            placeholder="🔍 Search recipes…"
+                            autoFocus
+                            data-no-keyboard-scroll
+                            className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
+                            aria-label="Search recipes"
                         />
-                        <button
-                            onClick={handleCustomMeal}
-                            disabled={!customName.trim() || scheduling}
-                            className="px-4 py-2.5 bg-amber-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold text-amber-300 disabled:opacity-30 hover:bg-amber-500/25 transition-all"
-                        >
-                            {scheduling ? '⏳' : '+ Add'}
-                        </button>
+                    </div>
+
+                    {/* Results + Custom meal (all scrollable) */}
+                    <div
+                        ref={scrollContainerRef}
+                        className="flex-1 overflow-y-auto px-3 pb-3 space-y-2"
+                        role="listbox"
+                        aria-label="Recipe results"
+                    >
+                        {/* Quick suggestions when search is empty */}
+                        {!searchQuery && results.length === 0 && !searching && (
+                            <div className="space-y-2 pb-2">
+                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider px-1">
+                                    💡 Suggestions for {slotLabel?.label || 'this meal'}
+                                </p>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {(slot === 'breakfast'
+                                        ? [
+                                              'Scrambled Eggs',
+                                              'Pancakes',
+                                              'Porridge',
+                                              'French Toast',
+                                              'Omelette',
+                                              'Baked Beans on Toast',
+                                              'Smoothie Bowl',
+                                              'Eggs Benedict',
+                                          ]
+                                        : slot === 'lunch'
+                                          ? [
+                                                'Chicken Wrap',
+                                                'Tuna Salad',
+                                                'Fried Rice',
+                                                'BLT Sandwich',
+                                                'Soup',
+                                                'Quesadilla',
+                                                'Fish Tacos',
+                                                'Pasta Salad',
+                                            ]
+                                          : [
+                                                'Spaghetti Bolognese',
+                                                'Grilled Chicken',
+                                                'Beef Stew',
+                                                'Fish Curry',
+                                                'Stir Fry',
+                                                'Lamb Chops',
+                                                'Chilli Con Carne',
+                                                'Pad Thai',
+                                            ]
+                                    ).map((suggestion) => (
+                                        <button
+                                            key={suggestion}
+                                            onClick={() => {
+                                                setSearchQuery(suggestion);
+                                                handleSearch(suggestion);
+                                            }}
+                                            className="px-2.5 py-1.5 rounded-lg bg-amber-500/[0.06] border border-amber-500/15 text-[11px] text-amber-400/80 font-medium hover:bg-amber-500/15 hover:text-amber-300 transition-all active:scale-95"
+                                        >
+                                            {suggestion}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {searching && (
+                            <p className="text-center text-[11px] text-gray-500 py-4">⏳ Searching recipes…</p>
+                        )}
+
+                        {results.map((meal) => (
+                            <button
+                                key={`${meal.source || 'spoon'}-${meal.id}`}
+                                onClick={() => handleSelectRecipe(meal)}
+                                disabled={scheduling}
+                                className="w-full flex items-center gap-3 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-amber-500/[0.06] hover:border-amber-500/20 transition-all text-left disabled:opacity-40"
+                                role="option"
+                                aria-label={`${meal.title} — ${meal.readyInMinutes} minutes, ${meal.ingredients.length} ingredients`}
+                            >
+                                {meal.image ? (
+                                    <img
+                                        src={meal.image}
+                                        alt=""
+                                        className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
+                                        loading="lazy"
+                                        onError={(e) => {
+                                            (e.target as HTMLImageElement).style.display = 'none';
+                                        }}
+                                    />
+                                ) : (
+                                    <div className="w-14 h-14 rounded-lg bg-amber-500/10 flex items-center justify-center text-xl flex-shrink-0">
+                                        🍽️
+                                    </div>
+                                )}
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1.5">
+                                        <p className="text-xs font-bold text-white truncate">{meal.title}</p>
+                                        {meal.source === 'private' && (
+                                            <span className="shrink-0 px-1.5 py-0.5 rounded text-[8px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                                                🔒 MINE
+                                            </span>
+                                        )}
+                                        {meal.source === 'community' && (
+                                            <span className="shrink-0 px-1.5 py-0.5 rounded text-[8px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/20">
+                                                👥
+                                            </span>
+                                        )}
+                                    </div>
+                                    <p className="text-[10px] text-gray-500">
+                                        ⏱️ {meal.readyInMinutes}min · {meal.ingredients.length} ingredients
+                                        {meal.authorName && meal.source === 'community' && ` · by ${meal.authorName}`}
+                                    </p>
+                                </div>
+                            </button>
+                        ))}
+
+                        {!searching && results.length === 0 && searchQuery.trim() && (
+                            <p className="text-center text-[11px] text-gray-500 py-4">
+                                No recipes found. Try a different search or create your own below.
+                            </p>
+                        )}
+
+                        {/* Custom recipe creation — inside scrollable area */}
+                        <div className="pt-2 mt-2 border-t border-white/[0.06] space-y-2">
+                            {/* Quick add (simple name only) */}
+                            <div className="flex gap-2">
+                                <input
+                                    ref={customInputRef}
+                                    value={customName}
+                                    onChange={(e) => setCustomName(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleCustomMeal()}
+                                    onFocus={handleCustomFocus}
+                                    placeholder="Quick add meal name…"
+                                    data-no-keyboard-scroll
+                                    className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
+                                    aria-label="Quick add meal name"
+                                />
+                                <button
+                                    onClick={handleCustomMeal}
+                                    disabled={!customName.trim() || scheduling}
+                                    className="px-4 py-2.5 bg-amber-500/15 border border-amber-500/20 rounded-xl text-[11px] font-bold text-amber-300 disabled:opacity-30 hover:bg-amber-500/25 transition-all"
+                                >
+                                    {scheduling ? '⏳' : '+ Add'}
+                                </button>
+                            </div>
+
+                            {/* Full recipe creator */}
+                            <button
+                                onClick={() => setShowRecipeForm(true)}
+                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 text-[11px] font-bold text-amber-300 hover:from-amber-500/15 hover:to-orange-500/15 transition-all active:scale-[0.98]"
+                            >
+                                📝 Create Full Recipe
+                                <span className="text-[9px] text-amber-400/50 font-normal">
+                                    (with ingredients, directions & photo)
+                                </span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
+
+            {/* Custom Recipe Form Modal */}
+            {showRecipeForm && (
+                <CustomRecipeForm
+                    onSaved={() => {
+                        setShowRecipeForm(false);
+                        onScheduled();
+                    }}
+                    onClose={() => setShowRecipeForm(false)}
+                />
+            )}
+        </>
     );
 };

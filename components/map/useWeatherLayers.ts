@@ -261,7 +261,7 @@ export function useWeatherLayers(
                         id: 'pressure-heatmap-layer',
                         type: 'raster',
                         source: 'pressure-heatmap',
-                        paint: { 'raster-opacity': 0.65, 'raster-fade-duration': 0 },
+                        paint: { 'raster-opacity': 0.75, 'raster-fade-duration': 0 },
                     },
                     map.getLayer('isobar-lines') ? 'isobar-lines' : undefined,
                 );
@@ -270,7 +270,7 @@ export function useWeatherLayers(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Pre-compute isobar frames
+    // Pre-compute isobar frames — skip heatmap for interpolated sub-frames (much faster)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const precomputeFrames = useCallback((grid: any) => {
         const total = grid.totalHours as number;
@@ -278,10 +278,14 @@ export function useWeatherLayers(
         setFramesReady(0);
         cachedFramesRef.current = new Array(total);
         let idx = 0;
+        // INTERP_STEPS = 3 in isobars.ts — every 3rd frame is a GRIB keyframe
+        const KEYFRAME_INTERVAL = 3;
         const computeBatch = () => {
-            const batchEnd = Math.min(idx + 8, total);
+            const batchEnd = Math.min(idx + 12, total);
             for (let h = idx; h < batchEnd; h++) {
-                cachedFramesRef.current[h] = generateIsobarsFromGrid(grid, h);
+                // Only generate heatmap for keyframes (every 3rd) — subs reuse cached
+                const isKeyframe = h % KEYFRAME_INTERVAL === 0 || h === total - 1;
+                cachedFramesRef.current[h] = generateIsobarsFromGrid(grid, h, !isKeyframe);
             }
             setFramesReady(batchEnd);
             idx = batchEnd;

@@ -27,7 +27,7 @@
 import { createLogger } from '../utils/createLogger';
 import type { PolarData } from '../types';
 import { GebcoDepthService } from './GebcoDepthService';
-import { type BathymetryGrid, isLand, getDepthFromCache } from './BathymetryCache';
+import { type BathymetryGrid, isLand, isNearShore, getDepthFromCache } from './BathymetryCache';
 
 // ── Re-export all public types and functions from sub-modules ────
 export type {
@@ -126,9 +126,12 @@ export async function computeIsochrones(
     let bestDistanceSoFar = totalDistNM;
     let stepsWithoutProgress = 0;
     let depthFilterDisabled = false;
-    let allBathyDisabled = false;
+    let directionalSeederActive = false;
+    let bestCandidateEver: { node: IsochroneNode; distToDest: number } | null = null;
     const STALL_THRESHOLD_STEPS = 10;
     const STALL_PROGRESS_NM = 5;
+    const DIRECTIONAL_SEEDER_THRESHOLD = 30;
+    const CLOSE_ENOUGH_THRESHOLD = 50;
 
     // Expand wavefronts
     for (let step = 1; step <= maxSteps; step++) {
@@ -256,29 +259,64 @@ export async function computeIsochrones(
         } else {
             stepsWithoutProgress++;
         }
+        // Track best candidate ever seen (for close-enough acceptance)
+        const bestThisStep = candidates.reduce<{ node: IsochroneNode; distToDest: number } | null>(
+            (best, c) => (!best || c.distToDest < best.distToDest ? c : best),
+            null,
+        );
+        if (bestThisStep && (!bestCandidateEver || bestThisStep.distToDest < bestCandidateEver.distToDest)) {
+            bestCandidateEver = bestThisStep;
+        }
+
         if (!depthFilterDisabled && stepsWithoutProgress >= STALL_THRESHOLD_STEPS) {
             depthFilterDisabled = true;
             log.info(
                 `[Isochrone] Stall T1 at step ${step} — disabling reef filter (best: ${Math.round(bestDistanceSoFar)} NM)`,
             );
         }
-        if (!allBathyDisabled && stepsWithoutProgress >= 30) {
-            allBathyDisabled = true;
+        if (!directionalSeederActive && stepsWithoutProgress >= DIRECTIONAL_SEEDER_THRESHOLD) {
+            directionalSeederActive = true;
             log.info(
-                `[Isochrone] Stall T2 at step ${step} — disabling ALL bathy checks (best: ${Math.round(bestDistanceSoFar)} NM)`,
+                `[Isochrone] Stall T2 at step ${step} — activating directional seeder (best: ${Math.round(bestDistanceSoFar)} NM)`,
             );
+        }
+        // T3: Close-enough acceptance — use best candidate found so far
+        if (stepsWithoutProgress >= CLOSE_ENOUGH_THRESHOLD && bestCandidateEver) {
+            log.info(
+                `[Isochrone] Stall T3 at step ${step} — close-enough acceptance at ${Math.round(bestCandidateEver.distToDest)} NM from dest`,
+            );
+            arrivalNode = { ...bestCandidateEver.node, lat: destination.lat, lon: destination.lon };
+            arrivalIsochroneIdx = step;
+            isochrones.push({ timeHours: step * cfg.timeStepHours, nodes: [arrivalNode] });
+            break;
         }
 
         // ── Depth filtering ──
         let endpointValid = candidates;
-        if (cfg.useDepthPenalty && bathyGrid && !allBathyDisabled) {
+        if (cfg.useDepthPenalty && bathyGrid) {
             endpointValid = candidates.filter(({ node }) => {
                 if (isLand(bathyGrid, node.lat, node.lon)) return false;
+                // Coastal safety buffer: reject nodes near shore to prevent
+                // clipping headlands and peninsulas between grid cells.
+                // Skip for the first 3 steps — the departure gate is inherently
+                // near shore (50m depth), so applying this immediately causes
+                // erratic early wavefront expansion (zigzag start).
+                if (step > 3 && isNearShore(bathyGrid, node.lat, node.lon, 2)) return false;
                 const depth = getDepthFromCache(bathyGrid, node.lat, node.lon);
                 node.depth_m = depth;
                 if (!depthFilterDisabled && depth !== null && depth > REEF_REJECTION_DEPTH_M) return false;
                 return true;
             });
+            if (endpointValid.length === 0) {
+                // Fallback: if coastal buffer rejected everything, retry with land-only check
+                endpointValid = candidates.filter(({ node }) => {
+                    if (isLand(bathyGrid, node.lat, node.lon)) return false;
+                    const depth = getDepthFromCache(bathyGrid, node.lat, node.lon);
+                    node.depth_m = depth;
+                    if (!depthFilterDisabled && depth !== null && depth > REEF_REJECTION_DEPTH_M) return false;
+                    return true;
+                });
+            }
             if (endpointValid.length === 0) endpointValid = candidates;
         } else if (cfg.useDepthPenalty && !bathyGrid) {
             // HTTP fallback — batch check only every 5 steps
@@ -346,12 +384,12 @@ export async function computeIsochrones(
             origin,
             destination,
             cfg.bearingCount,
-            allBathyDisabled,
+            false,
         );
 
         // ── Segment land checks with fallback ──
         const finalFront: IsochroneNode[] = [];
-        if (cfg.useDepthPenalty && bathyGrid && !allBathyDisabled) {
+        if (cfg.useDepthPenalty && bathyGrid) {
             for (const sectorCandidates of prunedWithFallbacks) {
                 let found = false;
                 for (const node of sectorCandidates) {
@@ -399,6 +437,49 @@ export async function computeIsochrones(
         } else {
             for (const sectorCandidates of prunedWithFallbacks) {
                 if (sectorCandidates.length > 0) finalFront.push(sectorCandidates[0]);
+            }
+        }
+
+        // ── Directional Seeder: inject safe-water seed nodes when stalled ──
+        // When the wavefront is trapped (all sectors blocked by land), find
+        // water positions by projecting from the best candidate in multiple
+        // directions and seed the wavefront there.
+        if (directionalSeederActive && bathyGrid && finalFront.length < cfg.bearingCount / 2) {
+            const seedTarget = bestCandidateEver?.node ?? (finalFront.length > 0 ? finalFront[0] : null);
+            if (seedTarget) {
+                const destBearing = initialBearing(seedTarget.lat, seedTarget.lon, destination.lat, destination.lon);
+                // Try 8 compass directions from the best candidate
+                const seedBearings = [0, 45, 90, 135, 180, 225, 270, 315].map((off) => (destBearing + off) % 360);
+                const seedDistances = [30, 60, 100, 150];
+                let seeded = 0;
+                for (const brg of seedBearings) {
+                    for (const dist of seedDistances) {
+                        const pt = projectPosition(seedTarget.lat, seedTarget.lon, brg, dist);
+                        if (!isLand(bathyGrid, pt.lat, pt.lon)) {
+                            const seedNode: IsochroneNode = {
+                                lat: pt.lat,
+                                lon: pt.lon,
+                                timeHours: seedTarget.timeHours + cfg.timeStepHours,
+                                bearing: brg,
+                                speed: cfg.motoringSpeed,
+                                tws: 0,
+                                twa: 0,
+                                parentIndex: finalFront.length > 0 ? 0 : null,
+                                distance: seedTarget.distance + dist,
+                            };
+                            // Only seed if not duplicate sector
+                            const isDuplicate = finalFront.some((n) => haversineNm(n.lat, n.lon, pt.lat, pt.lon) < 20);
+                            if (!isDuplicate) {
+                                finalFront.push(seedNode);
+                                seeded++;
+                            }
+                            break; // Found water at this bearing, move to next bearing
+                        }
+                    }
+                }
+                if (seeded > 0) {
+                    log.info(`[Isochrone] Directional seeder: injected ${seeded} safe-water seed nodes`);
+                }
             }
         }
 
@@ -475,8 +556,42 @@ export async function computeIsochrones(
             smoothed = smoothed.filter((_, i) => keep2[i]);
         }
         smoothed = pushRouteOffshore(smoothed, bathyGrid);
-        smoothed = eliminateCrossings(smoothed, bathyGrid);
+        smoothed = eliminateCrossings(smoothed, bathyGrid, destination);
         smoothed = nudgeWaypointsOffshore(smoothed, bathyGrid);
+
+        // ── Final coast-clearance pass ──
+        // After all other post-processing, do one more validation:
+        // check every segment at 2 NM intervals and push any remaining
+        // near-shore waypoints further offshore.
+        let coastFixed = false;
+        for (let coastPass = 0; coastPass < 3; coastPass++) {
+            let needsFix = false;
+            for (let i = 1; i < smoothed.length - 1; i++) {
+                if (isNearShore(bathyGrid, smoothed[i].lat, smoothed[i].lon, 1)) {
+                    // Push this waypoint further offshore
+                    const prev = smoothed[i - 1];
+                    const next = smoothed[i + 1];
+                    const avgBearing = initialBearing(prev.lat, prev.lon, next.lat, next.lon);
+                    const perpL = (avgBearing - 90 + 360) % 360;
+                    const perpR = (avgBearing + 90) % 360;
+                    for (const pushNM of [15, 25, 40, 60]) {
+                        for (const brg of [perpL, perpR]) {
+                            const pt = projectPosition(smoothed[i].lat, smoothed[i].lon, brg, pushNM);
+                            if (!isLand(bathyGrid, pt.lat, pt.lon) && !isNearShore(bathyGrid, pt.lat, pt.lon, 1)) {
+                                smoothed[i] = { ...smoothed[i], lat: pt.lat, lon: pt.lon };
+                                needsFix = true;
+                                break;
+                            }
+                        }
+                        if (needsFix) break;
+                    }
+                }
+            }
+            if (!needsFix && !coastFixed) break;
+            coastFixed = true;
+            // Re-run pushRouteOffshore after nudging to fix any new land crossings
+            smoothed = pushRouteOffshore(smoothed, bathyGrid);
+        }
     }
 
     const arrivalTimeMs = depTime.getTime() + arrivalNode.timeHours * 3600000;

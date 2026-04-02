@@ -12,26 +12,26 @@ interface UpgradeModalProps {
 }
 
 /** Features to highlight per tier */
-const CREW_FEATURES: { label: string; feature: string }[] = [
+const FIRST_MATE_FEATURES: { label: string; feature: string }[] = [
     { label: 'Full 10-Day Forecast', feature: 'weatherFull' },
     { label: 'GPS Track Logging', feature: 'gpsTracking' },
     { label: 'Crew Talk Messaging', feature: 'crewTalkWrite' },
     { label: 'Direct Messages & Pin Drop', feature: 'directMessages' },
-    { label: "Captain's AI Advice", feature: 'aiAdvice' },
+    { label: "Skipper's AI Advice", feature: 'aiAdvice' },
     { label: 'Anchor Watch', feature: 'anchorWatch' },
     { label: 'Chandlery Posting', feature: 'chandleryPost' },
     { label: 'Community Track Downloads', feature: 'communityDownload' },
 ];
 
-const OWNER_FEATURES: { label: string; feature: string }[] = [
-    { label: 'Everything in Crew, plus:', feature: '_header' },
+const SKIPPER_FEATURES: { label: string; feature: string }[] = [
+    { label: 'Everything in First Mate, plus:', feature: '_header' },
     { label: 'Route Planner & Passage Planning', feature: 'routePlanner' },
     { label: 'Passage Legs (Multi-Stop)', feature: 'passageLegs' },
     { label: "Ship's Log & Logbook", feature: 'shipLog' },
     { label: 'Vessel Profile & Management', feature: 'vesselProfile' },
     { label: 'Cast Off / Voyage Control', feature: 'castOff' },
     { label: 'Galley & Meal Planning', feature: 'galley' },
-    { label: 'Crew Finder (as Captain)', feature: 'crewFinderCaptain' },
+    { label: 'Crew Finder (as Skipper)', feature: 'crewFinderCaptain' },
     { label: 'Polar Diagrams & Smart Polars', feature: 'polars' },
     { label: 'Community Track Sharing', feature: 'communityShare' },
 ];
@@ -44,14 +44,14 @@ const PlanCard: React.FC<{
     recommended?: boolean;
 }> = ({ tier, features, selected, onSelect, recommended }) => {
     const info = TIER_INFO[tier];
-    const isOwner = tier === 'owner';
+    const isSkipper = tier === 'owner';
 
     return (
         <button
             onClick={onSelect}
             className={`relative w-full text-left p-4 rounded-2xl border-2 transition-all active:scale-[0.98] ${
                 selected
-                    ? isOwner
+                    ? isSkipper
                         ? 'border-amber-500/60 bg-amber-500/[0.06]'
                         : 'border-cyan-500/60 bg-cyan-500/[0.06]'
                     : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]'
@@ -101,7 +101,7 @@ const PlanCard: React.FC<{
                 <div
                     className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
                         selected
-                            ? isOwner
+                            ? isSkipper
                                 ? 'bg-amber-500 border-amber-500'
                                 : 'bg-cyan-500 border-cyan-500'
                             : 'border-gray-600'
@@ -171,14 +171,14 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                 <div className="p-4 overflow-y-auto custom-scrollbar space-y-3">
                     <PlanCard
                         tier="owner"
-                        features={OWNER_FEATURES}
+                        features={SKIPPER_FEATURES}
                         selected={selectedTier === 'owner'}
                         onSelect={() => setSelectedTier('owner')}
                         recommended
                     />
                     <PlanCard
                         tier="crew"
-                        features={CREW_FEATURES}
+                        features={FIRST_MATE_FEATURES}
                         selected={selectedTier === 'crew'}
                         onSelect={() => setSelectedTier('crew')}
                     />
@@ -186,7 +186,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                     {/* Free tier note */}
                     <div className="text-center py-2">
                         <p className="text-[10px] text-gray-500">
-                            Free Crew includes basic 3-day weather, map, and Chandlery browsing.
+                            Deckhand (Free) includes basic 3-day weather, map, and Chandlery browsing.
                         </p>
                     </div>
 

@@ -1269,6 +1269,73 @@ export function findCountryData(country: string | undefined): CountryClearance |
     );
 }
 
+/**
+ * Resolve a port/city/country name to its canonical country name.
+ * Uses a 4-tier lookup:
+ *  1. Direct country match via findCountryData
+ *  2. Port-of-entry match (checks all countries' portsOfEntry lists)
+ *  3. Substring match (e.g., "Cairns, Australia" → contains "Australia")
+ *  4. Returns empty string if not found (unknown port)
+ */
+export function resolveCountryName(portOrCountry: string | undefined): string {
+    if (!portOrCountry) return '';
+    const input = portOrCountry.trim();
+    const inputLower = input.toLowerCase();
+
+    // 1. Direct country match
+    const directMatch = findCountryData(input);
+    if (directMatch) return directMatch.country;
+
+    // 2. Check all portsOfEntry across all countries
+    for (const entry of Object.values(COUNTRY_DB)) {
+        for (const port of entry.portsOfEntry) {
+            const portLower = port.toLowerCase();
+            // Match "Sydney" against "Sydney" or "Cairns" against "Cairns"
+            // Also match partial: "Road Town" in "Road Town (Tortola)"
+            if (inputLower === portLower || portLower.includes(inputLower) || inputLower.includes(portLower)) {
+                return entry.country;
+            }
+        }
+    }
+
+    // 3. Check if the input contains a country name (e.g., "Cairns, Australia")
+    for (const entry of Object.values(COUNTRY_DB)) {
+        if (inputLower.includes(entry.country.toLowerCase())) {
+            return entry.country;
+        }
+    }
+    // Also check aliases
+    for (const [alias, target] of Object.entries(COUNTRY_ALIASES)) {
+        if (inputLower.includes(alias)) {
+            const data = COUNTRY_DB[target];
+            if (data) return data.country;
+        }
+    }
+
+    // 4. Not found — return empty string (unknown port)
+    return '';
+}
+
+/**
+ * Check if two ports/countries are in the same country.
+ * If BOTH ports are unknown (not in our DB), we treat them as domestic
+ * since we can't determine they're international.
+ */
+export function isSameCountry(portA: string | undefined, portB: string | undefined): boolean {
+    if (!portA || !portB) return false;
+    const countryA = resolveCountryName(portA);
+    const countryB = resolveCountryName(portB);
+
+    // Both unknown → treat as domestic (same country, just not in our DB)
+    if (!countryA && !countryB) return true;
+
+    // One known, one unknown → assume international (different countries)
+    if (!countryA || !countryB) return false;
+
+    // Both known → compare
+    return countryA.toLowerCase() === countryB.toLowerCase();
+}
+
 export const difficultyStyle = {
     easy: {
         text: 'text-emerald-400',
