@@ -26,11 +26,13 @@ import { ChatService } from '../../services/ChatService';
 interface CastOffPanelProps {
     onCastOff?: (voyage: Voyage) => void;
     onClose: () => void;
+    /** Pre-selected voyage ID from passage planning — skips draft list */
+    initialVoyageId?: string;
 }
 
 type Step = 'select' | 'create' | 'preflight' | 'track_prompt' | 'active' | 'arrive' | 'depart_leg';
 
-export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }) => {
+export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, initialVoyageId }) => {
     const [step, setStep] = useState<Step>('select');
     const [drafts, setDrafts] = useState<Voyage[]>([]);
     const [selected, setSelected] = useState<Voyage | null>(null);
@@ -66,11 +68,19 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose }
                 setCurrentLeg(activeLeg);
                 const allLegs = getLegsForVoyage(active.id).filter((l) => l.status === 'completed');
                 setCompletedLegs(allLegs);
+            } else if (initialVoyageId) {
+                // Auto-select the passage planning voyage — skip draft list
+                const match = d.find((v) => v.id === initialVoyageId);
+                if (match) {
+                    setSelected(match);
+                    setStep('preflight');
+                    setSafetyConfirmed(false);
+                }
             }
             setLoading(false);
         };
         load();
-    }, []);
+    }, [initialVoyageId]);
 
     const handleSelect = useCallback((voyage: Voyage) => {
         setSelected(voyage);

@@ -27,6 +27,7 @@ import {
     type IsochroneResult,
     type TurnWaypoint,
 } from '../../services/IsochroneRouter';
+import type { IsochroneNode } from '../../services/isochrone/types';
 import { preloadBathymetry } from '../../services/BathymetryCache';
 import { createWindFieldFromGrid } from '../../services/weather/WindFieldAdapter';
 import { DEFAULT_CRUISING_POLAR } from '../../services/defaultPolar';
@@ -1198,16 +1199,72 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                     };
 
                                     // ── Post-process ECMWF route to remove zig-zags ──
-                                    // Apply the same smoothing/crossing elimination as the primary route
+                                    // Apply the same smoothing/crossing/land avoidance as the primary route
                                     let ecmwfCoords = ecmwfRoute.routeCoordinates;
                                     if (bathyGrid && ecmwfRoute.route.length > 3) {
                                         const { smoothRoute } = await import('../../services/isochrone/smoothing');
-                                        const { eliminateCrossings: elimCross } =
+                                        const { eliminateCrossings: elimCross, pushRouteOffshore } =
                                             await import('../../services/isochrone/landAvoidance');
                                         let ecmwfSmoothed = smoothRoute(ecmwfRoute.route, bathyGrid);
+                                        ecmwfSmoothed = pushRouteOffshore(ecmwfSmoothed, bathyGrid);
                                         ecmwfSmoothed = elimCross(ecmwfSmoothed, bathyGrid, arrGate);
                                         ecmwfCoords = ecmwfSmoothed.map((n) => [n.lon, n.lat] as [number, number]);
                                     }
+
+                                    // Deferred GEBCO fine-resolution validation (same as primary route)
+                                    (async () => {
+                                        try {
+                                            const { validateRouteSegments } =
+                                                await import('../../services/isochrone/landAvoidance');
+                                            const ecmwfNodes = ecmwfCoords.map(
+                                                ([lon, lat]) =>
+                                                    ({
+                                                        lat,
+                                                        lon,
+                                                        timeHours: 0,
+                                                        bearing: 0,
+                                                        speed: 0,
+                                                        tws: 0,
+                                                        twa: 0,
+                                                        parentIndex: null,
+                                                        distance: 0,
+                                                    }) as IsochroneNode,
+                                            );
+                                            const validated = await Promise.race([
+                                                validateRouteSegments(ecmwfNodes),
+                                                new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
+                                            ]);
+                                            if (!validated || computeGenRef.current !== gen) return;
+                                            if (validated.length !== ecmwfNodes.length) {
+                                                const newCoords = validated.map(
+                                                    (n) => [n.lon, n.lat] as [number, number],
+                                                );
+                                                const ecmwfSrc2 = map.getSource(
+                                                    'confidence-route-ecmwf',
+                                                ) as mapboxgl.GeoJSONSource;
+                                                if (ecmwfSrc2) {
+                                                    ecmwfSrc2.setData({
+                                                        type: 'FeatureCollection',
+                                                        features: [
+                                                            {
+                                                                type: 'Feature' as const,
+                                                                properties: { model: 'ECMWF' },
+                                                                geometry: {
+                                                                    type: 'LineString' as const,
+                                                                    coordinates: newCoords,
+                                                                },
+                                                            },
+                                                        ],
+                                                    });
+                                                }
+                                                log.info(
+                                                    `[ConfidenceBraid] GEBCO validated ECMWF: ${ecmwfNodes.length} → ${validated.length} points`,
+                                                );
+                                            }
+                                        } catch (err) {
+                                            log.warn('[ConfidenceBraid] GEBCO ECMWF validation failed:', err);
+                                        }
+                                    })();
 
                                     // Render: show the FULL ECMWF route as magenta
                                     // Where routes agree, lines overlap (natural braid)

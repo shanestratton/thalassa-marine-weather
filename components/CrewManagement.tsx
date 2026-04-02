@@ -722,6 +722,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             {showCastOff && (
                 <CastOffPanel
                     onClose={() => setShowCastOff(false)}
+                    initialVoyageId={selectedPassageId || undefined}
                     onCastOff={(voyage) => {
                         setActiveVoyageName(voyage.voyage_name);
                         setShowCastOff(false);
