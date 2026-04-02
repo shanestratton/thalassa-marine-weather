@@ -182,28 +182,44 @@ class SignalKServiceClass {
         if (!this.enabled) return;
         this.setStatus('connecting');
 
-        // In dev mode, route through Vite proxy to avoid CORS
-        // In production/Capacitor, fetch directly (no CORS enforcement)
-        const baseUrl = this.getBaseUrl();
+        const directUrl = `http://${this.host}:${this.port}`;
 
         try {
-            // Probe server type — try AvNav first, then SignalK
-
-            // ── Try AvNav ──
-            const isAvNav = await this.detectAvNav(baseUrl);
+            // ── Try AvNav first (image-based probe — bypasses CORS & firewall) ──
+            const isAvNav = await this.probeAvNavWithImage(directUrl);
             if (isAvNav) {
                 this.serverType = 'avnav';
                 this.apiVersion = null;
-                log.info(`Connected to AvNav at ${baseUrl}`);
+                log.info(`Connected to AvNav at ${directUrl}`);
                 this.reconnectAttempts = 0;
                 this.setStatus('connected');
-                await this.fetchAvNavCharts();
+
+                // Create a default chart entry — AvNav always serves tiles at /tiles/
+                this.charts = [
+                    {
+                        id: 'avnav-default',
+                        name: 'AvNav Charts',
+                        description: `Charts from ${this.host}:${this.port}`,
+                        tilesUrl: `${directUrl}/tiles/{z}/{x}/{y}.png`,
+                        format: 'png',
+                        minZoom: 1,
+                        maxZoom: 18,
+                        type: 'raster',
+                    },
+                ];
+                this.emitCharts();
+                log.info('AvNav: created default chart tile source');
+
+                // Try to discover individual chart sets via fetch (best-effort)
+                this.tryFetchAvNavCharts(directUrl);
+
                 this.startHealthCheck();
                 this.startChartRefresh();
                 return;
             }
 
-            // ── Try SignalK ──
+            // ── Try SignalK (fetch-based — works in Capacitor, may fail in browser dev) ──
+            const baseUrl = this.getBaseUrl();
             this.apiVersion = await this.detectApiVersion(baseUrl);
 
             if (!this.apiVersion) {
@@ -227,6 +243,64 @@ class SignalKServiceClass {
             this.lastError = msg;
             this.setStatus('error');
             if (this.enabled) this.scheduleReconnect();
+        }
+    }
+
+    /**
+     * Probe AvNav server by loading a test image from its viewer.
+     * Image loads bypass CORS and macOS firewall restrictions that block fetch().
+     * Returns true if the server responds with any image-like content.
+     */
+    private probeAvNavWithImage(baseUrl: string): Promise<boolean> {
+        return new Promise((resolve) => {
+            const timeout = setTimeout(() => resolve(false), 6000);
+
+            // Try loading the AvNav favicon or a known static asset
+            const img = new Image();
+            img.onload = () => {
+                clearTimeout(timeout);
+                resolve(true);
+            };
+            img.onerror = () => {
+                // Image failed — try an alternative probe
+                const img2 = new Image();
+                img2.onload = () => {
+                    clearTimeout(timeout);
+                    resolve(true);
+                };
+                img2.onerror = () => {
+                    clearTimeout(timeout);
+                    resolve(false);
+                };
+                // Try loading a tile at z=0 (world overview — always exists if charts are loaded)
+                img2.src = `${baseUrl}/tiles/0/0/0.png?_t=${Date.now()}`;
+            };
+            // AvNav serves static assets — try favicon or a viewer icon
+            img.src = `${baseUrl}/viewer/images/avn_logo.png?_t=${Date.now()}`;
+        });
+    }
+
+    /**
+     * Best-effort: try to discover individual chart sets from AvNav API.
+     * If this fails (CORS), we already have the default tile source working.
+     */
+    private async tryFetchAvNavCharts(directUrl: string) {
+        try {
+            const baseUrl = this.getBaseUrl();
+            const res = await fetch(`${baseUrl}/api/list?type=chart`, {
+                signal: AbortSignal.timeout(10_000),
+            });
+            if (res.ok) {
+                const data = await res.json();
+                const discovered = this.parseAvNavCharts(data, directUrl);
+                if (discovered.length > 0) {
+                    this.charts = discovered;
+                    this.emitCharts();
+                    log.info(`AvNav: discovered ${discovered.length} chart set(s)`);
+                }
+            }
+        } catch {
+            log.info('AvNav: API discovery unavailable (CORS) — using default tile source');
         }
     }
 
