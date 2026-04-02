@@ -50,6 +50,34 @@ export default defineConfig(({ mode }) => {
                     target: 'http://localhost:3100',
                     changeOrigin: true,
                 },
+                // Dynamic CORS proxy for AvNav/SignalK chart servers on LAN
+                // Rewrites: /__chart-proxy/{host}/{port}/path → http://{host}:{port}/path
+                '/__chart-proxy': {
+                    target: 'http://localhost', // placeholder — overridden by configure()
+                    changeOrigin: true,
+                    configure: (proxy) => {
+                        proxy.on('proxyReq', (proxyReq, req) => {
+                            // Extract host/port from URL: /__chart-proxy/192.168.50.7/8080/rest/of/path
+                            const match = req.url?.match(/^\/__chart-proxy\/([^/]+)\/(\d+)(\/.*)?$/);
+                            if (match) {
+                                const [, targetHost, targetPort, rest] = match;
+                                proxyReq.setHeader('host', `${targetHost}:${targetPort}`);
+                                proxyReq.path = rest || '/';
+                            }
+                        });
+                    },
+                    router: (req: { url?: string }) => {
+                        const match = req.url?.match(/^\/__chart-proxy\/([^/]+)\/(\d+)/);
+                        if (match) {
+                            return `http://${match[1]}:${match[2]}`;
+                        }
+                        return 'http://localhost:3100';
+                    },
+                    rewrite: (path: string) => {
+                        // Strip /__chart-proxy/{host}/{port} prefix
+                        return path.replace(/^\/__chart-proxy\/[^/]+\/\d+/, '') || '/';
+                    },
+                },
             },
         },
         plugins: [

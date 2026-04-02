@@ -41,6 +41,13 @@ const RECONNECT_MAX_MS = 30000;
 const HEALTH_CHECK_INTERVAL_MS = 60_000; // Verify connection every 60s
 const CHART_REFRESH_INTERVAL_MS = 5 * 60_000; // Re-scan charts every 5 min
 
+/**
+ * In browser dev mode (Vite), we can't fetch cross-origin LAN devices
+ * due to CORS. Route through Vite's proxy instead.
+ * In Capacitor native, CORS isn't enforced so direct fetch works.
+ */
+const IS_DEV = import.meta.env?.DEV ?? false;
+
 // ── Singleton ──
 
 class SignalKServiceClass {
@@ -156,6 +163,11 @@ class SignalKServiceClass {
         return () => this.chartListeners.delete(cb);
     }
 
+    /** Build base URL, routing through Vite proxy in dev to bypass CORS */
+    private getBaseUrl(): string {
+        return IS_DEV ? `/__chart-proxy/${this.host}/${this.port}` : `http://${this.host}:${this.port}`;
+    }
+
     /**
      * Build a full tile URL for a given chart.
      * Used by Mapbox as a raster tile source.
@@ -170,7 +182,9 @@ class SignalKServiceClass {
         if (!this.enabled) return;
         this.setStatus('connecting');
 
-        const baseUrl = `http://${this.host}:${this.port}`;
+        // In dev mode, route through Vite proxy to avoid CORS
+        // In production/Capacitor, fetch directly (no CORS enforcement)
+        const baseUrl = this.getBaseUrl();
 
         try {
             // Probe server type — try AvNav first, then SignalK
@@ -303,7 +317,7 @@ class SignalKServiceClass {
      * AvNav serves tiles at: /tiles/{chartName}/{z}/{x}/{y}.png
      */
     private async fetchAvNavCharts() {
-        const baseUrl = `http://${this.host}:${this.port}`;
+        const baseUrl = this.getBaseUrl();
 
         try {
             const res = await fetch(`${baseUrl}/api/list?type=chart`, {
@@ -370,7 +384,7 @@ class SignalKServiceClass {
      * Fetch available charts from the Signal K Resources API.
      */
     private async fetchCharts() {
-        const baseUrl = `http://${this.host}:${this.port}`;
+        const baseUrl = this.getBaseUrl();
         const chartsEndpoint =
             this.apiVersion === 'v2'
                 ? `${baseUrl}/signalk/v2/api/resources/charts`
@@ -404,7 +418,7 @@ class SignalKServiceClass {
      * The response shape varies between v1 and v2, and between plugins.
      */
     private parseCharts(data: Record<string, unknown>): SignalKChart[] {
-        const baseUrl = `http://${this.host}:${this.port}`;
+        const baseUrl = this.getBaseUrl();
         const charts: SignalKChart[] = [];
 
         // Response is typically { chartId: { ...chartData } }
@@ -470,7 +484,7 @@ class SignalKServiceClass {
     private async checkHealth() {
         if (!this.enabled || this.status !== 'connected') return;
 
-        const baseUrl = `http://${this.host}:${this.port}`;
+        const baseUrl = this.getBaseUrl();
         try {
             const res = await fetch(`${baseUrl}/signalk`, {
                 signal: AbortSignal.timeout(5000),
