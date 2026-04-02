@@ -142,14 +142,15 @@ function ensureTrailLayers(map: mapboxgl.Map) {
         paint: {
             'line-color': '#38bdf8',
             'line-width': 2.5,
-            'line-opacity': [
+            'line-opacity': 0.8,
+            'line-gradient': [
                 'interpolate',
                 ['linear'],
                 ['line-progress'],
                 0,
-                0.1, // oldest point — nearly transparent
+                'rgba(56, 189, 248, 0.1)', // oldest — nearly transparent
                 1,
-                0.8, // newest point — solid
+                'rgba(56, 189, 248, 1)', // newest — fully opaque
             ],
         },
     });
