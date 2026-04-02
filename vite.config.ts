@@ -1,5 +1,6 @@
 /// <reference types="vitest" />
 import path from 'path';
+import http from 'http';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { visualizer } from 'rollup-plugin-visualizer';
@@ -50,37 +51,53 @@ export default defineConfig(({ mode }) => {
                     target: 'http://localhost:3100',
                     changeOrigin: true,
                 },
-                // Dynamic CORS proxy for AvNav/SignalK chart servers on LAN
-                // Rewrites: /__chart-proxy/{host}/{port}/path → http://{host}:{port}/path
-                '/__chart-proxy': {
-                    target: 'http://localhost', // placeholder — overridden by configure()
-                    changeOrigin: true,
-                    configure: (proxy) => {
-                        proxy.on('proxyReq', (proxyReq, req) => {
-                            // Extract host/port from URL: /__chart-proxy/192.168.50.7/8080/rest/of/path
-                            const match = req.url?.match(/^\/__chart-proxy\/([^/]+)\/(\d+)(\/.*)?$/);
-                            if (match) {
-                                const [, targetHost, targetPort, rest] = match;
-                                proxyReq.setHeader('host', `${targetHost}:${targetPort}`);
-                                proxyReq.path = rest || '/';
-                            }
-                        });
-                    },
-                    router: (req: { url?: string }) => {
-                        const match = req.url?.match(/^\/__chart-proxy\/([^/]+)\/(\d+)/);
-                        if (match) {
-                            return `http://${match[1]}:${match[2]}`;
-                        }
-                        return 'http://localhost:3100';
-                    },
-                    rewrite: (path: string) => {
-                        // Strip /__chart-proxy/{host}/{port} prefix
-                        return path.replace(/^\/__chart-proxy\/[^/]+\/\d+/, '') || '/';
-                    },
-                },
             },
         },
         plugins: [
+            // Dynamic CORS proxy for AvNav/SignalK chart servers on LAN
+            // Handles: /__chart-proxy/{host}/{port}/path → http://{host}:{port}/path
+            {
+                name: 'chart-proxy',
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                configureServer(server: any) {
+                    server.middlewares.use('/__chart-proxy', (req: http.IncomingMessage, res: http.ServerResponse) => {
+                        // req.url is the portion AFTER the middleware mount path
+                        // e.g. /192.168.50.7/8080/tiles/11/1894/1185.png
+                        const match = req.url?.match(/^\/([^/]+)\/(\d+)(\/.*)?$/);
+                        if (!match) {
+                            res.writeHead(400, { 'Content-Type': 'text/plain' });
+                            res.end('Bad chart proxy URL');
+                            return;
+                        }
+                        const [, targetHost, targetPort, targetPath] = match;
+                        const options: http.RequestOptions = {
+                            hostname: targetHost,
+                            port: Number(targetPort),
+                            path: targetPath || '/',
+                            method: req.method || 'GET',
+                            headers: {
+                                ...req.headers,
+                                host: `${targetHost}:${targetPort}`,
+                            },
+                        };
+                        const proxyReq = http.request(options, (proxyRes) => {
+                            // Forward all response headers including content-type
+                            res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+                            proxyRes.pipe(res, { end: true });
+                        });
+                        proxyReq.on('error', (err) => {
+                            console.error(
+                                `[chart-proxy] Error → ${targetHost}:${targetPort}${targetPath}: ${err.message}`,
+                            );
+                            if (!res.headersSent) {
+                                res.writeHead(502, { 'Content-Type': 'text/plain' });
+                            }
+                            res.end(`Chart proxy error: ${err.message}`);
+                        });
+                        req.pipe(proxyReq, { end: true });
+                    });
+                },
+            },
             react(),
             mode === 'production' &&
                 visualizer({

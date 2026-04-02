@@ -195,28 +195,8 @@ class SignalKServiceClass {
                 this.reconnectAttempts = 0;
                 this.setStatus('connected');
 
-                // In dev mode, tile fetches go through Vite proxy to bypass CORS.
-                // In Capacitor/production, tiles load directly (no CORS enforcement).
-                const tileBaseUrl = IS_DEV ? `/__chart-proxy/${this.host}/${this.port}` : directUrl;
-
-                // Create default chart entry — AvNav serves tiles at /tiles/
-                this.charts = [
-                    {
-                        id: 'avnav-default',
-                        name: 'AvNav Charts',
-                        description: `Charts from ${this.host}:${this.port}`,
-                        tilesUrl: `${tileBaseUrl}/tiles/{z}/{x}/{y}.png`,
-                        format: 'png',
-                        minZoom: 1,
-                        maxZoom: 18,
-                        type: 'raster',
-                    },
-                ];
-                this.emitCharts();
-                log.info(`AvNav: tile source → ${tileBaseUrl}/tiles/...`);
-
-                // Best-effort chart discovery
-                this.tryFetchAvNavCharts(directUrl);
+                // Discover charts from AvNav API
+                await this.tryFetchAvNavCharts(directUrl);
                 return;
             }
 
@@ -314,27 +294,48 @@ class SignalKServiceClass {
     }
 
     /**
-     * Best-effort: try to discover individual chart sets from AvNav API.
-     * If this fails (CORS), we already have the default tile source working.
+     * Discover charts from the AvNav API.
+     * Uses the AvNav navi.php endpoint (request=listdir&type=chart).
+     * Routes through Vite proxy in dev mode to bypass CORS.
      */
     private async tryFetchAvNavCharts(directUrl: string) {
+        // In dev, route API calls through the chart proxy to bypass CORS
+        const apiBase = IS_DEV ? `/__chart-proxy/${this.host}/${this.port}` : directUrl;
+
         try {
-            const baseUrl = this.getBaseUrl();
-            const res = await fetch(`${baseUrl}/api/list?type=chart`, {
+            const res = await fetch(`${apiBase}/viewer/avnav_navi.php?request=listdir&type=chart`, {
                 signal: AbortSignal.timeout(10_000),
             });
             if (res.ok) {
                 const data = await res.json();
-                const discovered = this.parseAvNavCharts(data, directUrl);
+                const discovered = this.parseAvNavCharts(data);
                 if (discovered.length > 0) {
                     this.charts = discovered;
                     this.emitCharts();
                     log.info(`AvNav: discovered ${discovered.length} chart set(s)`);
+                    return;
                 }
             }
-        } catch {
-            log.info('AvNav: API discovery unavailable (CORS) — using default tile source');
+        } catch (e) {
+            log.info('AvNav: API discovery failed:', (e as Error)?.message);
         }
+
+        // Fallback: create a generic tile source
+        const tileBaseUrl = IS_DEV ? `/__chart-proxy/${this.host}/${this.port}` : directUrl;
+        this.charts = [
+            {
+                id: 'avnav-default',
+                name: 'AvNav Charts',
+                description: `Charts from ${this.host}:${this.port}`,
+                tilesUrl: `${tileBaseUrl}/tiles/{z}/{x}/{y}.png`,
+                format: 'png',
+                minZoom: 1,
+                maxZoom: 18,
+                type: 'raster',
+            },
+        ];
+        this.emitCharts();
+        log.info('AvNav: using fallback tile source');
     }
 
     /**
@@ -439,7 +440,7 @@ class SignalKServiceClass {
             }
 
             const data = await res.json();
-            this.charts = this.parseAvNavCharts(data, baseUrl);
+            this.charts = this.parseAvNavCharts(data);
             log.info(`AvNav: discovered ${this.charts.length} chart(s)`);
             this.emitCharts();
         } catch (e) {
@@ -449,32 +450,59 @@ class SignalKServiceClass {
 
     /**
      * Parse AvNav chart list response.
-     * Response is typically an array of objects with name, url, etc.
+     * AvNav returns items with: name, chartKey, url (absolute to the AvNav host).
+     * Charts may be served from different ports (e.g. ocharts on 8083).
      */
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    private parseAvNavCharts(data: any, baseUrl: string): SignalKChart[] {
+    private parseAvNavCharts(data: any): SignalKChart[] {
         const charts: SignalKChart[] = [];
         const items = Array.isArray(data) ? data : data?.items || data?.data || [];
 
         for (const item of items) {
             if (!item || typeof item !== 'object') continue;
 
-            const name = String(item.name || item.chartKey || item.url || 'Unknown');
-            const chartPath = item.url || item.chartUrl || `/tiles/${encodeURIComponent(name)}`;
+            const name = String(item.name || item.chartKey || 'Unknown');
+            const chartUrl: string = item.url || '';
 
-            // Build tile URL — AvNav uses /tiles/{chartName}/{z}/{x}/{y}.png
-            let tilesUrl = chartPath;
-            if (tilesUrl.startsWith('/')) {
-                tilesUrl = `${baseUrl}${tilesUrl}`;
+            // Skip online-only chart definitions (e.g. osm-online.xml)
+            if (name.includes('online') || chartUrl.startsWith('http://osm')) continue;
+
+            // chartUrl from AvNav may be absolute (http://host:port/path) or relative
+            let tilesUrl = '';
+            if (chartUrl.startsWith('http://') || chartUrl.startsWith('https://')) {
+                // Absolute URL — extract host:port for proxy routing
+                try {
+                    const parsed = new URL(chartUrl);
+                    const chartHost = parsed.hostname;
+                    const chartPort = parsed.port || '80';
+                    const chartPath = parsed.pathname;
+                    if (IS_DEV) {
+                        tilesUrl = `/__chart-proxy/${chartHost}/${chartPort}${chartPath}`;
+                    } else {
+                        tilesUrl = chartUrl;
+                    }
+                } catch {
+                    tilesUrl = chartUrl;
+                }
+            } else {
+                // Relative path — use AvNav host
+                const path = chartUrl.startsWith('/') ? chartUrl : `/${chartUrl}`;
+                if (IS_DEV) {
+                    tilesUrl = `/__chart-proxy/${this.host}/${this.port}${path}`;
+                } else {
+                    tilesUrl = `http://${this.host}:${this.port}${path}`;
+                }
             }
+
+            // Append tile coordinate template if not present
             if (!tilesUrl.includes('{z}')) {
                 tilesUrl = `${tilesUrl}/{z}/{x}/{y}.png`;
             }
 
             charts.push({
-                id: `avnav-${name}`,
-                name: name.replace(/\.(gemf|mbtiles)$/i, ''),
-                description: `AvNav chart: ${name}`,
+                id: `avnav-${name.replace(/[^a-zA-Z0-9-]/g, '_')}`,
+                name: name.replace(/\.(gemf|mbtiles|xml)$/i, ''),
+                description: `AvNav: ${name}`,
                 tilesUrl,
                 format: 'png',
                 minZoom: Number(item.minzoom ?? 1),
