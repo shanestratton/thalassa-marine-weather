@@ -471,16 +471,16 @@ class SignalKServiceClass {
             let tilesUrl = '';
 
             if (hasToken && chartUrl.startsWith('http')) {
-                // ocharts DRM chart — tiles MUST go through AvNav's download handler
-                // which handles encryption/token internally.
-                // URL: /viewer/avnav_navi.php?request=download&type=chart&name={chartName}&url={z}/{x}/{y}.png
-                const chartName = chartUrl.split('/').pop() || name;
-                const avnavDownloadBase = `/viewer/avnav_navi.php?request=download&type=chart&name=${encodeURIComponent(chartName)}&url=`;
+                // ocharts DRM chart — requires client-side JavaScript token encryption.
+                // The token script encrypts tile URLs before each request, which can't be
+                // replicated through a simple server-side proxy.
+                // In dev mode (browser): skip these charts — they'll only work on native.
+                // In production (Capacitor WebView): use direct URL — no CORS restrictions.
                 if (IS_DEV) {
-                    tilesUrl = `/__chart-proxy/${this.host}/${this.port}${avnavDownloadBase}{z}/{x}/{y}.png`;
-                } else {
-                    tilesUrl = `http://${this.host}:${this.port}${avnavDownloadBase}{z}/{x}/{y}.png`;
+                    log.info(`Skipping DRM chart in dev: ${name}`);
+                    continue;
                 }
+                tilesUrl = chartUrl;
             } else if (chartUrl.startsWith('http://') || chartUrl.startsWith('https://')) {
                 // Absolute URL — extract host:port for proxy routing
                 try {
