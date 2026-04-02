@@ -195,13 +195,17 @@ class SignalKServiceClass {
                 this.reconnectAttempts = 0;
                 this.setStatus('connected');
 
+                // In dev mode, tile fetches go through Vite proxy to bypass CORS.
+                // In Capacitor/production, tiles load directly (no CORS enforcement).
+                const tileBaseUrl = IS_DEV ? `/__chart-proxy/${this.host}/${this.port}` : directUrl;
+
                 // Create default chart entry — AvNav serves tiles at /tiles/
                 this.charts = [
                     {
                         id: 'avnav-default',
                         name: 'AvNav Charts',
                         description: `Charts from ${this.host}:${this.port}`,
-                        tilesUrl: `${directUrl}/tiles/{z}/{x}/{y}.png`,
+                        tilesUrl: `${tileBaseUrl}/tiles/{z}/{x}/{y}.png`,
                         format: 'png',
                         minZoom: 1,
                         maxZoom: 18,
@@ -209,7 +213,7 @@ class SignalKServiceClass {
                     },
                 ];
                 this.emitCharts();
-                log.info('AvNav: created default chart tile source');
+                log.info(`AvNav: tile source → ${tileBaseUrl}/tiles/...`);
 
                 // Best-effort chart discovery
                 this.tryFetchAvNavCharts(directUrl);
