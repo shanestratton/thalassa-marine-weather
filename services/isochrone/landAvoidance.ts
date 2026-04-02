@@ -15,7 +15,7 @@ import { createLogger } from '../../utils/createLogger';
 const landLog = createLogger('LandAvoidance');
 
 // ── Hazard minimum depth: reefs, sandbanks, coral below this are rejected ──
-const REEF_REJECTION_DEPTH_M = -10; // ETOPO: negative = underwater
+const REEF_REJECTION_DEPTH_M = -15; // ETOPO: negative = underwater
 
 /**
  * Combined land + shallow hazard check for a segment.
@@ -291,7 +291,7 @@ export function eliminateCrossings(
 
             // Sharp reversal (>40°) — likely a backtracking zigzag
             if (bearingChange > 40) {
-                if (isSegmentNavigable(grid, A.lat, A.lon, C.lat, C.lon, 0, true)) {
+                if (isSegmentNavigable(grid, A.lat, A.lon, C.lat, C.lon)) {
                     toRemove.add(i);
                     continue;
                 }
@@ -300,7 +300,7 @@ export function eliminateCrossings(
             // Short-segment zigzag: if A→B is under 80NM and turn is >35°, remove
             const abDist = haversineNm(A.lat, A.lon, B.lat, B.lon);
             if (abDist < 80 && bearingChange > 35) {
-                if (isSegmentNavigable(grid, A.lat, A.lon, C.lat, C.lon, 0, true)) {
+                if (isSegmentNavigable(grid, A.lat, A.lon, C.lat, C.lon)) {
                     toRemove.add(i);
                     continue;
                 }
@@ -312,7 +312,7 @@ export function eliminateCrossings(
                 const distA = haversineNm(A.lat, A.lon, destination.lat, destination.lon);
                 const distB = haversineNm(B.lat, B.lon, destination.lat, destination.lon);
                 if (distB > distA) {
-                    if (isSegmentNavigable(grid, A.lat, A.lon, C.lat, C.lon, 0, true)) {
+                    if (isSegmentNavigable(grid, A.lat, A.lon, C.lat, C.lon)) {
                         toRemove.add(i);
                     }
                 }
@@ -386,7 +386,7 @@ const MAX_VALIDATION_PASSES = 3;
  * Any depth shallower than this is treated as a hazard (land, reef, shoal).
  * GEBCO uses negative values for ocean depth, so -10 means "shallower than 10m".
  */
-const GEBCO_HAZARD_DEPTH_M = -10;
+const GEBCO_HAZARD_DEPTH_M = -15;
 
 /**
  * Generate sample points along a great-circle segment at FINE_SAMPLE_SPACING_NM intervals.
