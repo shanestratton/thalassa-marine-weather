@@ -463,13 +463,25 @@ class SignalKServiceClass {
 
             const name = String(item.name || item.chartKey || 'Unknown');
             const chartUrl: string = item.url || '';
+            const hasToken = !!item.tokenUrl; // ocharts DRM-protected chart
 
             // Skip online-only chart definitions (e.g. osm-online.xml)
             if (name.includes('online') || chartUrl.startsWith('http://osm')) continue;
 
-            // chartUrl from AvNav may be absolute (http://host:port/path) or relative
             let tilesUrl = '';
-            if (chartUrl.startsWith('http://') || chartUrl.startsWith('https://')) {
+
+            if (hasToken && chartUrl.startsWith('http')) {
+                // ocharts DRM chart — tiles MUST go through AvNav's download handler
+                // which handles encryption/token internally.
+                // URL: /viewer/avnav_navi.php?request=download&type=chart&name={chartName}&url={z}/{x}/{y}.png
+                const chartName = chartUrl.split('/').pop() || name;
+                const avnavDownloadBase = `/viewer/avnav_navi.php?request=download&type=chart&name=${encodeURIComponent(chartName)}&url=`;
+                if (IS_DEV) {
+                    tilesUrl = `/__chart-proxy/${this.host}/${this.port}${avnavDownloadBase}{z}/{x}/{y}.png`;
+                } else {
+                    tilesUrl = `http://${this.host}:${this.port}${avnavDownloadBase}{z}/{x}/{y}.png`;
+                }
+            } else if (chartUrl.startsWith('http://') || chartUrl.startsWith('https://')) {
                 // Absolute URL — extract host:port for proxy routing
                 try {
                     const parsed = new URL(chartUrl);
