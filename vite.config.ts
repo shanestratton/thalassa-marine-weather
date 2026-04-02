@@ -70,19 +70,35 @@ export default defineConfig(({ mode }) => {
                             return;
                         }
                         const [, targetHost, targetPort, targetPath] = match;
+                        // Strip browser-specific headers that LAN servers reject
+                        const cleanHeaders: Record<string, string | string[] | undefined> = {};
+                        for (const [key, val] of Object.entries(req.headers)) {
+                            if (
+                                key === 'host' ||
+                                key === 'origin' ||
+                                key === 'referer' ||
+                                key === 'cookie' ||
+                                key.startsWith('sec-')
+                            )
+                                continue;
+                            cleanHeaders[key] = val;
+                        }
+                        cleanHeaders['host'] = `${targetHost}:${targetPort}`;
                         const options: http.RequestOptions = {
                             hostname: targetHost,
                             port: Number(targetPort),
                             path: targetPath || '/',
                             method: req.method || 'GET',
-                            headers: {
-                                ...req.headers,
-                                host: `${targetHost}:${targetPort}`,
-                            },
+                            headers: cleanHeaders,
                         };
                         const proxyReq = http.request(options, (proxyRes) => {
-                            // Forward all response headers including content-type
-                            res.writeHead(proxyRes.statusCode || 502, proxyRes.headers);
+                            // Add CORS headers so Mapbox GL WebGL can read tile pixels
+                            const responseHeaders = {
+                                ...proxyRes.headers,
+                                'access-control-allow-origin': '*',
+                                'access-control-allow-methods': 'GET, OPTIONS',
+                            };
+                            res.writeHead(proxyRes.statusCode || 502, responseHeaders);
                             proxyRes.pipe(res, { end: true });
                         });
                         proxyReq.on('error', (err) => {
