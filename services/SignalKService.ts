@@ -25,6 +25,54 @@ export interface SignalKChart {
     maxZoom: number;
     bounds?: [number, number, number, number]; // [west, south, east, north]
     type: 'raster' | 'vector';
+    /** ocharts DRM: name of the global JS function that encrypts tile URLs */
+    tokenFunction?: string;
+}
+
+// ── ocharts DRM Token Registry ──
+// Stores loaded token functions keyed by function name.
+const _tokenRegistry: Record<string, (url: string) => string> = {};
+let _tokenScriptsLoaded = new Set<string>();
+
+/**
+ * Load an ocharts token script (DRM encryption function) by injecting it
+ * into the document as a <script> tag. The script defines a global function
+ * (e.g. `ochartsProviderNG`) that encrypts tile URLs.
+ */
+async function loadTokenScript(tokenUrl: string, functionName: string): Promise<void> {
+    if (_tokenScriptsLoaded.has(functionName)) return;
+    _tokenScriptsLoaded.add(functionName);
+
+    try {
+        const res = await fetch(tokenUrl, { signal: AbortSignal.timeout(10_000) });
+        if (!res.ok) throw new Error(`Token script HTTP ${res.status}`);
+        const scriptText = await res.text();
+
+        // Inject as <script> so the function becomes globally available
+        const script = document.createElement('script');
+        script.textContent = scriptText;
+        document.head.appendChild(script);
+
+        // Verify the function exists on window
+        const fn = (window as unknown as Record<string, unknown>)[functionName];
+        if (typeof fn === 'function') {
+            _tokenRegistry[functionName] = fn as (url: string) => string;
+            log.info(`Loaded ocharts DRM token function: ${functionName}`);
+        } else {
+            log.warn(`Token script loaded but function '${functionName}' not found on window`);
+        }
+    } catch (err) {
+        log.warn(`Failed to load ocharts token script: ${err}`);
+        _tokenScriptsLoaded.delete(functionName);
+    }
+}
+
+/**
+ * Get the ocharts token function for encrypting tile URLs.
+ * Used by the map's transformRequest to encrypt ocharts tile URLs.
+ */
+export function getOchartsTokenFunction(functionName: string): ((url: string) => string) | null {
+    return _tokenRegistry[functionName] || null;
 }
 
 export type SignalKConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -472,15 +520,26 @@ class SignalKServiceClass {
 
             if (hasToken && chartUrl.startsWith('http')) {
                 // ocharts DRM chart — requires client-side JavaScript token encryption.
-                // The token script encrypts tile URLs before each request, which can't be
-                // replicated through a simple server-side proxy.
-                // In dev mode (browser): skip these charts — they'll only work on native.
-                // In production (Capacitor WebView): use direct URL — no CORS restrictions.
+                // Load the token script and store the function name on the chart object
+                // so the map's transformRequest can encrypt tile URLs.
+                const tokenUrl = String(item.tokenUrl);
+                const tokenFn = String(item.tokenFunction || 'ochartsProviderNG');
+
+                // Load the token script async (non-blocking)
+                loadTokenScript(
+                    IS_DEV
+                        ? `/__chart-proxy/${new URL(tokenUrl).hostname}/${new URL(tokenUrl).port || '80'}${new URL(tokenUrl).pathname}${new URL(tokenUrl).search}`
+                        : tokenUrl,
+                    tokenFn,
+                );
+
+                // Build tile URL — in dev, proxy through Vite; in prod, use direct
                 if (IS_DEV) {
-                    log.info(`Skipping DRM chart in dev: ${name}`);
-                    continue;
+                    const parsed = new URL(chartUrl);
+                    tilesUrl = `/__chart-proxy/${parsed.hostname}/${parsed.port || '80'}${parsed.pathname}`;
+                } else {
+                    tilesUrl = chartUrl;
                 }
-                tilesUrl = chartUrl;
             } else if (chartUrl.startsWith('http://') || chartUrl.startsWith('https://')) {
                 // Absolute URL — extract host:port for proxy routing
                 try {
@@ -521,6 +580,7 @@ class SignalKServiceClass {
                 maxZoom: Number(item.maxzoom ?? 18),
                 bounds: item.bounds ? item.bounds : undefined,
                 type: 'raster',
+                ...(hasToken ? { tokenFunction: String(item.tokenFunction || 'ochartsProviderNG') } : {}),
             });
         }
 
