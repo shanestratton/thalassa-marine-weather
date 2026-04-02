@@ -3,7 +3,7 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('SettingsModal');
 import { UserSettings } from '../types';
-import { BellIcon, ArrowRightIcon, BoatIcon, StarIcon, GearIcon, ServerIcon, MapPinIcon } from './Icons';
+import { BellIcon, ArrowRightIcon, BoatIcon, StarIcon, GearIcon, ServerIcon, MapPinIcon, MapIcon } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
 import { useThalassa } from '../context/ThalassaContext';
 import { GpsService } from '../services/GpsService';
@@ -14,6 +14,7 @@ import { VesselTab } from './settings/VesselTab';
 import { GeneralTab } from './settings/GeneralTab';
 import { AccountTab } from './settings/AccountTab';
 import { LocationsTab } from './settings/LocationsTab';
+import { SignalKTab } from './settings/SignalKTab';
 
 import { ConfirmDialog } from './ui/ConfirmDialog';
 
@@ -193,7 +194,7 @@ const MetricInput = ({
     );
 };
 
-type SettingsTab = 'general' | 'account' | 'vessel' | 'alerts' | 'scenery' | 'locations' | 'layout';
+type SettingsTab = 'general' | 'account' | 'vessel' | 'alerts' | 'scenery' | 'locations' | 'charts' | 'layout';
 
 const MENU_ITEMS: {
     id: SettingsTab;
@@ -251,6 +252,14 @@ const MENU_ITEMS: {
         icon: (c) => <StarIcon className={c} />,
         iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10',
         iconHoverBg: 'group-hover:bg-sky-500/25',
+    },
+    {
+        id: 'charts' as SettingsTab,
+        label: 'Chart Server',
+        description: 'Connect to AvNav or Signal K',
+        icon: (c: string) => <MapIcon className={c} />,
+        iconBg: 'bg-teal-500/15 text-teal-400 shadow-teal-500/10',
+        iconHoverBg: 'group-hover:bg-teal-500/25',
     },
 ];
 
@@ -348,6 +357,12 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             onClick={() => setActiveTab('scenery')}
                             icon={<StarIcon className="w-5 h-5" />}
                             label="AESTHETICS"
+                        />
+                        <NavButton
+                            active={activeTab === 'charts'}
+                            onClick={() => setActiveTab('charts')}
+                            icon={<MapIcon className="w-5 h-5" />}
+                            label="CHART SERVER"
                         />
                     </div>
 
@@ -477,6 +492,8 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         {activeTab === 'alerts' && <AlertsTab settings={settings} onSave={onSave} />}
 
                         {activeTab === 'scenery' && <AestheticsTab settings={settings} onSave={onSave} />}
+
+                        {activeTab === 'charts' && <SignalKTab />}
                     </div>
                 </div>
 
