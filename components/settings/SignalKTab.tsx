@@ -17,6 +17,9 @@ export const SignalKTab: React.FC = () => {
     const [apiVersion, setApiVersion] = useState<string | null>(SignalKService.getApiVersion());
     const [lastError, setLastError] = useState<string | null>(SignalKService.getLastError());
     const [serverType, setServerType] = useState<'signalk' | 'avnav' | null>(SignalKService.getServerType());
+    const [serverTypeChoice, setServerTypeChoice] = useState<'signalk' | 'avnav'>(
+        () => (localStorage.getItem('signalk_server_type') as 'signalk' | 'avnav') || 'avnav',
+    );
 
     useEffect(() => {
         const unsubStatus = SignalKService.onStatusChange((s) => {
@@ -33,9 +36,9 @@ export const SignalKTab: React.FC = () => {
     }, []);
 
     const handleConnect = useCallback(() => {
-        SignalKService.configure(host, parseInt(port, 10) || 3000);
+        SignalKService.configure(host, parseInt(port, 10) || 3000, serverTypeChoice);
         SignalKService.start();
-    }, [host, port]);
+    }, [host, port, serverTypeChoice]);
 
     const handleDisconnect = useCallback(() => {
         SignalKService.stop();
@@ -113,12 +116,38 @@ export const SignalKTab: React.FC = () => {
 
             {/* Server Configuration */}
             <Section title="Server Configuration">
+                <Row label="Server Type">
+                    <div className="flex gap-1 bg-black/40 rounded-xl p-1 border border-white/10">
+                        <button
+                            onClick={() => setServerTypeChoice('avnav')}
+                            disabled={isConnected}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
+                                serverTypeChoice === 'avnav'
+                                    ? 'bg-emerald-500/25 text-emerald-400 border border-emerald-500/40'
+                                    : 'text-gray-500 hover:text-gray-300'
+                            } disabled:opacity-50`}
+                        >
+                            AvNav
+                        </button>
+                        <button
+                            onClick={() => setServerTypeChoice('signalk')}
+                            disabled={isConnected}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-all ${
+                                serverTypeChoice === 'signalk'
+                                    ? 'bg-sky-500/25 text-sky-400 border border-sky-500/40'
+                                    : 'text-gray-500 hover:text-gray-300'
+                            } disabled:opacity-50`}
+                        >
+                            Signal K
+                        </button>
+                    </div>
+                </Row>
                 <Row label="Host Address">
                     <input
                         type="text"
                         value={host}
                         onChange={(e) => setHost(e.target.value)}
-                        placeholder="signalk.local"
+                        placeholder={serverTypeChoice === 'avnav' ? '192.168.x.x' : 'signalk.local'}
                         disabled={isConnected}
                         className="w-48 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-mono placeholder-gray-600 outline-none focus:border-sky-500 focus:shadow-[0_0_10px_rgba(14,165,233,0.2)] transition-all disabled:opacity-50"
                     />

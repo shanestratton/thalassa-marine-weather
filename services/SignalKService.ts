@@ -71,9 +71,10 @@ class SignalKServiceClass {
 
     // ── Public API ──
 
-    configure(host: string, port: number) {
+    configure(host: string, port: number, explicitType?: 'signalk' | 'avnav') {
         this.host = host || DEFAULT_HOST;
         this.port = port || DEFAULT_PORT;
+        if (explicitType) this.serverType = explicitType;
     }
 
     getHost(): string {
@@ -108,8 +109,9 @@ class SignalKServiceClass {
         const savedHost = localStorage.getItem('signalk_host');
         const savedPort = localStorage.getItem('signalk_port');
         const savedEnabled = localStorage.getItem('signalk_enabled');
+        const savedType = localStorage.getItem('signalk_server_type') as 'signalk' | 'avnav' | null;
         if (!savedHost || savedEnabled !== 'true') return;
-        this.configure(savedHost, parseInt(savedPort || String(DEFAULT_PORT), 10));
+        this.configure(savedHost, parseInt(savedPort || String(DEFAULT_PORT), 10), savedType || undefined);
         this.start();
     }
 
@@ -123,6 +125,7 @@ class SignalKServiceClass {
         localStorage.setItem('signalk_host', this.host);
         localStorage.setItem('signalk_port', String(this.port));
         localStorage.setItem('signalk_enabled', 'true');
+        if (this.serverType) localStorage.setItem('signalk_server_type', this.serverType);
 
         await this.connect();
     }
@@ -185,11 +188,37 @@ class SignalKServiceClass {
         const directUrl = `http://${this.host}:${this.port}`;
 
         try {
-            // ── Try AvNav first (image-based probe — bypasses CORS & firewall) ──
+            // ── Explicit AvNav mode — skip all detection ──
+            if (this.serverType === 'avnav') {
+                this.apiVersion = null;
+                log.info(`Connecting to AvNav at ${directUrl} (explicit mode)`);
+                this.reconnectAttempts = 0;
+                this.setStatus('connected');
+
+                // Create default chart entry — AvNav serves tiles at /tiles/
+                this.charts = [
+                    {
+                        id: 'avnav-default',
+                        name: 'AvNav Charts',
+                        description: `Charts from ${this.host}:${this.port}`,
+                        tilesUrl: `${directUrl}/tiles/{z}/{x}/{y}.png`,
+                        format: 'png',
+                        minZoom: 1,
+                        maxZoom: 18,
+                        type: 'raster',
+                    },
+                ];
+                this.emitCharts();
+                log.info('AvNav: created default chart tile source');
+
+                // Best-effort chart discovery
+                this.tryFetchAvNavCharts(directUrl);
+                return;
+            }
+
+            // ── Auto-detect: try AvNav image probe first ──
             const isAvNav = await this.probeAvNavWithImage(directUrl);
             if (isAvNav) {
-                this.serverType = 'avnav';
-                this.apiVersion = null;
                 log.info(`Connected to AvNav at ${directUrl}`);
                 this.reconnectAttempts = 0;
                 this.setStatus('connected');
