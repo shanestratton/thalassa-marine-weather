@@ -15,7 +15,7 @@ import { LocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
 import { GpsService as _GpsService } from '../../services/GpsService';
 import { createPinMarker } from '../../utils/createMarkerEl';
-import { SignalKService, getOchartsTokenFunction, type SignalKChart } from '../../services/SignalKService';
+import { SignalKService, encryptOchartsUrl } from '../../services/SignalKService';
 
 interface UseMapInitOptions {
     containerRef: MutableRefObject<HTMLDivElement | null>;
@@ -184,19 +184,15 @@ export function useMapInit(opts: UseMapInitOptions) {
             pitch: 0,
             maxPitch: 60,
             maxTileCacheSize: 200,
-            // ocharts DRM: intercept tile requests and encrypt URLs using the token function
+            // ocharts DRM: intercept tile requests and encrypt URLs via the DRM provider
             transformRequest: (url: string, resourceType?: string) => {
                 if (resourceType === 'Tile' && url.includes('/charts/')) {
+                    // Check if any DRM chart matches this URL
                     const charts = SignalKService.getCharts();
                     for (const chart of charts) {
-                        if (chart.tokenFunction && url.includes(chart.tilesUrl.split('{z}')[0])) {
-                            const tokenFn = getOchartsTokenFunction(chart.tokenFunction);
-                            if (tokenFn) {
-                                const baseUrl = chart.tilesUrl.split('{z}')[0];
-                                const relativePath = url.replace(baseUrl, '');
-                                const encrypted = tokenFn(relativePath);
-                                return { url: baseUrl + encrypted };
-                            }
+                        if (chart.isDrm && url.includes(chart.tilesUrl.split('{z}')[0])) {
+                            const encrypted = encryptOchartsUrl(url);
+                            if (encrypted) return { url: encrypted };
                         }
                     }
                 }

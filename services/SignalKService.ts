@@ -25,54 +25,78 @@ export interface SignalKChart {
     maxZoom: number;
     bounds?: [number, number, number, number]; // [west, south, east, north]
     type: 'raster' | 'vector';
-    /** ocharts DRM: name of the global JS function that encrypts tile URLs */
-    tokenFunction?: string;
+    /** True if this chart is DRM-protected (ocharts) and needs URL encryption */
+    isDrm?: boolean;
 }
 
-// ── ocharts DRM Token Registry ──
-// Stores loaded token functions keyed by function name.
-const _tokenRegistry: Record<string, (url: string) => string> = {};
-let _tokenScriptsLoaded = new Set<string>();
+// ── ocharts DRM Bootstrap ──
+// The ocharts token script registers on window.avnav.ochartsProvider(NG) and provides
+// heartBeat() (initialization) and encryptUrl() (tile URL encryption).
+// CRITICAL: The script MUST be loaded via <script src="direct-ocharts-url"> so that
+// document.currentScript.src resolves to the real ocharts server. This means DRM
+// charts only work on Capacitor (native) where there are no CORS restrictions.
+// In dev mode (browser), heartBeat can't initialize through the Vite proxy.
+
+let _ochartsBootstrapped = false;
 
 /**
- * Load an ocharts token script (DRM encryption function) by injecting it
- * into the document as a <script> tag. The script defines a global function
- * (e.g. `ochartsProviderNG`) that encrypts tile URLs.
+ * Bootstrap the ocharts DRM provider (native/Capacitor only).
+ * Loads the token script directly from the ocharts server via <script src>.
+ * The script auto-initializes via heartBeat using document.currentScript.src.
  */
-async function loadTokenScript(tokenUrl: string, functionName: string): Promise<void> {
-    if (_tokenScriptsLoaded.has(functionName)) return;
-    _tokenScriptsLoaded.add(functionName);
+function bootstrapOchartsDrm(tokenUrl: string): void {
+    if (_ochartsBootstrapped || IS_DEV) return;
+    _ochartsBootstrapped = true;
 
-    try {
-        const res = await fetch(tokenUrl, { signal: AbortSignal.timeout(10_000) });
-        if (!res.ok) throw new Error(`Token script HTTP ${res.status}`);
-        const scriptText = await res.text();
-
-        // Inject as <script> so the function becomes globally available
-        const script = document.createElement('script');
-        script.textContent = scriptText;
-        document.head.appendChild(script);
-
-        // Verify the function exists on window
-        const fn = (window as unknown as Record<string, unknown>)[functionName];
-        if (typeof fn === 'function') {
-            _tokenRegistry[functionName] = fn as (url: string) => string;
-            log.info(`Loaded ocharts DRM token function: ${functionName}`);
-        } else {
-            log.warn(`Token script loaded but function '${functionName}' not found on window`);
-        }
-    } catch (err) {
-        log.warn(`Failed to load ocharts token script: ${err}`);
-        _tokenScriptsLoaded.delete(functionName);
+    // Ensure window.avnav exists so the token script can register its provider
+    if (!(window as unknown as Record<string, unknown>).avnav) {
+        (window as unknown as Record<string, unknown>).avnav = {};
     }
+
+    // Load via <script src> — the REAL ocharts URL (not proxied)
+    // so document.currentScript.src resolves correctly for heartBeat.
+    const script = document.createElement('script');
+    script.src = tokenUrl;
+    script.onload = () => {
+        const avnav = (window as unknown as Record<string, unknown>).avnav as Record<string, unknown> | undefined;
+        // The provider may register as 'ochartsProvider' or 'ochartsProviderNG'
+        const provider = (avnav?.ochartsProvider || avnav?.ochartsProviderNG) as Record<string, unknown> | undefined;
+        if (provider && typeof provider.encryptUrl === 'function') {
+            log.info('ocharts DRM provider loaded — encryptUrl available');
+        } else {
+            log.warn('ocharts DRM script loaded but encryptUrl not found. Keys:', avnav ? Object.keys(avnav) : 'none');
+        }
+    };
+    script.onerror = () => {
+        log.warn('Failed to load ocharts DRM token script from:', tokenUrl);
+        _ochartsBootstrapped = false;
+    };
+    document.head.appendChild(script);
 }
 
 /**
- * Get the ocharts token function for encrypting tile URLs.
- * Used by the map's transformRequest to encrypt ocharts tile URLs.
+ * Find the ocharts provider from window.avnav.
+ * Checks both 'ochartsProvider' and 'ochartsProviderNG' keys.
  */
-export function getOchartsTokenFunction(functionName: string): ((url: string) => string) | null {
-    return _tokenRegistry[functionName] || null;
+function getOchartsProvider(): Record<string, (...args: unknown[]) => unknown> | null {
+    const avnav = (window as unknown as Record<string, unknown>).avnav as Record<string, unknown> | undefined;
+    if (!avnav) return null;
+    const provider = (avnav.ochartsProvider || avnav.ochartsProviderNG) as
+        | Record<string, (...args: unknown[]) => unknown>
+        | undefined;
+    if (provider && typeof provider.encryptUrl === 'function') return provider;
+    return null;
+}
+
+/**
+ * Encrypt an ocharts tile URL using the loaded DRM provider.
+ * Returns the encrypted URL, or null if encryption isn't available.
+ */
+export function encryptOchartsUrl(url: string): string | null {
+    const provider = getOchartsProvider();
+    if (!provider) return null;
+    const encrypted = provider.encryptUrl(url);
+    return typeof encrypted === 'string' ? encrypted : null;
 }
 
 export type SignalKConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
@@ -519,27 +543,18 @@ class SignalKServiceClass {
             let tilesUrl = '';
 
             if (hasToken && chartUrl.startsWith('http')) {
-                // ocharts DRM chart — requires client-side JavaScript token encryption.
-                // Load the token script and store the function name on the chart object
-                // so the map's transformRequest can encrypt tile URLs.
-                const tokenUrl = String(item.tokenUrl);
-                const tokenFn = String(item.tokenFunction || 'ochartsProviderNG');
-
-                // Load the token script async (non-blocking)
-                loadTokenScript(
-                    IS_DEV
-                        ? `/__chart-proxy/${new URL(tokenUrl).hostname}/${new URL(tokenUrl).port || '80'}${new URL(tokenUrl).pathname}${new URL(tokenUrl).search}`
-                        : tokenUrl,
-                    tokenFn,
-                );
-
-                // Build tile URL — in dev, proxy through Vite; in prod, use direct
+                // ocharts DRM chart — only works on native (Capacitor).
+                // heartBeat needs document.currentScript.src to resolve to the real
+                // ocharts server, which fails through the Vite dev proxy.
                 if (IS_DEV) {
-                    const parsed = new URL(chartUrl);
-                    tilesUrl = `/__chart-proxy/${parsed.hostname}/${parsed.port || '80'}${parsed.pathname}`;
-                } else {
-                    tilesUrl = chartUrl;
+                    log.info(`Skipping DRM chart in dev (native-only): ${name}`);
+                    continue;
                 }
+
+                // Native: bootstrap the DRM provider with the direct ocharts URL
+                const tokenUrl = String(item.tokenUrl);
+                bootstrapOchartsDrm(tokenUrl);
+                tilesUrl = chartUrl;
             } else if (chartUrl.startsWith('http://') || chartUrl.startsWith('https://')) {
                 // Absolute URL — extract host:port for proxy routing
                 try {
@@ -580,7 +595,7 @@ class SignalKServiceClass {
                 maxZoom: Number(item.maxzoom ?? 18),
                 bounds: item.bounds ? item.bounds : undefined,
                 type: 'raster',
-                ...(hasToken ? { tokenFunction: String(item.tokenFunction || 'ochartsProviderNG') } : {}),
+                isDrm: hasToken || undefined,
             });
         }
 
