@@ -12,7 +12,7 @@ interface SoundCheckModalProps {
 
 export const SoundCheckModal: React.FC<SoundCheckModalProps> = React.memo(({ onConfirm, onCancel }) =>
     createPortal(
-        <div className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-6" onClick={onCancel}>
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-6" onClick={onCancel}>
             <div
                 className="w-full max-w-sm bg-slate-900/95 border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
                 onClick={(e) => e.stopPropagation()}

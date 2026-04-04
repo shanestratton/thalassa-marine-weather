@@ -40,7 +40,7 @@ export const DeleteVoyageModal: React.FC<DeleteVoyageModalProps> = ({
             ref={focusTrapRef}
         >
             {/* Backdrop */}
-            <div className="absolute inset-0 bg-black/70" onClick={onClose} />
+            <div className="absolute inset-0 bg-black/70" role="presentation" onClick={onClose} />
 
             {/* Modal */}
             <div className="relative bg-slate-900 border border-white/10 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">

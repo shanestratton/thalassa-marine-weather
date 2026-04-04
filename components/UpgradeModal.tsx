@@ -140,7 +140,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
             aria-labelledby="upgrade-title"
             ref={focusTrapRef}
         >
-            <div className="absolute inset-0 bg-black/90 transition-opacity" onClick={onClose} />
+            <div className="absolute inset-0 bg-black/90 transition-opacity" role="presentation" onClick={onClose} />
 
             <div
                 className={`modal-panel-enter relative bg-slate-900 w-full max-w-lg rounded-2xl overflow-hidden ${t.border.default} shadow-2xl flex flex-col max-h-[90vh]`}

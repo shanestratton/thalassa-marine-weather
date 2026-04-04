@@ -269,7 +269,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             aria-labelledby="auth-title"
             ref={focusTrapRef}
         >
-            <div className="absolute inset-0 bg-black/90 transition-opacity" onClick={onClose} />
+            <div className="absolute inset-0 bg-black/90 transition-opacity" role="presentation" onClick={onClose} />
 
             <div
                 ref={panelRef}

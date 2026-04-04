@@ -142,7 +142,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
     };
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70" onClick={handleClose}>
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70" onClick={handleClose}>
             <div
                 className="w-full max-w-lg bg-slate-900/98 border-t border-white/10 rounded-t-3xl shadow-2xl max-h-[85vh] overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}

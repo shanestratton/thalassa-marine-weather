@@ -346,7 +346,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
     const scrollPadBottom = keyboardHeight > 0 ? `${keyboardHeight}px` : '0px';
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70" onClick={onClose}>
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[9999] flex items-end justify-center bg-black/70" onClick={onClose}>
             <div
                 className="w-full max-w-lg bg-slate-950 border-t border-white/10 rounded-3xl shadow-2xl flex flex-col"
                 style={{

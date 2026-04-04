@@ -532,7 +532,7 @@ export const DailyWidget = ({
 
 export const MapWidget = ({ onOpenMap }: { onOpenMap: () => void }) => (
     <Card className="p-0 overflow-hidden h-60 cursor-pointer group hover:border-sky-500/50 transition-colors relative">
-        <div onClick={onOpenMap} className="w-full h-full relative">
+        <div onClick={onOpenMap} role="button" tabIndex={0} className="w-full h-full relative">
             {/* Background Image - Satellite View Style */}
             <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1451187580459-43490279c0fa?q=80&w=2072&fm=jpg&fit=crop')] bg-cover bg-center opacity-30 grayscale group-hover:grayscale-0 group-hover:opacity-40 transition-all duration-700 group-hover:scale-105"></div>
 
