@@ -94,7 +94,7 @@ const ConsensusRowView: React.FC<{
 
                     {/* Confidence badge */}
                     <span
-                        className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest ${
+                        className={`px-1.5 py-0.5 rounded text-[11px] font-black uppercase tracking-widest ${
                             row.confidence === 'high'
                                 ? 'bg-emerald-500/15 text-emerald-400'
                                 : row.confidence === 'medium'
@@ -107,7 +107,7 @@ const ConsensusRowView: React.FC<{
 
                     {/* No-Go flag */}
                     {row.exceedsComfort && (
-                        <span className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 text-[8px] font-black uppercase tracking-widest animate-pulse">
+                        <span className="px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 text-[11px] font-black uppercase tracking-widest animate-pulse">
                             🚫 NO-GO
                         </span>
                     )}
@@ -163,7 +163,7 @@ const ConsensusRowView: React.FC<{
             {/* Spread indicator — visual bar showing model disagreement */}
             {row.spreadKts > 3 && (
                 <div className="mt-1.5 flex items-center gap-2">
-                    <span className="text-[8px] font-bold text-gray-500 uppercase tracking-wider">Spread</span>
+                    <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Spread</span>
                     <div className="flex-1 h-1 rounded-full bg-white/[0.04] overflow-hidden">
                         <div
                             className={`h-full rounded-full transition-all ${
@@ -291,14 +291,14 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
                 {/* Summary stats */}
                 <div className="flex items-center gap-3">
                     <div className="flex items-center gap-1">
-                        <span className="text-[8px] font-bold text-gray-500 uppercase">Avg Spread</span>
+                        <span className="text-[11px] font-bold text-gray-500 uppercase">Avg Spread</span>
                         <span className="text-[11px] font-black text-white tabular-nums">
                             {data.summary.avgSpreadKts} kts
                         </span>
                     </div>
                     {data.summary.lowConfidenceCount > 0 && (
                         <div className="flex items-center gap-1">
-                            <span className="text-[8px] font-bold text-amber-500 uppercase">⚠ Low Conf</span>
+                            <span className="text-[11px] font-bold text-amber-500 uppercase">⚠ Low Conf</span>
                             <span className="text-[11px] font-black text-amber-400 tabular-nums">
                                 {data.summary.lowConfidenceCount}
                             </span>
@@ -306,7 +306,7 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
                     )}
                     {data.summary.comfortBreachCount > 0 && (
                         <div className="flex items-center gap-1">
-                            <span className="text-[8px] font-bold text-red-500 uppercase">🚫 No-Go</span>
+                            <span className="text-[11px] font-bold text-red-500 uppercase">🚫 No-Go</span>
                             <span className="text-[11px] font-black text-red-400 tabular-nums">
                                 {data.summary.comfortBreachCount}
                             </span>
@@ -319,7 +319,7 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
             <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain">
                 {/* Scale header */}
                 <div className="sticky top-0 z-10 bg-slate-950/95 backdrop-blur-sm px-4 py-1.5 border-b border-white/[0.06]">
-                    <div className="flex justify-between text-[8px] font-bold text-gray-500 uppercase tracking-wider">
+                    <div className="flex justify-between text-[11px] font-bold text-gray-500 uppercase tracking-wider">
                         <span>0 kts</span>
                         <span>10</span>
                         <span>20</span>

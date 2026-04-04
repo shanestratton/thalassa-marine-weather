@@ -250,7 +250,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                         {status === 'checking' ? '⏳ Checking...' : '⚓ Join Vessel'}
                     </button>
 
-                    <p className="text-[10px] text-gray-500 max-w-[260px]">
+                    <p className="text-[11px] text-gray-500 max-w-[260px]">
                         Works offline too — your code will be validated when connected to the vessel&apos;s mesh
                         network.
                     </p>

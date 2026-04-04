@@ -224,7 +224,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                               ? 'Next Leg'
                                               : 'Select Voyage'}
                             </h2>
-                            <p className="text-[10px] text-amber-400/60 uppercase tracking-widest">
+                            <p className="text-[11px] text-amber-400/60 uppercase tracking-widest">
                                 {step === 'active'
                                     ? 'Watch Mode'
                                     : step === 'track_prompt'
@@ -345,7 +345,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             <div className="space-y-1.5">
                                 <div className="flex items-center gap-2 px-1">
                                     <div className="w-1 h-3 rounded-full bg-sky-500" />
-                                    <span className="text-[10px] font-bold text-sky-400 uppercase tracking-widest">
+                                    <span className="text-[11px] font-bold text-sky-400 uppercase tracking-widest">
                                         Passage Legs
                                     </span>
                                 </div>
@@ -356,19 +356,19 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                             key={leg.id}
                                             className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04] flex items-center gap-2.5"
                                         >
-                                            <span className="w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-black flex items-center justify-center shrink-0">
+                                            <span className="w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-400 text-[11px] font-black flex items-center justify-center shrink-0">
                                                 {summary.legNumber}
                                             </span>
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-[11px] font-bold text-white truncate">
                                                     {summary.route}
                                                 </p>
-                                                <p className="text-[10px] text-gray-500">
+                                                <p className="text-[11px] text-gray-500">
                                                     {summary.durationHours ? `${summary.durationHours}h` : '—'}
                                                     {summary.distanceNm ? ` · ${summary.distanceNm.toFixed(0)} NM` : ''}
                                                 </p>
                                             </div>
-                                            <span className="text-emerald-400 text-[10px]">✓</span>
+                                            <span className="text-emerald-400 text-[11px]">✓</span>
                                         </div>
                                     );
                                 })}
@@ -406,7 +406,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                         </div>
 
                         <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">
+                            <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">
                                 Arrival Port *
                             </label>
                             <input
@@ -525,7 +525,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                                 Draft
                                             </span>
                                         </div>
-                                        <div className="flex gap-3 mt-2 text-[10px] text-gray-500">
+                                        <div className="flex gap-3 mt-2 text-[11px] text-gray-500">
                                             <span>👥 {v.crew_count} crew</span>
                                             {v.eta && <span>ETA: {new Date(v.eta).toLocaleDateString()}</span>}
                                         </div>
@@ -551,7 +551,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                 {step === 'create' && (
                     <div className="p-5 pt-2 space-y-4">
                         <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">
+                            <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">
                                 Voyage Name *
                             </label>
                             <input
@@ -567,7 +567,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
 
                         <div className="grid grid-cols-2 gap-3">
                             <div>
-                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">
+                                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">
                                     From
                                 </label>
                                 <input
@@ -580,7 +580,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 />
                             </div>
                             <div>
-                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">
+                                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">
                                     To
                                 </label>
                                 <input
@@ -595,7 +595,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                         </div>
 
                         <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">
+                            <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1.5 block">
                                 Crew Count
                             </label>
                             <div className="flex items-center gap-3">
@@ -647,7 +647,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 {selected.departure_port || '?'} → {selected.destination_port || '?'}
                             </p>
                             {selected.departure_time && (
-                                <p className="text-[10px] text-amber-400/60 mt-1">
+                                <p className="text-[11px] text-amber-400/60 mt-1">
                                     Departure:{' '}
                                     {new Date(selected.departure_time).toLocaleDateString([], {
                                         weekday: 'short',
@@ -690,7 +690,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                 </div>
                                 <div>
                                     <p className="text-xs font-bold text-amber-300">Confirm Safety</p>
-                                    <p className="text-[10px] text-gray-500">
+                                    <p className="text-[11px] text-gray-500">
                                         Vessel is ready to depart for this voyage
                                     </p>
                                 </div>

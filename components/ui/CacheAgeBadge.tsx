@@ -63,7 +63,7 @@ export const CacheAgeBadge: React.FC<CacheAgeBadgeProps> = ({ timestamp, label =
     return (
         <div className={`flex items-center gap-1.5 ${className}`}>
             <div className={`w-1 h-1 rounded-full ${dotColor}`} />
-            <span className={`text-[10px] font-bold ${textColor} uppercase tracking-wider`}>
+            <span className={`text-[11px] font-bold ${textColor} uppercase tracking-wider`}>
                 {label} {ageText}
             </span>
         </div>

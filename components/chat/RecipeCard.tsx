@@ -67,7 +67,7 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({ message, isMine }) => {
                     <span className="text-lg">🍳</span>
                     <div className="flex-1 min-w-0">
                         <h4 className="text-sm font-black text-white truncate">{data.title}</h4>
-                        <div className="flex items-center gap-3 mt-1 text-[10px] text-gray-400">
+                        <div className="flex items-center gap-3 mt-1 text-[11px] text-gray-400">
                             <span>🍽️ {data.servings} serves</span>
                             <span>⏱️ {data.readyInMinutes} min</span>
                         </div>
@@ -87,7 +87,7 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({ message, isMine }) => {
                                 {/* Ingredients */}
                                 {recipe.ingredients.length > 0 && (
                                     <div>
-                                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">
+                                        <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1">
                                             Ingredients
                                         </p>
                                         {recipe.ingredients.slice(0, 8).map((ing, i) => (
@@ -96,7 +96,7 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({ message, isMine }) => {
                                             </p>
                                         ))}
                                         {recipe.ingredients.length > 8 && (
-                                            <p className="text-[10px] text-gray-500 mt-1">
+                                            <p className="text-[11px] text-gray-500 mt-1">
                                                 +{recipe.ingredients.length - 8} more...
                                             </p>
                                         )}
@@ -106,7 +106,7 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({ message, isMine }) => {
                                 {/* Instructions preview */}
                                 {recipe.instructions && (
                                     <div>
-                                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1">
+                                        <p className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1">
                                             Instructions
                                         </p>
                                         <p className="text-[11px] text-gray-300 leading-relaxed line-clamp-3">

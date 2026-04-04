@@ -401,7 +401,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                                 <p className="text-[12px] font-bold text-white/80 truncate">
                                                     {app.name}
                                                 </p>
-                                                <p className="text-[10px] text-gray-500 truncate">{app.status}</p>
+                                                <p className="text-[11px] text-gray-500 truncate">{app.status}</p>
                                             </div>
                                         </div>
                                     ))}
@@ -439,7 +439,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                         <span className="text-base">{item.icon}</span>
                                         <div>
                                             <p className="text-[12px] font-bold text-white/80">{item.label}</p>
-                                            <p className="text-[10px] text-gray-500">{item.desc}</p>
+                                            <p className="text-[11px] text-gray-500">{item.desc}</p>
                                         </div>
                                     </div>
                                 ))}
@@ -487,7 +487,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                                 {preview.metadata.description}
                                             </p>
                                         )}
-                                        <p className="text-[10px] text-gray-500 mt-1 font-mono">
+                                        <p className="text-[11px] text-gray-500 mt-1 font-mono">
                                             {preview.filename}
                                             {preview.metadata.creator && ` • ${preview.metadata.creator}`}
                                         </p>
@@ -526,25 +526,25 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                     </p>
                                     <div className="grid grid-cols-2 gap-x-4 gap-y-1">
                                         <div className="flex items-center gap-2">
-                                            <span className="text-[10px] text-gray-500 w-8">N:</span>
+                                            <span className="text-[11px] text-gray-500 w-8">N:</span>
                                             <span className="text-[12px] font-mono text-white/80">
                                                 {formatCoord(preview.stats.bounds.maxLat, 'N', 'S')}
                                             </span>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <span className="text-[10px] text-gray-500 w-8">E:</span>
+                                            <span className="text-[11px] text-gray-500 w-8">E:</span>
                                             <span className="text-[12px] font-mono text-white/80">
                                                 {formatCoord(preview.stats.bounds.maxLon, 'E', 'W')}
                                             </span>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <span className="text-[10px] text-gray-500 w-8">S:</span>
+                                            <span className="text-[11px] text-gray-500 w-8">S:</span>
                                             <span className="text-[12px] font-mono text-white/80">
                                                 {formatCoord(preview.stats.bounds.minLat, 'N', 'S')}
                                             </span>
                                         </div>
                                         <div className="flex items-center gap-2">
-                                            <span className="text-[10px] text-gray-500 w-8">W:</span>
+                                            <span className="text-[11px] text-gray-500 w-8">W:</span>
                                             <span className="text-[12px] font-mono text-white/80">
                                                 {formatCoord(preview.stats.bounds.minLon, 'E', 'W')}
                                             </span>
@@ -575,12 +575,12 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                                 </p>
                                             </div>
                                             {entry.speedKts !== undefined && (
-                                                <span className="text-[10px] font-mono text-sky-400">
+                                                <span className="text-[11px] font-mono text-sky-400">
                                                     {entry.speedKts.toFixed(1)} kts
                                                 </span>
                                             )}
                                             {entry.distanceNM !== undefined && entry.distanceNM > 0 && (
-                                                <span className="text-[10px] font-mono text-emerald-400">
+                                                <span className="text-[11px] font-mono text-emerald-400">
                                                     {entry.distanceNM.toFixed(1)} NM
                                                 </span>
                                             )}
@@ -676,7 +676,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                                     />
                                 </svg>
                                 Route to Passage Planner
-                                <span className="text-sky-400/60 text-[10px] font-mono ml-1">
+                                <span className="text-sky-400/60 text-[11px] font-mono ml-1">
                                     {routeData.waypoints.length} WP · {routeData.totalDistanceNM} NM
                                 </span>
                             </button>
@@ -731,7 +731,7 @@ const StatCard: React.FC<{
         <div className={`rounded-xl border p-3 ${colorMap[color]}`}>
             <div className="flex items-center gap-2 mb-1">
                 <span className="text-base">{icon}</span>
-                <p className="text-[10px] font-bold uppercase tracking-widest opacity-60">{label}</p>
+                <p className="text-[11px] font-bold uppercase tracking-widest opacity-60">{label}</p>
             </div>
             <p className="text-lg font-extrabold">{value}</p>
         </div>

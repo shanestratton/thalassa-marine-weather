@@ -200,7 +200,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                     <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
                         <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                             📄 Required Documents
-                            <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 border border-sky-500/20 text-sky-400">
+                            <span className="ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/10 border border-sky-500/20 text-sky-400">
                                 {
                                     activeData.requiredDocuments.filter((d) => checkedDocs[`${activeTab}:${d.name}`])
                                         .length

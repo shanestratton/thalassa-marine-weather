@@ -120,10 +120,10 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
                     />
                 </div>
                 <div className="flex justify-between mt-1">
-                    <span className="text-[10px] text-gray-500 uppercase tracking-wider">
+                    <span className="text-[11px] text-gray-500 uppercase tracking-wider">
                         {checkedSteps.size}/{steps.length} steps
                     </span>
-                    <span className="text-[10px] text-gray-500 uppercase tracking-wider">
+                    <span className="text-[11px] text-gray-500 uppercase tracking-wider">
                         {Math.round(progress * 100)}%
                     </span>
                 </div>
@@ -132,7 +132,7 @@ export const GalleyCookingMode: React.FC<GalleyCookingModeProps> = ({ meal, onCl
             {/* ── Ingredients Checklist ── */}
             {meal.ingredients.length > 0 && (
                 <div className="px-5 py-3 border-b border-white/5">
-                    <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] mb-2">
+                    <h3 className="text-[11px] font-bold text-gray-500 uppercase tracking-[0.15em] mb-2">
                         📦 Ingredients (from Ship&apos;s Stores)
                     </h3>
                     <div className="flex flex-wrap gap-2">

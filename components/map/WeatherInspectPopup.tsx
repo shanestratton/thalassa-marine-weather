@@ -157,7 +157,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, onClose })
                         {/* Loading label */}
                         <div className="flex items-center justify-center gap-2 mt-2 pt-2 border-t border-white/[0.04]">
                             <div className="w-3 h-3 border-2 border-sky-400/30 border-t-sky-400 rounded-full animate-spin" />
-                            <span className="text-[10px] text-sky-400/50 font-medium tracking-wider uppercase">
+                            <span className="text-[11px] text-sky-400/50 font-medium tracking-wider uppercase">
                                 Loading weather…
                             </span>
                         </div>

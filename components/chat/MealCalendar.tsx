@@ -279,7 +279,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
             {/* Calendar header */}
             <div className="flex items-center justify-between px-1 pb-2">
                 <div>
-                    <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">
+                    <p className="text-[11px] text-gray-500 uppercase tracking-widest font-bold">
                         {voyageName || 'Passage'} · {mealDays.passageDays}d + {mealDays.emergencyDays}d buffer
                     </p>
                 </div>
@@ -299,7 +299,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                             −
                         </button>
                         <span
-                            className="text-[10px] font-bold text-sky-400 min-w-[28px] text-center"
+                            className="text-[11px] font-bold text-sky-400 min-w-[28px] text-center"
                             aria-live="polite"
                         >
                             👥 {crewCount}
@@ -378,12 +378,12 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                         {/* Day label */}
                         <div className="flex items-center gap-2 px-1 pb-1.5">
                             <span
-                                className={`text-[10px] font-black uppercase tracking-widest ${isEmergency ? 'text-amber-400' : 'text-gray-500'}`}
+                                className={`text-[11px] font-black uppercase tracking-widest ${isEmergency ? 'text-amber-400' : 'text-gray-500'}`}
                             >
                                 {isEmergency ? '📦 ' : ''}
                                 {dayLabel}
                             </span>
-                            <span className="text-[10px] text-gray-500">{dateLabel}</span>
+                            <span className="text-[11px] text-gray-500">{dateLabel}</span>
                             {isEmergency && (
                                 <span className="ml-auto text-[11px] font-bold text-amber-400/60 uppercase tracking-wider">
                                     Buffer
@@ -424,7 +424,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                             {/* ✕ Delete button */}
                                             <button
                                                 onClick={(e) => handleDeleteMeal(meal, e)}
-                                                className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-gray-600/90 text-white text-[8px] leading-none flex items-center justify-center z-10 active:scale-90 opacity-60 hover:opacity-100 transition-opacity"
+                                                className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-gray-600/90 text-white text-[11px] leading-none flex items-center justify-center z-10 active:scale-90 opacity-60 hover:opacity-100 transition-opacity"
                                                 aria-label={`Remove ${meal.title}`}
                                             >
                                                 ✕
@@ -446,7 +446,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                                 );
                                                 return (
                                                     <p
-                                                        className={`text-[8px] font-bold mt-0.5 ${
+                                                        className={`text-[11px] font-bold mt-0.5 ${
                                                             diff.score <= 2
                                                                 ? 'text-emerald-400/60'
                                                                 : diff.score === 3
@@ -575,7 +575,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm font-bold text-white truncate">{contextMenu.meal.title}</p>
-                                    <p className="text-[10px] text-amber-400/70">
+                                    <p className="text-[11px] text-amber-400/70">
                                         {contextMenu.meal.planned_date} · {contextMenu.meal.meal_slot}
                                     </p>
                                 </div>
@@ -800,7 +800,7 @@ const SlotPicker: React.FC<{
                             <p className="text-sm font-bold text-white">
                                 {slotLabel?.emoji} {slotLabel?.label}
                             </p>
-                            <p className="text-[10px] text-gray-500">{dateLabel}</p>
+                            <p className="text-[11px] text-gray-500">{dateLabel}</p>
                         </div>
                         <button
                             onClick={onClose}
@@ -834,7 +834,7 @@ const SlotPicker: React.FC<{
                         {/* Quick suggestions when search is empty */}
                         {!searchQuery && results.length === 0 && !searching && (
                             <div className="space-y-2 pb-2">
-                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider px-1">
+                                <p className="text-[11px] text-gray-500 font-bold uppercase tracking-wider px-1">
                                     💡 Suggestions for {slotLabel?.label || 'this meal'}
                                 </p>
                                 <div className="flex flex-wrap gap-1.5">
@@ -918,17 +918,17 @@ const SlotPicker: React.FC<{
                                     <div className="flex items-center gap-1.5">
                                         <p className="text-xs font-bold text-white truncate">{meal.title}</p>
                                         {meal.source === 'private' && (
-                                            <span className="shrink-0 px-1.5 py-0.5 rounded text-[8px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                                            <span className="shrink-0 px-1.5 py-0.5 rounded text-[11px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/20">
                                                 🔒 MINE
                                             </span>
                                         )}
                                         {meal.source === 'community' && (
-                                            <span className="shrink-0 px-1.5 py-0.5 rounded text-[8px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/20">
+                                            <span className="shrink-0 px-1.5 py-0.5 rounded text-[11px] font-bold bg-sky-500/15 text-sky-400 border border-sky-500/20">
                                                 👥
                                             </span>
                                         )}
                                     </div>
-                                    <p className="text-[10px] text-gray-500">
+                                    <p className="text-[11px] text-gray-500">
                                         ⏱️ {meal.readyInMinutes}min · {meal.ingredients.length} ingredients
                                         {meal.authorName && meal.source === 'community' && ` · by ${meal.authorName}`}
                                     </p>

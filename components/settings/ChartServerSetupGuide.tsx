@@ -89,7 +89,7 @@ export const ChartServerSetupGuide: React.FC = () => {
                         >
                             <span className="block text-sm mb-0.5">🆓</span>
                             Free Gov't Charts
-                            <span className="block text-[10px] font-normal mt-0.5 text-gray-500">
+                            <span className="block text-[11px] font-normal mt-0.5 text-gray-500">
                                 NOAA · LINZ · CHS
                             </span>
                         </button>
@@ -103,7 +103,7 @@ export const ChartServerSetupGuide: React.FC = () => {
                         >
                             <span className="block text-sm mb-0.5">🔐</span>
                             o-charts (Paid)
-                            <span className="block text-[10px] font-normal mt-0.5 text-gray-500">AHO · UKHO · BSH</span>
+                            <span className="block text-[11px] font-normal mt-0.5 text-gray-500">AHO · UKHO · BSH</span>
                         </button>
                     </div>
                 </div>
@@ -279,7 +279,7 @@ npm install signalk-charts-provider-simple
 
                         <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-3 py-2">
                             <p className="text-[11px] text-amber-300 font-bold mb-1">💡 Pro Tip</p>
-                            <p className="text-[10px] text-gray-400">
+                            <p className="text-[11px] text-gray-400">
                                 Once set up, chart updates are simple — buy the update on o-charts.org, copy the new
                                 files to the Pi, and AvNav picks them up automatically. No changes needed in Thalassa.
                             </p>
@@ -317,7 +317,7 @@ npm install signalk-charts-provider-simple
                     <h4 className="text-[11px] font-black text-white/70 uppercase tracking-[0.15em] mb-2">
                         ⚓ Offshore Backup Strategy
                     </h4>
-                    <p className="text-[10px] text-gray-400 mb-3">
+                    <p className="text-[11px] text-gray-400 mb-3">
                         o-charts are locked to a hardware fingerprint (CPU serial + MAC address). Every Pi is unique —
                         swapping an SD card into a different Pi will lock you out. Here's how to stay covered offshore:
                     </p>
@@ -330,7 +330,7 @@ npm install signalk-charts-provider-simple
                                     o-charts USB Dongle (Gold Standard)
                                 </span>
                             </div>
-                            <p className="text-[10px] text-gray-400 ml-6">
+                            <p className="text-[11px] text-gray-400 ml-6">
                                 Buy the <span className="text-amber-300 font-bold">o-charts USB dongle (€19)</span> from
                                 o-charts.org and assign one of your two chart licenses to it instead of the Pi's
                                 hardware. The license lives on the dongle, not the CPU. If the Pi dies: plug the dongle
@@ -343,7 +343,7 @@ npm install signalk-charts-provider-simple
                                 <span className="text-sm">💻</span>
                                 <span className="text-[11px] text-sky-300 font-bold">Register 2 Systems</span>
                             </div>
-                            <p className="text-[10px] text-gray-400 ml-6">
+                            <p className="text-[11px] text-gray-400 ml-6">
                                 o-charts allows <span className="text-sky-300 font-bold">2 devices per purchase</span>.
                                 Register device #1 as the USB dongle (for the Pi) and device #2 as your laptop. If
                                 everything fails, run AvNav on your laptop as the last resort.
@@ -355,7 +355,7 @@ npm install signalk-charts-provider-simple
                                 <span className="text-sm">🆓</span>
                                 <span className="text-emerald-300 text-[11px] font-bold">Free Charts Fallback</span>
                             </div>
-                            <p className="text-[10px] text-gray-400 ml-6">
+                            <p className="text-[11px] text-gray-400 ml-6">
                                 Download free government ENCs as MBTiles for your passage area and keep them on a USB
                                 stick.{' '}
                                 <span className="text-emerald-300 font-bold">
@@ -372,7 +372,7 @@ npm install signalk-charts-provider-simple
                                     Thalassa Always Has OpenSeaMap
                                 </span>
                             </div>
-                            <p className="text-[10px] text-gray-400 ml-6">
+                            <p className="text-[11px] text-gray-400 ml-6">
                                 Even with no Pi at all, Thalassa still has the OpenSeaMap "Sea Marks" layer with buoys,
                                 lights, and channel markers built in. It's not a full chart, but it's always there.
                             </p>
@@ -394,7 +394,7 @@ npm install signalk-charts-provider-simple
 
                 {/* Support Links */}
                 <div className="rounded-xl bg-white/[0.03] border border-white/[0.06] px-3 py-2">
-                    <p className="text-[10px] text-gray-500">
+                    <p className="text-[11px] text-gray-500">
                         <span className="font-bold text-gray-400">Helpful links: </span>
                         <span className="text-sky-400">signalk.org</span>
                         {' · '}
@@ -415,7 +415,7 @@ npm install signalk-charts-provider-simple
 const Step: React.FC<{ number: number; title: string; children: React.ReactNode }> = ({ number, title, children }) => (
     <div>
         <div className="flex items-center gap-2 mb-2">
-            <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-[10px] font-black text-emerald-400 shrink-0">
+            <span className="w-5 h-5 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-[11px] font-black text-emerald-400 shrink-0">
                 {number}
             </span>
             <h4 className="text-xs font-bold text-white">{title}</h4>
@@ -425,14 +425,14 @@ const Step: React.FC<{ number: number; title: string; children: React.ReactNode 
 );
 
 const Code: React.FC<{ children: string }> = ({ children }) => (
-    <pre className="bg-black/60 rounded-lg px-3 py-2 text-[10px] text-emerald-300/80 font-mono leading-relaxed overflow-x-auto border border-white/[0.06]">
+    <pre className="bg-black/60 rounded-lg px-3 py-2 text-[11px] text-emerald-300/80 font-mono leading-relaxed overflow-x-auto border border-white/[0.06]">
         {children.trim()}
     </pre>
 );
 
 const CheckItem: React.FC<{ text: string }> = ({ text }) => (
     <div className="flex items-start gap-2">
-        <span className="text-emerald-400 text-[10px] mt-0.5 shrink-0">✓</span>
+        <span className="text-emerald-400 text-[11px] mt-0.5 shrink-0">✓</span>
         <span className="text-[11px] text-gray-300">{text}</span>
     </div>
 );
@@ -446,14 +446,14 @@ const LinkItem: React.FC<{ flag: string; label: string; url: string; note?: stri
     <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-white/[0.02]">
         <span className="text-sm">{flag}</span>
         <span className="text-[11px] text-white font-bold flex-1">{label}</span>
-        {note && <span className="text-[10px] text-amber-400 font-bold">{note}</span>}
-        <span className="text-[10px] text-sky-400 font-mono truncate max-w-[140px]">{url}</span>
+        {note && <span className="text-[11px] text-amber-400 font-bold">{note}</span>}
+        <span className="text-[11px] text-sky-400 font-mono truncate max-w-[140px]">{url}</span>
     </div>
 );
 
 const TroubleItem: React.FC<{ q: string; a: string }> = ({ q, a }) => (
     <div className="rounded-lg bg-white/[0.02] px-3 py-2">
         <p className="text-[11px] text-white font-bold">{q}</p>
-        <p className="text-[10px] text-gray-400 mt-0.5">{a}</p>
+        <p className="text-[11px] text-gray-400 mt-0.5">{a}</p>
     </div>
 );

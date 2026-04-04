@@ -331,7 +331,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                                                     <span className="text-[11px] font-black text-gray-500 uppercase tracking-widest">
                                                         {zone.zone}
                                                     </span>
-                                                    <span className="text-[10px] text-gray-500 font-bold">
+                                                    <span className="text-[11px] text-gray-500 font-bold">
                                                         ({unpurchased.length})
                                                     </span>
                                                 </div>

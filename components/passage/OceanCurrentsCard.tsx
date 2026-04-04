@@ -165,7 +165,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                     <div className="flex-1">
                         <p className="text-xs text-red-400">{error}</p>
                     </div>
-                    <button onClick={() => fetchCurrents(false)} className="text-[10px] font-bold text-cyan-400">
+                    <button onClick={() => fetchCurrents(false)} className="text-[11px] font-bold text-cyan-400">
                         Retry
                     </button>
                 </div>
@@ -182,7 +182,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                                 <h4 className="text-xs font-bold text-white uppercase tracking-widest">
                                     Surface Currents — {briefing.source === 'nrt' ? 'Near Real-Time' : 'Climatology'}
                                 </h4>
-                                <p className="text-[10px] text-gray-500 mt-0.5">
+                                <p className="text-[11px] text-gray-500 mt-0.5">
                                     NOAA OSCAR · {briefing.vectors.length} data points ·{' '}
                                     {new Date(briefing.fetchedAt).toLocaleDateString()}
                                 </p>
@@ -192,15 +192,15 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                         {/* Stats grid */}
                         <div className="grid grid-cols-3 gap-2 text-center">
                             <div className="bg-white/[0.03] rounded-lg p-2">
-                                <p className="text-[10px] text-gray-500 uppercase font-bold">Avg</p>
+                                <p className="text-[11px] text-gray-500 uppercase font-bold">Avg</p>
                                 <p className="text-sm font-bold text-cyan-400">{briefing.avgSpeedKts}kt</p>
                             </div>
                             <div className="bg-white/[0.03] rounded-lg p-2">
-                                <p className="text-[10px] text-gray-500 uppercase font-bold">Max</p>
+                                <p className="text-[11px] text-gray-500 uppercase font-bold">Max</p>
                                 <p className="text-sm font-bold text-amber-400">{briefing.maxSpeedKts}kt</p>
                             </div>
                             <div className="bg-white/[0.03] rounded-lg p-2">
-                                <p className="text-[10px] text-gray-500 uppercase font-bold">Net Effect</p>
+                                <p className="text-[11px] text-gray-500 uppercase font-bold">Net Effect</p>
                                 <p
                                     className={`text-sm font-bold ${
                                         briefing.netEffectHours < 0
@@ -232,7 +232,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                                         <span className="text-lg">{segmentIcon(seg.type)}</span>
                                         <div className="flex-1">
                                             <p className="text-xs font-bold capitalize">{seg.type} Current</p>
-                                            <p className="text-[10px] opacity-70">{seg.avgSpeedKts}kt average</p>
+                                            <p className="text-[11px] opacity-70">{seg.avgSpeedKts}kt average</p>
                                         </div>
                                         <span className="text-xs font-bold opacity-70">Leg {i + 1}</span>
                                     </div>

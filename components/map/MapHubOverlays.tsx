@@ -121,7 +121,7 @@ export const WindSpeedLegend: React.FC = () => (
         className="absolute right-3 z-[600] flex flex-col items-center gap-0.5"
         style={{ top: '50%', transform: 'translateY(-50%)' }}
     >
-        <span className="text-[8px] font-bold text-white/60 uppercase tracking-wider mb-1">kts</span>
+        <span className="text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1">kts</span>
         <div
             className="rounded-full border border-white/15 shadow-lg"
             style={{
@@ -135,7 +135,7 @@ export const WindSpeedLegend: React.FC = () => (
             style={{ position: 'absolute', right: 16, top: 14, height: 140, justifyContent: 'space-between' }}
         >
             {['35+', '25', '20', '15', '10', '5'].map((label) => (
-                <span key={label} className="text-[8px] font-semibold text-white/50 leading-none">
+                <span key={label} className="text-[11px] font-semibold text-white/50 leading-none">
                     {label}
                 </span>
             ))}
@@ -535,7 +535,7 @@ export const LayerFABMenu: React.FC<{
                                                 }`}
                                             >
                                                 <span
-                                                    className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-black text-white ${catColors[storm.category] ?? 'bg-gray-500'}`}
+                                                    className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-black text-white ${catColors[storm.category] ?? 'bg-gray-500'}`}
                                                 >
                                                     {storm.categoryLabel}
                                                 </span>
@@ -543,7 +543,7 @@ export const LayerFABMenu: React.FC<{
                                                     <div className="text-xs font-bold truncate">
                                                         {resolveStormDisplayName(storm.name)}
                                                     </div>
-                                                    <div className="text-[10px] text-gray-500">
+                                                    <div className="text-[11px] text-gray-500">
                                                         {storm.maxWindKts}kt
                                                         {storm.minPressureMb ? ` · ${storm.minPressureMb}hPa` : ''}
                                                         {' · '}
@@ -787,7 +787,7 @@ export const LayerFABMenu: React.FC<{
                                 <div className="flex-1">
                                     <span className="text-sm font-bold">Sea Marks</span>
                                     {chartsActive && seamarkVisible && (
-                                        <p className="text-[10px] text-violet-400/60 mt-0.5">
+                                        <p className="text-[11px] text-violet-400/60 mt-0.5">
                                             Identify mode — tap chart icons
                                         </p>
                                     )}
@@ -878,7 +878,7 @@ export const LayerFABMenu: React.FC<{
                             <div className="h-px bg-white/[0.06] mx-3" />
                             <div className="px-4 pt-3 pb-1">
                                 <div className="flex items-center gap-2">
-                                    <span className="text-[10px] font-black text-emerald-400/80 uppercase tracking-[0.2em]">
+                                    <span className="text-[11px] font-black text-emerald-400/80 uppercase tracking-[0.2em]">
                                         ⚓ Nautical Charts
                                     </span>
                                     <span
@@ -890,7 +890,7 @@ export const LayerFABMenu: React.FC<{
                                                   : 'bg-gray-500'
                                         }`}
                                     />
-                                    <span className="text-[10px] text-gray-500 ml-auto">AvNav</span>
+                                    <span className="text-[11px] text-gray-500 ml-auto">AvNav</span>
                                 </div>
                             </div>
                             {skCharts.map((chart) => {
@@ -913,7 +913,7 @@ export const LayerFABMenu: React.FC<{
                                         <div className="flex-1 min-w-0">
                                             <span className="text-sm font-bold block truncate">{chart.name}</span>
                                             {chart.description && (
-                                                <span className="text-[10px] text-gray-500 block truncate">
+                                                <span className="text-[11px] text-gray-500 block truncate">
                                                     {chart.description}
                                                 </span>
                                             )}
@@ -976,7 +976,7 @@ export const LayerFABMenu: React.FC<{
                             {/* Opacity slider */}
                             {skChartIds.size > 0 && onSkChartOpacityChange && (
                                 <div className="px-4 py-2 flex items-center gap-2">
-                                    <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider shrink-0">
+                                    <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider shrink-0">
                                         Opacity
                                     </span>
                                     <input
@@ -994,7 +994,7 @@ export const LayerFABMenu: React.FC<{
                                             height: 4,
                                         }}
                                     />
-                                    <span className="text-[10px] text-gray-400 font-mono w-8 text-right">
+                                    <span className="text-[11px] text-gray-400 font-mono w-8 text-right">
                                         {Math.round(skChartOpacity * 100)}%
                                     </span>
                                 </div>
@@ -1007,7 +1007,7 @@ export const LayerFABMenu: React.FC<{
                         <>
                             <div className="h-px bg-white/[0.06] mx-3" />
                             <div className="px-4 pt-3 pb-1">
-                                <span className="text-[10px] font-black text-sky-400/80 uppercase tracking-[0.2em]">
+                                <span className="text-[11px] font-black text-sky-400/80 uppercase tracking-[0.2em]">
                                     🗺️ Free Charts
                                 </span>
                             </div>
@@ -1045,7 +1045,7 @@ export const LayerFABMenu: React.FC<{
                                             <span className="text-lg">{src.flag}</span>
                                             <div className="flex-1 min-w-0">
                                                 <span className="text-sm font-bold block truncate">{src.name}</span>
-                                                <span className="text-[10px] text-gray-500 block truncate">
+                                                <span className="text-[11px] text-gray-500 block truncate">
                                                     {src.description}
                                                 </span>
                                             </div>
@@ -1097,7 +1097,7 @@ export const LayerFABMenu: React.FC<{
                                                     )}
                                                 </span>
                                             ) : needsKey ? (
-                                                <span className="text-[10px] text-amber-400/70 flex items-center gap-1">
+                                                <span className="text-[11px] text-amber-400/70 flex items-center gap-1">
                                                     <svg
                                                         className="w-3 h-3"
                                                         fill="none"
@@ -1120,7 +1120,7 @@ export const LayerFABMenu: React.FC<{
                                         {/* Opacity slider for active sources */}
                                         {isActive && onChartSourceOpacity && (
                                             <div className="px-4 py-1.5 flex items-center gap-2">
-                                                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider shrink-0">
+                                                <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider shrink-0">
                                                     Opacity
                                                 </span>
                                                 <input
@@ -1140,7 +1140,7 @@ export const LayerFABMenu: React.FC<{
                                                         height: 4,
                                                     }}
                                                 />
-                                                <span className="text-[10px] text-gray-400 font-mono w-8 text-right">
+                                                <span className="text-[11px] text-gray-400 font-mono w-8 text-right">
                                                     {Math.round(src.opacity * 100)}%
                                                 </span>
                                             </div>

@@ -193,7 +193,7 @@ export const VesselCheckCard: React.FC<VesselCheckCardProps> = ({ voyageId, onRe
                         {checkedCount > 0 && !allChecked && (
                             <button
                                 onClick={resetAll}
-                                className="text-[10px] text-red-400/60 hover:text-red-400 uppercase tracking-wider font-bold transition-colors"
+                                className="text-[11px] text-red-400/60 hover:text-red-400 uppercase tracking-wider font-bold transition-colors"
                             >
                                 Reset
                             </button>
@@ -237,7 +237,7 @@ export const VesselCheckCard: React.FC<VesselCheckCardProps> = ({ voyageId, onRe
                                 {section.section}
                             </span>
                             <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
                                     sectionDone
                                         ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                                         : 'bg-sky-500/10 border-sky-500/20 text-sky-400'

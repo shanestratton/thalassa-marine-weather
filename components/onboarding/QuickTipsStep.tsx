@@ -93,7 +93,7 @@ export const QuickTipsStep: React.FC<QuickTipsStepProps> = ({ onNext }) => {
                 >
                     {/* Tab badge */}
                     <div className="absolute top-3 right-3">
-                        <span className="px-3 py-1 bg-white/[0.12] backdrop-blur-md rounded-full text-[10px] font-bold text-white/70 uppercase tracking-[0.15em]">
+                        <span className="px-3 py-1 bg-white/[0.12] backdrop-blur-md rounded-full text-[11px] font-bold text-white/70 uppercase tracking-[0.15em]">
                             {card.badge}
                         </span>
                     </div>

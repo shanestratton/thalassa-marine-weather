@@ -13,7 +13,7 @@ export const AuthBanner: React.FC<AuthBannerProps> = ({ onSignIn, onDismiss }) =
         </div>
         <div className="flex-1">
             <p className="text-xs font-bold text-white">Sign In Required</p>
-            <p className="text-[10px] text-gray-400">Sign in to share registers with crew</p>
+            <p className="text-[11px] text-gray-400">Sign in to share registers with crew</p>
         </div>
         <button
             onClick={() => {

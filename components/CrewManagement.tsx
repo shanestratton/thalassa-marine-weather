@@ -417,7 +417,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-24" style={{ WebkitOverflowScrolling: 'touch' }}>
                 {/* ── ACTIVE PASSAGE SELECTOR ── */}
                 <div className="mb-4">
-                    <label className="text-[10px] uppercase font-bold text-violet-400/60 tracking-wider mb-1.5 block">
+                    <label className="text-[11px] uppercase font-bold text-violet-400/60 tracking-wider mb-1.5 block">
                         🧭 Active Passage
                     </label>
                     {draftVoyages.length > 0 ? (
@@ -474,7 +474,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     <div className="mb-4 flex items-end gap-2">
                         {/* Departure date — date only, time decided later */}
                         <div className="flex-1 min-w-0">
-                            <label className="text-[10px] uppercase font-bold text-slate-500 tracking-widest mb-1 block">
+                            <label className="text-[11px] uppercase font-bold text-slate-500 tracking-widest mb-1 block">
                                 📅 Departure Date
                             </label>
                             <input

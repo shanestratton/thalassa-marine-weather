@@ -265,12 +265,12 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         className={`w-1 h-4 rounded-full ${piReadyCount === 4 ? 'bg-emerald-400' : 'bg-violet-400'}`}
                     />
                     <span
-                        className={`text-[10px] font-black uppercase tracking-[0.2em] ${piReadyCount === 4 ? 'text-emerald-400' : 'text-violet-400'}`}
+                        className={`text-[11px] font-black uppercase tracking-[0.2em] ${piReadyCount === 4 ? 'text-emerald-400' : 'text-violet-400'}`}
                     >
                         Passage Intelligence
                     </span>
                     <span
-                        className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                        className={`ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold border ${
                             piReadyCount === 4
                                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                                 : 'bg-violet-500/10 border-violet-500/20 text-violet-400'

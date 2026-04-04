@@ -915,7 +915,7 @@ const HUDCell: React.FC<{
         <span className={`text-[11px] font-bold tracking-widest uppercase ${color} opacity-70`}>{label}</span>
         <div className="flex items-baseline gap-0.5">
             <span className="text-xs font-mono font-bold text-white">{value}</span>
-            {unit && <span className="text-[8px] text-slate-400">{unit}</span>}
+            {unit && <span className="text-[11px] text-slate-400">{unit}</span>}
         </div>
     </div>
 );

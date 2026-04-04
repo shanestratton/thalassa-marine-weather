@@ -185,7 +185,7 @@ export const CommsPlanCard: React.FC<CommsPlanCardProps> = ({ voyageId, onReview
                 <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                     🚨 Essential Communications
                     <span
-                        className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                        className={`ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold border ${
                             allCriticalDone
                                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                                 : 'bg-red-500/10 border-red-500/20 text-red-400'
@@ -201,7 +201,7 @@ export const CommsPlanCard: React.FC<CommsPlanCardProps> = ({ voyageId, onReview
             <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
                 <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                     📋 Additional Communications
-                    <span className="ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 border border-sky-500/20 text-sky-400">
+                    <span className="ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/10 border border-sky-500/20 text-sky-400">
                         {optionalItems.filter((i) => checkedItems[i.key]).length}/{optionalItems.length}
                     </span>
                 </h4>
