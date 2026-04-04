@@ -21,6 +21,7 @@ import { toast } from '../Toast';
 import { UndoToast } from '../ui/UndoToast';
 import { EmptyState } from '../ui/EmptyState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
+import { OfflineBadge } from '../ui/OfflineBadge';
 import { FormField } from '../ui/FormField';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
@@ -359,6 +360,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     subtitle={`${items.length} Items Registered`}
                     onBack={onBack}
                     breadcrumbs={["Ship's Office", 'Equipment']}
+                    status={<OfflineBadge />}
                     action={
                         items.length > 0 ? (
                             <div className="relative">

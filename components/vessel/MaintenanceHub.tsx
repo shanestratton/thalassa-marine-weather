@@ -28,6 +28,7 @@ import { SlideToAction } from '../ui/SlideToAction';
 import { EmptyState } from '../ui/EmptyState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
 import { PageHeader } from '../ui/PageHeader';
+import { OfflineBadge } from '../ui/OfflineBadge';
 import { toast } from '../Toast';
 import { UndoToast } from '../ui/UndoToast';
 import { ModalSheet } from '../ui/ModalSheet';
@@ -386,6 +387,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                     breadcrumbs={["Ship's Office", 'Maintenance']}
                     status={
                         <>
+                            <OfflineBadge />
                             {counts.red > 0 && (
                                 <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-label font-black">
                                     {counts.red}
