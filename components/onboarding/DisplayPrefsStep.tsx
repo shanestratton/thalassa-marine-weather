@@ -95,7 +95,7 @@ export const DisplayPrefsStep: React.FC<DisplayPrefsStepProps> = ({
         </div>
 
         <button
-            aria-label="Finish"
+            aria-label="Finish setup"
             onClick={onFinish}
             className="w-full bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20"
         >

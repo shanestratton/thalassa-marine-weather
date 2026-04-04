@@ -58,7 +58,7 @@ const DefaultErrorFallback: React.FC<{
             <button
                 onClick={onRetry}
                 className="px-4 py-2 bg-sky-500 hover:bg-sky-400 text-white text-sm font-bold rounded-lg transition-colors shadow-lg shadow-sky-500/30"
-                aria-label="Retry"
+                aria-label="Retry failed operation"
             >
                 Try Again
             </button>

@@ -178,7 +178,7 @@ export const DocumentForm: React.FC<DocumentFormProps> = ({
                 <p className="text-micro text-amber-400/80 text-center mt-2">Document name is required</p>
             )}
             <button
-                aria-label="Save"
+                aria-label="Save changes"
                 onClick={onSave}
                 disabled={!formName.trim()}
                 className={`w-full py-3 mt-1 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 ${

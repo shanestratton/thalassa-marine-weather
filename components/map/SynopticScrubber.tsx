@@ -185,7 +185,7 @@ export const SynopticScrubber: React.FC<SynopticScrubberProps> = memo(
                 <div className="bg-slate-900/90 border border-white/[0.08] rounded-2xl px-4 py-2.5 flex items-center gap-3">
                     {/* Play / Pause */}
                     <button
-                        aria-label="Toggle"
+                        aria-label="Toggle option"
                         onClick={onPlayToggle}
                         className="w-8 h-8 flex items-center justify-center rounded-xl bg-sky-500/20 border border-sky-500/30 shrink-0 active:scale-90 transition-transform"
                     >

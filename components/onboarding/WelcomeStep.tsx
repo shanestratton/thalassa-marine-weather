@@ -25,7 +25,7 @@ export const WelcomeStep: React.FC<WelcomeStepProps> = ({ onNext }) => (
         </p>
 
         <button
-            aria-label="Next"
+            aria-label="Proceed to next step"
             onClick={onNext}
             className="group bg-white text-slate-950 font-bold py-4 px-12 rounded-2xl hover:bg-sky-50 transition-all transform hover:scale-105 hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] flex items-center gap-3 mx-auto relative overflow-hidden"
         >

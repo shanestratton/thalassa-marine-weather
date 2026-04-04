@@ -169,7 +169,7 @@ export const GalleyMealPlanner: React.FC<GalleyMealPlannerProps> = ({ days, crew
                     </h3>
                     <div className="flex items-center gap-2">
                         <button
-                            aria-label="Regenerate"
+                            aria-label="Regenerate content"
                             onClick={handleGenerate}
                             disabled={loading}
                             className="text-[11px] text-gray-400 hover:text-amber-300 transition-colors px-2 py-1 rounded-lg hover:bg-white/5"

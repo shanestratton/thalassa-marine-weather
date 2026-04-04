@@ -173,7 +173,7 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
                     {/* Open Manual button */}
                     {item.manual_uri && (
                         <button
-                            aria-label="Manual"
+                            aria-label="Enter manual mode"
                             onClick={openManual}
                             className="w-full py-4 bg-gradient-to-r from-sky-600/20 to-sky-600/20 border border-sky-500/20 rounded-2xl flex items-center justify-center gap-3 group hover:from-sky-600/30 hover:to-sky-600/30 transition-all active:scale-[0.98]"
                         >
@@ -206,7 +206,7 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
 
                     {/* Delete button */}
                     <button
-                        aria-label="Delete"
+                        aria-label="Delete this item"
                         onClick={onDelete}
                         className="w-full py-3 bg-red-500/10 border border-red-500/20 rounded-2xl text-sm font-bold text-red-400 hover:bg-red-500/20 transition-all active:scale-[0.98]"
                     >

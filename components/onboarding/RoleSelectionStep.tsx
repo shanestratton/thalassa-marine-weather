@@ -137,7 +137,7 @@ export const RoleSelectionStep: React.FC<RoleSelectionStepProps> = ({
                 })}
             </div>
             <button
-                aria-label="Next"
+                aria-label="Proceed to next step"
                 onClick={onNext}
                 className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all active:scale-[0.98]"
             >

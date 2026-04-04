@@ -136,7 +136,7 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
 
                 <div className="grid grid-cols-2 gap-3">
                     <button
-                        aria-label="Locate"
+                        aria-label="Find current location"
                         onClick={onLocate}
                         className="bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/30 text-sky-300 font-bold py-4 rounded-xl transition-all flex flex-col items-center justify-center gap-2 group"
                     >
@@ -164,7 +164,7 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
             </div>
 
             <button
-                aria-label="Next"
+                aria-label="Proceed to next step"
                 onClick={onNext}
                 disabled={!homePort}
                 className={`w-full mt-8 font-bold py-4 rounded-xl transition-all ${homePort ? 'bg-sky-500 hover:bg-sky-400 text-white shadow-lg' : 'bg-white/5 text-gray-400 cursor-not-allowed'}`}
