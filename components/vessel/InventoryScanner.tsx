@@ -544,14 +544,14 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                 {/* Actions */}
                 <div className="flex gap-3 mt-3">
                     <button
-                        aria-label="Close"
+                        aria-label="Close dialog"
                         onClick={onClose}
                         className="flex-1 py-2.5 bg-white/5 text-gray-400 rounded-xl text-sm font-bold"
                     >
                         Cancel
                     </button>
                     <button
-                        aria-label="Save"
+                        aria-label="Save changes"
                         onClick={handleSaveNew}
                         disabled={!newItem.item_name.trim() || saving}
                         className="flex-1 py-2.5 bg-sky-600 text-white rounded-xl text-sm font-black uppercase tracking-wider disabled:opacity-50 transition-all active:scale-[0.98]"
@@ -703,7 +703,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                     )}
 
                     <button
-                        aria-label="Sheet"
+                        aria-label="Open action sheet"
                         onClick={dismissSheet}
                         className="w-full py-3 bg-white/5 text-gray-400 rounded-xl text-sm font-bold"
                     >
@@ -871,14 +871,14 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                     {/* Actions */}
                     <div className="flex gap-3 mt-5">
                         <button
-                            aria-label="Sheet"
+                            aria-label="Open action sheet"
                             onClick={dismissSheet}
                             className="flex-1 py-3 bg-white/5 text-gray-400 rounded-xl text-sm font-bold"
                         >
                             Cancel
                         </button>
                         <button
-                            aria-label="Save"
+                            aria-label="Save changes"
                             onClick={handleSaveNew}
                             disabled={!newItem.item_name.trim() || saving}
                             className="flex-1 py-3 bg-sky-600 text-white rounded-xl text-sm font-black uppercase tracking-wider disabled:opacity-50 transition-all active:scale-[0.98]"

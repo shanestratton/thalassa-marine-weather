@@ -148,7 +148,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                         <p className="text-xs font-black text-white/40 uppercase tracking-widest mb-2">Looking For</p>
                         <div className="grid grid-cols-2 gap-3 mb-4">
                             <button
-                                aria-label="Filter"
+                                aria-label="Filter results"
                                 onClick={() =>
                                     setFilterListingType(filterListingType === 'seeking_crew' ? '' : 'seeking_crew')
                                 }
@@ -162,7 +162,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                 </span>
                             </button>
                             <button
-                                aria-label="Filter"
+                                aria-label="Filter results"
                                 onClick={() =>
                                     setFilterListingType(filterListingType === 'seeking_berth' ? '' : 'seeking_berth')
                                 }
@@ -177,7 +177,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                             </button>
                             {['Male', 'Female'].map((g) => (
                                 <button
-                                    aria-label="Filter"
+                                    aria-label="Filter results"
                                     key={g}
                                     onClick={() => setFilterGender(filterGender === g ? '' : g)}
                                     className={`py-4 rounded-2xl text-center transition-all border ${filterGender === g ? 'bg-emerald-500/15 border-emerald-400/25 shadow-lg shadow-emerald-500/10' : 'bg-white/[0.02] border-white/[0.06]'}`}
@@ -201,7 +201,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                 <div className="flex flex-wrap gap-1.5">
                                     {AGE_RANGES.map((age) => (
                                         <button
-                                            aria-label="Filter"
+                                            aria-label="Filter results"
                                             key={age}
                                             onClick={() =>
                                                 setFilterAgeRanges((prev) =>
@@ -276,7 +276,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                     style={{ bottom: 'calc(64px + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     <button
-                        aria-label="Search"
+                        aria-label="Search entries"
                         onClick={() => {
                             if (hasSearched) {
                                 setHasSearched(false);
@@ -587,7 +587,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                             </div>
                                         )}
                                         <button
-                                            aria-label="Like"
+                                            aria-label="Like this item"
                                             onClick={() => onLike(card)}
                                             className={`w-14 rounded-2xl flex items-center justify-center text-xl transition-all active:scale-90 border ${isLiked ? 'bg-amber-500/20 border-amber-400/30 text-amber-300' : 'bg-white/[0.03] border-white/[0.06] text-white/40 hover:bg-amber-500/10'}`}
                                         >
@@ -595,7 +595,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                         </button>
                                         {!isLiked && !superLikeUsed && (
                                             <button
-                                                aria-label="Like"
+                                                aria-label="Like this item"
                                                 onClick={() => {
                                                     setShowSuperLikeModal(card);
                                                     setSuperLikeMessage('');
@@ -621,14 +621,14 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                             {showActionMenu === card.user_id && (
                                                 <div className="absolute right-0 bottom-full mb-2 w-40 rounded-xl bg-slate-800 border border-white/10 shadow-2xl overflow-hidden z-50">
                                                     <button
-                                                        aria-label="Block"
+                                                        aria-label="Block user"
                                                         onClick={() => onBlock(card.user_id, card.display_name)}
                                                         className="w-full px-4 py-3 text-left text-sm text-white/60 hover:bg-white/5 transition-colors"
                                                     >
                                                         🚫 Block
                                                     </button>
                                                     <button
-                                                        aria-label="Report"
+                                                        aria-label="Report content"
                                                         onClick={() => {
                                                             setShowReportModal(card.user_id);
                                                             setShowActionMenu(null);
@@ -654,7 +654,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                             >
                                 <div className="flex justify-between items-center">
                                     <button
-                                        aria-label="Previous"
+                                        aria-label="Go to previous step"
                                         onClick={goToPrevCard}
                                         disabled={currentCardIndex <= 0}
                                         className={`px-5 py-2.5 rounded-xl text-sm font-semibold transition-all ${currentCardIndex <= 0 ? 'text-white/40 cursor-not-allowed' : 'text-white/50 bg-white/[0.03] border border-white/[0.06] active:scale-95'}`}
@@ -681,7 +681,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                         )}
                                     </div>
                                     <button
-                                        aria-label="Next"
+                                        aria-label="Proceed to next step"
                                         onClick={goToNextCard}
                                         className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white/50 bg-white/[0.03] border border-white/[0.06] transition-all active:scale-95"
                                     >

@@ -161,7 +161,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                     <button
                         onClick={onClose}
                         className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 rounded-full text-white/70 hover:text-white transition-colors z-20"
-                        aria-label="Close"
+                        aria-label="Close dialog"
                     >
                         <XIcon className="w-5 h-5" />
                     </button>
@@ -192,7 +192,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
 
                     {/* CTA */}
                     <button
-                        aria-label="Upgrade"
+                        aria-label="Upgrade subscription"
                         onClick={() => {
                             onUpgrade(selectedTier);
                             onClose();

@@ -155,7 +155,7 @@ export const StopDetailView = ({ waypoint, onClose }: { waypoint: Waypoint; onCl
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] to-transparent"></div>
                     <button
-                        aria-label="Close"
+                        aria-label="Close dialog"
                         onClick={onClose}
                         className="absolute top-4 right-4 p-2 bg-black/30 hover:bg-black/50 rounded-full text-white transition-colors"
                     >

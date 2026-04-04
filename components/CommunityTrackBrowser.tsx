@@ -234,7 +234,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                         <button
                             onClick={onClose}
                             className="p-2 text-slate-400 hover:text-white transition-colors"
-                            aria-label="Close"
+                            aria-label="Close dialog"
                         >
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path
@@ -475,7 +475,7 @@ const TrackCard: React.FC<{
                             ? 'bg-emerald-900/30 text-emerald-500/50 cursor-not-allowed'
                             : 'bg-emerald-600 hover:bg-emerald-500 text-white active:scale-95'
                     }`}
-                    aria-label="Download"
+                    aria-label="Download file"
                 >
                     {isDownloading ? (
                         <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -558,7 +558,7 @@ const MyTrackCard: React.FC<{
                 {confirmDelete ? (
                     <div className="flex items-center gap-1.5 shrink-0">
                         <button
-                            aria-label="Delete"
+                            aria-label="Delete this item"
                             onClick={() => {
                                 onDelete();
                                 setConfirmDelete(false);
@@ -573,7 +573,7 @@ const MyTrackCard: React.FC<{
                             )}
                         </button>
                         <button
-                            aria-label="Delete"
+                            aria-label="Delete this item"
                             onClick={() => setConfirmDelete(false)}
                             className="px-2 py-2 rounded-lg text-sm font-bold bg-slate-800/50 text-slate-400 hover:text-white transition-colors"
                         >
@@ -582,7 +582,7 @@ const MyTrackCard: React.FC<{
                     </div>
                 ) : (
                     <button
-                        aria-label="Delete"
+                        aria-label="Delete this item"
                         onClick={() => setConfirmDelete(true)}
                         className="shrink-0 px-3 py-2 rounded-lg text-sm font-bold bg-red-900/30 hover:bg-red-900/50 text-red-400 border border-red-500/20 transition-all active:scale-95 flex items-center gap-1.5"
                     >

@@ -210,7 +210,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = React.memo(({ onB
                 {/* Category chips */}
                 <div className="px-3 pt-2 pb-2.5 flex flex-wrap gap-2">
                     <button
-                        aria-label="Filter"
+                        aria-label="Filter results"
                         onClick={() => handleCategoryFilter(null)}
                         className={`whitespace-nowrap px-3 py-1.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all shrink-0 ${
                             !activeCategory
@@ -222,7 +222,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = React.memo(({ onB
                     </button>
                     {LISTING_CATEGORIES.map((cat) => (
                         <button
-                            aria-label="Filter"
+                            aria-label="Filter results"
                             key={cat}
                             onClick={() => handleCategoryFilter(cat)}
                             className={`whitespace-nowrap px-3 py-1.5 rounded-xl border text-[11px] font-bold uppercase tracking-wider transition-all shrink-0 ${

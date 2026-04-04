@@ -128,7 +128,7 @@ const _CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle
         >
             {/* Tappable Header — always visible */}
             <button
-                aria-label="Toggle"
+                aria-label="Toggle option"
                 onClick={onToggle}
                 style={{
                     display: 'flex',
@@ -629,7 +629,7 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                                     cursor: 'pointer',
                                     flexShrink: 0,
                                 }}
-                                aria-label="Back"
+                                aria-label="Go back"
                             >
                                 <svg
                                     width="18"

@@ -244,7 +244,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                     <button
                         onClick={onClose}
                         className="w-9 h-9 rounded-full bg-white/5 text-gray-400 flex items-center justify-center hover:bg-white/10"
-                        aria-label="Close"
+                        aria-label="Close dialog"
                     >
                         ✕
                     </button>

@@ -217,7 +217,7 @@ export const CrewDetailView: React.FC<CrewDetailViewProps> = React.memo(
                         </div>
                     )}
                     <button
-                        aria-label="Like"
+                        aria-label="Like this item"
                         onClick={() => onLike(selectedCard)}
                         className={`w-16 rounded-2xl flex items-center justify-center text-2xl transition-all active:scale-90 border ${likedUsers.has(selectedCard.user_id) ? 'bg-amber-500/20 border-amber-400/30' : 'bg-white/[0.03] border-white/[0.06]'}`}
                     >

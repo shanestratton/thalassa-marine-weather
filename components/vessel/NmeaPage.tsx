@@ -406,7 +406,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                             {instruments.map((inst) => (
                                 <button
-                                    aria-label="Gauge"
+                                    aria-label="View gauge details"
                                     key={inst.id}
                                     onClick={() => openGauge(inst.id, inst.metric)}
                                     className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col justify-between min-h-[90px]

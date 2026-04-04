@@ -53,7 +53,7 @@ export const AudioWidget: React.FC<AudioWidgetProps> = React.memo(
                 <div className="flex items-center gap-1">
                     {allowTranscribe && onTranscribe && (
                         <button
-                            aria-label="Transcribe"
+                            aria-label="Transcribe audio memo"
                             onClick={() => onTranscribe(url)}
                             disabled={transcribing}
                             className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[11px] font-bold text-purple-300 hover:bg-purple-500/15 transition-colors disabled:opacity-40"
@@ -64,7 +64,7 @@ export const AudioWidget: React.FC<AudioWidgetProps> = React.memo(
                     )}
                     {allowRemove && onRemove && (
                         <button
-                            aria-label="Remove"
+                            aria-label="Remove this item"
                             onClick={onRemove}
                             className="p-1.5 rounded-lg hover:bg-red-500/20 transition-colors"
                         >

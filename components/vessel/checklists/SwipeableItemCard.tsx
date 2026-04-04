@@ -155,7 +155,7 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
                             onEdit();
                         }}
                         className="shrink-0 p-1.5 rounded-lg hover:bg-white/10 transition-colors"
-                        aria-label="Edit"
+                        aria-label="Edit item details"
                     >
                         <svg
                             className="w-3.5 h-3.5 text-slate-400"

@@ -427,7 +427,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                     <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
                                     <div className="absolute right-0 top-full mt-1 z-50 w-56 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                                         <button
-                                            aria-label="Export"
+                                            aria-label="Export data"
                                             onClick={() => {
                                                 handleExport('checklist');
                                                 setMenuOpen(false);
@@ -450,7 +450,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                                             Blank Checklist PDF
                                         </button>
                                         <button
-                                            aria-label="Export"
+                                            aria-label="Export data"
                                             onClick={() => {
                                                 handleExport('history');
                                                 setMenuOpen(false);
@@ -482,7 +482,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 {/* ═══ ENGINE HOURS CARD ═══ */}
                 <div className="shrink-0 px-4 pb-3">
                     <button
-                        aria-label="Edit"
+                        aria-label="Edit item details"
                         onClick={() => {
                             setIsEditingHours(true);
                             setTimeout(() => hoursInputRef.current?.focus(), 100);
@@ -763,7 +763,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                         {/* Option A: Blank Checklist */}
                         <button
-                            aria-label="Export"
+                            aria-label="Export data"
                             onClick={() => handleExport('checklist')}
                             disabled={exporting}
                             className="w-full mb-3 p-4 bg-gradient-to-r from-sky-500/15 to-sky-500/15 border border-sky-500/20 rounded-2xl text-left hover:from-sky-500/25 hover:to-sky-500/25 transition-all active:scale-[0.98] disabled:opacity-50"
@@ -795,7 +795,7 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
 
                         {/* Option B: Service History */}
                         <button
-                            aria-label="Export"
+                            aria-label="Export data"
                             onClick={() => handleExport('history')}
                             disabled={exporting}
                             className="w-full p-4 bg-gradient-to-r from-amber-500/15 to-amber-500/15 border border-amber-500/20 rounded-2xl text-left hover:from-amber-500/25 hover:to-amber-500/25 transition-all active:scale-[0.98] disabled:opacity-50"

@@ -870,7 +870,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             {/* Shore silence button — only shown during alarm */}
                             {shoreData.isAlarm && shoreAlarmActiveRef.current && (
                                 <button
-                                    aria-label="Arm"
+                                    aria-label="Arm anchor watch"
                                     onClick={() => {
                                         AlarmAudioService.stopAlarm();
                                         shoreAlarmActiveRef.current = false;

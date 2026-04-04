@@ -29,7 +29,7 @@ const UnitRow: React.FC<{ label: string; options: string[]; current: string; onC
         <div className="flex bg-black/20 rounded-lg p-1">
             {options.map((u) => (
                 <button
-                    aria-label="Change"
+                    aria-label="Change setting"
                     key={u}
                     onClick={() => onChange(u)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${current === u ? 'bg-sky-500 text-white' : 'text-gray-400'}`}
@@ -92,7 +92,7 @@ export const UnitPreferencesStep: React.FC<UnitPreferencesStepProps> = React.mem
             </div>
 
             <button
-                aria-label="Next"
+                aria-label="Proceed to next step"
                 onClick={onNext}
                 className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 rounded-xl transition-all"
             >
