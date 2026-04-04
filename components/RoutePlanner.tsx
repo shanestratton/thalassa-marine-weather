@@ -20,6 +20,7 @@ import { MapHub } from './map/MapHub';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { useUI } from '../context/UIContext';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
+import { FirstRunHint } from './ui/FirstRunHint';
 
 export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () => void }> = ({
     onTriggerUpgrade,
@@ -425,7 +426,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                         )}
                         {!isPro ? (
                             <button
-                                aria-label="Trigger Upgrade"
+                                aria-label="Unlock route planning feature"
                                 type="button"
                                 onClick={onTriggerUpgrade}
                                 className="h-14 w-full rounded-2xl font-bold uppercase tracking-wider text-xs transition-all shadow-lg flex items-center justify-center gap-2 bg-slate-800 text-white hover:bg-slate-700"
@@ -434,6 +435,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                 Unlock Route Planning
                             </button>
                         ) : (
+                            <FirstRunHint id="route-calc" message="Enter origin & destination, then slide to calculate" position="top">
                             <SlideToAction
                                 label="Slide to Calculate Route"
                                 thumbIcon={<CompassIcon className="w-5 h-5 text-white" rotation={0} />}
@@ -444,6 +446,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                 loadingText={LOADING_PHASES[loadingStep] || 'Calculating…'}
                                 theme="emerald"
                             />
+                            </FirstRunHint>
                         )}
                     </div>
                 </div>

@@ -17,6 +17,7 @@ import { DiaryComposeForm } from './diary/DiaryComposeForm';
 import { useDiaryState } from '../hooks/useDiaryState';
 import { EmptyState } from './ui/EmptyState';
 import { ShimmerBlock } from './ui/ShimmerBlock';
+import { FirstRunHint } from './ui/FirstRunHint';
 interface DiaryPageProps {
     onBack: () => void;
 }
@@ -888,6 +889,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     className="shrink-0 px-4"
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
+                    <FirstRunHint id="diary-compose" message="Slide to write your first log entry" position="top">
                     <SlideToAction
                         label="Slide to Write Entry"
                         thumbIcon={
@@ -907,6 +909,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         }}
                         theme="sky"
                     />
+                    </FirstRunHint>
                 </div>
             </div>
             {/* Undo toast (timeline view) */}
