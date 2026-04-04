@@ -14,7 +14,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { Share } from '@capacitor/share';
-import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
+import { Filesystem, Directory, Encoding as _Encoding } from '@capacitor/filesystem';
 import { generatePassageBrief, type PassageBriefData } from '../../services/PassageBriefService';
 import { generatePassagePdf, getPassagePdfFileName } from '../../services/PassagePdfService';
 import { triggerHaptic } from '../../utils/system';
@@ -155,7 +155,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                         <span className="text-xl">💬</span>
                         <div className="flex-1">
                             <p className="text-sm font-bold text-white">Quick Brief</p>
-                            <p className="text-[9px] text-gray-500">Plain text · WhatsApp, iMessage</p>
+                            <p className="text-[11px] text-gray-500">Plain text · WhatsApp, iMessage</p>
                         </div>
                     </button>
 
@@ -170,7 +170,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                         <span className="text-xl">📄</span>
                         <div className="flex-1">
                             <p className="text-sm font-bold text-white">Full PDF</p>
-                            <p className="text-[9px] text-gray-500">Professional brief · Email, AirDrop</p>
+                            <p className="text-[11px] text-gray-500">Professional brief · Email, AirDrop</p>
                         </div>
                     </button>
 
@@ -178,7 +178,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                     <div className="px-3 py-1.5 border-t border-white/[0.06]">
                         <button
                             onClick={() => setMenuOpen(false)}
-                            className="w-full text-center text-[10px] text-gray-600 font-bold uppercase tracking-wider py-1 hover:text-gray-400 transition-colors"
+                            className="w-full text-center text-[10px] text-gray-500 font-bold uppercase tracking-wider py-1 hover:text-gray-400 transition-colors"
                         >
                             Cancel
                         </button>

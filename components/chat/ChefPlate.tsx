@@ -265,7 +265,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                 <div className="flex items-center justify-between">
                     <div>
                         <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Crew Count</p>
-                        <p className="text-[10px] text-gray-600 mt-0.5">Ingredients scale live</p>
+                        <p className="text-[10px] text-gray-500 mt-0.5">Ingredients scale live</p>
                     </div>
                     <div className="flex items-center gap-3" role="group" aria-label="Crew count for recipe scaling">
                         <button
@@ -393,7 +393,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                     >
                         👨‍🍳 Directions
                         {instructions.length > 0 && (
-                            <span className="ml-1.5 text-[9px] opacity-60">
+                            <span className="ml-1.5 text-[11px] opacity-60">
                                 ({completedSteps.size}/{instructions.length})
                             </span>
                         )}
@@ -448,7 +448,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
 
                                 {/* Scale indicator */}
                                 {ing.scalable && crewCount !== baseServings && (
-                                    <span className="text-[9px] text-amber-400/50 flex-shrink-0 hidden sm:block">
+                                    <span className="text-[11px] text-amber-400/50 flex-shrink-0 hidden sm:block">
                                         was {ing.amount}
                                     </span>
                                 )}

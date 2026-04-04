@@ -141,12 +141,12 @@ export const ChartServerTab: React.FC = () => {
                                       : 'Connected'}{' '}
                                 · {AvNavService.getActiveHost()}:{port}
                                 {AvNavService.isWanActive() && (
-                                    <span className="ml-1 text-[9px] font-bold text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded">
+                                    <span className="ml-1 text-[11px] font-bold text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded">
                                         WAN
                                     </span>
                                 )}
                                 {!AvNavService.isWanActive() && isConnected && (
-                                    <span className="ml-1 text-[9px] font-bold text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded">
+                                    <span className="ml-1 text-[11px] font-bold text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded">
                                         LAN
                                     </span>
                                 )}
@@ -180,7 +180,7 @@ export const ChartServerTab: React.FC = () => {
                             <span className="text-lg">📡</span>
                             <div>
                                 <p className="text-sm font-bold text-white">Find My Server</p>
-                                <p className="text-[9px] text-gray-500">Scan WiFi for AvNav / Signal K</p>
+                                <p className="text-[11px] text-gray-500">Scan WiFi for AvNav / Signal K</p>
                             </div>
                         </div>
                         <button
@@ -205,7 +205,7 @@ export const ChartServerTab: React.FC = () => {
                                     style={{ width: `${Math.min(100, (scanProgress / scanTotal) * 100)}%` }}
                                 />
                             </div>
-                            <p className="text-[9px] text-gray-600 mt-1 text-right">
+                            <p className="text-[11px] text-gray-500 mt-1 text-right">
                                 {scanProgress}/{scanTotal} probes
                             </p>
                         </div>
@@ -229,7 +229,7 @@ export const ChartServerTab: React.FC = () => {
                                         </p>
                                         <div className="flex items-center gap-2 mt-0.5">
                                             <span
-                                                className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                                                className={`text-[11px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
                                                     server.serverType === 'avnav'
                                                         ? 'bg-emerald-500/20 text-emerald-400'
                                                         : 'bg-sky-500/20 text-sky-400'
@@ -249,7 +249,7 @@ export const ChartServerTab: React.FC = () => {
                     {!scanning && scanTotal > 0 && discoveredServers.length === 0 && (
                         <div className="text-center py-3">
                             <p className="text-xs text-gray-500">No servers found on this network.</p>
-                            <p className="text-[9px] text-gray-600 mt-1">
+                            <p className="text-[11px] text-gray-500 mt-1">
                                 Make sure AvNav is running and your phone is on the same WiFi.
                             </p>
                         </div>
@@ -310,7 +310,7 @@ export const ChartServerTab: React.FC = () => {
                 <div className="px-4 pt-1">
                     <button
                         onClick={() => setShowAdvanced((v) => !v)}
-                        className="text-[10px] text-gray-600 hover:text-gray-400 transition-colors flex items-center gap-1"
+                        className="text-[10px] text-gray-500 hover:text-gray-400 transition-colors flex items-center gap-1"
                     >
                         <span
                             style={{
@@ -338,7 +338,7 @@ export const ChartServerTab: React.FC = () => {
                                 className="w-48 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-mono placeholder-gray-600 outline-none focus:border-amber-500 focus:shadow-[0_0_10px_rgba(245,158,11,0.15)] transition-all disabled:opacity-50"
                             />
                         </Row>
-                        <p className="text-[9px] text-gray-600 leading-relaxed">
+                        <p className="text-[11px] text-gray-500 leading-relaxed">
                             Optional. If you have port forwarding or a dynamic DNS set up, enter your external
                             hostname/IP here. Thalassa will try your LAN address first and fall back to this when
                             you&apos;re away from the boat. Same port is used for both.
@@ -386,9 +386,9 @@ export const ChartServerTab: React.FC = () => {
                                         <span className="text-[10px] text-gray-500 font-mono">
                                             z{chart.minZoom}–{chart.maxZoom}
                                         </span>
-                                        <span className="text-[10px] text-gray-600">·</span>
+                                        <span className="text-[10px] text-gray-500">·</span>
                                         <span className="text-[10px] text-gray-500">{chart.type}</span>
-                                        <span className="text-[10px] text-gray-600">·</span>
+                                        <span className="text-[10px] text-gray-500">·</span>
                                         <span className="text-[10px] text-gray-500">{chart.format}</span>
                                     </div>
                                 </div>

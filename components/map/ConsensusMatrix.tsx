@@ -151,19 +151,19 @@ const ConsensusRowView: React.FC<{
 
                 {/* Worst case callout */}
                 <div className="text-right">
-                    <span className="text-[11px] font-bold text-gray-600 uppercase tracking-wider">Worst: </span>
+                    <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Worst: </span>
                     <span className="text-sm font-black text-white tabular-nums">
                         {row.worstCase.windKts.toFixed(0)}
                     </span>
                     <span className="text-[11px] text-gray-400 ml-0.5">kts</span>
-                    <span className="text-[11px] text-gray-600 ml-1.5">G{row.worstCase.gustKts.toFixed(0)}</span>
+                    <span className="text-[11px] text-gray-500 ml-1.5">G{row.worstCase.gustKts.toFixed(0)}</span>
                 </div>
             </div>
 
             {/* Spread indicator — visual bar showing model disagreement */}
             {row.spreadKts > 3 && (
                 <div className="mt-1.5 flex items-center gap-2">
-                    <span className="text-[8px] font-bold text-gray-600 uppercase tracking-wider">Spread</span>
+                    <span className="text-[8px] font-bold text-gray-500 uppercase tracking-wider">Spread</span>
                     <div className="flex-1 h-1 rounded-full bg-white/[0.04] overflow-hidden">
                         <div
                             className={`h-full rounded-full transition-all ${
@@ -291,7 +291,7 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
                 {/* Summary stats */}
                 <div className="flex items-center gap-3">
                     <div className="flex items-center gap-1">
-                        <span className="text-[8px] font-bold text-gray-600 uppercase">Avg Spread</span>
+                        <span className="text-[8px] font-bold text-gray-500 uppercase">Avg Spread</span>
                         <span className="text-[11px] font-black text-white tabular-nums">
                             {data.summary.avgSpreadKts} kts
                         </span>
@@ -319,7 +319,7 @@ export const ConsensusMatrix: React.FC<ConsensusMatrixProps> = ({ data, onScrubP
             <div ref={scrollRef} className="flex-1 overflow-y-auto overscroll-contain">
                 {/* Scale header */}
                 <div className="sticky top-0 z-10 bg-slate-950/95 backdrop-blur-sm px-4 py-1.5 border-b border-white/[0.06]">
-                    <div className="flex justify-between text-[8px] font-bold text-gray-600 uppercase tracking-wider">
+                    <div className="flex justify-between text-[8px] font-bold text-gray-500 uppercase tracking-wider">
                         <span>0 kts</span>
                         <span>10</span>
                         <span>20</span>

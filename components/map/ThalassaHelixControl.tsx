@@ -447,7 +447,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                             <div className="shrink-0 text-right min-w-[44px]">
                                 <p className="text-[11px] font-black text-white leading-tight">{frameLabel}</p>
                                 <p
-                                    className="text-[9px] font-bold uppercase tracking-widest leading-tight"
+                                    className="text-[11px] font-bold uppercase tracking-widest leading-tight"
                                     style={{
                                         color:
                                             frameLabel === 'Now' || frameLabel === 'Live'
@@ -467,7 +467,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                             <span className="text-sm">{config.icon}</span>
                             <span className="text-[11px] font-black text-white">{config.label}</span>
                             <span
-                                className="ml-auto text-[9px] font-bold uppercase tracking-widest"
+                                className="ml-auto text-[11px] font-bold uppercase tracking-widest"
                                 style={{ color: `${accent}90` }}
                             >
                                 ● Live

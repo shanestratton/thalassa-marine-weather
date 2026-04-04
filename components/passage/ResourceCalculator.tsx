@@ -584,7 +584,7 @@ const StaticMealPlan: React.FC<StaticMealPlanProps> = ({
                                     <span>{bMeals[dayIdx % bMeals.length].emoji}</span>
                                     {bMeals[dayIdx % bMeals.length].name}
                                 </div>
-                                <div className="text-[11px] text-gray-600">× {effectiveCrewCount} serves</div>
+                                <div className="text-[11px] text-gray-500">× {effectiveCrewCount} serves</div>
                             </div>
                             <div className="bg-black/20 rounded-lg px-3 py-2 space-y-1">
                                 <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">
@@ -594,7 +594,7 @@ const StaticMealPlan: React.FC<StaticMealPlanProps> = ({
                                     <span>{lMeals[dayIdx % lMeals.length].emoji}</span>
                                     {lMeals[dayIdx % lMeals.length].name}
                                 </div>
-                                <div className="text-[11px] text-gray-600">× {effectiveCrewCount} serves</div>
+                                <div className="text-[11px] text-gray-500">× {effectiveCrewCount} serves</div>
                             </div>
                             <div className="bg-black/20 rounded-lg px-3 py-2 space-y-1">
                                 <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold">
@@ -604,7 +604,7 @@ const StaticMealPlan: React.FC<StaticMealPlanProps> = ({
                                     <span>{dMeals[dayIdx % dMeals.length].emoji}</span>
                                     {dMeals[dayIdx % dMeals.length].name}
                                 </div>
-                                <div className="text-[11px] text-gray-600">× {effectiveCrewCount} serves</div>
+                                <div className="text-[11px] text-gray-500">× {effectiveCrewCount} serves</div>
                             </div>
                         </div>
                     </div>

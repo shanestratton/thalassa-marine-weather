@@ -393,7 +393,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                                     {/* Sparkline overlay */}
                                     <div className="flex items-center gap-3 mt-1.5 ml-[80px]">
                                         <div className="flex items-center gap-1">
-                                            <span className="text-[8px] text-gray-600 uppercase">Wind</span>
+                                            <span className="text-[8px] text-gray-500 uppercase">Wind</span>
                                             <Sparkline
                                                 points={f.points}
                                                 color={pal.bar}
@@ -402,7 +402,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                                             />
                                         </div>
                                         <div className="flex items-center gap-1">
-                                            <span className="text-[8px] text-gray-600 uppercase">Wave</span>
+                                            <span className="text-[8px] text-gray-500 uppercase">Wave</span>
                                             <Sparkline
                                                 points={f.points}
                                                 color={pal.bar}
@@ -418,7 +418,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                     </div>
 
                     {/* Time axis label */}
-                    <div className="px-4 py-2 flex justify-between text-[11px] text-gray-600 font-mono border-t border-white/[0.04]">
+                    <div className="px-4 py-2 flex justify-between text-[11px] text-gray-500 font-mono border-t border-white/[0.04]">
                         <span>Now</span>
                         <span>+{Math.round(data.forecastHours / 2)}h</span>
                         <span>+{data.forecastHours}h</span>
@@ -428,7 +428,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
 
             {/* ── Legend: Heat Scale ── */}
             <div className="flex items-center gap-1 px-1">
-                <span className="text-[11px] text-gray-600 mr-1">Wind:</span>
+                <span className="text-[11px] text-gray-500 mr-1">Wind:</span>
                 {[
                     { label: '<5', cls: 'bg-sky-900/60' },
                     { label: '10', cls: 'bg-sky-700/60' },
@@ -440,14 +440,14 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                 ].map((s, i) => (
                     <div key={i} className="flex flex-col items-center gap-0.5">
                         <div className={`w-5 h-2.5 rounded-sm ${s.cls}`} />
-                        <span className="text-[7px] text-gray-600 font-mono">{s.label}</span>
+                        <span className="text-[7px] text-gray-500 font-mono">{s.label}</span>
                     </div>
                 ))}
-                <span className="text-[11px] text-gray-600 ml-1">kt</span>
+                <span className="text-[11px] text-gray-500 ml-1">kt</span>
             </div>
 
             {/* Query metadata */}
-            <div className="text-[11px] text-gray-600 text-right font-mono">
+            <div className="text-[11px] text-gray-500 text-right font-mono">
                 {data.models.length} models queried in {data.elapsed_ms}ms •{' '}
                 {new Date(data.queryTime).toLocaleTimeString()}
             </div>

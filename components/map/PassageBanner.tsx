@@ -150,10 +150,10 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                 totalDistanceNM: isoResult?.totalDistanceNM ?? passage.routeAnalysis?.totalDistance ?? 0,
                 estimatedDuration: isoResult?.totalDurationHours ?? passage.routeAnalysis?.estimatedDuration ?? 0,
                 speed: passage.speed,
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 turnWaypoints:
                     turnWPs.length > 0
-                        ? turnWPs.map((wp: any) => ({
+                        ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                          turnWPs.map((wp: any) => ({
                               name: wp.id ?? wp.name ?? 'WP',
                               lat: wp.lat,
                               lon: wp.lon,
@@ -216,10 +216,12 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                             </svg>
                         )}
                         {/* Via waypoints from GPX import */}
+                        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                         {(passage as any).viaWaypoints?.length > 0 && (
                             <>
-                                <span className="px-1.5 py-0.5 bg-amber-500/10 border border-amber-500/15 rounded text-amber-400/80 text-[9px] font-bold">
-                                    +{(passage as any).viaWaypoints.length} via
+                                <span className="px-1.5 py-0.5 bg-amber-500/10 border border-amber-500/15 rounded text-amber-400/80 text-[11px] font-bold">
+                                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}+
+                                    {(passage as any).viaWaypoints.length} via
                                 </span>
                                 <svg
                                     className="w-3 h-3 text-gray-500 shrink-0"

@@ -216,7 +216,7 @@ export const LayerLegendStrip: React.FC<{
             >
                 {/* Top arrow + label */}
                 <span className="text-red-400 text-[11px] font-black leading-none">{legend.topArrow}</span>
-                <span className="text-[9px] font-black text-white/80 uppercase tracking-[0.15em] leading-none">
+                <span className="text-[11px] font-black text-white/80 uppercase tracking-[0.15em] leading-none">
                     {legend.topLabel}
                 </span>
 
@@ -227,7 +227,7 @@ export const LayerLegendStrip: React.FC<{
                 />
 
                 {/* Bottom label + arrow */}
-                <span className="text-[9px] font-black text-white/80 uppercase tracking-[0.15em] leading-none">
+                <span className="text-[11px] font-black text-white/80 uppercase tracking-[0.15em] leading-none">
                     {legend.bottomLabel}
                 </span>
                 <span className="text-sky-400 text-[11px] font-black leading-none">{legend.bottomArrow}</span>
@@ -328,7 +328,7 @@ export const LayerFABMenu: React.FC<{
     seamarkFeatureCount = 0,
     seamarkLoading = false,
     chartsActive = false,
-    seamarkMode = 'full',
+    seamarkMode: _seamarkMode = 'full',
     tideStationsVisible = false,
     onToggleTideStations,
     tideStationCount = 0,
@@ -342,7 +342,7 @@ export const LayerFABMenu: React.FC<{
     const activeCount = activeLayers.size;
     const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [stormMenuOpen, setStormMenuOpen] = useState(false);
-    const [linzKeyInput, setLinzKeyInput] = useState('');
+    const [_linzKeyInput, _setLinzKeyInput] = useState('');
 
     // Auto-dismiss menu after 5 seconds of inactivity
     useEffect(() => {
@@ -842,7 +842,7 @@ export const LayerFABMenu: React.FC<{
                                 <div className="flex-1">
                                     <span className="text-sm font-bold">Tide Stations</span>
                                     {!tideStationsVisible && (
-                                        <p className="text-[9px] text-gray-600 mt-0.5">
+                                        <p className="text-[11px] text-gray-500 mt-0.5">
                                             Near coast — tap for predictions
                                         </p>
                                     )}

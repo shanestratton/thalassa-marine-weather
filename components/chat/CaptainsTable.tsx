@@ -53,7 +53,7 @@ const ShipWheelIcon: React.FC<{ filled: boolean; size?: number }> = ({ filled, s
         fill={filled ? 'currentColor' : 'none'}
         stroke="currentColor"
         strokeWidth={1.5}
-        className={`transition-colors ${filled ? 'text-amber-400' : 'text-gray-600'}`}
+        className={`transition-colors ${filled ? 'text-amber-400' : 'text-gray-500'}`}
     >
         {/* Outer ring */}
         <circle cx="12" cy="12" r="10" fill="none" strokeWidth={1.5} />
@@ -232,7 +232,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                                 <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
                                     Ingredients
                                 </p>
-                                <span className="text-[9px] text-sky-400/60 bg-sky-500/10 px-1.5 py-0.5 rounded-full">
+                                <span className="text-[11px] text-sky-400/60 bg-sky-500/10 px-1.5 py-0.5 rounded-full">
                                     per person
                                 </span>
                             </div>
@@ -582,7 +582,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     key={group.label}
                                     className="flex items-center gap-1.5 overflow-x-auto no-scrollbar"
                                 >
-                                    <span className="text-[9px] text-gray-500 font-bold uppercase tracking-wider whitespace-nowrap shrink-0 w-16">
+                                    <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider whitespace-nowrap shrink-0 w-16">
                                         {group.label}
                                     </span>
                                     {group.tags.map((tag) => (
@@ -655,7 +655,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     return def ? (
                                         <span
                                             key={tag}
-                                            className="px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-400 text-[9px] font-bold"
+                                            className="px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-400 text-[11px] font-bold"
                                         >
                                             {def.emoji} {def.label}
                                         </span>
@@ -777,7 +777,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                                 />
                                                 {bilgeResult && (
                                                     <span
-                                                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                                        className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${
                                                             bilgeResult.matchPercent >= 80
                                                                 ? 'bg-emerald-500/15 text-emerald-400'
                                                                 : bilgeResult.matchPercent >= 50
@@ -799,14 +799,14 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                                 className={`w-7 h-7 rounded-full flex items-center justify-center text-sm transition-all active:scale-90 ${
                                                     isFav
                                                         ? 'text-rose-400 bg-rose-500/10'
-                                                        : 'text-gray-600 hover:text-gray-400'
+                                                        : 'text-gray-500 hover:text-gray-400'
                                                 }`}
                                                 aria-label={isFav ? 'Remove from favourites' : 'Add to favourites'}
                                             >
                                                 {isFav ? '♥' : '♡'}
                                             </button>
                                             <svg
-                                                className="w-3.5 h-3.5 text-gray-600"
+                                                className="w-3.5 h-3.5 text-gray-500"
                                                 fill="none"
                                                 viewBox="0 0 24 24"
                                                 stroke="currentColor"

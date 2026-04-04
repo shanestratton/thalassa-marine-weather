@@ -42,7 +42,7 @@ export const DelegationBadge: React.FC<DelegationBadgeProps> = ({
 }) => {
     if (SKIPPER_ONLY.includes(cardKey)) {
         return (
-            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/15 text-[9px] font-bold text-amber-400/80 uppercase tracking-wider ml-1.5">
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/15 text-[11px] font-bold text-amber-400/80 uppercase tracking-wider ml-1.5">
                 👨‍✈️ Skipper
             </span>
         );
@@ -60,7 +60,7 @@ export const DelegationBadge: React.FC<DelegationBadgeProps> = ({
                     e.stopPropagation();
                     onMenuToggle(isOpen ? null : cardKey);
                 }}
-                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-wider transition-all border ${
+                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all border ${
                     assigned
                         ? 'bg-sky-500/10 border-sky-500/20 text-sky-400'
                         : 'bg-white/[0.04] border-white/[0.08] text-gray-500 hover:text-gray-300 hover:bg-white/[0.08]'
@@ -77,7 +77,7 @@ export const DelegationBadge: React.FC<DelegationBadgeProps> = ({
                         e.stopPropagation();
                     }}
                 >
-                    <div className="px-3 py-1.5 text-[9px] font-bold text-gray-500 uppercase tracking-widest">
+                    <div className="px-3 py-1.5 text-[11px] font-bold text-gray-500 uppercase tracking-widest">
                         {DELEGATABLE_CARDS[cardKey]?.roles.join(' · ') || 'Assign To'}
                     </div>
                     {crewList.length === 0 ? (

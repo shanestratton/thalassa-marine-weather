@@ -55,7 +55,7 @@ export const MaritimeIntelCard: React.FC = React.memo(() => {
                 <div className="flex items-center h-9 px-3 gap-2">
                     {/* Label */}
                     <span
-                        className="shrink-0 text-[9px] font-black text-sky-500/70 uppercase tracking-[0.15em]"
+                        className="shrink-0 text-[11px] font-black text-sky-500/70 uppercase tracking-[0.15em]"
                         style={{ letterSpacing: '0.15em' }}
                     >
                         INTEL

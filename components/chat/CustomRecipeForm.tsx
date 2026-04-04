@@ -301,7 +301,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         </button>
                     ))}
                 </div>
-                <p className="text-[9px] text-gray-600 mt-1.5">
+                <p className="text-[11px] text-gray-500 mt-1.5">
                     Tags help sailors find your recipe by conditions. Tap to add or remove.
                 </p>
             </div>

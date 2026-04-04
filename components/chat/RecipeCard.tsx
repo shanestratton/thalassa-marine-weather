@@ -121,7 +121,7 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({ message, isMine }) => {
                                         {recipe.tags.map((tag) => (
                                             <span
                                                 key={tag}
-                                                className="px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 text-[9px] font-bold"
+                                                className="px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 text-[11px] font-bold"
                                             >
                                                 {tag}
                                             </span>
@@ -136,7 +136,7 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({ message, isMine }) => {
                 )}
 
                 {/* Tap hint */}
-                <p className="text-[9px] text-gray-500 mt-2 text-center">
+                <p className="text-[11px] text-gray-500 mt-2 text-center">
                     {expanded ? 'Tap to collapse' : 'Tap to view details'}
                 </p>
             </div>

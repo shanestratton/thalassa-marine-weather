@@ -284,7 +284,7 @@ export const NmeaGaugeOverlay: React.FC<NmeaGaugeOverlayProps> = ({ metricId, me
                                 <span className="text-lg font-black text-white tabular-nums font-mono">
                                     {keelOffset.toFixed(1)}m
                                 </span>
-                                <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-500">
+                                <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-gray-500">
                                     Keel Offset
                                 </span>
                             </div>

@@ -324,7 +324,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                                         {item.ingredient_name}
                                                     </p>
                                                     {item.purchased && item.purchased_at && (
-                                                        <p className="text-[9px] text-emerald-500/60">
+                                                        <p className="text-[11px] text-emerald-500/60">
                                                             ✅ {new Date(item.purchased_at).toLocaleDateString()}
                                                             {item.store_location ? ` · ${item.store_location}` : ''}
                                                             {item.actual_cost
@@ -337,12 +337,12 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                                 {/* Purchase quantity */}
                                                 <div className="text-right flex-shrink-0">
                                                     <span
-                                                        className={`text-[11px] font-bold tabular-nums ${item.purchased ? 'text-gray-600' : 'text-emerald-400'}`}
+                                                        className={`text-[11px] font-bold tabular-nums ${item.purchased ? 'text-gray-500' : 'text-emerald-400'}`}
                                                     >
                                                         {purchase.packageCount} × {purchase.packageLabel}
                                                     </span>
                                                     {purchase.matched && (
-                                                        <p className="text-[9px] text-gray-600 line-through tabular-nums">
+                                                        <p className="text-[11px] text-gray-500 line-through tabular-nums">
                                                             {Math.round(item.required_qty * 10) / 10} {item.unit}
                                                         </p>
                                                     )}
@@ -372,7 +372,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                 .filter(([, v]) => v > 0)
                                 .sort(([, a], [, b]) => b - a)
                                 .map(([zone, cost]) => (
-                                    <span key={zone} className="text-[9px] text-gray-500">
+                                    <span key={zone} className="text-[11px] text-gray-500">
                                         {ZONE_EMOJI[zone as MarketZone] || '🛒'} {zone}:{' '}
                                         <span className="text-gray-400 font-bold">${cost.toFixed(2)}</span>
                                     </span>

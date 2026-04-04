@@ -110,7 +110,7 @@ const ChartPackageRow: React.FC<{
                 disabled={!!busy}
                 className={`shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 ${
                     busy
-                        ? 'bg-white/[0.03] text-gray-600 cursor-not-allowed'
+                        ? 'bg-white/[0.03] text-gray-500 cursor-not-allowed'
                         : isActive && activeProgress?.phase === 'done'
                           ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400'
                           : isActive && activeProgress?.phase === 'error'
@@ -537,7 +537,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                     disabled={!skConnected || isBusy}
                                     className={`w-full py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
                                         !skConnected
-                                            ? 'bg-white/[0.03] border border-white/[0.06] text-gray-600 cursor-not-allowed'
+                                            ? 'bg-white/[0.03] border border-white/[0.06] text-gray-500 cursor-not-allowed'
                                             : isBusy
                                               ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400 cursor-not-allowed'
                                               : 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25'
@@ -605,7 +605,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                         🖥 Pi Direct
                                     </button>
                                 </div>
-                                <p className="text-[9px] text-gray-600 leading-relaxed px-0.5">
+                                <p className="text-[11px] text-gray-500 leading-relaxed px-0.5">
                                     {downloadMode === 'phone-proxy'
                                         ? 'Downloads chart to your phone first, then uploads to Pi. Works without Pi internet.'
                                         : 'Tells the Pi to download directly. Faster, but Pi needs internet access. Falls back to phone if unavailable.'}
@@ -618,7 +618,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                     <p className="text-[11px] font-bold uppercase tracking-widest text-white/40 flex-1">
                                         Free Charts
                                     </p>
-                                    <span className="text-[9px] text-emerald-400/60 font-mono bg-emerald-500/10 px-2 py-0.5 rounded-full">
+                                    <span className="text-[11px] text-emerald-400/60 font-mono bg-emerald-500/10 px-2 py-0.5 rounded-full">
                                         {catalog.length} charts
                                     </span>
                                 </div>
@@ -652,7 +652,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                 ))}
 
                                 {!linzKey && (
-                                    <p className="text-[10px] text-gray-600 text-center py-2 border-t border-white/[0.04] mt-2">
+                                    <p className="text-[10px] text-gray-500 text-center py-2 border-t border-white/[0.04] mt-2">
                                         Add a LINZ API key in Settings to see NZ charts
                                     </p>
                                 )}
@@ -669,7 +669,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                     <span className="text-sky-300 font-bold">Bruce Balan's Chart Locker</span>. Not
                                     official charts — use alongside proper navigation.
                                 </p>
-                                <p className="text-[9px] text-gray-600 mt-1">
+                                <p className="text-[11px] text-gray-500 mt-1">
                                     Downloads are automated — Thalassa resolves the links, downloads the zip, and
                                     uploads to your AvNav Pi. One tap. ☕
                                 </p>

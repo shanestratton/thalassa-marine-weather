@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { t } from '../theme';
 import { XIcon, DiamondIcon, CheckIcon, LockIcon } from './Icons';
 import { useFocusTrap } from '../hooks/useAccessibility';
-import { TIER_INFO, type Feature } from '../services/SubscriptionService';
+import { TIER_INFO, type Feature as _Feature } from '../services/SubscriptionService';
 import type { SubscriptionTier } from '../types/settings';
 
 interface UpgradeModalProps {
@@ -59,7 +59,7 @@ const PlanCard: React.FC<{
         >
             {recommended && (
                 <div
-                    className="absolute -top-2.5 left-4 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest"
+                    className="absolute -top-2.5 left-4 px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-widest"
                     style={{ background: info.color, color: '#000' }}
                 >
                     Best Value
