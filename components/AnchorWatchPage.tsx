@@ -469,7 +469,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         return (
             <div
                 ref={keyboardScrollRef}
-                className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`}
+                className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden slide-up-enter`}
                 style={{ overscrollBehaviorY: 'none' }}
             >
                 {/* ── Header — consistent with other vessel pages ── */}

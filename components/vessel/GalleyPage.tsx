@@ -54,7 +54,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
     const reservedCount = storesAvail.filter((s) => s.reserved > 0).length;
 
     return (
-        <div className="flex flex-col h-full bg-slate-950 text-white">
+        <div className="flex flex-col h-full bg-slate-950 text-white slide-up-enter">
             {/* Header */}
             <div className="flex items-center gap-3 p-4 border-b border-white/[0.06]">
                 <button

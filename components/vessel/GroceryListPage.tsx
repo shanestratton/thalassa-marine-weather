@@ -171,7 +171,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
     }, [addName, addQty, addUnit, addZone, loadList]);
 
     return (
-        <div className="relative h-full bg-slate-950 overflow-hidden">
+        <div className="relative h-full bg-slate-950 overflow-hidden slide-up-enter">
             <div className="flex flex-col h-full">
                 <PageHeader
                     title="Grocery List"

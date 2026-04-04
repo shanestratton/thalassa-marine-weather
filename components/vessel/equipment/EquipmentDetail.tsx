@@ -40,7 +40,7 @@ export const EquipmentDetail: React.FC<EquipmentDetailProps> = ({ item, onBack, 
     };
 
     return (
-        <div className="relative h-full bg-slate-950 overflow-hidden">
+        <div className="relative h-full bg-slate-950 overflow-hidden slide-up-enter">
             <div className="flex flex-col h-full">
                 {/* Header */}
                 <div className="shrink-0 px-4 pt-4 pb-3">

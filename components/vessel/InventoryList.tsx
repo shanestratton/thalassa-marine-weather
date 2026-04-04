@@ -257,7 +257,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
     }
 
     return (
-        <div className="relative h-full bg-slate-950 overflow-hidden">
+        <div className="relative h-full bg-slate-950 overflow-hidden slide-up-enter">
             <div className="flex flex-col h-full">
                 <PageHeader
                     title="Ship's Stores"
