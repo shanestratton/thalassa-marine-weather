@@ -289,7 +289,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
         uploadProgress.phase !== 'error';
 
     return (
-        <div className="w-full h-full flex flex-col bg-slate-950">
+        <div className="w-full h-full flex flex-col bg-slate-950 slide-up-enter">
             <PageHeader title="AvNav Charts" onBack={onBack} />
 
             <div className="flex-1 overflow-y-auto px-4 pb-32">

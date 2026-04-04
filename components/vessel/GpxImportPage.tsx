@@ -259,7 +259,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
     };
 
     return (
-        <div className="relative flex-1 bg-slate-950 overflow-hidden flex flex-col">
+        <div className="relative flex-1 bg-slate-950 overflow-hidden flex flex-col slide-up-enter">
             {/* ═══ HEADER ═══ */}
             <div className="shrink-0 px-4 pt-4 pb-3">
                 <div className="flex items-center gap-3">

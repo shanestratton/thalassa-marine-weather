@@ -249,7 +249,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
 
     return (
         <div
-            className="w-full h-full flex flex-col animate-in fade-in duration-300 overflow-hidden"
+            className="w-full h-full flex flex-col slide-up-enter overflow-hidden"
             style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
         >
             {/* ── Header ── */}

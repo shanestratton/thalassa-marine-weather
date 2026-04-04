@@ -200,7 +200,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
     const utcTime = new Date().toISOString().slice(11, 19);
 
     return (
-        <div className="radio-console">
+        <div className="radio-console slide-up-enter">
             {/* ── Header bar ── */}
             <div className="radio-console__header">
                 <button onClick={onBack} className="radio-console__back" aria-label="Back to vessel">

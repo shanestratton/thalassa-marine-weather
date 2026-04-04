@@ -712,7 +712,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     }
     // ── Render: Timeline ────────────────────────────────────────
     return (
-        <div className="relative h-full bg-slate-950 overflow-hidden">
+        <div className="relative h-full bg-slate-950 overflow-hidden slide-up-enter">
             {/* Export progress overlay */}
             {exportProgress && (
                 <div className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center z-50 gap-4">
