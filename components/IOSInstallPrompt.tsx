@@ -43,7 +43,7 @@ export const IOSInstallPrompt = () => {
                 <button
                     onClick={handleDismiss}
                     className="absolute top-2 right-2 p-2 text-gray-400 hover:text-white transition-colors"
-                    aria-label="Dismiss"
+                    aria-label="Dismiss install prompt"
                 >
                     <XIcon className="w-4 h-4" />
                 </button>

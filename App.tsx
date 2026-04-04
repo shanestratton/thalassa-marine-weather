@@ -15,6 +15,7 @@ import { NAV_ICON_WX, NAV_ICON_MAP, NAV_ICON_CHAT, NAV_ICON_VESSEL } from './com
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemStatusButton } from './components/SystemStatusButton';
 import { ToastPortal, toast } from './components/Toast';
+import { ConnectivityBanner } from './components/ui/ConnectivityBanner';
 import { PushToast } from './components/PushToast';
 import { PageTransition } from './components/ui/PageTransition';
 import { checkDisclaimerAccepted } from './modules/LegalGuard';
@@ -216,22 +217,8 @@ const App: React.FC = () => {
                     Skip to content
                 </a>
 
-                {/* OFFLINE INDICATOR — subtle floating pill */}
-                {isOffline && (
-                    <div
-                        className="flex justify-center pt-[max(0.5rem,env(safe-area-inset-top))] pb-1 shrink-0"
-                        role="status"
-                        aria-live="polite"
-                    >
-                        <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/5 backdrop-blur-md border border-white/10 text-[11px] text-white/50 font-medium uppercase tracking-widest">
-                            <div
-                                className="w-1.5 h-1.5 rounded-full bg-orange-400/80 animate-pulse"
-                                aria-hidden="true"
-                            />
-                            Offline
-                        </div>
-                    </div>
-                )}
+                {/* CONNECTIVITY BANNER — offline/reconnect awareness */}
+                <ConnectivityBanner />
 
                 {/* GLOBAL TOAST PORTAL */}
                 <ToastPortal />
@@ -394,7 +381,7 @@ const App: React.FC = () => {
                                                                 </h3>
                                                                 <p className="text-white/80">{error}</p>
                                                                 <button
-                                                                    aria-label="Retry"
+                                                                    aria-label="Retry loading weather data"
                                                                     onClick={() =>
                                                                         fetchWeather(
                                                                             query || settings.defaultLocation || '',

@@ -359,7 +359,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                 {/* Header — sticky at top of modal */}
                 <div className="shrink-0 flex items-center justify-between px-5 py-4 bg-slate-900/95 border-b border-white/[0.06] rounded-t-3xl">
                     <button
-                        aria-label="Close"
+                        aria-label="Close create listing form"
                         onClick={() => {
                             reset();
                             onClose();
@@ -372,7 +372,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         {isBoat ? 'List a Boat for Sale' : 'List Gear for Sale'}
                     </h2>
                     <button
-                        aria-label="Submit"
+                        aria-label="Submit marketplace listing"
                         onClick={handleSubmit}
                         disabled={submitting || !title.trim() || !price || !category || !condition}
                         className={`text-xs font-bold ${submitting || !title.trim() || !price || !category || !condition ? 'text-white/30' : 'text-sky-400'}`}
@@ -402,7 +402,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         <div className="flex flex-wrap gap-2">
                             {LISTING_CATEGORIES.map((cat) => (
                                 <button
-                                    aria-label="Category"
+                                    aria-label="Select listing category"
                                     key={cat}
                                     onClick={() => setCategory(cat)}
                                     className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
@@ -736,7 +736,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                         <div className="flex flex-wrap gap-2">
                             {LISTING_CONDITIONS.map((cond) => (
                                 <button
-                                    aria-label="Condition"
+                                    aria-label="Select item condition"
                                     key={cond}
                                     onClick={() => setCondition(cond)}
                                     className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all ${
@@ -837,7 +837,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                                 >
                                     <img src={url} className="w-full h-full object-cover" alt="" />
                                     <button
-                                        aria-label="Image"
+                                        aria-label="Upload listing image"
                                         onClick={() => removeImage(i)}
                                         className="absolute top-0.5 right-0.5 w-5 h-5 flex items-center justify-center rounded-full bg-black/70 text-white text-[11px]"
                                     >
@@ -847,7 +847,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                             ))}
                             {images.length < MAX_PHOTOS && (
                                 <button
-                                    aria-label="Ref"
+                                    aria-label="Reference listing details"
                                     onClick={() => fileRef.current?.click()}
                                     className="w-20 h-20 rounded-xl border-2 border-dashed border-white/10 flex flex-col items-center justify-center text-white/60 hover:border-sky-500/30 hover:text-sky-400/50 transition-colors"
                                 >
@@ -873,7 +873,7 @@ const CreateListingModal: React.FC<CreateListingModalProps> = ({ isOpen, onClose
                 {/* Submit button — pinned outside scroll area */}
                 <div className="shrink-0 px-5 py-3 border-t border-white/[0.06] bg-slate-950">
                     <button
-                        aria-label="Submit"
+                        aria-label="Submit marketplace listing"
                         onClick={handleSubmit}
                         disabled={submitting || !title.trim() || !price || !category || !condition}
                         className={`w-full py-3.5 rounded-2xl font-bold text-sm uppercase tracking-wider transition-all active:scale-[0.98] ${

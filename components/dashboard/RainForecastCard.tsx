@@ -145,7 +145,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
     return (
         <>
             <button
-                aria-label="Modal"
+                aria-label="Open rain forecast detail"
                 onClick={openModal}
                 className={`w-full rounded-xl overflow-hidden relative text-left transition-all duration-500 ${className} ${
                     isActive
@@ -416,7 +416,7 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                         <button
                             onClick={onClose}
                             className="w-8 h-8 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors"
-                            aria-label="Close"
+                            aria-label="Close rain forecast detail"
                         >
                             <span className="text-white/70 text-sm">✕</span>
                         </button>

@@ -75,7 +75,7 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
                     <button
                         onClick={onClose}
                         className="text-slate-400 hover:text-white transition-colors p-1"
-                        aria-label="Close"
+                        aria-label="Close diary entry editor"
                     >
                         <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path
@@ -134,7 +134,7 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
                     {/* Buttons */}
                     <div className="flex gap-3 pt-2">
                         <button
-                            aria-label="Close"
+                            aria-label="Close diary entry editor"
                             type="button"
                             onClick={onClose}
                             className="flex-1 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-bold transition-colors"
@@ -143,7 +143,7 @@ export const EditEntryModal: React.FC<EditEntryModalProps> = ({ isOpen, entry, o
                             Cancel
                         </button>
                         <button
-                            aria-label="Save"
+                            aria-label="Save diary entry"
                             type="submit"
                             className="flex-1 px-4 py-3 bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-bold transition-colors disabled:opacity-50"
                             disabled={saving}

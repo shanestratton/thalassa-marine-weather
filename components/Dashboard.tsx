@@ -17,6 +17,7 @@ import { HeroWidgets } from './dashboard/HeroWidgets';
 import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
 import { RainForecastCard } from './dashboard/RainForecastCard';
 import { ShimmerBlock } from './ui/ShimmerBlock';
+import { CacheAgeBadge } from './ui/CacheAgeBadge';
 import { useSettings } from '../context/SettingsContext';
 
 import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
@@ -820,7 +821,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                 </div>
                 {data && (
                     <div className="mt-8 text-center pb-8 opacity-40 hover:opacity-100 transition-opacity">
-                        <div className="mt-4 flex items-center justify-center gap-2 text-sm font-mono text-sky-500/50">
+                        <CacheAgeBadge timestamp={data.generatedAt} className="justify-center mb-2" />
+                        <div className="mt-1 flex items-center justify-center gap-2 text-sm font-mono text-sky-500/50">
                             <ClockIcon className="w-3 h-3" />
                             <span>
                                 UPDATED:{' '}

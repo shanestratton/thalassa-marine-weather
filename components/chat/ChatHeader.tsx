@@ -150,7 +150,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                 <span className="text-xs text-white/60 tabular-nums">{messageCount} msgs</span>
                                 {activeChannel?.is_private && onLeaveChannel && (
                                     <button
-                                        aria-label="Leave"
+                                        aria-label="Leave channel"
                                         onClick={onLeaveChannel}
                                         className="px-2.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-red-500/10 border border-white/[0.06] text-white/50 hover:text-red-400 text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95"
                                     >
@@ -161,7 +161,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                         )}
                         {view === 'dm_thread' && hasDMPartner && (
                             <button
-                                aria-label="Toggle"
+                                aria-label="Toggle notification mute"
                                 onClick={onToggleBlock}
                                 className="px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-red-500/10 border border-white/[0.06] text-white/60 hover:text-red-400 text-xs font-medium transition-all active:scale-95"
                             >

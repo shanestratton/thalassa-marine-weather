@@ -86,14 +86,14 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
                                 {/* Actions */}
                                 <div className="flex gap-2">
                                     <button
-                                        aria-label="Accept"
+                                        aria-label="Accept crew invite request"
                                         onClick={() => onAcceptInvite(invite)}
                                         className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-colors active:scale-95"
                                     >
                                         Accept
                                     </button>
                                     <button
-                                        aria-label="Decline"
+                                        aria-label="Decline crew invite request"
                                         onClick={() => onDeclineInvite(invite)}
                                         className="flex-1 py-2 bg-white/5 hover:bg-white/10 text-gray-400 text-xs font-bold rounded-lg transition-colors active:scale-95"
                                     >

@@ -202,7 +202,7 @@ export const ChatDMCompose: React.FC<ChatDMComposeProps> = React.memo(
                             </button>
                             <button
                                 onClick={() => setShowBlockConfirm(false)}
-                                aria-label="Cancel"
+                                aria-label="Cancel editing message"
                                 className="flex-1 py-3 rounded-xl bg-white/[0.04] text-white/60 text-sm font-medium border border-white/[0.06] transition-all active:scale-95 min-h-[44px]"
                             >
                                 Cancel

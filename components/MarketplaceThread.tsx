@@ -397,7 +397,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                                         <div key={i} />
                                     ) : (
                                         <button
-                                            aria-label="Haptic"
+                                            aria-label="Enter PIN digit"
                                             key={i}
                                             onClick={() => {
                                                 triggerHaptic('light');
@@ -427,7 +427,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                         </div>
                     ) : (
                         <button
-                            aria-label="Haptic"
+                            aria-label="Enter buyer PIN to release escrow funds"
                             onClick={() => {
                                 triggerHaptic('medium');
                                 setShowPinPad(true);
@@ -445,7 +445,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                 {/* Buyer: Secure Funds button */}
                 {isBuyer && escrowState === 'none' && (
                     <button
-                        aria-label="Secure Funds"
+                        aria-label="Secure funds in escrow"
                         onClick={handleSecureFunds}
                         disabled={securingFunds}
                         className="shrink-0 px-3 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-600 rounded-xl text-[11px] font-black text-white uppercase tracking-widest hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-95 disabled:opacity-50"
@@ -473,7 +473,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
 
                 {/* Send button */}
                 <button
-                    aria-label="Message"
+                    aria-label="Send message"
                     onClick={sendMessage}
                     disabled={!input.trim() || sending}
                     className="p-2.5 bg-sky-600/30 rounded-xl hover:bg-sky-600/50 transition-colors disabled:opacity-30 active:scale-95"

@@ -327,7 +327,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                         <div className="flex items-center gap-2">
                             {/* Play/Pause button */}
                             <button
-                                aria-label="Play"
+                                aria-label="Play weather animation"
                                 onClick={() => {
                                     if (!isPlaying) {
                                         // Start from beginning if at end or at 'now'

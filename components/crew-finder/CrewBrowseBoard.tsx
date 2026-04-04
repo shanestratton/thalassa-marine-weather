@@ -608,7 +608,7 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                                         )}
                                         <div className="relative">
                                             <button
-                                                aria-label="Menu"
+                                                aria-label="Open crew listing options menu"
                                                 onClick={() =>
                                                     setShowActionMenu(
                                                         showActionMenu === card.user_id ? null : card.user_id,

@@ -154,7 +154,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                     setIsMapOpen(false);
                                     setTempMapSelection(null);
                                 }}
-                                aria-label="Back"
+                                aria-label="Go back to previous page"
                                 className="bg-slate-900/90 hover:bg-slate-800 text-white p-3 rounded-full shadow-2xl border border-white/20 transition-all hover:scale-110 active:scale-95"
                             >
                                 <svg

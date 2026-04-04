@@ -100,7 +100,7 @@ export const InviteCrewModal: React.FC<InviteCrewModalProps> = ({
 
             {/* Send button */}
             <button
-                aria-label="Invite"
+                aria-label="Send crew invitation"
                 onClick={onInvite}
                 disabled={inviteLoading || !inviteEmail.trim() || inviteRegisters.length === 0}
                 className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${!inviteEmail.trim() || inviteRegisters.length === 0 ? 'opacity-50' : 'hover:bg-gray-100'}`}

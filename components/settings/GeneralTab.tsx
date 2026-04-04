@@ -152,7 +152,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
             <Section title="Legal">
                 <div className="p-4">
                     <button
-                        aria-label="Action"
+                        aria-label="Open Terms of Service and Privacy Policy"
                         onClick={() => window.open('/terms.html', '_blank')}
                         className="w-full flex items-center gap-3 p-3 bg-white/[0.03] border border-white/5 rounded-xl hover:bg-white/[0.07] hover:border-white/10 transition-all active:scale-[0.98] text-left"
                     >
@@ -184,7 +184,7 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
             <Section title="Danger Zone">
                 <div className="p-4">
                     <button
-                        aria-label="Reset"
+                        aria-label="Factory reset all settings and data"
                         onClick={onShowFactoryReset}
                         className="w-full py-3 bg-red-500/10 text-red-400 rounded-xl text-xs font-bold uppercase flex items-center justify-center gap-2"
                     >

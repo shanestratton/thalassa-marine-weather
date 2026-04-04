@@ -146,7 +146,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
                 <div className="flex gap-3">
                     <button
-                        aria-label="Cancel"
+                        aria-label="Cancel action"
                         ref={cancelRef}
                         onClick={onCancel}
                         className="flex-1 py-3 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-gray-400 hover:bg-white/10 transition-colors active:scale-[0.97] min-h-[44px]"
@@ -154,7 +154,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
                         {cancelLabel}
                     </button>
                     <button
-                        aria-label="Confirm"
+                        aria-label="Confirm action"
                         ref={confirmRef}
                         onClick={handleConfirm}
                         disabled={loading}

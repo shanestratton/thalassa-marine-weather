@@ -41,7 +41,7 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                         <div className="space-y-1.5 mb-4">
                             {(['spam', 'harassment', 'hate_speech', 'inappropriate', 'other'] as const).map((r) => (
                                 <button
-                                    aria-label="Report"
+                                    aria-label="Report message to moderators"
                                     key={r}
                                     onClick={() => setReportReason(r)}
                                     className={`w-full text-left px-3 py-2 rounded-xl text-xs transition-all ${
@@ -60,14 +60,14 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                         </div>
                         <div className="flex gap-2">
                             <button
-                                aria-label="Close"
+                                aria-label="Close attachment sheet"
                                 onClick={onClose}
                                 className="flex-1 py-2.5 rounded-xl bg-white/[0.03] text-xs text-white/60 hover:bg-white/[0.06] transition-colors"
                             >
                                 Cancel
                             </button>
                             <button
-                                aria-label="Submit"
+                                aria-label="Submit report"
                                 onClick={onSubmit}
                                 className="flex-1 py-2.5 rounded-xl bg-amber-500/15 text-xs text-amber-400 font-medium hover:bg-amber-500/25 transition-colors"
                             >
@@ -115,7 +115,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                 <button
                     onClick={onClose}
                     className="text-white/60 hover:text-white/60 text-lg transition-colors px-2"
-                    aria-label="Close"
+                    aria-label="Close attachment sheet"
                 >
                     ✕
                 </button>
@@ -138,7 +138,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                             >
                                 {savedPins.map((sp) => (
                                     <button
-                                        aria-label="Pin"
+                                        aria-label="Pin drop location"
                                         key={sp.id}
                                         onClick={() => {
                                             setPinLat(sp.latitude);
@@ -204,7 +204,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                             maxLength={120}
                         />
                         <button
-                            aria-label="Send"
+                            aria-label="Send attachment"
                             onClick={onSendPin}
                             className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-500/20 to-sky-500/20 hover:from-sky-500/30 hover:to-sky-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
                         >
@@ -238,7 +238,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                 <button
                     onClick={onClose}
                     className="text-white/60 hover:text-white/60 text-lg transition-colors px-2"
-                    aria-label="Close"
+                    aria-label="Close attachment sheet"
                 >
                     ✕
                 </button>
@@ -270,7 +270,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                             maxLength={120}
                         />
                         <button
-                            aria-label="Send"
+                            aria-label="Send attachment"
                             onClick={onSendPoi}
                             className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500/20 to-emerald-500/20 hover:from-emerald-500/30 hover:to-emerald-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
                         >
@@ -309,7 +309,7 @@ export const TrackPickerSheet: React.FC<TrackPickerSheetProps> = React.memo(
                 <button
                     onClick={onClose}
                     className="text-white/60 hover:text-white/60 text-lg transition-colors px-2"
-                    aria-label="Close"
+                    aria-label="Close attachment sheet"
                 >
                     ✕
                 </button>
@@ -352,7 +352,7 @@ export const TrackPickerSheet: React.FC<TrackPickerSheetProps> = React.memo(
                                     </p>
                                 </div>
                                 <button
-                                    aria-label="Send"
+                                    aria-label="Send attachment"
                                     onClick={() => onSendTrack(v)}
                                     disabled={trackSharing}
                                     className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500/15 to-emerald-500/15 hover:from-emerald-500/25 hover:to-emerald-500/25 text-xs text-emerald-400/80 font-bold transition-all active:scale-95 disabled:opacity-40"
@@ -405,14 +405,14 @@ export const TrackDisclaimerModal: React.FC<TrackDisclaimerModalProps> = React.m
             </div>
             <div className="px-5 pb-5 flex gap-2 pt-2">
                 <button
-                    aria-label="Close"
+                    aria-label="Close attachment sheet"
                     onClick={onClose}
                     className="flex-1 py-2.5 rounded-xl bg-white/[0.05] border border-white/[0.08] text-white/60 text-sm font-bold transition-all active:scale-95"
                 >
                     Cancel
                 </button>
                 <button
-                    aria-label="Import"
+                    aria-label="Import from photo library"
                     onClick={() => onImport(track.trackId, track.title)}
                     className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-sky-600 text-white text-sm font-bold transition-all active:scale-95 shadow-lg shadow-sky-500/20"
                 >

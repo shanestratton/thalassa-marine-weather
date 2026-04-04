@@ -98,7 +98,7 @@ export const PointInput: React.FC<{
             📍 Here
         </button>
         <button
-            aria-label="Set"
+            aria-label="Set location from map"
             onClick={onSet}
             className={`text-[11px] font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg ${isActive ? 'text-amber-400 bg-amber-500/10' : 'text-gray-400 hover:bg-white/5'}`}
         >
@@ -369,7 +369,7 @@ export const LayerFABMenu: React.FC<{
     return (
         <div className={`absolute z-[700] flex flex-col items-end gap-2 top-14 right-4`}>
             <button
-                aria-label="Menu"
+                aria-label="Toggle chart layer menu"
                 onClick={() => {
                     setShowLayerMenu(!showLayerMenu);
                     triggerHaptic('light');
@@ -428,7 +428,7 @@ export const LayerFABMenu: React.FC<{
                     {onToggleCyclones && (
                         <>
                             <button
-                                aria-label="Cyclones"
+                                aria-label="View active cyclone tracking"
                                 onClick={() => {
                                     if (allCyclones.length > 0) {
                                         setStormMenuOpen(!stormMenuOpen);
@@ -599,7 +599,7 @@ export const LayerFABMenu: React.FC<{
                     {onToggleWeatherInspect && (
                         <>
                             <button
-                                aria-label="Toggle"
+                                aria-label="Toggle AIS vessel layer"
                                 onClick={() => {
                                     onToggleWeatherInspect();
                                     triggerHaptic('light');
@@ -627,7 +627,7 @@ export const LayerFABMenu: React.FC<{
                     {onToggleAis && (
                         <>
                             <button
-                                aria-label="Toggle"
+                                aria-label="Toggle weather radar layer"
                                 onClick={() => {
                                     onToggleAis();
                                     triggerHaptic('light');
@@ -723,7 +723,7 @@ export const LayerFABMenu: React.FC<{
                         const isActive = activeLayers.has(layer.key);
                         return (
                             <button
-                                aria-label="Layer"
+                                aria-label="Select depth contour layer"
                                 key={layer.key}
                                 onClick={() => {
                                     toggleLayer(layer.key);
@@ -750,7 +750,7 @@ export const LayerFABMenu: React.FC<{
                         <>
                             <div className="h-px bg-white/[0.06] mx-3" />
                             <button
-                                aria-label="Toggle"
+                                aria-label="Toggle nautical chart overlay"
                                 onClick={() => {
                                     onToggleChokepoint();
                                     triggerHaptic('light');
@@ -1156,7 +1156,7 @@ export const LayerFABMenu: React.FC<{
                         <>
                             <div className="h-px bg-white/[0.06] mx-3" />
                             <button
-                                aria-label="Layer"
+                                aria-label="Select satellite imagery layer"
                                 onClick={() => {
                                     toggleLayer('none');
                                     triggerHaptic('light');

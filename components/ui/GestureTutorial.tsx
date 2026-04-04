@@ -152,7 +152,7 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({ onDismiss, onN
                     <button
                         onClick={handleNext}
                         className="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-semibold rounded-lg transition-colors min-h-[48px]"
-                        aria-label="Next"
+                        aria-label="Next tutorial step"
                     >
                         {step < steps.length - 1 ? 'Next' : 'Get Started'}
                     </button>
@@ -176,7 +176,7 @@ export const GestureTutorial: React.FC<GestureTutorialProps> = ({ onDismiss, onN
                     <button
                         onClick={handleDismiss}
                         className="w-full mt-3 py-2 text-white/60 hover:text-white/70 text-sm transition-colors"
-                        aria-label="Dismiss"
+                        aria-label="Dismiss tutorial"
                     >
                         Skip tutorial
                     </button>

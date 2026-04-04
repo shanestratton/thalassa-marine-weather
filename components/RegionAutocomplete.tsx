@@ -289,7 +289,7 @@ export const RegionAutocomplete: React.FC<RegionAutocompleteProps> = ({
                 >
                     {suggestions.map((suggestion, i) => (
                         <button
-                            aria-label="Suggestion"
+                            aria-label="Select location suggestion"
                             key={suggestion}
                             type="button"
                             onClick={() => selectSuggestion(suggestion)}

@@ -198,7 +198,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     {/* Secondary row — Guardian + Radio */}
                     <div className="grid grid-cols-2 gap-3">
                         <button
-                            aria-label="Guardian"
+                            aria-label="Open Guardian bay watch"
                             onClick={() => {
                                 triggerHaptic('light');
                                 onNavigate('guardian');
@@ -220,7 +220,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         </button>
 
                         <button
-                            aria-label="Report Position"
+                            aria-label="Open radio position reporting"
                             onClick={() => {
                                 triggerHaptic('light');
                                 onNavigate('radio');
@@ -249,7 +249,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 <div className="mb-4">
                     <SectionLabel color="#0ea5e9" label="Log Book" />
                     <button
-                        aria-label="Log Book"
+                        aria-label="Open voyage entries log book"
                         onClick={() => {
                             triggerHaptic('light');
                             onNavigate('details');

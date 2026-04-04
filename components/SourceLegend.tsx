@@ -43,7 +43,7 @@ export const SourceLegend: React.FC<{ className?: string }> = ({ className = '' 
                         <button
                             onClick={() => setIsOpen(false)}
                             className="text-white/60 hover:text-white/80 transition-colors"
-                            aria-label="Close"
+                            aria-label="Close source legend"
                         >
                             ✕
                         </button>

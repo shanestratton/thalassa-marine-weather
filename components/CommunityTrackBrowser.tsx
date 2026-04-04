@@ -411,7 +411,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                     <div className="flex flex-col items-center justify-center h-48 text-slate-400">
                         <p className="text-sm text-red-400 mb-2">{error}</p>
                         <button
-                            aria-label="Tracks"
+                            aria-label="Retry loading community tracks"
                             onClick={() => fetchTracks()}
                             className="px-4 py-2 bg-slate-800/50 hover:bg-slate-700 text-white rounded-lg text-sm font-bold transition-colors"
                         >

@@ -496,7 +496,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                     <button
                         onClick={onClose}
                         className="w-8 h-8 rounded-full bg-white/[0.06] flex items-center justify-center text-gray-400 hover:text-white transition-colors"
-                        aria-label="Close"
+                        aria-label="Close recipe form"
                     >
                         ✕
                     </button>

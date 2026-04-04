@@ -180,7 +180,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                         <button
                             onClick={onClose}
                             className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white text-xs"
-                            aria-label="Close"
+                            aria-label="Close captain table"
                         >
                             ✕
                         </button>
@@ -191,7 +191,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                         <button
                             onClick={onClose}
                             className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white text-xs"
-                            aria-label="Close"
+                            aria-label="Close captain table"
                         >
                             ✕
                         </button>

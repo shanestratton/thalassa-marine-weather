@@ -105,7 +105,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                     <button
                         onClick={onClose}
                         className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
-                        aria-label="Close"
+                        aria-label="Close channel proposal"
                     >
                         <svg
                             className="w-5 h-5 text-gray-400"
@@ -187,7 +187,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                         <div className="flex gap-3 pt-2">
                             <button
                                 onClick={onClose}
-                                aria-label="Cancel"
+                                aria-label="Cancel channel proposal"
                                 className="flex-1 py-3.5 rounded-xl bg-white/[0.04] text-sm text-white/60 hover:bg-white/[0.08] transition-colors min-h-[48px] font-medium"
                             >
                                 Cancel
@@ -287,7 +287,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
                             </button>
                             <button
                                 onClick={() => setStep(3)}
-                                aria-label="Review"
+                                aria-label="Review channel proposal"
                                 className="flex-1 py-3.5 rounded-xl bg-sky-500/15 text-sm text-sky-400 font-semibold hover:bg-sky-500/25 transition-colors min-h-[48px]"
                             >
                                 Review →

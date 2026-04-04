@@ -184,7 +184,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
             <button
                 onClick={onClose}
                 className="absolute top-5 right-5 w-10 h-10 rounded-full bg-white/5 text-gray-400 flex items-center justify-center hover:bg-white/10 transition-colors"
-                aria-label="Close"
+                aria-label="Close vessel join form"
             >
                 ✕
             </button>

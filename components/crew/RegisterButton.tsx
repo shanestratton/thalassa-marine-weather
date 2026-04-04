@@ -15,7 +15,7 @@ interface RegisterButtonProps {
 
 export const RegisterButton: React.FC<RegisterButtonProps> = ({ reg, selected, onToggle }) => (
     <button
-        aria-label="Register"
+        aria-label="Register your vessel"
         type="button"
         onClick={onToggle}
         className={`p-3 rounded-xl border text-left transition-all active:scale-95 ${
