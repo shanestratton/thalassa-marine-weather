@@ -21,6 +21,10 @@ import { CustomsClearanceCard } from '../passage/CustomsClearanceCard';
 import { isSameCountry } from '../../data/customsDb';
 import { GalleyCard } from '../chat/GalleyCard';
 import { DelegationBadge } from './DelegationBadge';
+import { VesselProfileCard } from '../passage/VesselProfileCard';
+import { ComfortProfileCard } from '../passage/ComfortProfileCard';
+import { WeatherWindowCard } from '../passage/WeatherWindowCard';
+import { OceanCurrentsCard } from '../passage/OceanCurrentsCard';
 
 interface ReadinessCardStackProps {
     selectedPassageId: string;
@@ -51,6 +55,15 @@ interface ReadinessCardStackProps {
     delegationMenuOpen: string | null;
     onDelegationMenuToggle: (key: string | null) => void;
     onAssignCard: (cardKey: string, crewEmail: string | null) => void;
+    // Passage Intelligence states
+    vesselProfileReady?: boolean;
+    comfortProfileReady?: boolean;
+    weatherWindowReady?: boolean;
+    currentsBriefed?: boolean;
+    onVesselProfileChange?: (v: boolean) => void;
+    onComfortProfileChange?: (v: boolean) => void;
+    onWeatherWindowChange?: (v: boolean) => void;
+    onCurrentsChange?: (v: boolean) => void;
 }
 
 /* ── Chevron icon reused by all cards ── */
@@ -180,6 +193,15 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     delegationMenuOpen,
     onDelegationMenuToggle,
     onAssignCard,
+    // Passage Intelligence
+    vesselProfileReady = false,
+    comfortProfileReady = false,
+    weatherWindowReady = false,
+    currentsBriefed = false,
+    onVesselProfileChange,
+    onComfortProfileChange,
+    onWeatherWindowChange,
+    onCurrentsChange,
 }) => {
     const activeVoyage = draftVoyages.find((v) => v.id === selectedPassageId);
     const departPort = activeVoyage?.departure_port;
@@ -192,6 +214,11 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
         onMenuToggle: onDelegationMenuToggle,
         onAssign: onAssignCard,
     };
+
+    // Passage Intelligence readiness summary
+    const piReadyCount = [vesselProfileReady, comfortProfileReady, weatherWindowReady, currentsBriefed].filter(
+        Boolean,
+    ).length;
 
     // Auto-clear customs for domestic routes
     const isDomestic = !!(departPort && destPort && isSameCountry(departPort, destPort));
@@ -230,6 +257,89 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                     </details>
                 </div>
             )}
+
+            {/* ═══ PASSAGE INTELLIGENCE GROUP ═══ */}
+            <div className="mb-2">
+                <div className="flex items-center gap-2 mb-3 mt-1">
+                    <div
+                        className={`w-1 h-4 rounded-full ${piReadyCount === 4 ? 'bg-emerald-400' : 'bg-violet-400'}`}
+                    />
+                    <span
+                        className={`text-[10px] font-black uppercase tracking-[0.2em] ${piReadyCount === 4 ? 'text-emerald-400' : 'text-violet-400'}`}
+                    >
+                        Passage Intelligence
+                    </span>
+                    <span
+                        className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                            piReadyCount === 4
+                                ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
+                                : 'bg-violet-500/10 border-violet-500/20 text-violet-400'
+                        }`}
+                    >
+                        {piReadyCount}/4
+                    </span>
+                </div>
+
+                {/* PI-1: VESSEL PROFILE */}
+                <CardAccordion
+                    isReady={vesselProfileReady}
+                    emoji="⚓"
+                    title="Vessel Profile"
+                    subtitle="Hull type · LOA · Cruising speed"
+                    readySubtitle="✅ Performance profile configured"
+                    cardKey="vessel_profile"
+                    {...delegationProps}
+                >
+                    <VesselProfileCard voyageId={selectedPassageId} onReviewedChange={onVesselProfileChange} />
+                </CardAccordion>
+
+                {/* PI-2: COMFORT PROFILE */}
+                <CardAccordion
+                    isReady={comfortProfileReady}
+                    emoji="⛵"
+                    title="Comfort Profile"
+                    subtitle="Wind · Wave · Angle thresholds"
+                    readySubtitle="✅ Comfort limits configured"
+                    cardKey="comfort_profile"
+                    {...delegationProps}
+                >
+                    <ComfortProfileCard voyageId={selectedPassageId} onReviewedChange={onComfortProfileChange} />
+                </CardAccordion>
+
+                {/* PI-3: WEATHER WINDOWS */}
+                <CardAccordion
+                    isReady={weatherWindowReady}
+                    emoji="🌊"
+                    title="Weather Windows"
+                    subtitle="When should I leave?"
+                    readySubtitle="✅ Departure window accepted"
+                    cardKey="weather_windows"
+                    {...delegationProps}
+                >
+                    <WeatherWindowCard
+                        voyageId={selectedPassageId}
+                        activeVoyage={activeVoyage}
+                        onReviewedChange={onWeatherWindowChange}
+                    />
+                </CardAccordion>
+
+                {/* PI-4: OCEAN CURRENTS */}
+                <CardAccordion
+                    isReady={currentsBriefed}
+                    emoji="🌀"
+                    title="Ocean Currents"
+                    subtitle="Surface current briefing"
+                    readySubtitle="✅ Current briefing acknowledged"
+                    cardKey="ocean_currents"
+                    {...delegationProps}
+                >
+                    <OceanCurrentsCard
+                        voyageId={selectedPassageId}
+                        activeVoyage={activeVoyage}
+                        onReviewedChange={onCurrentsChange}
+                    />
+                </CardAccordion>
+            </div>
 
             {/* 2. WEATHER BRIEFING */}
             <CardAccordion

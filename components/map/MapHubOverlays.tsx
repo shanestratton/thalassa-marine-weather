@@ -9,8 +9,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { type WeatherLayer } from './mapConstants';
 import { type ActiveCyclone } from '../../services/weather/CycloneTrackingService';
-import { type SignalKChart } from '../../services/SignalKService';
-import { type SignalKConnectionStatus } from '../../services/SignalKService';
+import { type AvNavChart } from '../../services/AvNavService';
+import { type AvNavConnectionStatus } from '../../services/AvNavService';
+import { type ChartSource, type ChartSourceId } from '../../services/ChartCatalogService';
 import { triggerHaptic } from '../../utils/system';
 
 // ── Resolve truncated ATCF storm names (10-char limit) ──
@@ -265,13 +266,28 @@ export const LayerFABMenu: React.FC<{
     vesselTrackingVisible?: boolean;
     onToggleVesselTracking?: () => void;
     onLocateVessel?: () => void;
-    skCharts?: SignalKChart[];
+    skCharts?: AvNavChart[];
     skChartIds?: Set<string>;
     skChartOpacity?: number;
-    skConnectionStatus?: SignalKConnectionStatus;
+    skConnectionStatus?: AvNavConnectionStatus;
     onToggleSkChart?: (id: string) => void;
     onSkChartOpacityChange?: (opacity: number) => void;
-    onFlyToChart?: (chart: SignalKChart) => void;
+    onFlyToChart?: (chart: AvNavChart) => void;
+    seamarkVisible?: boolean;
+    onToggleSeamark?: () => void;
+    seamarkFeatureCount?: number;
+    seamarkLoading?: boolean;
+    chartsActive?: boolean;
+    seamarkMode?: 'full' | 'identify';
+    tideStationsVisible?: boolean;
+    onToggleTideStations?: () => void;
+    tideStationCount?: number;
+    tideStationLoading?: boolean;
+    chartCatalogSources?: ChartSource[];
+    onToggleChartSource?: (id: ChartSourceId) => void;
+    onChartSourceOpacity?: (id: ChartSourceId, opacity: number) => void;
+    onFlyToChartSource?: (src: ChartSource) => void;
+    onUpdateLinzKey?: (key: string) => void;
 }> = ({
     activeLayers,
     showLayerMenu,
@@ -307,10 +323,26 @@ export const LayerFABMenu: React.FC<{
     onToggleSkChart,
     onSkChartOpacityChange,
     onFlyToChart,
+    seamarkVisible = false,
+    onToggleSeamark,
+    seamarkFeatureCount = 0,
+    seamarkLoading = false,
+    chartsActive = false,
+    seamarkMode = 'full',
+    tideStationsVisible = false,
+    onToggleTideStations,
+    tideStationCount = 0,
+    tideStationLoading = false,
+    chartCatalogSources = [],
+    onToggleChartSource,
+    onChartSourceOpacity,
+    onFlyToChartSource,
+    onUpdateLinzKey,
 }) => {
     const activeCount = activeLayers.size;
     const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [stormMenuOpen, setStormMenuOpen] = useState(false);
+    const [linzKeyInput, setLinzKeyInput] = useState('');
 
     // Auto-dismiss menu after 5 seconds of inactivity
     useEffect(() => {
@@ -739,7 +771,108 @@ export const LayerFABMenu: React.FC<{
                         </>
                     )}
 
-                    {/* ── Nautical Charts (Signal K) ── */}
+                    {/* ── Interactive Sea Marks (OpenSeaMap) ── */}
+                    {onToggleSeamark && (
+                        <>
+                            <div className="h-px bg-white/[0.06] mx-3" />
+                            <button
+                                aria-label="Toggle interactive sea marks"
+                                onClick={() => {
+                                    onToggleSeamark();
+                                    triggerHaptic('light');
+                                }}
+                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${seamarkVisible ? (chartsActive ? 'bg-violet-500/15 text-violet-400 border-l-2 border-violet-400' : 'bg-teal-500/20 text-teal-400 border-l-2 border-teal-400') : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                            >
+                                <span className="text-xl">🔱</span>
+                                <div className="flex-1">
+                                    <span className="text-sm font-bold">Sea Marks</span>
+                                    {chartsActive && seamarkVisible && (
+                                        <p className="text-[10px] text-violet-400/60 mt-0.5">
+                                            Identify mode — tap chart icons
+                                        </p>
+                                    )}
+                                </div>
+                                {seamarkVisible ? (
+                                    <span className="flex items-center gap-1">
+                                        {seamarkLoading ? (
+                                            <>
+                                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
+                                                    Loading
+                                                </span>
+                                            </>
+                                        ) : chartsActive ? (
+                                            <>
+                                                <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shadow-lg shadow-violet-400/50" />
+                                                <span className="text-[11px] font-bold text-violet-400 uppercase tracking-wider">
+                                                    {seamarkFeatureCount > 0 ? `ID · ${seamarkFeatureCount}` : 'ID'}
+                                                </span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shadow-lg shadow-teal-400/50" />
+                                                <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">
+                                                    {seamarkFeatureCount > 0 ? `${seamarkFeatureCount}` : 'z10+'}
+                                                </span>
+                                            </>
+                                        )}
+                                    </span>
+                                ) : (
+                                    <span className="text-[11px] text-gray-500">
+                                        {chartsActive ? 'Tap to identify' : 'Tap to show'}
+                                    </span>
+                                )}
+                            </button>
+                        </>
+                    )}
+
+                    {/* ── Tide Stations ── */}
+                    {onToggleTideStations && (
+                        <>
+                            <div className="h-px bg-white/[0.06] mx-3" />
+                            <button
+                                aria-label="Toggle tide stations"
+                                onClick={() => {
+                                    onToggleTideStations();
+                                    triggerHaptic('light');
+                                }}
+                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${tideStationsVisible ? 'bg-teal-500/20 text-teal-400 border-l-2 border-teal-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                            >
+                                <span className="text-xl">🌊</span>
+                                <div className="flex-1">
+                                    <span className="text-sm font-bold">Tide Stations</span>
+                                    {!tideStationsVisible && (
+                                        <p className="text-[9px] text-gray-600 mt-0.5">
+                                            Near coast — tap for predictions
+                                        </p>
+                                    )}
+                                </div>
+                                {tideStationsVisible ? (
+                                    <span className="flex items-center gap-1">
+                                        {tideStationLoading ? (
+                                            <>
+                                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
+                                                    Loading
+                                                </span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shadow-lg shadow-teal-400/50" />
+                                                <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">
+                                                    {tideStationCount > 0 ? `${tideStationCount}` : 'Active'}
+                                                </span>
+                                            </>
+                                        )}
+                                    </span>
+                                ) : (
+                                    <span className="text-[11px] text-gray-500">Tap to show</span>
+                                )}
+                            </button>
+                        </>
+                    )}
+
+                    {/* ── Nautical Charts (AvNav) ── */}
                     {skCharts.length > 0 && onToggleSkChart && (
                         <>
                             <div className="h-px bg-white/[0.06] mx-3" />
@@ -757,7 +890,7 @@ export const LayerFABMenu: React.FC<{
                                                   : 'bg-gray-500'
                                         }`}
                                     />
-                                    <span className="text-[10px] text-gray-500 ml-auto">Signal K</span>
+                                    <span className="text-[10px] text-gray-500 ml-auto">AvNav</span>
                                 </div>
                             </div>
                             {skCharts.map((chart) => {
@@ -866,6 +999,155 @@ export const LayerFABMenu: React.FC<{
                                     </span>
                                 </div>
                             )}
+                        </>
+                    )}
+
+                    {/* ── Free Chart Sources (NOAA, LINZ) ── */}
+                    {chartCatalogSources.length > 0 && onToggleChartSource && (
+                        <>
+                            <div className="h-px bg-white/[0.06] mx-3" />
+                            <div className="px-4 pt-3 pb-1">
+                                <span className="text-[10px] font-black text-sky-400/80 uppercase tracking-[0.2em]">
+                                    🗺️ Free Charts
+                                </span>
+                            </div>
+                            {chartCatalogSources.map((src) => {
+                                const isActive = src.enabled && !!src.tileUrl;
+                                const needsKey = src.requiresKey && !src.tileUrl;
+                                return (
+                                    <div key={src.id}>
+                                        <button
+                                            aria-label={`Toggle ${src.name}`}
+                                            onClick={() => {
+                                                if (needsKey) {
+                                                    // Show LINZ key prompt
+                                                    const key = prompt(
+                                                        'Enter your free LINZ API key\n(Get one at data.linz.govt.nz)',
+                                                    );
+                                                    if (key && key.length > 10 && onUpdateLinzKey) {
+                                                        onUpdateLinzKey(key);
+                                                        // Auto-enable after key entry
+                                                        setTimeout(() => onToggleChartSource(src.id), 100);
+                                                    }
+                                                } else {
+                                                    onToggleChartSource(src.id);
+                                                }
+                                                triggerHaptic('light');
+                                            }}
+                                            className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                                                isActive
+                                                    ? 'bg-sky-500/15 text-sky-400 border-l-2 border-sky-400'
+                                                    : needsKey
+                                                      ? 'text-gray-500 hover:bg-white/5 border-l-2 border-transparent'
+                                                      : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'
+                                            }`}
+                                        >
+                                            <span className="text-lg">{src.flag}</span>
+                                            <div className="flex-1 min-w-0">
+                                                <span className="text-sm font-bold block truncate">{src.name}</span>
+                                                <span className="text-[10px] text-gray-500 block truncate">
+                                                    {src.description}
+                                                </span>
+                                            </div>
+                                            {isActive ? (
+                                                <span className="flex items-center gap-1">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shadow-lg shadow-sky-400/50" />
+                                                    <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">
+                                                        On
+                                                    </span>
+                                                    {onFlyToChartSource && (
+                                                        <span
+                                                            role="button"
+                                                            tabIndex={0}
+                                                            aria-label="Fly to chart area"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                onFlyToChartSource(src);
+                                                                setShowLayerMenu(false);
+                                                                triggerHaptic('medium');
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter') {
+                                                                    e.stopPropagation();
+                                                                    onFlyToChartSource(src);
+                                                                    setShowLayerMenu(false);
+                                                                }
+                                                            }}
+                                                            className="ml-1 w-6 h-6 rounded-full bg-sky-500/20 border border-sky-500/30 flex items-center justify-center hover:bg-sky-500/40 transition-all active:scale-90 cursor-pointer"
+                                                        >
+                                                            <svg
+                                                                className="w-3 h-3 text-sky-400"
+                                                                fill="none"
+                                                                viewBox="0 0 24 24"
+                                                                stroke="currentColor"
+                                                                strokeWidth={2.5}
+                                                            >
+                                                                <path
+                                                                    strokeLinecap="round"
+                                                                    strokeLinejoin="round"
+                                                                    d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+                                                                />
+                                                                <path
+                                                                    strokeLinecap="round"
+                                                                    strokeLinejoin="round"
+                                                                    d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                                                                />
+                                                            </svg>
+                                                        </span>
+                                                    )}
+                                                </span>
+                                            ) : needsKey ? (
+                                                <span className="text-[10px] text-amber-400/70 flex items-center gap-1">
+                                                    <svg
+                                                        className="w-3 h-3"
+                                                        fill="none"
+                                                        viewBox="0 0 24 24"
+                                                        stroke="currentColor"
+                                                        strokeWidth={2}
+                                                    >
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"
+                                                        />
+                                                    </svg>
+                                                    Setup
+                                                </span>
+                                            ) : (
+                                                <span className="text-[11px] text-gray-500">{src.region}</span>
+                                            )}
+                                        </button>
+                                        {/* Opacity slider for active sources */}
+                                        {isActive && onChartSourceOpacity && (
+                                            <div className="px-4 py-1.5 flex items-center gap-2">
+                                                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider shrink-0">
+                                                    Opacity
+                                                </span>
+                                                <input
+                                                    type="range"
+                                                    min={0.1}
+                                                    max={1}
+                                                    step={0.05}
+                                                    value={src.opacity}
+                                                    onChange={(e) =>
+                                                        onChartSourceOpacity(src.id, parseFloat(e.target.value))
+                                                    }
+                                                    className="flex-1 h-1 accent-sky-400 cursor-pointer"
+                                                    style={{
+                                                        WebkitAppearance: 'none',
+                                                        background: `linear-gradient(to right, rgba(56,189,248,0.6) ${src.opacity * 100}%, rgba(255,255,255,0.1) ${src.opacity * 100}%)`,
+                                                        borderRadius: 4,
+                                                        height: 4,
+                                                    }}
+                                                />
+                                                <span className="text-[10px] text-gray-400 font-mono w-8 text-right">
+                                                    {Math.round(src.opacity * 100)}%
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </>
                     )}
 

@@ -1,6 +1,18 @@
 // Sentry must be imported FIRST — before any other app code
 import { captureException } from './services/sentry';
 
+// ── BOOT DIAGNOSTIC ── uses Capacitor Preferences (visible in Xcode as native bridge calls)
+// because console.error from WKWebView does NOT appear in Xcode's native console.
+import { Preferences } from '@capacitor/preferences';
+Preferences.set({ key: 'BOOT_DIAG', value: `index.tsx loaded at ${new Date().toISOString()}` })
+    .then(() => Preferences.get({ key: 'signalk_host' }))
+    .then((r) => {
+        // This will show as '⚡️  TO JS {"value":"..."}' in Xcode
+        // Look for the signalk_host value in the Xcode log output
+        Preferences.set({ key: 'BOOT_SK_HOST', value: `host=${r.value}` });
+    })
+    .catch(() => {});
+
 import React, { ErrorInfo, ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';

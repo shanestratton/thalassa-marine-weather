@@ -230,6 +230,182 @@ export function importGPXToEntries(gpxXml: string): Partial<ShipLogEntry>[] {
     return entries;
 }
 
+// --- GPX ROUTE EXTRACTION (for Passage Planner) ---
+
+/**
+ * Extracted route waypoint for the Passage Planner.
+ */
+export interface GpxRouteWaypoint {
+    lat: number;
+    lon: number;
+    name: string;
+}
+
+/**
+ * Structured route data extracted from a GPX file.
+ * Used to bridge GPX import → Passage Planner.
+ */
+export interface GpxRouteData {
+    routeName: string;
+    waypoints: GpxRouteWaypoint[];
+    origin: GpxRouteWaypoint;
+    destination: GpxRouteWaypoint;
+    totalDistanceNM: number;
+}
+
+/**
+ * Extract navigable route waypoints from a GPX XML string.
+ *
+ * Priority:
+ *   1. <rte>/<rtept> elements — explicit planned routes (OpenCPN, qtVLM)
+ *   2. <wpt> elements — standalone waypoints (Navionics, iSailor)
+ *   3. <trk>/<trkpt> decimation — sample key points from recorded tracks
+ *
+ * Returns null if fewer than 2 navigable points are found.
+ */
+export function extractGPXRouteWaypoints(gpxXml: string): GpxRouteData | null {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(gpxXml, 'application/xml');
+
+    const parseError = doc.querySelector('parsererror');
+    if (parseError) return null;
+
+    let waypoints: GpxRouteWaypoint[] = [];
+    let routeName = '';
+
+    // ── Strategy 1: Parse <rte> elements (planned routes) ──
+    const rtes = doc.querySelectorAll('rte');
+    if (rtes.length > 0) {
+        const rte = rtes[0]; // Use first route
+        const nameEl = rte.querySelector('name');
+        routeName = nameEl?.textContent || 'Imported Route';
+
+        const rtepts = rte.querySelectorAll('rtept');
+        rtepts.forEach((rtept, idx) => {
+            const lat = parseFloat(rtept.getAttribute('lat') || '0');
+            const lon = parseFloat(rtept.getAttribute('lon') || '0');
+            const ptName = rtept.querySelector('name')?.textContent || `WP ${idx + 1}`;
+            if (lat !== 0 || lon !== 0) {
+                waypoints.push({ lat, lon, name: ptName });
+            }
+        });
+
+        if (waypoints.length >= 2) {
+            return buildRouteData(waypoints, routeName);
+        }
+    }
+
+    // ── Strategy 2: Use <wpt> standalone waypoints ──
+    const wpts = doc.querySelectorAll('wpt');
+    if (wpts.length >= 2) {
+        routeName = doc.querySelector('metadata > name')?.textContent || 'Imported Waypoints';
+        waypoints = [];
+
+        wpts.forEach((wpt, idx) => {
+            const lat = parseFloat(wpt.getAttribute('lat') || '0');
+            const lon = parseFloat(wpt.getAttribute('lon') || '0');
+            const ptName = wpt.querySelector('name')?.textContent || `WP ${idx + 1}`;
+            if (lat !== 0 || lon !== 0) {
+                waypoints.push({ lat, lon, name: ptName });
+            }
+        });
+
+        if (waypoints.length >= 2) {
+            return buildRouteData(waypoints, routeName);
+        }
+    }
+
+    // ── Strategy 3: Decimate <trk> track points ──
+    const trkpts = doc.querySelectorAll('trkpt');
+    if (trkpts.length >= 2) {
+        routeName =
+            doc.querySelector('trk > name')?.textContent ||
+            doc.querySelector('metadata > name')?.textContent ||
+            'Imported Track';
+
+        const allPoints: GpxRouteWaypoint[] = [];
+        trkpts.forEach((trkpt) => {
+            const lat = parseFloat(trkpt.getAttribute('lat') || '0');
+            const lon = parseFloat(trkpt.getAttribute('lon') || '0');
+            if (lat !== 0 || lon !== 0) {
+                allPoints.push({ lat, lon, name: '' });
+            }
+        });
+
+        if (allPoints.length >= 2) {
+            // Decimate: keep first, last, and one point every ~20 NM
+            waypoints = decimateTrackToWaypoints(allPoints, 20);
+            // Name the decimated waypoints
+            waypoints.forEach((wp, idx) => {
+                if (idx === 0) wp.name = 'Departure';
+                else if (idx === waypoints.length - 1) wp.name = 'Arrival';
+                else wp.name = `WP ${idx}`;
+            });
+
+            return buildRouteData(waypoints, routeName);
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Build a GpxRouteData from ordered waypoints.
+ */
+function buildRouteData(waypoints: GpxRouteWaypoint[], routeName: string): GpxRouteData {
+    let totalDistanceNM = 0;
+    for (let i = 1; i < waypoints.length; i++) {
+        totalDistanceNM += haversineNM(waypoints[i - 1].lat, waypoints[i - 1].lon, waypoints[i].lat, waypoints[i].lon);
+    }
+
+    return {
+        routeName,
+        waypoints,
+        origin: waypoints[0],
+        destination: waypoints[waypoints.length - 1],
+        totalDistanceNM: Math.round(totalDistanceNM * 10) / 10,
+    };
+}
+
+/**
+ * Decimate a dense track into key waypoints using distance-based sampling.
+ * Keeps first + last point, and inserts a waypoint every ~targetSpacingNM.
+ */
+function decimateTrackToWaypoints(points: GpxRouteWaypoint[], targetSpacingNM: number): GpxRouteWaypoint[] {
+    if (points.length <= 3) return [...points];
+
+    const result: GpxRouteWaypoint[] = [points[0]];
+    let lastKept = points[0];
+    let accumDist = 0;
+
+    for (let i = 1; i < points.length - 1; i++) {
+        const dist = haversineNM(lastKept.lat, lastKept.lon, points[i].lat, points[i].lon);
+        accumDist += haversineNM(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon);
+
+        if (dist >= targetSpacingNM) {
+            result.push(points[i]);
+            lastKept = points[i];
+            accumDist = 0;
+        }
+    }
+
+    // Always include the last point
+    result.push(points[points.length - 1]);
+
+    // Cap at 20 waypoints max for the passage planner
+    if (result.length > 20) {
+        const step = (result.length - 2) / 18;
+        const decimated: GpxRouteWaypoint[] = [result[0]];
+        for (let i = 1; i < 19; i++) {
+            decimated.push(result[Math.round(i * step)]);
+        }
+        decimated.push(result[result.length - 1]);
+        return decimated;
+    }
+
+    return result;
+}
+
 // --- HELPERS ---
 
 /**

@@ -47,7 +47,11 @@ import { useChokepointLayer } from './useChokepointLayer';
 import { useCycloneLayer } from './useCycloneLayer';
 import { useSquallMap } from './useSquallMap';
 import { useVesselTracker } from './useVesselTracker';
-import { useSignalKCharts } from './useSignalKCharts';
+import { useAvNavCharts } from './useAvNavCharts';
+import { useChartCatalog } from './useChartCatalog';
+import { useSeamarkLayer } from './useSeamarkLayer';
+import { useTideStationLayer } from './useTideStationLayer';
+import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import { type ActiveCyclone, fetchActiveCyclones } from '../../services/weather/CycloneTrackingService';
 import { AisLegend } from './AisLegend';
 import { AisGuardAlert } from './AisGuardAlert';
@@ -256,8 +260,30 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [cycloneVisible, setCycloneVisible] = useState(false);
     const [squallVisible, setSquallVisible] = useState(false);
     const [vesselTrackingVisible, setVesselTrackingVisible] = useState(true); // On by default
+    const [seamarkVisible, setSeamarkVisible] = useState(false);
+    const [tideStationsVisible, setTideStationsVisible] = useState(false);
     const [skChartIds, setSkChartIds] = useState<Set<string>>(new Set());
     const [skChartOpacity, setSkChartOpacity] = useState(0.7);
+
+    // Auto-enable newly discovered charts
+    useEffect(() => {
+        const unsub = AvNavService.onChartsChange((charts) => {
+            if (charts.length > 0) {
+                setSkChartIds((prev) => {
+                    const next = new Set(prev);
+                    for (const c of charts) next.add(c.id);
+                    return next;
+                });
+            }
+        });
+        // Also enable any charts already discovered
+        const existing = AvNavService.getCharts();
+        if (existing.length > 0) {
+            setSkChartIds(new Set(existing.map((c) => c.id)));
+        }
+        return unsub;
+    }, []);
+
     const [closestStorm, setClosestStorm] = useState<ActiveCyclone | null>(null);
     const [allCyclones, setAllCyclones] = useState<ActiveCyclone[]>([]);
     const skipAutoFlyRef = useRef(false);
@@ -582,7 +608,36 @@ export const MapHub: React.FC<MapHubProps> = ({
     useChokepointLayer(mapReady ? mapRef.current : null, chokepointVisible);
 
     // ── Signal K Nautical Charts ──
-    const skCharts = useSignalKCharts(mapRef, mapReady, skChartIds, skChartOpacity);
+    const skCharts = useAvNavCharts(mapRef, mapReady, skChartIds, skChartOpacity);
+
+    // ── Free Chart Catalog (NOAA, LINZ) ──
+    const chartCatalog = useChartCatalog(mapRef, mapReady);
+    const chartsActive = skChartIds.size > 0 || chartCatalog.hasEnabledCharts;
+
+    // ── Interactive Sea Marks (OpenSeaMap / Overpass API) ──
+    // When o-charts are active: 'identify' mode (invisible hit targets, still click-to-identify)
+    // When no charts:           'full' mode (renders IALA icons + click-to-identify)
+    const seamarkMode = chartsActive ? ('identify' as const) : ('full' as const);
+    const seamark = useSeamarkLayer(mapRef, mapReady, seamarkVisible, seamarkMode);
+
+    // ── Tide Station Markers ──
+    const tideStations = useTideStationLayer(mapRef, mapReady, tideStationsVisible);
+
+    // ── Hide OpenSeaMap raster overlay when o-charts provide native icons ──
+    // The openseamap-overlay (PNG tiles) is baked into the map style and shows
+    // its own seamark icons. When o-charts are active they render their own
+    // native marks, so we hide the raster overlay to prevent doubled icons.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady) return;
+        try {
+            if (map.getLayer('openseamap-overlay')) {
+                map.setLayoutProperty('openseamap-overlay', 'visibility', chartsActive ? 'none' : 'visible');
+            }
+        } catch {
+            /* layer not yet available — harmless */
+        }
+    }, [mapRef, mapReady, chartsActive]);
 
     // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
     useEffect(() => {
@@ -737,6 +792,21 @@ export const MapHub: React.FC<MapHubProps> = ({
                         }}
                         onSkChartOpacityChange={setSkChartOpacity}
                         onFlyToChart={skCharts.flyToChart}
+                        seamarkVisible={seamarkVisible}
+                        onToggleSeamark={() => setSeamarkVisible((v) => !v)}
+                        seamarkFeatureCount={seamark.featureCount}
+                        seamarkLoading={seamark.loading}
+                        chartsActive={chartsActive}
+                        seamarkMode={seamarkMode}
+                        tideStationsVisible={tideStationsVisible}
+                        onToggleTideStations={() => setTideStationsVisible((v) => !v)}
+                        tideStationCount={tideStations.stationCount}
+                        tideStationLoading={tideStations.loading}
+                        chartCatalogSources={chartCatalog.sources}
+                        onToggleChartSource={chartCatalog.toggleSource}
+                        onChartSourceOpacity={chartCatalog.setOpacity}
+                        onFlyToChartSource={chartCatalog.flyToSource}
+                        onUpdateLinzKey={chartCatalog.updateLinzKey}
                     />
                 )}
 

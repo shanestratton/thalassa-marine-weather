@@ -27,6 +27,8 @@ import { toast } from '../Toast';
 import { FONT, SIZE, HEADER_STYLE, MICRO_STYLE, FOOTNOTE_STYLE } from '../../styles/typeScale';
 import type { SpatiotemporalPayload } from '../../types/spatiotemporal';
 import type { VoyagePlan } from '../../types';
+import type { PassageBriefData } from '../../services/PassageBriefService';
+import SharePassageButton from './SharePassageButton';
 import '../../styles/bioluminescent.css';
 
 // ── SVG Icons ───────────────────────────────────────────────────
@@ -498,6 +500,30 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
 
     const [mapReady, setMapReady] = useState(false);
 
+    // ── Build PassageBriefData for sharing ──
+    const briefData = useMemo<PassageBriefData | null>(() => {
+        if (!payload.track || payload.track.length < 2) return null;
+        const track = payload.track;
+        const departure = track[0];
+        const arrival = track[track.length - 1];
+        return {
+            routeName: `${departure.name} → ${arrival.name}`,
+            origin: { name: departure.name, lat: departure.coordinates[1], lon: departure.coordinates[0] },
+            destination: { name: arrival.name, lat: arrival.coordinates[1], lon: arrival.coordinates[0] },
+            departureTime: payload.summary.departure_time || new Date().toISOString(),
+            totalDistanceNM: payload.summary.total_distance_nm,
+            estimatedDuration: payload.summary.total_duration_hours,
+            speed: payload.summary.total_distance_nm / payload.summary.total_duration_hours,
+            turnWaypoints: track.slice(1, -1).map((tp) => ({
+                name: tp.name,
+                lat: tp.coordinates[1],
+                lon: tp.coordinates[0],
+                tws: tp.conditions.wind_spd_kts,
+                bng: tp.conditions.wind_dir_deg,
+            })),
+        };
+    }, [payload]);
+
     return (
         <div
             style={{
@@ -795,6 +821,9 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                                 </svg>
                             )}
                         </button>
+
+                        {/* Share Passage Button */}
+                        <SharePassageButton briefData={briefData} />
                     </div>
                 </div>
 

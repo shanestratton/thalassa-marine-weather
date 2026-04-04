@@ -622,7 +622,7 @@ const App: React.FC = () => {
                                         }}
                                     />
                                 }
-                                label="Vessel"
+                                label="Nav Station"
                                 active={isVesselView}
                                 onClick={() => setPage('vessel')}
                             />

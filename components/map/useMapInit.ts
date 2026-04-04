@@ -15,7 +15,7 @@ import { LocationStore } from '../../stores/LocationStore';
 import { triggerHaptic } from '../../utils/system';
 import { GpsService as _GpsService } from '../../services/GpsService';
 import { createPinMarker } from '../../utils/createMarkerEl';
-import { SignalKService, encryptOchartsUrl } from '../../services/SignalKService';
+import { AvNavService, encryptOchartsUrl } from '../../services/AvNavService';
 
 interface UseMapInitOptions {
     containerRef: MutableRefObject<HTMLDivElement | null>;
@@ -184,15 +184,22 @@ export function useMapInit(opts: UseMapInitOptions) {
             pitch: 0,
             maxPitch: 60,
             maxTileCacheSize: 200,
-            // ocharts DRM: intercept tile requests and encrypt URLs via the DRM provider
+            // ocharts DRM: intercept tile requests and encrypt URLs via the DRM provider.
+            // NOTE: Mapbox GL v3 doesn't support addProtocol (that's MapLibre-only).
+            // We return the encrypted http:// URL directly. Tile loading is handled
+            // by CapacitorHttp native networking (global fetch patching is enabled).
             transformRequest: (url: string, resourceType?: string) => {
-                if (resourceType === 'Tile' && url.includes('/charts/')) {
-                    // Check if any DRM chart matches this URL
-                    const charts = SignalKService.getCharts();
+                if (resourceType === 'Tile' && url.includes('192.168')) {
+                    const charts = AvNavService.getCharts();
                     for (const chart of charts) {
-                        if (chart.isDrm && url.includes(chart.tilesUrl.split('{z}')[0])) {
-                            const encrypted = encryptOchartsUrl(url);
-                            if (encrypted) return { url: encrypted };
+                        if (chart.isDrm && chart.tilesUrl) {
+                            const base = chart.tilesUrl.split('{z}')[0];
+                            if (base && url.startsWith(base)) {
+                                const encrypted = encryptOchartsUrl(url);
+                                if (encrypted) {
+                                    return { url: encrypted };
+                                }
+                            }
                         }
                     }
                 }
