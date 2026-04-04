@@ -20,7 +20,7 @@ export interface ReportModalProps {
 
 export const ReportModal: React.FC<ReportModalProps> = React.memo(
     ({ reportingMsg, reportSent, reportReason, setReportReason, onSubmit, onClose }) => (
-        <div className="absolute inset-0 z-50 flex items-center justify-center" onClick={onClose}>
+        <div className="absolute inset-0 z-50 flex items-center justify-center" role="presentation" onClick={onClose}>
             <div className="absolute inset-0 bg-black/60" />
             <div
                 className="relative w-[85%] max-w-sm p-5 rounded-2xl bg-slate-900/95 border border-white/[0.08] shadow-2xl fade-slide-down"

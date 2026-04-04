@@ -17,7 +17,7 @@ export const ShoreWatchModal: React.FC<ShoreWatchModalProps> = React.memo(
     ({ sessionCode, onSessionCodeChange, onJoin, onClose }) =>
         createPortal(
             <div
-                className="fixed inset-0 z-[9999] bg-black/70 flex flex-col items-center"
+                role="dialog" aria-modal="true" className="fixed inset-0 z-[9999] bg-black/70 flex flex-col items-center"
                 style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 108px)' }}
                 onClick={onClose}
             >

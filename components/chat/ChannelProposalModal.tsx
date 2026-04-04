@@ -98,7 +98,7 @@ export const ChannelProposalModal: React.FC<ChannelProposalModalProps> = ({
     const bottomPad = keyboardHeight > 0 ? `${keyboardHeight}px` : 'env(safe-area-inset-bottom)';
 
     return (
-        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur-sm">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 flex flex-col bg-slate-950/95 backdrop-blur-sm">
             {/* Header */}
             <div className="shrink-0 px-4 pt-4 pb-3 border-b border-white/[0.06]">
                 <div className="flex items-center gap-3">

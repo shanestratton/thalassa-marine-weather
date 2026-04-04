@@ -98,7 +98,7 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
                 {/* Backdrop for click-to-dismiss */}
                 {isOpen && (
                     <div
-                        className={`fixed inset-0 z-[1100] bg-black/40 transition-opacity duration-500 ${isVisible ? 'opacity-100' : 'opacity-0'}`}
+                        role="dialog" aria-modal="true" className={`fixed inset-0 z-[1100] bg-black/40 transition-opacity duration-500 ${isVisible ? 'opacity-100' : 'opacity-0'}`}
                         onClick={() => {
                             setIsVisible(false);
                             setTimeout(onClose, 300);

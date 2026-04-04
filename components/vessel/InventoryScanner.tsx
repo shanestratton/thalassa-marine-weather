@@ -565,7 +565,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
 
     // ── Camera scanner mode (original layout) ──
     return (
-        <div className="fixed inset-0 z-[2000] bg-black flex flex-col">
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[2000] bg-black flex flex-col">
             {/* ── Camera View ── */}
             <div className="relative flex-1 overflow-hidden">
                 <video ref={videoRef} className="w-full h-full object-cover" playsInline muted autoPlay />

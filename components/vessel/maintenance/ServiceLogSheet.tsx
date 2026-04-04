@@ -35,7 +35,7 @@ export const ServiceLogSheet: React.FC<ServiceLogSheetProps> = ({
     onEdit,
     onClose,
 }) => (
-    <div className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={onClose}>
+    <div role="dialog" aria-modal="true" className="fixed inset-0 z-[999] flex items-center justify-center p-4" onClick={onClose}>
         {/* Backdrop */}
         <div className="absolute inset-0 bg-black/60" />
 
