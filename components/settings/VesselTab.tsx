@@ -226,14 +226,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     </div>
                     <div className="flex bg-black/40 p-1 rounded-lg border border-white/10">
                         <button
-                            aria-label="Vessel"
+                            aria-label="Set vessel type to sail"
                             onClick={() => updateVessel('type', 'sail')}
                             className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${settings.vessel?.type === 'sail' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
                         >
                             Sail
                         </button>
                         <button
-                            aria-label="Vessel"
+                            aria-label="Set vessel type to power"
                             onClick={() => updateVessel('type', 'power')}
                             className={`px-4 py-2 rounded-lg text-xs font-bold uppercase transition-all ${settings.vessel?.type === 'power' ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
                         >
@@ -322,7 +322,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <div className="flex bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5">
                             {(['monohull', 'catamaran', 'trimaran'] as const).map((ht) => (
                                 <button
-                                    aria-label="Vessel"
+                                    aria-label="Select hull type"
                                     key={ht}
                                     onClick={() => updateVessel('hullType', ht)}
                                     className={`flex-1 px-2 py-2 rounded-lg text-xs font-bold uppercase transition-all ${settings.vessel?.hullType === ht ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
@@ -341,7 +341,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                         <div className="grid grid-cols-3 bg-black/40 p-1 rounded-lg border border-white/10 gap-0.5">
                             {(['fin', 'full', 'wing', 'skeg', 'centerboard', 'bilge'] as const).map((kt) => (
                                 <button
-                                    aria-label="Vessel"
+                                    aria-label="Select keel type"
                                     key={kt}
                                     onClick={() => updateVessel('keelType', kt)}
                                     className={`px-2 py-2 rounded-lg text-xs font-bold uppercase transition-all ${settings.vessel?.keelType === kt ? 'bg-sky-600 text-white' : 'text-gray-400'}`}
@@ -705,7 +705,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
             >
                 <div className="max-w-2xl mx-auto">
                     <button
-                        aria-label="Save"
+                        aria-label="Save vessel profile"
                         onClick={() => {
                             setSaved(true);
                             setTimeout(() => setSaved(false), 2000);

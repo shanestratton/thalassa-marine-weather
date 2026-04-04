@@ -528,7 +528,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         <div className="flex gap-1.5">
                             {(['chain', 'rope', 'mixed'] as const).map((type) => (
                                 <button
-                                    aria-label="Rode Type"
+                                    aria-label="Select anchor rode type"
                                     key={type}
                                     onClick={() => setRodeType(type)}
                                     className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${

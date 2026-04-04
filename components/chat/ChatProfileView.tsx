@@ -64,7 +64,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
                     </button>
                     {myAvatarUrl && (
                         <button
-                            aria-label="Remove"
+                            aria-label="Remove profile avatar"
                             onClick={onRemovePhoto}
                             className="text-sm text-white/40 hover:text-red-400 transition-colors"
                         >
@@ -124,7 +124,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
 
             {/* Save button */}
             <button
-                aria-label="Save"
+                aria-label="Save profile changes"
                 onClick={onSaveProfile}
                 disabled={profileSaving}
                 className="w-full py-4 rounded-2xl bg-gradient-to-r from-purple-500/20 to-sky-500/20 hover:from-purple-500/30 hover:to-sky-500/30 text-base text-white/80 font-bold transition-all disabled:opacity-30 active:scale-[0.98]"

@@ -278,7 +278,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 <button
                     onClick={onClose}
                     className="absolute top-4 right-4 p-2 bg-black/20 hover:bg-black/40 rounded-full text-white/70 hover:text-white transition-colors z-20"
-                    aria-label="Close"
+                    aria-label="Close authentication dialog"
                 >
                     <XIcon className="w-5 h-5" />
                 </button>
@@ -356,7 +356,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                             )}
 
                             <button
-                                aria-label="Save"
+                                aria-label="Save account changes"
                                 type="submit"
                                 disabled={loading || !supabase || resendCooldown > 0}
                                 className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${!supabase || resendCooldown > 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-100'}`}
@@ -406,7 +406,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                             )}
 
                             <button
-                                aria-label="Save"
+                                aria-label="Save account changes"
                                 type="submit"
                                 disabled={loading || otp.length !== 8}
                                 className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${otp.length !== 8 ? 'opacity-50' : 'hover:bg-gray-100'}`}
@@ -428,7 +428,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                     ← Change email
                                 </button>
                                 <button
-                                    aria-label="Send"
+                                    aria-label="Send verification email"
                                     type="button"
                                     onClick={handleResendCode}
                                     disabled={resendCooldown > 0 || loading}

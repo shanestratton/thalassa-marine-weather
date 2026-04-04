@@ -18,6 +18,7 @@ import { SlideToAction } from '../ui/SlideToAction';
 import { Capacitor } from '@capacitor/core';
 import { PageHeader } from '../ui/PageHeader';
 import { EmptyState } from '../ui/EmptyState';
+import { ShimmerBlock } from '../ui/ShimmerBlock';
 import { UndoToast } from '../ui/UndoToast';
 import { FormField } from '../ui/FormField';
 import { ModalSheet } from '../ui/ModalSheet';
@@ -291,7 +292,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                         <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
                                         <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                                             <button
-                                                aria-label="Menu"
+                                                aria-label="Download inventory as PDF"
                                                 onClick={() => {
                                                     setHeaderMenuOpen(false);
                                                     setExportMode('download');
@@ -317,7 +318,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                             </button>
                                             <div className="border-t border-white/5" />
                                             <button
-                                                aria-label="Menu"
+                                                aria-label="Share inventory via email or AirDrop"
                                                 onClick={() => {
                                                     setHeaderMenuOpen(false);
                                                     setExportMode('share');
@@ -364,19 +365,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                 <div ref={listRef} className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3 no-scrollbar">
                     {loading ? (
                         <div className="space-y-3 px-1">
-                            {[1, 2, 3, 4].map((i) => (
-                                <div
-                                    key={i}
-                                    className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 flex items-center gap-3"
-                                >
-                                    <div className="w-8 h-8 rounded-lg skeleton-shimmer" />
-                                    <div className="flex-1 space-y-2">
-                                        <div className="h-4 w-1/2 rounded-lg skeleton-shimmer" />
-                                        <div className="h-3 w-1/4 rounded-lg skeleton-shimmer" />
-                                    </div>
-                                    <div className="w-12 h-4 rounded-lg skeleton-shimmer" />
-                                </div>
-                            ))}
+                            <ShimmerBlock variant="list" rows={4} />
                         </div>
                     ) : groupedItems.length === 0 ? (
                         <EmptyState
@@ -470,7 +459,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             <div className="grid grid-cols-4 gap-1 mt-0.5">
                                 {CATEGORIES.map((cat) => (
                                     <button
-                                        aria-label="Edit"
+                                        aria-label="Select inventory category"
                                         key={cat}
                                         type="button"
                                         onClick={() => setEditCategory(cat)}
@@ -507,7 +496,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                     className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white text-sm font-mono outline-none focus:border-sky-500 transition-colors"
                                 />
                                 <button
-                                    aria-label="Capacitor"
+                                    aria-label="Scan barcode with camera"
                                     type="button"
                                     onClick={async () => {
                                         if (Capacitor.isNativePlatform()) {
@@ -608,7 +597,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         <p className="text-micro text-amber-400/80 text-center mt-2">Item name is required</p>
                     )}
                     <button
-                        aria-label="Edit"
+                        aria-label="Save inventory item changes"
                         onClick={handleSaveEdit}
                         disabled={!editName.trim()}
                         className="w-full mt-2 py-2.5 bg-gradient-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98] disabled:opacity-30"
@@ -639,7 +628,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                             const selected = exportCategories.has(cat);
                             return (
                                 <button
-                                    aria-label="Export Category"
+                                    aria-label="Toggle category for export"
                                     key={cat}
                                     onClick={() => toggleExportCategory(cat)}
                                     className={`flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-bold transition-all ${
@@ -667,7 +656,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                         })}
                     </div>
                     <button
-                        aria-label="Export"
+                        aria-label="Export inventory PDF"
                         onClick={() => handleExport(exportMode, exportCategories)}
                         className="w-full py-3 bg-gradient-to-r from-sky-600 to-sky-500 text-white font-black text-sm uppercase tracking-widest rounded-xl transition-all active:scale-[0.98]"
                     >

@@ -125,7 +125,7 @@ export const ListingCard: React.FC<ListingCardProps> = React.memo(
                                         <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
                                             {listing.images.map((_, i) => (
                                                 <button
-                                                    aria-label="Propagation"
+                                                    aria-label="View listing category"
                                                     key={i}
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -291,7 +291,7 @@ export const ListingCard: React.FC<ListingCardProps> = React.memo(
                                                         ))}
                                                         {!expanded && b.features.length > 6 && (
                                                             <button
-                                                                aria-label="Expand"
+                                                                aria-label="Expand listing details"
                                                                 onClick={() => setExpanded(true)}
                                                                 className="text-[11px] text-sky-400 font-medium"
                                                             >
@@ -307,7 +307,7 @@ export const ListingCard: React.FC<ListingCardProps> = React.memo(
                                 {/* Description (expandable) */}
                                 {listing.description && (
                                     <button
-                                        aria-label="Expand"
+                                        aria-label="Expand listing details"
                                         onClick={() => setExpanded(!expanded)}
                                         className="text-left mt-1.5"
                                     >
@@ -465,7 +465,7 @@ export const ListingCard: React.FC<ListingCardProps> = React.memo(
                                                         />
                                                     </div>
                                                     <button
-                                                        aria-label="Price"
+                                                        aria-label="View listing price history"
                                                         onClick={() => {
                                                             if (!offerPrice || parseFloat(offerPrice) <= 0) return;
                                                             const sellerFirst = (listing.seller_name || 'Seller').split(
@@ -500,7 +500,7 @@ export const ListingCard: React.FC<ListingCardProps> = React.memo(
                                 {showActions && isOwn && (
                                     <div className="mt-2 flex gap-2">
                                         <button
-                                            aria-label="Delete"
+                                            aria-label="Delete marketplace listing"
                                             onClick={() => {
                                                 onDelete(listing.id);
                                                 setShowActions(false);
@@ -563,7 +563,7 @@ export const ListingCard: React.FC<ListingCardProps> = React.memo(
                                                 Cancel
                                             </button>
                                             <button
-                                                aria-label="Submit"
+                                                aria-label="Submit marketplace listing offer"
                                                 onClick={handleSubmitRating}
                                                 className="flex-1 py-2 rounded-xl bg-amber-500/20 border border-amber-500/30 text-[11px] font-bold text-amber-400 uppercase tracking-wider active:scale-95"
                                             >

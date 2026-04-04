@@ -64,7 +64,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
             {/* Header */}
             <div className="flex items-center gap-2 p-4 pt-[max(1rem,env(safe-area-inset-top))] bg-slate-900 border-b border-white/10 shrink-0">
                 <button
-                    aria-label="Page"
+                    aria-label="View warning details page"
                     onClick={() => setPage('dashboard')}
                     className="p-2 -ml-2 rounded-full hover:bg-white/10 active:bg-white/20 transition-colors"
                 >
@@ -76,7 +76,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
                 </div>
                 {dismissableCount > 1 && (
                     <button
-                        aria-label="All"
+                        aria-label="Show all weather warnings"
                         onClick={dismissAll}
                         className="bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/80 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors uppercase tracking-wider"
                     >
@@ -112,7 +112,7 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
                                     </div>
                                     {!isCritical(alert) && (
                                         <button
-                                            aria-label="Close"
+                                            aria-label="Close warning details"
                                             onClick={() => dismiss(alert)}
                                             className="shrink-0 bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/70 font-bold text-xs px-3 py-2 rounded-xl transition-colors uppercase tracking-wider mt-1"
                                         >

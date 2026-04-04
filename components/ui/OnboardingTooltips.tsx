@@ -151,14 +151,14 @@ export const OnboardingTooltips: React.FC<{ onComplete?: () => void }> = ({ onCo
                 {/* Actions */}
                 <div className="flex items-center justify-between mt-4 pt-3 border-t border-white/5">
                     <button
-                        aria-label="Skip"
+                        aria-label="Skip onboarding"
                         onClick={handleSkip}
                         className="text-sm text-white/60 hover:text-white/60 transition-colors font-medium"
                     >
                         Skip
                     </button>
                     <button
-                        aria-label="Next"
+                        aria-label="Next onboarding tip"
                         onClick={handleNext}
                         className="px-5 py-2 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/30 rounded-lg text-sky-400 text-sm font-bold uppercase tracking-wider transition-all active:scale-[0.97]"
                     >

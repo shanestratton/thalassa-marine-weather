@@ -80,7 +80,7 @@ export const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mo
                     {/* Edit button (captain only, non-declined) */}
                     {isCaptain && member.status !== 'declined' && onEdit && (
                         <button
-                            aria-label="Edit"
+                            aria-label="Edit crew member details"
                             onClick={onEdit}
                             className="text-[11px] text-sky-400/60 hover:text-sky-400 font-bold transition-colors px-2 py-1"
                         >

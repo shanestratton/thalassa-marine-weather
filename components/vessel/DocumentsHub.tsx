@@ -19,6 +19,7 @@ import { toast } from '../Toast';
 import { ModalSheet } from '../ui/ModalSheet';
 import { UndoToast } from '../ui/UndoToast';
 import { EmptyState } from '../ui/EmptyState';
+import { ShimmerBlock } from '../ui/ShimmerBlock';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { SwipeableDocCard, getExpiryStatus } from './documents/SwipeableDocCard';
@@ -445,7 +446,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                     <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
                                     <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                                         <button
-                                            aria-label="Download"
+                                            aria-label="Download selected documents"
                                             onClick={handleBatchDownload}
                                             disabled={selectedIds.size === 0}
                                             className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
@@ -467,7 +468,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                         </button>
                                         <div className="border-t border-white/5" />
                                         <button
-                                            aria-label="Share"
+                                            aria-label="Email or share selected documents"
                                             onClick={handleBatchShare}
                                             disabled={selectedIds.size === 0}
                                             className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
@@ -491,7 +492,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                                             <>
                                                 <div className="border-t border-white/5" />
                                                 <button
-                                                    aria-label="Selected Ids"
+                                                    aria-label="Toggle document selection for bulk actions"
                                                     onClick={() => {
                                                         setSelectedIds(new Set());
                                                         setHeaderMenuOpen(false);
@@ -537,19 +538,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                 <div ref={listRef} className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
                     {loading ? (
                         <div className="space-y-3 px-1">
-                            {[1, 2, 3].map((i) => (
-                                <div
-                                    key={i}
-                                    className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 flex items-center gap-3"
-                                >
-                                    <div className="w-10 h-10 rounded-xl skeleton-shimmer" />
-                                    <div className="flex-1 space-y-2">
-                                        <div className="h-4 w-1/2 rounded-lg skeleton-shimmer" />
-                                        <div className="h-3 w-1/4 rounded-lg skeleton-shimmer" />
-                                    </div>
-                                    <div className="w-16 h-6 rounded-full skeleton-shimmer" />
-                                </div>
-                            ))}
+                            <ShimmerBlock variant="list" rows={3} />
                         </div>
                     ) : filtered.length === 0 ? (
                         <EmptyState

@@ -20,6 +20,7 @@ import { ModalSheet } from '../ui/ModalSheet';
 import { toast } from '../Toast';
 import { UndoToast } from '../ui/UndoToast';
 import { EmptyState } from '../ui/EmptyState';
+import { ShimmerBlock } from '../ui/ShimmerBlock';
 import { FormField } from '../ui/FormField';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
@@ -273,7 +274,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     <ModalSheet isOpen={true} onClose={() => setShowEditForm(false)} title="Edit Equipment">
                         {renderFormFields()}
                         <button
-                            aria-label="Edit"
+                            aria-label="Save equipment changes"
                             onClick={handleSaveEdit}
                             className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-sky-500 hover:to-sky-500 transition-all active:scale-[0.98]"
                         >
@@ -295,7 +296,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                     <div className="grid grid-cols-3 gap-1.5">
                         {CATEGORIES.map((cat) => (
                             <button
-                                aria-label="New Category"
+                                aria-label="Select equipment category"
                                 key={cat.id}
                                 onClick={() => setNewCategory(cat.id)}
                                 className={`py-1 rounded-full text-label font-bold transition-all text-center ${newCategory === cat.id ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
@@ -385,7 +386,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                         <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
                                         <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                                             <button
-                                                aria-label="Equipment Pdf"
+                                                aria-label="Export equipment register as PDF"
                                                 onClick={() => {
                                                     exportEquipmentPdf(items);
                                                     setMenuOpen(false);
@@ -430,20 +431,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                 <div ref={listRef} className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
                     {loading ? (
                         <div className="space-y-3 px-1">
-                            {[1, 2, 3, 4].map((i) => (
-                                <div
-                                    key={i}
-                                    className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 space-y-3"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-xl skeleton-shimmer" />
-                                        <div className="flex-1 space-y-2">
-                                            <div className="h-4 w-2/3 rounded-lg skeleton-shimmer" />
-                                            <div className="h-3 w-1/3 rounded-lg skeleton-shimmer" />
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
+                            <ShimmerBlock variant="list" rows={4} />
                         </div>
                     ) : groupedItems.length === 0 ? (
                         <EmptyState
@@ -589,7 +577,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                             <div className="space-y-2">
                                 {/* View Details */}
                                 <button
-                                    aria-label="Edit"
+                                    aria-label="View equipment details"
                                     onClick={() => {
                                         setSelectedItem(contextItem);
                                         setContextItem(null);
@@ -620,7 +608,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                 {/* Copy Serial */}
                                 {contextItem.serial_number && (
                                     <button
-                                        aria-label="Copy"
+                                        aria-label="Copy serial number to clipboard"
                                         onClick={() => {
                                             handleCopySerial(contextItem.serial_number);
                                             setContextItem(null);
@@ -652,7 +640,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                 {/* Open Manual */}
                                 {contextItem.manual_uri && (
                                     <button
-                                        aria-label="Item"
+                                        aria-label="Open equipment manual PDF"
                                         onClick={() => {
                                             window.open(contextItem.manual_uri!, '_blank');
                                             setContextItem(null);
@@ -678,7 +666,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
                                 {/* Edit */}
                                 <button
-                                    aria-label="Edit"
+                                    aria-label="Edit equipment details"
                                     onClick={() => {
                                         openEditForm(contextItem);
                                         setSelectedItem(contextItem);
@@ -704,7 +692,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
 
                                 {/* Delete */}
                                 <button
-                                    aria-label="Delete"
+                                    aria-label="Delete this equipment item"
                                     onClick={() => {
                                         handleDelete(contextItem.id);
                                     }}
@@ -739,7 +727,7 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                         <p className="text-micro text-amber-400/80 text-center mt-2">Equipment name is required</p>
                     )}
                     <button
-                        aria-label="Add"
+                        aria-label="Register new equipment"
                         onClick={handleAdd}
                         disabled={!newName.trim()}
                         className="w-full py-3 mt-2 bg-gradient-to-r from-emerald-600 to-emerald-600 text-white font-black text-sm uppercase tracking-[0.15em] rounded-xl hover:from-emerald-500 hover:to-emerald-500 transition-all active:scale-[0.98] disabled:opacity-30 shrink-0"

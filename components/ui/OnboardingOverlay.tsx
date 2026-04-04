@@ -123,7 +123,7 @@ export const OnboardingOverlay: React.FC = () => {
                             <div className="flex items-center gap-3">
                                 {!isLast && (
                                     <button
-                                        aria-label="Close"
+                                        aria-label="Close onboarding overlay"
                                         onClick={dismiss}
                                         className="text-sm text-white/30 hover:text-white/60 transition-colors"
                                     >
@@ -131,7 +131,7 @@ export const OnboardingOverlay: React.FC = () => {
                                     </button>
                                 )}
                                 <button
-                                    aria-label="Next"
+                                    aria-label="Next onboarding step"
                                     onClick={next}
                                     className="px-5 py-2.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sky-400 text-sm font-bold hover:bg-sky-500/30 transition-all active:scale-95"
                                 >

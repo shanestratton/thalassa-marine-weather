@@ -58,14 +58,14 @@ const StopFollowingDialog: React.FC<{
 
             <div className="px-6 pb-6 flex gap-3">
                 <button
-                    aria-label="Cancel"
+                    aria-label="Cancel route following"
                     onClick={onCancel}
                     className="flex-1 py-3.5 px-4 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-bold text-sm hover:bg-white/10 transition-all active:scale-[0.97]"
                 >
                     Keep Following
                 </button>
                 <button
-                    aria-label="Confirm"
+                    aria-label="Confirm route follow"
                     onClick={onConfirm}
                     className="flex-1 py-3.5 px-4 rounded-xl bg-red-500/15 border border-red-500/30 text-red-400 font-bold text-sm hover:bg-red-500/25 transition-all active:scale-[0.97]"
                 >
@@ -116,21 +116,21 @@ const RouteChangePanel: React.FC<{
 
                 <div className="flex gap-2 mt-3">
                     <button
-                        aria-label="Accept"
+                        aria-label="Accept route update"
                         onClick={onAccept}
                         className="flex-1 py-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400 text-xs font-bold uppercase tracking-wider hover:bg-sky-500/25 transition-all active:scale-[0.97]"
                     >
                         Accept New Route
                     </button>
                     <button
-                        aria-label="Download"
+                        aria-label="Download route GPX file"
                         onClick={onDownloadGPX}
                         className="py-2.5 px-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-xs font-bold uppercase tracking-wider hover:bg-emerald-500/25 transition-all active:scale-[0.97]"
                     >
                         GPX ↓
                     </button>
                     <button
-                        aria-label="Dismiss"
+                        aria-label="Dismiss route update"
                         onClick={onDismiss}
                         className="py-2.5 px-3 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs font-bold hover:bg-white/10 transition-all active:scale-[0.97]"
                     >
@@ -228,7 +228,7 @@ ${gpxWaypoints.map((wp) => `      <trkpt lat="${wp.lat}" lon="${wp.lon}"><name>$
 
                         {/* Route info */}
                         <button
-                            aria-label="Changed"
+                            aria-label="View route deviation details"
                             onClick={() => routeChanged && setShowChangePanel(!showChangePanel)}
                             className="flex-1 min-w-0 text-left"
                         >
@@ -250,7 +250,7 @@ ${gpxWaypoints.map((wp) => `      <trkpt lat="${wp.lat}" lon="${wp.lon}"><name>$
 
                         {/* Refresh button */}
                         <button
-                            aria-label="Route"
+                            aria-label="View active route details"
                             onClick={refreshRoute}
                             disabled={isRefreshing}
                             className="p-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 hover:text-white hover:bg-white/10 transition-all active:scale-[0.95] shrink-0"
@@ -273,7 +273,7 @@ ${gpxWaypoints.map((wp) => `      <trkpt lat="${wp.lat}" lon="${wp.lon}"><name>$
 
                         {/* Stop button */}
                         <button
-                            aria-label="Stop"
+                            aria-label="Stop following route"
                             onClick={() => setShowStopDialog(true)}
                             className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-all active:scale-[0.95] shrink-0"
                             title="Stop following route"

@@ -655,7 +655,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
 
                                     {/* Reset Center Button */}
                                     <button
-                                        aria-label="Instance"
+                                        aria-label="Select weather model instance"
                                         onClick={() => {
                                             if (mapInstance.current) {
                                                 mapInstance.current.setView([centerLat, centerLon], 10, {
@@ -676,7 +676,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                         {isConfirmMode && activeLayer === 'buoys' && (
                             <div className="w-full max-w-sm mx-auto pointer-events-auto flex justify-center">
                                 <button
-                                    aria-label="Confirm"
+                                    aria-label="Confirm weather model selection"
                                     onClick={handleConfirm}
                                     disabled={!pendingSelection}
                                     className={`w-full font-bold py-4 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 border transition-all ${pendingSelection ? 'bg-sky-500 hover:bg-sky-400 text-white border-transparent scale-105' : 'bg-slate-800/90 text-gray-400 border-white/10 cursor-not-allowed'}`}

@@ -400,7 +400,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Passage Planning</h1>
                     </div>
                     <button
-                        aria-label="Invite"
+                        aria-label="Invite crew member"
                         onClick={() => {
                             setShowInviteModal(true);
                             setInviteError(null);
@@ -618,7 +618,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 const selected = editRegisters.includes(reg);
                                 return (
                                     <button
-                                        aria-label="Register"
+                                        aria-label="Register new crew member"
                                         key={reg}
                                         type="button"
                                         onClick={() => toggleRegister(reg, editRegisters, setEditRegisters)}
@@ -662,7 +662,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     </div>
 
                     <button
-                        aria-label="Save"
+                        aria-label="Save crew management changes"
                         onClick={handleSavePermissions}
                         disabled={editRegisters.length === 0}
                         className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 ${editRegisters.length === 0 ? 'opacity-50' : 'hover:bg-gray-100'}`}

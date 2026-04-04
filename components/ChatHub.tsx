@@ -135,7 +135,7 @@ export const ChatHub: React.FC = () => {
 
                     {/* Community tab */}
                     <button
-                        aria-label="Haptic"
+                        aria-label="Switch to Community channels"
                         onClick={() => {
                             triggerHaptic('light');
                             setActiveTab('community');
@@ -162,7 +162,7 @@ export const ChatHub: React.FC = () => {
 
                     {/* Marketplace tab */}
                     <button
-                        aria-label="Haptic"
+                        aria-label="Switch to Chandlery messages"
                         onClick={() => {
                             triggerHaptic('light');
                             setActiveTab('marketplace');
@@ -215,7 +215,7 @@ export const ChatHub: React.FC = () => {
                             <div className="space-y-1 p-4 stagger-in">
                                 {conversations.map((convo) => (
                                     <button
-                                        aria-label="Haptic"
+                                        aria-label="Open marketplace conversation"
                                         key={convo.listing.id}
                                         onClick={() => {
                                             triggerHaptic('light');

@@ -22,6 +22,7 @@ import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 import { ModalSheet } from '../ui/ModalSheet';
 import { EmptyState } from '../ui/EmptyState';
+import { ShimmerBlock } from '../ui/ShimmerBlock';
 import { FormField } from '../ui/FormField';
 import { generateUUID } from '../../services/vessel/LocalDatabase';
 import { SwipeableItemCard } from './checklists/SwipeableItemCard';
@@ -359,7 +360,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                     <div className="fixed inset-0 z-40" onClick={() => setHeaderMenuOpen(false)} />
                                     <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                                         <button
-                                            aria-label="Run"
+                                            aria-label="Run checklist inspection"
                                             onClick={startRun}
                                             disabled={totalDetails === 0}
                                             className="w-full flex items-center gap-2.5 px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors disabled:opacity-30"
@@ -401,18 +402,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                 <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-4">
                     {loading ? (
                         <div className="space-y-3">
-                            {[1, 2, 3].map((i) => (
-                                <div
-                                    key={i}
-                                    className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-4 flex items-center gap-3"
-                                >
-                                    <div className="w-8 h-8 rounded-lg skeleton-shimmer" />
-                                    <div className="flex-1 space-y-2">
-                                        <div className="h-4 w-1/2 rounded-lg skeleton-shimmer" />
-                                        <div className="h-3 w-1/4 rounded-lg skeleton-shimmer" />
-                                    </div>
-                                </div>
-                            ))}
+                            <ShimmerBlock variant="list" rows={3} />
                         </div>
                     ) : filtered.length === 0 ? (
                         <EmptyState
@@ -513,7 +503,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 </label>
                                 <div className="grid grid-cols-2 gap-2">
                                     <button
-                                        aria-label="Form Type"
+                                        aria-label="Select checklist item type"
                                         onClick={() => setFormType('heading')}
                                         className={`py-3 rounded-xl text-sm font-black uppercase tracking-wider transition-all ${
                                             formType === 'heading'
@@ -537,7 +527,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                         Heading
                                     </button>
                                     <button
-                                        aria-label="Form Type"
+                                        aria-label="Select checklist item type"
                                         onClick={() => {
                                             setFormType('detail');
                                             if (headings.length > 0 && !formHeadingId) setFormHeadingId(headings[0].id);
@@ -614,7 +604,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             </p>
                         )}
                         <button
-                            aria-label="Save"
+                            aria-label="Save checklist item"
                             onClick={handleSave}
                             disabled={!formText.trim()}
                             className={`w-full py-3 mt-1 rounded-xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] disabled:opacity-30 ${
@@ -638,7 +628,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                 return (
                                     <>
                                         <button
-                                            aria-label="Delete"
+                                            aria-label="Delete checklist item"
                                             onClick={() => {
                                                 handleDelete(editEntry.id);
                                                 setShowForm(false);
@@ -670,7 +660,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                         <div className="shrink-0 px-4 pb-3">
                             <div className="flex items-center justify-between mb-3">
                                 <button
-                                    aria-label="Show Run"
+                                    aria-label="Exit checklist run"
                                     onClick={() => {
                                         setShowRun(false);
                                         setRunItems([]);
@@ -804,7 +794,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                                                         {/* R&M flag button (visible when failed) */}
                                                         {item.status === 'fail' && (
                                                             <button
-                                                                aria-label="Propagation"
+                                                                aria-label="Flag for repair and maintenance"
                                                                 onClick={(e) => {
                                                                     e.stopPropagation();
                                                                     toggleRmFlag(item.entry_id);
@@ -833,7 +823,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                             style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom))' }}
                         >
                             <button
-                                aria-label="Run"
+                                aria-label="Complete checklist run"
                                 onClick={completeRun}
                                 className={`w-full py-4 rounded-2xl text-sm font-black text-white uppercase tracking-[0.15em] transition-all active:scale-[0.97] shadow-xl ${
                                     runFailCount > 0

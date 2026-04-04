@@ -437,7 +437,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                 <div className="grid grid-cols-3 gap-3">
                     {/* Report Suspicious */}
                     <button
-                        aria-label="Haptic"
+                        aria-label="Report suspicious activity in your area"
                         onClick={() => {
                             triggerHaptic('medium');
                             setShowReport(true);
@@ -451,7 +451,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
 
                     {/* Weather Alert */}
                     <button
-                        aria-label="Haptic"
+                        aria-label="Broadcast a weather alert to nearby boats"
                         onClick={() => {
                             triggerHaptic('medium');
                             setShowWeather(true);
@@ -465,7 +465,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
 
                     {/* Digital Tripwire */}
                     <button
-                        aria-label="Haptic"
+                        aria-label="Set digital tripwire at current position"
                         onClick={async () => {
                             triggerHaptic('medium');
                             const pos = LocationStore.getState();
@@ -541,7 +541,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                     </div>
                                     {/* Hail button */}
                                     <button
-                                        aria-label="Haptic"
+                                        aria-label="Hail nearby vessel"
                                         onClick={() => {
                                             triggerHaptic('light');
                                             setShowHail(user);
@@ -686,7 +686,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         </div>
 
                         <button
-                            aria-label="Save"
+                            aria-label="Save Guardian profile"
                             onClick={handleSaveProfile}
                             className="w-full mt-6 py-3.5 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-bold rounded-xl text-sm tracking-wide shadow-lg shadow-emerald-500/25 active:scale-[0.98] transition-transform"
                         >
@@ -739,14 +739,14 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         />
                         <div className="flex gap-3">
                             <button
-                                aria-label="Report"
+                                aria-label="Cancel suspicious activity report"
                                 onClick={() => setShowReport(false)}
                                 className="flex-1 py-3 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-gray-400 active:scale-[0.98] transition-transform"
                             >
                                 Cancel
                             </button>
                             <button
-                                aria-label="Report"
+                                aria-label="Broadcast suspicious activity alert"
                                 onClick={handleReport}
                                 disabled={!reportText.trim()}
                                 className="flex-1 py-3 bg-gradient-to-r from-red-500 to-red-600 rounded-xl text-sm font-bold text-white shadow-lg shadow-red-500/25 active:scale-[0.98] transition-transform disabled:opacity-40"
@@ -796,7 +796,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         <div className="space-y-2">
                             {WEATHER_TEMPLATES.map((t) => (
                                 <button
-                                    aria-label="Weather Broadcast"
+                                    aria-label="Send weather broadcast alert"
                                     key={t.text}
                                     onClick={() => handleWeatherBroadcast(t.text)}
                                     className="w-full bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 text-left flex items-center gap-3 hover:bg-sky-500/10 hover:border-sky-500/20 transition-all active:scale-[0.98]"
@@ -807,7 +807,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             ))}
                         </div>
                         <button
-                            aria-label="Show Weather"
+                            aria-label="Cancel weather alert"
                             onClick={() => setShowWeather(false)}
                             className="w-full mt-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-gray-400 active:scale-[0.98] transition-transform"
                         >
@@ -830,7 +830,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         <div className="grid grid-cols-2 gap-2">
                             {HAIL_MESSAGES.map((h) => (
                                 <button
-                                    aria-label="Hail"
+                                    aria-label="Send hail message to nearby vessel"
                                     key={h.text}
                                     onClick={() => handleHail(showHail, h.text)}
                                     className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 text-center hover:bg-emerald-500/10 hover:border-emerald-500/20 transition-all active:scale-[0.95]"
@@ -841,7 +841,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             ))}
                         </div>
                         <button
-                            aria-label="Hail"
+                            aria-label="Cancel hail message"
                             onClick={() => setShowHail(null)}
                             className="w-full mt-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-gray-400 active:scale-[0.98] transition-transform"
                         >

@@ -74,7 +74,7 @@ export const UndoToast: React.FC<UndoToastProps> = ({ message, isOpen, duration 
                         <span className="text-sm font-bold text-white truncate">{message}</span>
                     </div>
                     <button
-                        aria-label="Ref"
+                        aria-label="Undo delete action"
                         onClick={() => {
                             if (timerRef.current) clearTimeout(timerRef.current);
                             if (frameRef.current) cancelAnimationFrame(frameRef.current);
