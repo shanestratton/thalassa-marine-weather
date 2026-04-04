@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { SailorMatch } from '../../services/LonelyHeartsService';
+import { EmptyState } from '../ui/EmptyState';
 
 interface CompatResult {
     score: number;
@@ -25,15 +26,13 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
         return (
             <div className="px-4 py-5">
                 {matches.length === 0 ? (
-                    <div className="text-center py-16">
-                        <span className="text-3xl block mb-4">🤝</span>
-                        <h3 className="text-lg font-bold text-white/60 mb-2">No Connections Yet</h3>
-                        <p className="text-sm text-white/40">
-                            When you ⭐ someone and they ⭐ you back, you'll both appear here. Start browsing!
-                        </p>
-                    </div>
+                    <EmptyState
+                        icon="🤝"
+                        title="No Connections Yet"
+                        description="When you ⭐ someone and they ⭐ you back, you'll both appear here. Start browsing!"
+                    />
                 ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-2 stagger-in">
                         {matches.map((match) => {
                             const compat = getCompatibility(match);
                             const colorClasses =
@@ -58,7 +57,7 @@ export const CrewMatchesList: React.FC<CrewMatchesListProps> = React.memo(
                                     aria-label="Open DM"
                                     key={match.user_id}
                                     onClick={() => onOpenDM(match.user_id, match.display_name)}
-                                    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] hover:border-emerald-400/10 transition-all active:scale-[0.98]"
+                                    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] hover:border-emerald-400/10 transition-all active:scale-[0.98] card-lift"
                                 >
                                     <div className="w-14 h-14 rounded-2xl overflow-hidden border-2 border-emerald-400/20 flex-shrink-0">
                                         {match.avatar_url ? (

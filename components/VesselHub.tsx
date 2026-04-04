@@ -131,7 +131,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
             }}
         >
             {/* Scrollable content area */}
-            <div className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-4">
+            <div className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-4 stagger-in">
                 {/* ═══════════════════════════════════════════ */}
                 {/* SECTION A: ACTIVE WATCH — Hero Card        */}
                 {/* ═══════════════════════════════════════════ */}
@@ -139,7 +139,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     <SectionLabel color="#ef4444" label="Active Watch" />
 
                     {/* Hero card — Anchor + Passages side by side */}
-                    <div style={GLASS.card} className="p-0 overflow-hidden mb-3">
+                    <div style={GLASS.card} className="p-0 overflow-hidden mb-3 card-lift">
                         <div className="flex">
                             {/* Left: Anchor Watch */}
                             <button
@@ -204,7 +204,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 onNavigate('guardian');
                             }}
                             style={GLASS.card}
-                            className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98]"
+                            className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
                         >
                             <div className="flex items-center gap-2.5">
                                 <div className="p-2 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.12)' }}>
@@ -226,7 +226,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 onNavigate('radio');
                             }}
                             style={GLASS.card}
-                            className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98]"
+                            className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
                         >
                             <div className="flex items-center gap-2.5">
                                 <div className="p-2 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.12)' }}>
@@ -255,7 +255,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             onNavigate('details');
                         }}
                         style={GLASS.card}
-                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-all active:scale-[0.98]"
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
                     >
                         <div className="p-2 rounded-lg" style={{ background: 'rgba(14, 165, 233, 0.12)' }}>
                             <BookIcon color="#0ea5e9" />

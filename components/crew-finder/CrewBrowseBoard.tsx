@@ -10,6 +10,7 @@ import { CrewFinderState, CrewFinderAction } from '../../hooks/useCrewFinderStat
 import { CrewCard, AGE_RANGES, ListingType } from '../../services/LonelyHeartsService';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { COUNTRIES, getStatesForCountry } from '../../data/locationData';
+import { EmptyState } from '../ui/EmptyState';
 
 interface CrewBrowseBoardProps {
     state: CrewFinderState;
@@ -297,32 +298,30 @@ export const CrewBrowseBoard: React.FC<CrewBrowseBoardProps> = React.memo(
                 {listings.length === 0 ? (
                     <div className="flex-1 flex items-center justify-center text-center">
                         {!filterListingType ? (
-                            <div>
-                                <span className="text-5xl block mb-4">🌊</span>
-                                <h3 className="text-xl font-black text-white/60 mb-2">Find Your Sea Mate</h3>
-                                <p className="text-sm text-white/40 max-w-[240px] mx-auto leading-relaxed">
-                                    Choose Captain or Crew above to start browsing. Your next adventure is waiting.
-                                </p>
-                            </div>
+                            <EmptyState
+                                icon="🌊"
+                                title="Find Your Sea Mate"
+                                description="Choose Captain or Crew above to start browsing. Your next adventure is waiting."
+                            />
                         ) : (
-                            <>
-                                <span className="text-3xl block mb-4">🔍</span>
-                                <h3 className="text-lg font-bold text-white/60 mb-2">No Listings Yet</h3>
-                            </>
+                            <EmptyState
+                                icon="🔍"
+                                title="No Listings Yet"
+                                description="No crew match your filters yet. Try broadening your search."
+                            />
                         )}
                     </div>
                 ) : currentCardIndex >= listings.length ? (
                     <div className="text-center py-20">
-                        <span className="text-5xl block mb-4">⚓</span>
-                        <h3 className="text-xl font-black text-white/70 mb-2">You've seen all listings!</h3>
-                        <p className="text-sm text-white/30 mb-6 max-w-[260px] mx-auto">
-                            That's all {listings.length} {listings.length === 1 ? 'listing' : 'listings'} for now. Check
-                            back later for new crew.
-                        </p>
+                        <EmptyState
+                            icon="⚓"
+                            title="You've seen all listings!"
+                            description={`That's all ${listings.length} ${listings.length === 1 ? 'listing' : 'listings'} for now. Check back later for new crew.`}
+                        />
                         <button
                             aria-label="To Start"
                             onClick={goToStart}
-                            className="px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-500/25 to-sky-500/25 border border-emerald-400/20 text-emerald-300 font-bold text-sm transition-all active:scale-95"
+                            className="px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-500/25 to-sky-500/25 border border-emerald-400/20 text-emerald-300 font-bold text-sm transition-all active:scale-95 mt-4"
                         >
                             ↩ Back to Beginning
                         </button>

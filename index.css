@@ -2305,6 +2305,119 @@ body,
 }
 
 /* ══════════════════════════════════════════════════════════════
+   MICRO-ANIMATIONS — Premium interaction layer
+   GPU-composited, battery-friendly, WCAG 2.1 compliant
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── Card Lift — hover/active state for tappable glassmorphic cards ── */
+.card-lift {
+    transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+                box-shadow 0.2s ease,
+                border-color 0.2s ease;
+    will-change: transform;
+}
+.card-lift:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.3),
+                0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.card-lift:active {
+    transform: translateY(0) scale(0.98);
+    transition-duration: 0.1s;
+}
+
+/* ── Stagger In — cascade entrance for list items ── */
+@keyframes stagger-in {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+.stagger-in > * {
+    animation: stagger-in 0.3s cubic-bezier(0.21, 1.02, 0.73, 1) both;
+}
+.stagger-in > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-in > *:nth-child(2) { animation-delay: 40ms; }
+.stagger-in > *:nth-child(3) { animation-delay: 80ms; }
+.stagger-in > *:nth-child(4) { animation-delay: 120ms; }
+.stagger-in > *:nth-child(5) { animation-delay: 160ms; }
+.stagger-in > *:nth-child(6) { animation-delay: 200ms; }
+.stagger-in > *:nth-child(7) { animation-delay: 240ms; }
+.stagger-in > *:nth-child(8) { animation-delay: 280ms; }
+.stagger-in > *:nth-child(9) { animation-delay: 320ms; }
+.stagger-in > *:nth-child(10) { animation-delay: 360ms; }
+.stagger-in > *:nth-child(n+11) { animation-delay: 400ms; }
+
+/* ── Slide Up — page-level entrance ── */
+@keyframes slide-up-enter {
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+.slide-up-enter {
+    animation: slide-up-enter 0.35s cubic-bezier(0.21, 1.02, 0.73, 1) both;
+}
+
+/* ── Glass Glow — interactive border glow on hover ── */
+.glass-glow {
+    position: relative;
+    transition: border-color 0.25s ease;
+}
+.glass-glow::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.08), rgba(16, 185, 129, 0.05));
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+    z-index: 0;
+}
+.glass-glow:hover::after {
+    opacity: 1;
+}
+
+/* ── Neon Pulse — subtle breathing glow for active/live elements ── */
+@keyframes neon-pulse {
+    0%, 100% {
+        box-shadow: 0 0 4px rgba(16, 185, 129, 0.2),
+                    0 0 8px rgba(16, 185, 129, 0.1);
+    }
+    50% {
+        box-shadow: 0 0 8px rgba(16, 185, 129, 0.35),
+                    0 0 16px rgba(16, 185, 129, 0.15);
+    }
+}
+.neon-pulse {
+    animation: neon-pulse 3s ease-in-out infinite;
+}
+
+/* ── Section Reveal — fade in section headers ── */
+@keyframes section-reveal {
+    from {
+        opacity: 0;
+        transform: translateX(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+.section-reveal {
+    animation: section-reveal 0.4s cubic-bezier(0.21, 1.02, 0.73, 1) both;
+}
+
+/* ══════════════════════════════════════════════════════════════
    ACCESSIBILITY: Reduced Motion
    ──────────────────────────────────────────────────────────────
    Global blanket rule: disable ALL animations and transitions

@@ -212,7 +212,7 @@ export const ChatHub: React.FC = () => {
                                 description="Message a seller from the Chandlery to start a conversation."
                             />
                         ) : (
-                            <div className="space-y-1 p-4">
+                            <div className="space-y-1 p-4 stagger-in">
                                 {conversations.map((convo) => (
                                     <button
                                         aria-label="Haptic"

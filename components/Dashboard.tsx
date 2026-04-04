@@ -16,6 +16,7 @@ import { HeroHeader } from './dashboard/HeroHeader';
 import { HeroWidgets } from './dashboard/HeroWidgets';
 import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
 import { RainForecastCard } from './dashboard/RainForecastCard';
+import { ShimmerBlock } from './ui/ShimmerBlock';
 import { useSettings } from '../context/SettingsContext';
 
 import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
@@ -546,8 +547,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                         </>
                     ) : (
                         <>
-                            <div className="w-6 h-6 border-2 border-sky-400/60 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                            <p className="text-sm text-white/40 font-medium">Loading conditions…</p>
+                            <div className="px-6 space-y-4 pt-2">
+                                <ShimmerBlock variant="hero" />
+                                <ShimmerBlock variant="card" />
+                                <ShimmerBlock variant="list" rows={3} />
+                            </div>
+                            <p className="text-sm text-white/40 font-medium text-center mt-4">Loading conditions…</p>
                         </>
                     )}
                 </div>

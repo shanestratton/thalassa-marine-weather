@@ -24,6 +24,8 @@ import { ChatService } from '../services/ChatService';
 
 import { SlideToAction } from './ui/SlideToAction';
 import { UndoToast } from './ui/UndoToast';
+import { EmptyState } from './ui/EmptyState';
+import { ShimmerBlock } from './ui/ShimmerBlock';
 import { triggerHaptic } from '../utils/system';
 import { formatPrice } from './marketplace/helpers';
 
@@ -238,32 +240,17 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = React.memo(({ onB
             {/* ═══════ FEED ═══════ */}
             <div ref={feedRef} className="flex-1 py-3 pb-36">
                 {loading ? (
-                    /* Skeleton loader */
                     <div className="space-y-3 px-3">
-                        {[1, 2, 3].map((i) => (
-                            <div
-                                key={i}
-                                className="rounded-2xl border border-white/[0.06] bg-white/[0.03] overflow-hidden"
-                            >
-                                <div className="w-full aspect-[16/10] skeleton-shimmer" />
-                                <div className="p-4 space-y-3">
-                                    <div className="h-4 w-3/4 rounded-lg skeleton-shimmer" />
-                                    <div className="h-3 w-1/3 rounded-lg skeleton-shimmer" />
-                                    <div className="h-8 w-full rounded-xl skeleton-shimmer" />
-                                </div>
-                            </div>
-                        ))}
+                        <ShimmerBlock variant="card" />
+                        <ShimmerBlock variant="card" />
+                        <ShimmerBlock variant="card" />
                     </div>
                 ) : listings.length === 0 ? (
-                    /* Empty state */
-                    <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-                        <div className="text-3xl mb-4">⚓</div>
-                        <h3 className="text-lg font-bold text-white/80 mb-2">No Gear Listed Yet</h3>
-                        <p className="text-xs text-white/60 mb-2 max-w-xs leading-relaxed">
-                            Be the first to list your marine gear. Electronics, sails, rigging — if it floats or helps
-                            you float, it belongs here.
-                        </p>
-                    </div>
+                    <EmptyState
+                        icon="⚓"
+                        title="No Gear Listed Yet"
+                        description="Be the first to list your marine gear. Electronics, sails, rigging — if it floats or helps you float, it belongs here."
+                    />
                 ) : (
                     /* Listing cards */
                     listings.map((listing) => (
