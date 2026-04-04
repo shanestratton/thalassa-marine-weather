@@ -8,6 +8,8 @@
 import React from 'react';
 import { type CrewMember, REGISTER_ICONS, REGISTER_LABELS } from '../../services/CrewService';
 import { SwipeableCrewCard } from './SwipeableCrewCard';
+import { EmptyState } from '../ui/EmptyState';
+import { ShimmerBlock } from '../ui/ShimmerBlock';
 
 interface CrewRosterProps {
     visibleCrew: CrewMember[];
@@ -36,8 +38,8 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
 }) => {
     if (loading) {
         return (
-            <div className="flex items-center justify-center py-20">
-                <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
+            <div className="py-6 space-y-3">
+                <ShimmerBlock variant="list" rows={3} />
             </div>
         );
     }
@@ -140,15 +142,13 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
                 </div>
 
                 {visibleCrew.length === 0 ? (
-                    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-6 text-center">
-                        <div className="text-3xl mb-3">👥</div>
-                        <p className="text-sm font-bold text-white mb-1">No Crew Yet</p>
-                        <p className="text-[11px] text-gray-400 max-w-xs mx-auto">
-                            Invite crew members to share Inventory, Equipment, R&M and Documents registers.
-                        </p>
-                    </div>
+                    <EmptyState
+                        icon="👥"
+                        title="No Crew Yet"
+                        description="Invite crew members to share Inventory, Equipment, R&M and Documents registers."
+                    />
                 ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-2 stagger-in">
                         {visibleCrew.map((member) => (
                             <SwipeableCrewCard
                                 key={member.id}

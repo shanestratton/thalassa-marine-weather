@@ -391,7 +391,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                             description="Tracks you share will appear here for management."
                         />
                     ) : (
-                        <div className="space-y-2">
+                        <div className="space-y-2 stagger-in">
                             {myTracks.map((track) => (
                                 <MyTrackCard
                                     key={track.id}
@@ -403,9 +403,9 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                         </div>
                     )
                 ) : loading && tracks.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center h-48 text-slate-400">
-                        <div className="w-8 h-8 border-2 border-emerald-500/30 border-t-emerald-400 rounded-full animate-spin mb-3" />
-                        <p className="text-sm">Loading tracks...</p>
+                    <div className="px-1 space-y-3">
+                        <ShimmerBlock variant="card" />
+                        <ShimmerBlock variant="card" />
                     </div>
                 ) : error ? (
                     <div className="flex flex-col items-center justify-center h-48 text-slate-400">
@@ -425,7 +425,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                         description="Be the first to share a track with the community!"
                     />
                 ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-2 stagger-in">
                         {tracks.map((track) => (
                             <TrackCard
                                 key={track.id}

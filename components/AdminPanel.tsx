@@ -13,6 +13,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ChatService, ChatRole, UserRoleEntry, JoinRequest, ChatChannel } from '../services/ChatService';
 import { triggerHaptic } from '../utils/system';
 import { ConfirmDialog } from './ui/ConfirmDialog';
+import { EmptyState } from './ui/EmptyState';
+import { ShimmerBlock } from './ui/ShimmerBlock';
 import { toast } from './Toast';
 
 // ── Types ──
@@ -462,29 +464,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                         <div className="px-4 space-y-2">
                             {loading ? (
                                 <div className="py-12 space-y-3">
-                                    {[1, 2, 3, 4, 5].map((i) => (
-                                        <div
-                                            key={i}
-                                            className="rounded-xl border border-white/[0.04] bg-white/[0.02] p-4 animate-pulse"
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <div className="w-9 h-9 rounded-full bg-white/[0.06]" />
-                                                <div className="flex-1 space-y-2">
-                                                    <div className="h-3 w-24 rounded bg-white/[0.06]" />
-                                                    <div className="h-2 w-16 rounded bg-white/[0.04]" />
-                                                </div>
-                                            </div>
-                                        </div>
-                                    ))}
+                                    <ShimmerBlock variant="list" rows={5} />
                                 </div>
                             ) : filteredUsers.length === 0 ? (
-                                <div className="text-center py-12 space-y-3">
-                                    <div className="text-4xl">🔍</div>
-                                    <p className="text-sm font-semibold text-white/50">No Users Found</p>
-                                    <p className="text-xs text-white/30">
-                                        {search ? `No one matching "${search}"` : 'No users to display'}
-                                    </p>
-                                </div>
+                                <EmptyState
+                                    icon="🔍"
+                                    title="No Users Found"
+                                    description={search ? `No one matching "${search}"` : 'No users to display'}
+                                />
                             ) : (
                                 filteredUsers.map((user) => {
                                     const isMe = user.user_id === currentUserId;
@@ -644,13 +631,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                 📋 Pending Proposals ({pendingChannels.length})
                             </p>
                             {pendingChannels.length === 0 ? (
-                                <div className="text-center py-8 space-y-2">
-                                    <div className="text-3xl">📭</div>
-                                    <p className="text-sm font-semibold text-white/40">No Pending Proposals</p>
-                                    <p className="text-xs text-white/40">
-                                        Channel proposals from users will appear here
-                                    </p>
-                                </div>
+                                <EmptyState
+                                    icon="📭"
+                                    title="No Pending Proposals"
+                                    description="Channel proposals from users will appear here"
+                                />
                             ) : (
                                 <div className="space-y-2">
                                     {pendingChannels.map((ch) => (
@@ -709,11 +694,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                                 📡 Active Channels ({activeChannels.length})
                             </p>
                             {activeChannels.length === 0 ? (
-                                <div className="text-center py-8 space-y-2">
-                                    <div className="text-3xl">📡</div>
-                                    <p className="text-sm font-semibold text-white/40">No Active Channels</p>
-                                    <p className="text-xs text-white/40">Approved channels will appear here</p>
-                                </div>
+                                <EmptyState
+                                    icon="📡"
+                                    title="No Active Channels"
+                                    description="Approved channels will appear here"
+                                />
                             ) : (
                                 <div className="space-y-1.5">
                                     {activeChannels.map((ch) => (
@@ -759,15 +744,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onChann
                             📋 Audit Trail — Last 50 Actions
                         </p>
                         {auditLog.length === 0 ? (
-                            <div className="text-center py-16 space-y-3">
-                                <div className="text-4xl">📋</div>
-                                <p className="text-sm font-semibold text-white/40">Clean Slate</p>
-                                <p className="text-xs text-white/40">
-                                    Admin actions will be logged here for accountability.
-                                    <br />
-                                    Every role change, block, mute, and channel action is tracked.
-                                </p>
-                            </div>
+                            <EmptyState
+                                icon="📋"
+                                title="Clean Slate"
+                                description="Admin actions will be logged here for accountability. Every role change, block, mute, and channel action is tracked."
+                            />
                         ) : (
                             auditLog.map((entry, i) => {
                                 const meta = AUDIT_LABELS[entry.action] || {

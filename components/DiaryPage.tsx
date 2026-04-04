@@ -15,6 +15,8 @@ import { toast } from './Toast';
 import { DiaryEntryView } from './diary/DiaryEntryView';
 import { DiaryComposeForm } from './diary/DiaryComposeForm';
 import { useDiaryState } from '../hooks/useDiaryState';
+import { EmptyState } from './ui/EmptyState';
+import { ShimmerBlock } from './ui/ShimmerBlock';
 interface DiaryPageProps {
     onBack: () => void;
 }
@@ -839,47 +841,18 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 <div className="flex-1 overflow-y-auto px-4 min-h-0" style={{ paddingBottom: '4px' }}>
                     {loading ? (
                         <div className="space-y-3 px-1">
-                            {[1, 2, 3].map((i) => (
-                                <div
-                                    key={i}
-                                    className="rounded-2xl border border-white/[0.06] bg-white/[0.03] p-4 space-y-3"
-                                >
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full skeleton-shimmer" />
-                                        <div className="flex-1 space-y-2">
-                                            <div className="h-4 w-3/4 rounded-lg skeleton-shimmer" />
-                                            <div className="h-3 w-1/3 rounded-lg skeleton-shimmer" />
-                                        </div>
-                                    </div>
-                                    <div className="h-12 w-full rounded-lg skeleton-shimmer" />
-                                </div>
-                            ))}
+                            <ShimmerBlock variant="card" />
+                            <ShimmerBlock variant="card" />
+                            <ShimmerBlock variant="card" />
                         </div>
                     ) : entries.length === 0 ? (
-                        <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-16">
-                            <div className="relative w-20 h-20 mb-5">
-                                <svg viewBox="0 0 96 96" fill="none" className="w-full h-full text-sky-500/30">
-                                    <circle
-                                        cx="48"
-                                        cy="48"
-                                        r="44"
-                                        stroke="currentColor"
-                                        strokeWidth="1.5"
-                                        strokeDasharray="4 4"
-                                    />
-                                    <circle cx="48" cy="48" r="6" fill="currentColor" fillOpacity="0.3" />
-                                    <path d="M48 8L52 44H44L48 8Z" fill="currentColor" fillOpacity="0.6" />
-                                    <path d="M48 88L44 52H52L48 88Z" fill="currentColor" fillOpacity="0.3" />
-                                </svg>
-                            </div>
-                            <p className="text-base font-bold text-white mb-1">Your Story Starts Here</p>
-                            <p className="text-sm text-white/60 max-w-[240px] text-center">
-                                Slide below to write your first journal entry. Add photos, voice memos, and GPS
-                                coordinates.
-                            </p>
-                        </div>
+                        <EmptyState
+                            icon="🧭"
+                            title="Your Story Starts Here"
+                            description="Slide below to write your first journal entry. Add photos, voice memos, and GPS coordinates."
+                        />
                     ) : (
-                        <div className="space-y-6">
+                        <div className="space-y-6 stagger-in">
                             {Array.from(grouped.entries()).map(([dateKey, dayEntries]) => (
                                 <div key={dateKey}>
                                     <div className="flex items-center gap-3 mb-3">

@@ -11,6 +11,8 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { supabase } from '../../services/supabase';
 import { getMmsiFlag } from '../../utils/MmsiDecoder';
 import { triggerHaptic } from '../../utils/system';
+import { EmptyState } from '../ui/EmptyState';
+import { ShimmerBlock } from '../ui/ShimmerBlock';
 
 import { createLogger } from '../../utils/createLogger';
 
@@ -238,26 +240,13 @@ export const VesselSearch: React.FC<VesselSearchProps> = ({ onSelect, visible, o
                 }}
             >
                 {loading && (
-                    <div style={{ textAlign: 'center', padding: 32, color: '#64748b', fontSize: 13 }}>
-                        <div
-                            style={{
-                                width: 16,
-                                height: 16,
-                                border: '2px solid #38bdf8',
-                                borderTopColor: 'transparent',
-                                borderRadius: '50%',
-                                animation: 'spin 0.8s linear infinite',
-                                margin: '0 auto 8px',
-                            }}
-                        />
-                        Searching...
+                    <div style={{ padding: '16px 8px' }}>
+                        <ShimmerBlock variant="list" rows={3} />
                     </div>
                 )}
 
                 {!loading && searched && results.length === 0 && (
-                    <div style={{ textAlign: 'center', padding: 32, color: '#64748b', fontSize: 13 }}>
-                        No vessels found for <span style={{ color: '#e2e8f0', fontWeight: 700 }}>"{query}"</span>
-                    </div>
+                    <EmptyState icon="🚢" title="No Vessels Found" description={`No vessels matching "${query}"`} />
                 )}
 
                 {!loading &&
