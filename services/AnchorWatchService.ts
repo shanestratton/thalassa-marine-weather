@@ -78,6 +78,8 @@ export interface AnchorWatchConfig {
 
 export type AnchorWatchState = 'idle' | 'setting' | 'watching' | 'alarm' | 'paused';
 
+export type GuardianAutoStatus = 'idle' | 'arming' | 'armed' | 'failed' | 'already_armed';
+
 export interface AnchorWatchSnapshot {
     state: AnchorWatchState;
     anchorPosition: AnchorPosition | null;
@@ -93,6 +95,8 @@ export interface AnchorWatchSnapshot {
     gpsAccuracy: number;
     gpsQuality: 'precision' | 'standard' | 'degraded';
     gpsQualityLabel: string;
+    /** Guardian auto-arm status for UI badge */
+    guardianStatus: GuardianAutoStatus;
 }
 
 export type AnchorWatchListener = (snapshot: AnchorWatchSnapshot) => void;
@@ -192,6 +196,10 @@ class AnchorWatchServiceClass {
     private alarmTriggeredAt: number | null = null;
     private watchStartedAt: number | null = null;
 
+    // Guardian bridge state
+    private guardianArmedByUs = false;
+    private guardianStatus: GuardianAutoStatus = 'idle';
+
     // GPS jitter filter buffer
     private jitterBuffer: { lat: number; lon: number }[] = [];
     private outsideCircleCount = 0;
@@ -233,6 +241,7 @@ class AnchorWatchServiceClass {
             gpsAccuracy: this.gpsAccuracy,
             gpsQuality: GpsPrecision.getQuality(),
             gpsQualityLabel: GpsPrecision.getAdaptedThresholds().qualityLabel,
+            guardianStatus: this.guardianStatus,
         };
     }
 
@@ -795,26 +804,65 @@ class AnchorWatchServiceClass {
      * Tier 2: anchor watch users get Guardian protection automatically.
      */
     private async autoArmGuardian(): Promise<void> {
+        this.guardianStatus = 'arming';
+        this.notify();
+
         try {
             await ensureGuardianBridge();
-            if (_guardianArm) {
-                const armed = await _guardianArm();
-                if (armed) {
-                    log.info('Guardian auto-armed via anchor watch');
-                } else {
-                    log.warn('Guardian auto-arm failed (no profile or GPS)');
+            if (!_guardianArm) {
+                this.guardianStatus = 'idle';
+                this.notify();
+                return;
+            }
+
+            // Check if Guardian is already armed (manually by user)
+            try {
+                const { GuardianService } = await import('./GuardianService');
+                const state = GuardianService.getState();
+                if (state.armed) {
+                    // Already armed — don't overwrite, and don't disarm on weigh anchor
+                    this.guardianArmedByUs = false;
+                    this.guardianStatus = 'already_armed';
+                    log.info('Guardian already armed (manual) — skipping auto-arm');
+                    this.notify();
+                    return;
                 }
+            } catch {
+                /* proceed with arm attempt */
+            }
+
+            const armed = await _guardianArm();
+            if (armed) {
+                this.guardianArmedByUs = true;
+                this.guardianStatus = 'armed';
+                log.info('Guardian auto-armed via anchor watch');
+            } else {
+                this.guardianArmedByUs = false;
+                this.guardianStatus = 'failed';
+                log.warn('Guardian auto-arm failed (no profile or GPS)');
             }
         } catch (e) {
+            this.guardianArmedByUs = false;
+            this.guardianStatus = 'failed';
             log.warn('Guardian auto-arm error:', e);
         }
+
+        this.notify();
     }
 
     /**
      * Auto-disarm Guardian when anchor watch stops.
-     * User is weighing anchor — leaving the bay.
+     * Only disarms if WE were the ones who armed it — prevents
+     * killing a manually-armed Guardian when the user weighs anchor.
      */
     private async autoDisarmGuardian(): Promise<void> {
+        if (!this.guardianArmedByUs) {
+            log.info('Guardian was not auto-armed by us — skipping auto-disarm');
+            this.guardianStatus = 'idle';
+            this.notify();
+            return;
+        }
+
         try {
             await ensureGuardianBridge();
             if (_guardianDisarm) {
@@ -826,6 +874,10 @@ class AnchorWatchServiceClass {
         } catch (e) {
             log.warn('Guardian auto-disarm error:', e);
         }
+
+        this.guardianArmedByUs = false;
+        this.guardianStatus = 'idle';
+        this.notify();
     }
 }
 

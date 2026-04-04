@@ -43,6 +43,7 @@ import { generateComfortZoneOverlay, hasActiveComfortLimits } from '../../servic
 export interface PassageState {
     departure: { lat: number; lon: number; name: string } | null;
     arrival: { lat: number; lon: number; name: string } | null;
+    viaWaypoints: { lat: number; lon: number; name: string }[];
     departureTime: string;
     speed: number;
     routeAnalysis: RouteAnalysis | null;
@@ -53,6 +54,7 @@ export interface PassageState {
 export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean) {
     const [departure, setDeparture] = useState<{ lat: number; lon: number; name: string } | null>(null);
     const [arrival, setArrival] = useState<{ lat: number; lon: number; name: string } | null>(null);
+    const [viaWaypoints, setViaWaypoints] = useState<{ lat: number; lon: number; name: string }[]>([]);
     const [departureTime, setDepartureTime] = useState('');
     const [speed, setSpeed] = useState(6);
     const [routeAnalysis, setRouteAnalysis] = useState<RouteAnalysis | null>(null);
@@ -105,6 +107,13 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 setArrival(detail.arrival);
             } else {
                 setArrival(null);
+            }
+            // Accept intermediate waypoints from GPX import
+            if (detail?.via && Array.isArray(detail.via)) {
+                setViaWaypoints(detail.via);
+                log.info(`[Passage] Received ${detail.via.length} via waypoints from GPX import`);
+            } else {
+                setViaWaypoints([]);
             }
             setRouteAnalysis(null);
         };
@@ -1540,6 +1549,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         setDeparture,
         arrival,
         setArrival,
+        viaWaypoints,
+        setViaWaypoints,
         departureTime,
         setDepartureTime,
         speed,

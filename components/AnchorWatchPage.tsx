@@ -375,12 +375,18 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const slideTrackRef = useRef<HTMLDivElement>(null);
     const [slideX, setSlideX] = useState(0);
     const [isDragging, setIsDragging] = useState(false);
+    const [slideCommitted, setSlideCommitted] = useState(false);
     const slideThreshold = 0.85; // 85% to trigger
+    const lastSlideRatioRef = useRef(0);
+    const lastHapticRatioRef = useRef(0); // throttle progressive haptics
 
     const handleSlideStart = useCallback(
         (_clientX: number) => {
             if (isSettingAnchor) return;
             setIsDragging(true);
+            setSlideCommitted(false);
+            lastSlideRatioRef.current = 0;
+            lastHapticRatioRef.current = 0;
         },
         [isSettingAnchor],
     );
@@ -392,7 +398,27 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             const thumbWidth = 56;
             const maxTravel = rect.width - thumbWidth;
             const offset = clientX - rect.left - thumbWidth / 2;
-            setSlideX(Math.max(0, Math.min(offset, maxTravel)));
+            const clamped = Math.max(0, Math.min(offset, maxTravel));
+            setSlideX(clamped);
+
+            const ratio = clamped / maxTravel;
+
+            // Progressive haptic feedback — tap every 15% of travel
+            if (ratio - lastHapticRatioRef.current >= 0.15) {
+                lastHapticRatioRef.current = ratio;
+                triggerHaptic('light');
+            }
+
+            // Commit snap — heavy haptic when crossing threshold
+            if (ratio >= slideThreshold && lastSlideRatioRef.current < slideThreshold) {
+                triggerHaptic('heavy');
+                setSlideCommitted(true);
+            } else if (ratio < slideThreshold && lastSlideRatioRef.current >= slideThreshold) {
+                // Pulled back below threshold
+                setSlideCommitted(false);
+            }
+
+            lastSlideRatioRef.current = ratio;
         },
         [isDragging],
     );
@@ -413,6 +439,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             }
         }
         setSlideX(0);
+        setSlideCommitted(false);
     }, [isDragging, slideX, handleSetAnchor]);
 
     // Confirm and proceed from sound check modal
@@ -664,6 +691,21 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                         />
                                     </div>
 
+                                    {/* Fill trail — glows behind thumb as it slides */}
+                                    <div
+                                        className="absolute top-0 left-0 bottom-0 rounded-full pointer-events-none transition-opacity"
+                                        style={{
+                                            width: `${slideX + 56}px`,
+                                            background: slideCommitted
+                                                ? 'linear-gradient(90deg, rgba(34,197,94,0.15) 0%, rgba(34,197,94,0.3) 100%)'
+                                                : 'linear-gradient(90deg, rgba(251,146,60,0.08) 0%, rgba(251,146,60,0.2) 100%)',
+                                            opacity: slideX > 2 ? 1 : 0,
+                                            transition: isDragging
+                                                ? 'background 0.3s'
+                                                : 'width 0.3s ease, opacity 0.2s',
+                                        }}
+                                    />
+
                                     {/* Label text */}
                                     <div
                                         className="absolute inset-0 flex items-center justify-center pointer-events-none"
@@ -685,13 +727,18 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                         className="absolute top-1 left-1 w-12 h-12 rounded-full flex items-center justify-center cursor-grab active:cursor-grabbing transition-shadow"
                                         style={{
                                             transform: `translateX(${slideX}px)`,
-                                            background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
-                                            boxShadow:
-                                                '0 4px 16px rgba(249,115,22,0.4), 0 0 20px rgba(249,115,22,0.15)',
-                                            transition: isDragging ? 'none' : 'transform 0.3s ease',
+                                            background: slideCommitted
+                                                ? 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)'
+                                                : 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
+                                            boxShadow: slideCommitted
+                                                ? '0 4px 16px rgba(34,197,94,0.5), 0 0 24px rgba(34,197,94,0.2)'
+                                                : '0 4px 16px rgba(249,115,22,0.4), 0 0 20px rgba(249,115,22,0.15)',
+                                            transition: isDragging
+                                                ? 'background 0.3s, box-shadow 0.3s'
+                                                : 'transform 0.3s ease, background 0.3s, box-shadow 0.3s',
                                         }}
                                     >
-                                        <span className="text-lg">⚓</span>
+                                        <span className="text-lg">{slideCommitted ? '✓' : '⚓'}</span>
                                     </div>
                                 </div>
                             )}
@@ -902,9 +949,43 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 : 'Monitoring...'}
                         </p>
                     </div>
-                    <div
-                        className={`w-3 h-3 rounded-full ${isHolding ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse'}`}
-                    />
+                    <div className="flex items-center gap-2">
+                        {/* Guardian status badge */}
+                        {snapshot?.guardianStatus && snapshot.guardianStatus !== 'idle' && (
+                            <div
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 border ${
+                                    snapshot.guardianStatus === 'armed' || snapshot.guardianStatus === 'already_armed'
+                                        ? 'bg-emerald-500/[0.08] border-emerald-500/20 text-emerald-400'
+                                        : snapshot.guardianStatus === 'arming'
+                                          ? 'bg-sky-500/[0.08] border-sky-500/20 text-sky-400'
+                                          : 'bg-red-500/[0.08] border-red-500/20 text-red-400'
+                                }`}
+                            >
+                                <span
+                                    className={`w-1.5 h-1.5 rounded-full ${
+                                        snapshot.guardianStatus === 'armed' ||
+                                        snapshot.guardianStatus === 'already_armed'
+                                            ? 'bg-emerald-400'
+                                            : snapshot.guardianStatus === 'arming'
+                                              ? 'bg-sky-400 animate-pulse'
+                                              : 'bg-red-400'
+                                    }`}
+                                />
+                                🛡️{' '}
+                                {snapshot.guardianStatus === 'armed'
+                                    ? 'Armed'
+                                    : snapshot.guardianStatus === 'already_armed'
+                                      ? 'Armed'
+                                      : snapshot.guardianStatus === 'arming'
+                                        ? 'Arming'
+                                        : 'Failed'}
+                            </div>
+                        )}
+                        {/* Hold status dot */}
+                        <div
+                            className={`w-3 h-3 rounded-full ${isHolding ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse'}`}
+                        />
+                    </div>
                 </div>
             </div>
 

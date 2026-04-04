@@ -1,42 +1,54 @@
 /**
- * useSignalKCharts — Map hook for rendering Signal K chart tile layers.
+ * useAvNavCharts — Map hook for rendering AvNav chart tile layers.
  *
- * Listens for chart availability from SignalKService and adds/removes
+ * Listens for chart availability from AvNavService and adds/removes
  * raster tile sources + layers on the Mapbox map. Charts render below
  * sea marks and above the satellite base with configurable opacity.
  */
 import { useEffect, useRef, useCallback, useState, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
-import { SignalKService, type SignalKChart } from '../../services/SignalKService';
+import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import { createLogger } from '../../utils/createLogger';
+import { Preferences } from '@capacitor/preferences';
 
-const log = createLogger('SK-Charts');
+let _chartLogSeq = 0;
+async function chartLog(msg: string) {
+    const val = `[CHART-${++_chartLogSeq}] ${msg}`;
+    try {
+        await Preferences.set({ key: 'CHART_LOG', value: val });
+        await Preferences.get({ key: 'CHART_LOG' });
+    } catch {
+        /* ignore */
+    }
+}
 
-const SK_SOURCE_PREFIX = 'sk-chart-';
-const SK_LAYER_PREFIX = 'sk-chart-layer-';
+const log = createLogger('AvNav-Charts');
 
-export function useSignalKCharts(
+const SK_SOURCE_PREFIX = 'avnav-chart-';
+const SK_LAYER_PREFIX = 'avnav-chart-layer-';
+
+export function useAvNavCharts(
     mapRef: MutableRefObject<mapboxgl.Map | null>,
     mapReady: boolean,
     enabledChartIds: Set<string>,
     opacity: number,
 ) {
-    const [availableCharts, setAvailableCharts] = useState<SignalKChart[]>([]);
-    const [connectionStatus, setConnectionStatus] = useState(SignalKService.getStatus());
+    const [availableCharts, setAvailableCharts] = useState<AvNavChart[]>([]);
+    const [connectionStatus, setConnectionStatus] = useState(AvNavService.getStatus());
     const addedLayersRef = useRef<Set<string>>(new Set());
 
     // Subscribe to chart + status changes
     useEffect(() => {
-        const unsubCharts = SignalKService.onChartsChange((charts) => {
+        const unsubCharts = AvNavService.onChartsChange((charts) => {
             setAvailableCharts(charts);
         });
-        const unsubStatus = SignalKService.onStatusChange((status) => {
+        const unsubStatus = AvNavService.onStatusChange((status) => {
             setConnectionStatus(status);
         });
 
         // Load current state
-        setAvailableCharts(SignalKService.getCharts());
-        setConnectionStatus(SignalKService.getStatus());
+        setAvailableCharts(AvNavService.getCharts());
+        setConnectionStatus(AvNavService.getStatus());
 
         return () => {
             unsubCharts();
@@ -52,6 +64,9 @@ export function useSignalKCharts(
         const currentLayerIds = new Set(addedLayersRef.current);
 
         // Add new chart layers
+        chartLog(
+            `sync: ${availableCharts.length} avail, ${enabledChartIds.size} enabled, mapReady=${mapReady} [${[...enabledChartIds].join(',')}]`,
+        );
         for (const chart of availableCharts) {
             const sourceId = `${SK_SOURCE_PREFIX}${chart.id}`;
             const layerId = `${SK_LAYER_PREFIX}${chart.id}`;
@@ -68,6 +83,9 @@ export function useSignalKCharts(
                         maxzoom: chart.maxZoom,
                         ...(chart.bounds ? { bounds: chart.bounds } : {}),
                     });
+                    chartLog(
+                        `Added source: ${sourceId}, tilesUrl=${chart.tilesUrl}, zoom=${chart.minZoom}-${chart.maxZoom}, bounds=${JSON.stringify(chart.bounds)}`,
+                    );
 
                     // Add layer — insert below 'sea-marks' if it exists,
                     // otherwise before the first symbol layer
@@ -95,7 +113,7 @@ export function useSignalKCharts(
                     );
 
                     addedLayersRef.current.add(chart.id);
-                    log.info(`Added chart layer: ${chart.name}`);
+                    chartLog(`Added layer: ${chart.name} (id=${chart.id})`);
                 } else {
                     // Already exists — update opacity
                     if (map.getLayer(layerId)) {
@@ -124,6 +142,19 @@ export function useSignalKCharts(
             if (map.getLayer(layerId)) map.removeLayer(layerId);
             if (map.getSource(sourceId)) map.removeSource(sourceId);
             addedLayersRef.current.delete(orphanId);
+        }
+
+        // One-time error listener for debugging
+        if (addedLayersRef.current.size > 0 && !(map as any).__chartErrorListening) {
+            (map as any).__chartErrorListening = true;
+            map.on('error', (e: any) => {
+                // Extract actual error info from Mapbox's cyclic event object
+                const msg = e?.error?.message || e?.message || 'unknown';
+                const url = e?.error?.url || e?.source?.url || '';
+                if (url.includes(SK_SOURCE_PREFIX) || url.includes('192.168')) {
+                    chartLog(`MAP ERROR: ${msg} | url=${url}`);
+                }
+            });
         }
     }, [mapRef, mapReady, availableCharts, enabledChartIds, opacity]);
 
@@ -158,7 +189,7 @@ export function useSignalKCharts(
 
     // Fly to chart bounds
     const flyToChart = useCallback(
-        (chart: SignalKChart) => {
+        (chart: AvNavChart) => {
             const map = mapRef.current;
             if (!map || !chart.bounds) return;
             map.fitBounds(

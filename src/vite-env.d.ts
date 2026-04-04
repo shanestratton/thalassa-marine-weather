@@ -20,6 +20,7 @@ interface ImportMetaEnv {
     readonly VITE_SPOONACULAR_KEY: string;
     readonly VITE_SENTRY_DSN: string;
     readonly VITE_APP_VERSION: string;
+    readonly VITE_LINZ_API_KEY: string;
 
     // Standard Vite Environment Variables
     readonly BASE_URL: string;

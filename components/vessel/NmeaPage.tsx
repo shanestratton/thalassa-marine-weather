@@ -3,7 +3,7 @@
  *
  * Shows connection status, live instrument data, and connection controls.
  * Tap any instrument card to open a fullscreen gauge overlay.
- * Includes Signal K server configuration for nautical chart integration.
+ * Includes AvNav chart server configuration for nautical chart integration.
  */
 import React, { useState, useCallback, useEffect } from 'react';
 import { createLogger } from '../../utils/createLogger';
@@ -15,12 +15,7 @@ import { NmeaStore, type TimestampedMetric } from '../../services/NmeaStore';
 import { triggerHaptic } from '../../utils/system';
 import { AisStore } from '../../services/AisStore';
 import { AisHubService, type AisHubStats } from '../../services/AisHubService';
-import { SignalKService, type SignalKChart, type SignalKConnectionStatus } from '../../services/SignalKService';
-import {
-    SignalKDiscoveryService,
-    type DiscoveredServer,
-    type DiscoveryStatus,
-} from '../../services/SignalKDiscoveryService';
+
 import { PageHeader } from '../ui/PageHeader';
 import { FormField } from '../ui/FormField';
 import { NmeaGaugeOverlay, type GaugeMetricId } from '../nmea/NmeaGaugeOverlay';
@@ -34,6 +29,7 @@ const DEVICE_PRESETS = [
     { id: 'ydwg02', label: 'Yacht Devices YDWG-02', port: '1456' },
     { id: 'ikonvert', label: 'Digital Yacht iKonvert', port: '2000' },
     { id: 'w2k1', label: 'Actisense W2K-1', port: '2000' },
+    { id: 'signalk', label: 'Signal K Server', port: '10110' },
     { id: 'direct', label: 'Direct TCP (NMEA 0183)', port: '10110' },
 ] as const;
 
@@ -61,17 +57,6 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
     const [aisHubIp, setAisHubIp] = useState(aisHubConfig.ip);
     const [aisHubPort, setAisHubPort] = useState(String(aisHubConfig.port || ''));
     const [aisHubStats, setAisHubStats] = useState<AisHubStats>(AisHubService.getStats());
-
-    // Signal K state
-    const [skHost, setSkHost] = useState(SignalKService.getHost());
-    const [skPort, setSkPort] = useState(String(SignalKService.getPort()));
-    const [skStatus, setSkStatus] = useState<SignalKConnectionStatus>(SignalKService.getStatus());
-    const [skCharts, setSkCharts] = useState<SignalKChart[]>(SignalKService.getCharts());
-    const [skApiVersion, setSkApiVersion] = useState<string | null>(SignalKService.getApiVersion());
-    const [skLastError, setSkLastError] = useState<string | null>(SignalKService.getLastError());
-    const [skExpanded, setSkExpanded] = useState(SignalKService.getStatus() !== 'disconnected');
-    const [scanStatus, setScanStatus] = useState<DiscoveryStatus>(SignalKDiscoveryService.getStatus());
-    const [foundServers, setFoundServers] = useState<DiscoveredServer[]>(SignalKDiscoveryService.getServers());
 
     useEffect(() => {
         const unsub = NmeaListenerService.onStatusChange((s) => {
@@ -102,27 +87,11 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
             setAisHubStats(stats);
         });
 
-        // Subscribe to Signal K
-        const unsubSk = SignalKService.onStatusChange((s) => {
-            setSkStatus(s);
-            setSkApiVersion(SignalKService.getApiVersion());
-            setSkLastError(SignalKService.getLastError());
-        });
-        const unsubSkCharts = SignalKService.onChartsChange((c) => setSkCharts(c));
-
-        // Subscribe to discovery
-        const unsubScanStatus = SignalKDiscoveryService.onStatusChange(setScanStatus);
-        const unsubScanServers = SignalKDiscoveryService.onServersChange(setFoundServers);
-
         return () => {
             unsub();
             clearInterval(poll);
             unsubAis();
             unsubHub();
-            unsubSk();
-            unsubSkCharts();
-            unsubScanStatus();
-            unsubScanServers();
         };
     }, []);
 
@@ -171,33 +140,6 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
         setActiveGauge({ id, metric });
     }, []);
 
-    const handleSkConnect = useCallback(() => {
-        triggerHaptic('medium');
-        SignalKService.configure(skHost, parseInt(skPort, 10) || 3000);
-        SignalKService.start();
-    }, [skHost, skPort]);
-
-    const handleSkDisconnect = useCallback(() => {
-        triggerHaptic('medium');
-        SignalKService.stop();
-    }, []);
-
-    const skConnected = skStatus === 'connected';
-    const skConnecting = skStatus === 'connecting';
-    const isScanning = scanStatus === 'scanning';
-
-    const handleScanNetwork = useCallback(() => {
-        triggerHaptic('medium');
-        SignalKDiscoveryService.scan();
-    }, []);
-
-    const handleSelectServer = useCallback((server: DiscoveredServer) => {
-        triggerHaptic('light');
-        setSkHost(server.host);
-        setSkPort(String(server.port));
-        SignalKDiscoveryService.stop();
-    }, []);
-
     // Instrument data cards — each maps to a gauge type
     const instruments: { label: string; id: GaugeMetricId; metric: TimestampedMetric; unit: string; icon: string }[] = [
         { label: 'True Wind Speed', id: 'tws', metric: state.tws, unit: 'kts', icon: '💨' },
@@ -220,7 +162,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
             <div className="flex flex-col h-full">
                 <PageHeader
                     title="NMEA Gateway"
-                    subtitle="Instruments, Charts & AIS"
+                    subtitle="Instruments & AIS"
                     onBack={onBack}
                     breadcrumbs={["Ship's Office", 'NMEA Gateway']}
                     action={<NmeaStatusDot />}
@@ -452,238 +394,6 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                                     Register at aishub.net to get your station IP and port. Data is sent only over Wi-Fi
                                     to manage costs.
                                 </p>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* ═══ SIGNAL K / NAUTICAL CHARTS ═══ */}
-                    <div
-                        className={`shrink-0 mb-3 p-4 rounded-2xl border transition-all ${
-                            skConnected
-                                ? 'bg-emerald-500/10 border-emerald-500/20'
-                                : 'bg-white/[0.03] border-white/[0.06]'
-                        }`}
-                    >
-                        {/* Header — always visible, acts as toggle */}
-                        <button onClick={() => setSkExpanded(!skExpanded)} className="w-full flex items-center gap-3">
-                            <span className="text-lg">⚓</span>
-                            <div className="flex-1 text-left">
-                                <p className="text-sm font-bold text-white">Signal K — Nautical Charts</p>
-                                <p className="text-[11px] text-gray-400">
-                                    {skConnected
-                                        ? `Connected · API ${skApiVersion || 'v1'} · ${skCharts.length} chart(s)`
-                                        : 'Connect to your Pi for chart overlays'}
-                                </p>
-                            </div>
-                            {skConnected && (
-                                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
-                            )}
-                            <svg
-                                className={`w-4 h-4 text-gray-500 transition-transform ${skExpanded ? 'rotate-180' : ''}`}
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                            </svg>
-                        </button>
-
-                        {/* Expandable body */}
-                        {skExpanded && (
-                            <div className="mt-4 space-y-3">
-                                {/* Connection controls */}
-                                {!skConnected && !skConnecting && (
-                                    <>
-                                        {/* Scan Network button */}
-                                        <button
-                                            onClick={handleScanNetwork}
-                                            disabled={isScanning}
-                                            className={`w-full py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-[0.97] border ${
-                                                isScanning
-                                                    ? 'bg-sky-500/15 border-sky-500/30 text-sky-400'
-                                                    : 'bg-white/[0.04] border-white/10 text-gray-300 hover:bg-white/[0.08] hover:text-white'
-                                            }`}
-                                        >
-                                            <div className="flex items-center justify-center gap-2">
-                                                {isScanning ? (
-                                                    <>
-                                                        <div className="relative w-5 h-5">
-                                                            <div className="absolute inset-0 rounded-full border-2 border-sky-400/30" />
-                                                            <div className="absolute inset-0 rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
-                                                            <div className="absolute inset-[3px] rounded-full bg-sky-400/20 animate-pulse" />
-                                                        </div>
-                                                        Scanning…
-                                                    </>
-                                                ) : (
-                                                    <>
-                                                        <svg
-                                                            className="w-4 h-4"
-                                                            fill="none"
-                                                            viewBox="0 0 24 24"
-                                                            stroke="currentColor"
-                                                            strokeWidth={2}
-                                                        >
-                                                            <path
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                                d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z"
-                                                            />
-                                                        </svg>
-                                                        Scan Network
-                                                    </>
-                                                )}
-                                            </div>
-                                        </button>
-
-                                        {/* Discovered servers */}
-                                        {foundServers.length > 0 && (
-                                            <div className="space-y-1">
-                                                <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">
-                                                    {foundServers.length} Server{foundServers.length !== 1 ? 's' : ''}{' '}
-                                                    Found
-                                                </p>
-                                                {foundServers.map((server) => (
-                                                    <button
-                                                        key={`${server.host}:${server.port}`}
-                                                        onClick={() => handleSelectServer(server)}
-                                                        className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/15 transition-all active:scale-[0.97] text-left"
-                                                    >
-                                                        <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center shrink-0">
-                                                            <span className="text-sm">📡</span>
-                                                        </div>
-                                                        <div className="flex-1 min-w-0">
-                                                            <p className="text-xs font-bold text-white truncate">
-                                                                {server.name}
-                                                            </p>
-                                                            <p className="text-[10px] text-emerald-400/70 font-mono">
-                                                                {server.host}:{server.port}
-                                                                <span className="ml-2 text-gray-500">
-                                                                    via {server.source}
-                                                                </span>
-                                                            </p>
-                                                        </div>
-                                                        <svg
-                                                            className="w-4 h-4 text-emerald-400/50 shrink-0"
-                                                            fill="none"
-                                                            viewBox="0 0 24 24"
-                                                            stroke="currentColor"
-                                                            strokeWidth={2}
-                                                        >
-                                                            <path
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                                d="M8.25 4.5l7.5 7.5-7.5 7.5"
-                                                            />
-                                                        </svg>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        )}
-
-                                        {/* No results after scan */}
-                                        {scanStatus === 'done' && foundServers.length === 0 && (
-                                            <p className="text-[11px] text-gray-500 text-center py-1">
-                                                No Signal K servers found. Enter the address manually below.
-                                            </p>
-                                        )}
-
-                                        {/* Manual host/port fields */}
-                                        <div className="flex gap-2">
-                                            <div className="flex-1">
-                                                <FormField
-                                                    label="Host"
-                                                    value={skHost}
-                                                    onChange={setSkHost}
-                                                    placeholder="signalk.local"
-                                                    mono
-                                                />
-                                            </div>
-                                            <div className="w-20">
-                                                <FormField
-                                                    label="Port"
-                                                    value={skPort}
-                                                    onChange={setSkPort}
-                                                    placeholder="3000"
-                                                    mono
-                                                    inputMode="numeric"
-                                                />
-                                            </div>
-                                        </div>
-                                    </>
-                                )}
-
-                                {/* Error message */}
-                                {skLastError && !skConnected && (
-                                    <p className="text-[11px] text-red-400 truncate">{skLastError}</p>
-                                )}
-
-                                {/* Connect / Disconnect */}
-                                <div className="flex gap-2">
-                                    {!skConnected && !skConnecting && (
-                                        <button
-                                            onClick={handleSkConnect}
-                                            className="flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 transition-all active:scale-95"
-                                        >
-                                            Connect
-                                        </button>
-                                    )}
-                                    {skConnecting && (
-                                        <button
-                                            onClick={handleSkConnect}
-                                            className="flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest bg-amber-500/15 border border-amber-500/30 text-amber-400 transition-all active:scale-95"
-                                        >
-                                            <div className="flex items-center justify-center gap-2">
-                                                <div className="w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-                                                Connecting…
-                                            </div>
-                                        </button>
-                                    )}
-                                    {(skConnected || skConnecting) && (
-                                        <button
-                                            onClick={handleSkDisconnect}
-                                            className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 transition-all active:scale-95"
-                                        >
-                                            Disconnect
-                                        </button>
-                                    )}
-                                </div>
-
-                                {/* Chart list */}
-                                {skConnected && skCharts.length > 0 && (
-                                    <div className="space-y-1">
-                                        <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">
-                                            Charts Available
-                                        </p>
-                                        {skCharts.map((chart) => (
-                                            <div
-                                                key={chart.id}
-                                                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.04]"
-                                            >
-                                                <span className="text-sm">🗺️</span>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-xs font-bold text-white truncate">
-                                                        {chart.name}
-                                                    </p>
-                                                    <p className="text-[10px] text-gray-500">
-                                                        z{chart.minZoom}–{chart.maxZoom} · {chart.format}
-                                                    </p>
-                                                </div>
-                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-
-                                {skConnected && skCharts.length === 0 && (
-                                    <p className="text-[11px] text-gray-500 text-center py-2">
-                                        No charts found — install{' '}
-                                        <span className="text-emerald-400 font-mono">
-                                            signalk-charts-provider-simple
-                                        </span>{' '}
-                                        on your server.
-                                    </p>
-                                )}
                             </div>
                         )}
                     </div>

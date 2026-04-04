@@ -1,8 +1,8 @@
 /**
- * SignalKDiscoveryService — mDNS auto-discovery for Signal K servers.
+ * AvNavDiscoveryService — mDNS auto-discovery for AvNav servers.
  *
  * On native (iOS/Android), uses capacitor-zeroconf to browse for
- * `_signalk-http._tcp.` services via Bonjour/mDNS.
+ * `_http._tcp.` services via Bonjour/mDNS.
  *
  * On web, falls back to probing common local endpoints via fetch:
  *   - localhost:3000, localhost:3100 (dev mock server)
@@ -12,7 +12,7 @@
 import { createLogger } from '../utils/createLogger';
 import { Capacitor } from '@capacitor/core';
 
-const log = createLogger('SK-Discovery');
+const log = createLogger('AvNav-Discovery');
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ export interface DiscoveredServer {
     name: string;
     /** IP address or hostname */
     host: string;
-    /** Signal K API port */
+    /** AvNav API port */
     port: number;
     /** Discovery method */
     source: 'mdns' | 'probe';
@@ -34,7 +34,7 @@ type ServersListener = (servers: DiscoveredServer[]) => void;
 
 // ── Service ──────────────────────────────────────────────────────────────────
 
-class SignalKDiscoveryServiceClass {
+class AvNavDiscoveryServiceClass {
     private status: DiscoveryStatus = 'idle';
     private servers: DiscoveredServer[] = [];
     private statusListeners = new Set<StatusListener>();
@@ -109,7 +109,7 @@ class SignalKDiscoveryServiceClass {
             const dynamicImport = new Function('specifier', 'return import(specifier)');
             const { Zeroconf } = await dynamicImport('capacitor-zeroconf');
 
-            log.info('Starting mDNS browse for _signalk-http._tcp.');
+            log.info('Starting mDNS browse for _http._tcp.');
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             Zeroconf.addListener('discover', (result: any) => {
@@ -119,7 +119,7 @@ class SignalKDiscoveryServiceClass {
                     if (!host) return;
 
                     const server: DiscoveredServer = {
-                        name: svc.name || `Signal K (${host})`,
+                        name: svc.name || `AvNav (${host})`,
                         host,
                         port: svc.port || 3000,
                         source: 'mdns',
@@ -135,7 +135,7 @@ class SignalKDiscoveryServiceClass {
             });
 
             await Zeroconf.watch({
-                type: '_signalk-http._tcp.',
+                type: '_http._tcp.',
                 domain: 'local.',
             });
         } catch (err) {
@@ -203,7 +203,7 @@ class SignalKDiscoveryServiceClass {
                 // Validate it's actually a Signal K endpoint
                 if (data?.endpoints || data?.server) {
                     const server: DiscoveredServer = {
-                        name: data.server?.id ? `${data.server.id} (${host})` : `Signal K (${host}:${port})`,
+                        name: data.server?.id ? `${data.server.id} (${host})` : `AvNav (${host}:${port})`,
                         host,
                         port,
                         source: 'probe',
@@ -234,4 +234,4 @@ class SignalKDiscoveryServiceClass {
     }
 }
 
-export const SignalKDiscoveryService = new SignalKDiscoveryServiceClass();
+export const AvNavDiscoveryService = new AvNavDiscoveryServiceClass();

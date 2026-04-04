@@ -87,6 +87,14 @@ const RadioConsolePage = lazyRetry(
     () => import('./components/vessel/RadioConsolePage').then((m) => ({ default: m.RadioConsolePage })),
     'RadioConsolePage',
 );
+const AvNavPage = lazyRetry(
+    () => import('./components/vessel/AvNavPage').then((m) => ({ default: m.AvNavPage })),
+    'AvNavPage',
+);
+const GpxImportPage = lazyRetry(
+    () => import('./components/vessel/GpxImportPage').then((m) => ({ default: m.GpxImportPage })),
+    'GpxImportPage',
+);
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -213,6 +221,18 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
     nmea: {
         component: NmeaGatewayPage,
         boundaryName: 'NmeaGateway',
+        group: 'vessel',
+        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
+    },
+    avnav: {
+        component: AvNavPage,
+        boundaryName: 'AvNavCharts',
+        group: 'vessel',
+        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
+    },
+    'gpx-import': {
+        component: GpxImportPage,
+        boundaryName: 'GpxImport',
         group: 'vessel',
         getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
     },

@@ -102,6 +102,12 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [vesselChecked, setVesselChecked] = useState(false);
     const [medicalReady, setMedicalReady] = useState(false);
 
+    // Passage Intelligence states
+    const [vesselProfileReady, setVesselProfileReady] = useState(false);
+    const [comfortProfileReady, setComfortProfileReady] = useState(false);
+    const [weatherWindowReady, setWeatherWindowReady] = useState(false);
+    const [currentsBriefed, setCurrentsBriefed] = useState(false);
+
     // Card delegation
     const DELEGATION_STORAGE_KEY = 'thalassa_card_delegations';
     const [cardDelegations, setCardDelegations] = useState<Record<string, string>>(() => {
@@ -560,6 +566,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         delegationMenuOpen={delegationMenuOpen}
                         onDelegationMenuToggle={setDelegationMenuOpen}
                         onAssignCard={assignCard}
+                        vesselProfileReady={vesselProfileReady}
+                        comfortProfileReady={comfortProfileReady}
+                        weatherWindowReady={weatherWindowReady}
+                        currentsBriefed={currentsBriefed}
+                        onVesselProfileChange={setVesselProfileReady}
+                        onComfortProfileChange={setComfortProfileReady}
+                        onWeatherWindowChange={setWeatherWindowReady}
+                        onCurrentsChange={setCurrentsBriefed}
                     />
                 )}
             </div>

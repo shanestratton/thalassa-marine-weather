@@ -59,7 +59,15 @@ export function useAppBootstrap() {
 
     // ── Signal K auto-reconnect ───────────────────────────────────
     useEffect(() => {
-        import('../services/SignalKService').then(({ SignalKService }) => SignalKService.autoStart()).catch(() => {});
+        console.error('[Boot] AvNav: importing service...');
+        import('../services/AvNavService')
+            .then(({ AvNavService }) => {
+                console.error('[Boot] AvNav: imported OK, calling autoStart');
+                AvNavService.autoStart();
+            })
+            .catch((err) => {
+                console.error('[Boot] AvNav: IMPORT FAILED:', err?.message || err);
+            });
     }, []);
 
     // ── Local-first DB + sync engine ───────────────────────────────

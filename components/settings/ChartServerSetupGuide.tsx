@@ -1,14 +1,14 @@
 /**
- * SignalKSetupGuide — Step-by-step Pi setup guide for Signal K charts.
+ * ChartServerSetupGuide — Step-by-step Pi setup guide for AvNav charts.
  *
- * Shown inline within the Signal K settings tab.
+ * Shown inline within the AvNav settings tab.
  * Covers both Path A (free government charts) and Path B (encrypted o-charts).
  */
 import React, { useState } from 'react';
 
 type GuidePath = 'free' | 'ocharts';
 
-export const SignalKSetupGuide: React.FC = () => {
+export const ChartServerSetupGuide: React.FC = () => {
     const [expanded, setExpanded] = useState(false);
     const [activePath, setActivePath] = useState<GuidePath>('free');
 
@@ -33,7 +33,7 @@ export const SignalKSetupGuide: React.FC = () => {
                     </svg>
                 </div>
                 <p className="text-[11px] text-gray-400 mt-1 ml-7">
-                    Complete walkthrough for setting up Signal K and nautical charts on your Raspberry Pi
+                    Complete walkthrough for setting up AvNav and nautical charts on your Raspberry Pi
                 </p>
             </button>
         );
@@ -66,8 +66,8 @@ export const SignalKSetupGuide: React.FC = () => {
                         What You Need
                     </h4>
                     <div className="space-y-1.5">
-                        <CheckItem text="Raspberry Pi 4 (2GB+ RAM) with Signal K HAT or USB" />
-                        <CheckItem text="Signal K server installed (via OpenPlotter or standalone)" />
+                        <CheckItem text="Raspberry Pi 4 (2GB+ RAM) with AvNav HAT or USB" />
+                        <CheckItem text="AvNav server installed (via OpenPlotter or standalone)" />
                         <CheckItem text="Pi connected to your vessel's WiFi network" />
                         <CheckItem text="Thalassa on a device connected to the same network" />
                     </div>
@@ -117,9 +117,9 @@ export const SignalKSetupGuide: React.FC = () => {
                             </p>
                         </div>
 
-                        <Step number={1} title="Install the chart plugin on Signal K">
+                        <Step number={1} title="Install the chart plugin on AvNav">
                             <Code>
-                                {`# On your Pi, open Signal K Admin UI
+                                {`# On your Pi, open AvNav Admin UI
 # Navigate to: Appstore → Search
 # Install: signalk-charts-provider-simple
 
@@ -173,12 +173,12 @@ s57-tiler convert --input chart.000 --output chart.mbtiles`}
                             </Code>
                         </Step>
 
-                        <Step number={4} title="Drop charts into Signal K">
+                        <Step number={4} title="Drop charts into AvNav">
                             <Code>
-                                {`# Copy your .mbtiles files to Signal K charts dir
+                                {`# Copy your .mbtiles files to AvNav charts dir
 cp chart.mbtiles ~/.signalk/charts/
 
-# Restart Signal K
+# Restart AvNav
 sudo systemctl restart signalk`}
                             </Code>
                         </Step>
@@ -252,18 +252,18 @@ cp ~/Downloads/*.oesenc /home/pi/avnav/data/charts/
                             </Code>
                         </Step>
 
-                        <Step number={4} title="Bridge tiles to Signal K">
+                        <Step number={4} title="Bridge tiles to AvNav">
                             <p className="text-[11px] text-gray-400 mb-2">
                                 AvNav serves tiles at its own HTTP endpoint. Install the chart provider plugin on Signal
                                 K to bridge them:
                             </p>
                             <Code>
-                                {`# Install chart provider on Signal K
+                                {`# Install chart provider on AvNav
 cd ~/.signalk
 npm install signalk-charts-provider-simple
 
 # Configure it to proxy AvNav's tile output
-# Signal K Admin → Plugin Config → Charts Provider
+# AvNav Admin → Plugin Config → Charts Provider
 # Add URL source: http://localhost:8080/tiles`}
                             </Code>
                         </Step>
@@ -294,12 +294,12 @@ npm install signalk-charts-provider-simple
                     </h4>
                     <div className="space-y-2">
                         <TroubleItem
-                            q="Can't connect to Signal K?"
+                            q="Can't connect to AvNav?"
                             a="Make sure your phone/tablet is on the same WiFi as the Pi. Try the Pi's IP address instead of 'signalk.local' (find it with 'hostname -I' on the Pi)."
                         />
                         <TroubleItem
                             q="Connected but no charts?"
-                            a="Check that the charts-provider-simple plugin is installed and enabled in Signal K Admin → Server → Plugin Config. Make sure .mbtiles files are in the configured directory."
+                            a="Check that the charts-provider-simple plugin is installed and enabled in AvNav Admin → Server → Plugin Config. Make sure .mbtiles files are in the configured directory."
                         />
                         <TroubleItem
                             q="Charts look blurry?"

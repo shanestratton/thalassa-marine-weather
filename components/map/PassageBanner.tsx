@@ -8,6 +8,7 @@ import { createLogger } from '../../utils/createLogger';
 import { triggerHaptic } from '../../utils/system';
 import { exportPassageAsGPX, exportBasicPassageGPX } from '../../services/passageGpxExport';
 import { shareGPXFile } from '../../services/gpxService';
+import { Share } from '@capacitor/share';
 
 const log = createLogger('PassageBanner');
 
@@ -129,6 +130,53 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
         }
     };
 
+    // ── Share Passage Brief ──
+    const handleShareBrief = async () => {
+        try {
+            triggerHaptic('light');
+            const { generatePassageBrief } = await import('../../services/PassageBriefService');
+            const dep = passage.departure!;
+            const arr = passage.arrival!;
+            const isoResult = passage.isoResultRef.current;
+            const turnWPs = passage.turnWaypointsRef.current;
+
+            const brief = generatePassageBrief({
+                routeName: `${dep.name} to ${arr.name}`,
+                origin: dep,
+                destination: arr,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                viaWaypoints: (passage as any).viaWaypoints || [],
+                departureTime: passage.departureTime || new Date().toISOString(),
+                totalDistanceNM: isoResult?.totalDistanceNM ?? passage.routeAnalysis?.totalDistance ?? 0,
+                estimatedDuration: isoResult?.totalDurationHours ?? passage.routeAnalysis?.estimatedDuration ?? 0,
+                speed: passage.speed,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                turnWaypoints:
+                    turnWPs.length > 0
+                        ? turnWPs.map((wp: any) => ({
+                              name: wp.id ?? wp.name ?? 'WP',
+                              lat: wp.lat,
+                              lon: wp.lon,
+                              tws: wp.tws,
+                              bng: wp.bng,
+                          }))
+                        : undefined,
+            });
+
+            await Share.share({
+                title: `Passage Brief: ${brief.title}`,
+                text: brief.textVersion,
+                dialogTitle: 'Share Passage Brief',
+            });
+        } catch (err) {
+            const errMsg = err instanceof Error ? err.message : '';
+            if (errMsg?.includes('cancel') || errMsg?.includes('dismissed')) return;
+            log.error('Share brief failed:', err);
+            setPassageToast('Share failed');
+            setTimeout(() => setPassageToast(null), 2000);
+        }
+    };
+
     // ── Format duration ──
     const formatDuration = (hours: number) => {
         if (hours < 24) return `${hours.toFixed(1)}h`;
@@ -166,6 +214,23 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                             >
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
                             </svg>
+                        )}
+                        {/* Via waypoints from GPX import */}
+                        {(passage as any).viaWaypoints?.length > 0 && (
+                            <>
+                                <span className="px-1.5 py-0.5 bg-amber-500/10 border border-amber-500/15 rounded text-amber-400/80 text-[9px] font-bold">
+                                    +{(passage as any).viaWaypoints.length} via
+                                </span>
+                                <svg
+                                    className="w-3 h-3 text-gray-500 shrink-0"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                                </svg>
+                            </>
                         )}
                         {passage.arrival && (
                             <span className="px-1.5 py-0.5 bg-red-500/10 border border-red-500/15 rounded text-red-400/90 text-[10px] font-bold truncate max-w-[120px]">
@@ -238,6 +303,27 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                                 />
                             </svg>
                             GPX
+                        </button>
+                        <div className="w-px bg-white/[0.06]" />
+                        <button
+                            aria-label="Share Brief"
+                            onClick={handleShareBrief}
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-amber-400 text-[10px] font-bold uppercase tracking-wider hover:bg-amber-500/5 active:bg-amber-500/10 transition-colors"
+                        >
+                            <svg
+                                className="w-3 h-3"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2.5}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z"
+                                />
+                            </svg>
+                            Brief
                         </button>
                         <div className="w-px bg-white/[0.06]" />
                         <button

@@ -10,6 +10,9 @@ const config: CapacitorConfig = {
     },
     backgroundColor: '#0f172a', // Set app background to dark blue theme
     plugins: {
+        CapacitorHttp: {
+            enabled: true, // Patch fetch/XHR to use native HTTP — bypasses CORS
+        },
         StatusBar: {
             style: 'DARK',
             overlaysWebView: true,
