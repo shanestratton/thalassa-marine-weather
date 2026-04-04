@@ -567,7 +567,7 @@ const App: React.FC = () => {
                                         }}
                                     />
                                 }
-                                label="Wx"
+                                label="The Glass"
                                 active={currentView === 'dashboard'}
                                 onClick={handleTabDashboard}
                             />
@@ -584,7 +584,7 @@ const App: React.FC = () => {
                                         }}
                                     />
                                 }
-                                label="Map"
+                                label="Charts"
                                 active={currentView === 'map'}
                                 onClick={() => {
                                     mapFromWxRef.current = false;
@@ -604,7 +604,7 @@ const App: React.FC = () => {
                                         }}
                                     />
                                 }
-                                label="Chat"
+                                label="Scuttlebutt"
                                 active={currentView === 'chat'}
                                 onClick={() => setPage('chat')}
                                 badge={chatUnread > 0 ? chatUnread : undefined}

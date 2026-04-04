@@ -404,7 +404,7 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
                     value={telemedNumber}
                     onChange={(e) => updateTelemedNumber(e.target.value)}
                     placeholder="+__ ___ ___ ____"
-                    className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-sm font-mono placeholder:text-gray-600 focus:outline-none focus:border-sky-500/30 focus:bg-sky-500/[0.03] transition-all"
+                    className="w-full px-3 py-2.5 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-sm font-mono placeholder:text-gray-500 focus:outline-none focus:border-sky-500/30 focus:bg-sky-500/[0.03] transition-all"
                 />
                 <div className="flex flex-wrap gap-1.5 mt-2">
                     {[

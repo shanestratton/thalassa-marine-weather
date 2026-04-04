@@ -54,7 +54,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     voyageId,
     departure,
     destination,
-    activeVoyage,
+    activeVoyage: _activeVoyage,
     onReviewedChange,
 }) => {
     const [result, setResult] = useState<WeatherWindowResult | null>(null);
@@ -277,7 +277,7 @@ const WindowCard: React.FC<{
                     <div className="flex items-center gap-2">
                         <span className={`text-sm font-black ${style.text}`}>{w.label}</span>
                         {isBest && (
-                            <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 text-[9px] font-bold rounded-full border border-amber-500/20">
+                            <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 text-[11px] font-bold rounded-full border border-amber-500/20">
                                 ⭐ BEST
                             </span>
                         )}

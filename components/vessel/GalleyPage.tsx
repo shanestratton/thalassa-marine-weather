@@ -73,7 +73,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                     </p>
                 </div>
                 <div className="px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/15">
-                    <span className="text-[9px] font-bold text-amber-400/70 tracking-widest uppercase">
+                    <span className="text-[11px] font-bold text-amber-400/70 tracking-widest uppercase">
                         Offline Ready
                     </span>
                 </div>
@@ -233,7 +233,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                                 {recipe.ingredients.length} ingredients
                                             </p>
                                             {recipe.is_favorite && (
-                                                <span className="text-[9px] text-amber-400">⭐ Favourite</span>
+                                                <span className="text-[11px] text-amber-400">⭐ Favourite</span>
                                             )}
                                         </div>
                                     </div>
@@ -256,7 +256,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                     </div>
 
                                     {recipe.source_url && (
-                                        <p className="text-[9px] text-gray-600">🔗 via Spoonacular · saved offline</p>
+                                        <p className="text-[11px] text-gray-500">🔗 via Spoonacular · saved offline</p>
                                     )}
                                 </div>
                             ))

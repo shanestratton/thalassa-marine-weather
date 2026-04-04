@@ -2282,6 +2282,28 @@ body,
     }
 }
 
+/* ── Bio Fade-In — used by EmptyState, FirstRunHint ──────── */
+@keyframes bio-fadein {
+    from {
+        opacity: 0;
+        transform: translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ── Shimmer Sweep — skeleton loading blocks ──────── */
+@keyframes shimmer-sweep {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
 /* ══════════════════════════════════════════════════════════════
    ACCESSIBILITY: Reduced Motion
    ──────────────────────────────────────────────────────────────

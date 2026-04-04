@@ -218,7 +218,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                     <div className="flex items-center justify-center gap-2">
                         {code.map((char, i) => (
                             <React.Fragment key={i}>
-                                {i === 2 && <span className="text-2xl text-gray-600 font-bold mx-1">-</span>}
+                                {i === 2 && <span className="text-2xl text-gray-500 font-bold mx-1">-</span>}
                                 <input
                                     ref={(el) => {
                                         inputRefs.current[i] = el;
@@ -250,7 +250,7 @@ export const JoinVessel: React.FC<JoinVesselProps> = ({ onJoined, onClose }) => 
                         {status === 'checking' ? '⏳ Checking...' : '⚓ Join Vessel'}
                     </button>
 
-                    <p className="text-[10px] text-gray-600 max-w-[260px]">
+                    <p className="text-[10px] text-gray-500 max-w-[260px]">
                         Works offline too — your code will be validated when connected to the vessel&apos;s mesh
                         network.
                     </p>

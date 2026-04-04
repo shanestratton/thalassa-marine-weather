@@ -109,7 +109,7 @@ export const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mo
                 </div>
 
                 {/* Swipe hint — subtle */}
-                <p className="text-[11px] text-gray-600 mt-2 text-right">← swipe to {deleteLabel.toLowerCase()}</p>
+                <p className="text-[11px] text-gray-500 mt-2 text-right">← swipe to {deleteLabel.toLowerCase()}</p>
             </div>
         </div>
     );

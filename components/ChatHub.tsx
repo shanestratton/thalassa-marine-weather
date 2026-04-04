@@ -13,6 +13,8 @@ import { MarketplaceThread } from './MarketplaceThread';
 import { MarketplaceService, type MarketplaceListing, CATEGORY_ICONS } from '../services/MarketplaceService';
 import { supabase } from '../services/supabase';
 import { triggerHaptic } from '../utils/system';
+import { ShimmerBlock } from './ui/ShimmerBlock';
+import { EmptyState } from './ui/EmptyState';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -200,31 +202,15 @@ export const ChatHub: React.FC = () => {
                     <div className="h-full overflow-y-auto">
                         {/* Marketplace conversation list */}
                         {loading ? (
-                            <div className="flex items-center justify-center py-16">
-                                <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                            <div className="px-4 py-4 space-y-3">
+                                <ShimmerBlock variant="list" rows={4} />
                             </div>
                         ) : conversations.length === 0 ? (
-                            <div className="text-center py-16 px-6">
-                                <div className="p-4 bg-white/[0.04] rounded-2xl inline-block mb-4">
-                                    <svg
-                                        className="w-10 h-10 text-gray-400 mx-auto"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={1}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242"
-                                        />
-                                    </svg>
-                                </div>
-                                <p className="text-gray-400 text-sm font-bold">No active negotiations</p>
-                                <p className="text-gray-400 text-xs mt-1">
-                                    Message a seller from the Chandlery to start
-                                </p>
-                            </div>
+                            <EmptyState
+                                icon="💬"
+                                title="No Active Negotiations"
+                                description="Message a seller from the Chandlery to start a conversation."
+                            />
                         ) : (
                             <div className="space-y-1 p-4">
                                 {conversations.map((convo) => (

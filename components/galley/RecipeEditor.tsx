@@ -161,7 +161,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
 
                         <div style={GLASS} className="p-4">
                             <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2">
-                                Photo URL <span className="text-gray-600">(optional)</span>
+                                Photo URL <span className="text-gray-500">(optional)</span>
                             </label>
                             <input
                                 type="url"

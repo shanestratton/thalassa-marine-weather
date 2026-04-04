@@ -210,8 +210,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
 
     // CTA badge: how many items still need adding
     const shortfallCount = (() => {
-        // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-        storesVersion; // reactive dependency — re-runs when stores change
+        void storesVersion; // reactive dependency — re-runs when stores change
         return computeShortfalls().length;
     })();
 
@@ -245,6 +244,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
             console.error('Add to shopping list error:', e);
         }
         setProvisioning(false);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mealDays, activeMeals, crewCount, onShoppingChanged, computeShortfalls]);
 
     // No dates set — prompt user
@@ -383,9 +383,9 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                 {isEmergency ? '📦 ' : ''}
                                 {dayLabel}
                             </span>
-                            <span className="text-[10px] text-gray-600">{dateLabel}</span>
+                            <span className="text-[10px] text-gray-500">{dateLabel}</span>
                             {isEmergency && (
-                                <span className="ml-auto text-[9px] font-bold text-amber-400/60 uppercase tracking-wider">
+                                <span className="ml-auto text-[11px] font-bold text-amber-400/60 uppercase tracking-wider">
                                     Buffer
                                 </span>
                             )}
@@ -429,7 +429,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                             >
                                                 ✕
                                             </button>
-                                            <p className="text-[9px] text-gray-500 font-bold uppercase tracking-wider">
+                                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">
                                                 {emoji} {label}
                                             </p>
                                             <p className="text-[11px] font-bold text-white truncate mt-0.5 pr-3">
@@ -475,10 +475,10 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                         className="p-2 rounded-lg border border-dashed border-white/[0.08] hover:border-amber-500/30 hover:bg-amber-500/[0.04] transition-all flex flex-col items-center justify-center min-h-[48px] group"
                                         aria-label={`Add ${label} meal for ${dateLabel}`}
                                     >
-                                        <span className="text-[9px] text-gray-600 font-bold uppercase tracking-wider group-hover:text-gray-400">
+                                        <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider group-hover:text-gray-400">
                                             {emoji} {label}
                                         </span>
-                                        <span className="text-lg text-gray-600 group-hover:text-amber-400 transition-colors leading-none mt-0.5">
+                                        <span className="text-lg text-gray-500 group-hover:text-amber-400 transition-colors leading-none mt-0.5">
                                             +
                                         </span>
                                     </button>
@@ -636,8 +636,8 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                                                 Day {idx + 1}
                                             </span>
                                             <span className="text-xs text-white flex-1 text-left">{dateLabel}</span>
-                                            {isSource && <span className="text-[9px] text-gray-600">current</span>}
-                                            {occupied && <span className="text-[9px] text-red-400">occupied</span>}
+                                            {isSource && <span className="text-[11px] text-gray-500">current</span>}
+                                            {occupied && <span className="text-[11px] text-red-400">occupied</span>}
                                         </button>
                                     );
                                 })}
@@ -972,7 +972,7 @@ const SlotPicker: React.FC<{
                                 className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 text-[11px] font-bold text-amber-300 hover:from-amber-500/15 hover:to-orange-500/15 transition-all active:scale-[0.98]"
                             >
                                 📝 Create Full Recipe
-                                <span className="text-[9px] text-amber-400/50 font-normal">
+                                <span className="text-[11px] text-amber-400/50 font-normal">
                                     (with ingredients, directions & photo)
                                 </span>
                             </button>

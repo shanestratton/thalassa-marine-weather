@@ -543,7 +543,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${(((settings.comfortParams?.maxWindKts ?? 60) - 10) / 50) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxWindKts ?? 60) - 10) / 50) * 100}%)`,
                             }}
                         />
-                        <div className="flex justify-between text-[11px] text-gray-600 mt-1">
+                        <div className="flex justify-between text-[11px] text-gray-500 mt-1">
                             <span>10 kts</span>
                             <span>25</span>
                             <span>40</span>
@@ -582,7 +582,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${(((settings.comfortParams?.maxWaveM ?? 8) - 0.5) / 7.5) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxWaveM ?? 8) - 0.5) / 7.5) * 100}%)`,
                             }}
                         />
-                        <div className="flex justify-between text-[11px] text-gray-600 mt-1">
+                        <div className="flex justify-between text-[11px] text-gray-500 mt-1">
                             <span>0.5 m</span>
                             <span>2.5</span>
                             <span>5.0</span>
@@ -624,7 +624,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 background: `linear-gradient(to right, #ef4444 0%, #ef4444 ${(((settings.comfortParams?.maxGustKts ?? 80) - 15) / 65) * 100}%, rgba(255,255,255,0.1) ${(((settings.comfortParams?.maxGustKts ?? 80) - 15) / 65) * 100}%)`,
                             }}
                         />
-                        <div className="flex justify-between text-[11px] text-gray-600 mt-1">
+                        <div className="flex justify-between text-[11px] text-gray-500 mt-1">
                             <span>15 kts</span>
                             <span>35</span>
                             <span>55</span>

@@ -99,20 +99,20 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
                         value={firstName}
                         onChange={(e) => onFirstNameChange(e.target.value)}
                         placeholder="First Name"
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-600"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-500"
                     />
                     <input
                         type="text"
                         value={lastName}
                         onChange={(e) => onLastNameChange(e.target.value)}
                         placeholder="Last Name"
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-600"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-500"
                     />
                 </div>
 
                 <div className="relative flex items-center gap-4 py-1">
                     <div className="h-px bg-white/10 flex-1"></div>
-                    <span className="text-[11px] text-gray-600 font-bold uppercase">Home Port</span>
+                    <span className="text-[11px] text-gray-500 font-bold uppercase">Home Port</span>
                     <div className="h-px bg-white/10 flex-1"></div>
                 </div>
                 <div className="relative">

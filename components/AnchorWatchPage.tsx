@@ -775,9 +775,9 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     // ---- RENDER: SHORE MODE ----
     if (viewMode === 'shore') {
         return (
-            <div className="h-full bg-slate-950 flex flex-col">
+            <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
                 {/* Header — glassmorphism */}
-                <div className="bg-gradient-to-r from-slate-900/80 via-slate-950/90 to-slate-900/80 border-b border-white/[0.06] px-4 py-3">
+                <div className={t.header.glass}>
                     <div className="flex items-center justify-between">
                         <div>
                             <h1 className="text-lg font-black text-white flex items-center gap-2">
@@ -888,24 +888,26 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
                             {/* Data cards — glassmorphism */}
                             <div className="grid grid-cols-2 gap-3 w-full max-w-sm">
-                                <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/[0.04]">
-                                    <div className="text-sm text-slate-400 uppercase tracking-wider">Swing Radius</div>
+                                <div
+                                    className={`${t.colors.bg.inset} rounded-xl p-3 text-center ${t.colors.border.glass}`}
+                                >
+                                    <div className={t.typography.label}>Swing Radius</div>
                                     <div className="text-lg font-bold text-white">
                                         {formatDistance(shoreData.swingRadius)}
                                     </div>
                                 </div>
                                 <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/[0.04]">
-                                    <div className="text-sm text-slate-400 uppercase tracking-wider">Rode</div>
+                                    <div className={t.typography.label}>Rode</div>
                                     <div className="text-lg font-bold text-amber-400">
                                         {shoreData.config.rodeLength}m
                                     </div>
                                 </div>
                                 <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/[0.04]">
-                                    <div className="text-sm text-slate-400 uppercase tracking-wider">Depth</div>
+                                    <div className={t.typography.label}>Depth</div>
                                     <div className="text-lg font-bold text-sky-400">{shoreData.config.waterDepth}m</div>
                                 </div>
                                 <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/[0.04]">
-                                    <div className="text-sm text-slate-400 uppercase tracking-wider">Last Update</div>
+                                    <div className={t.typography.label}>Last Update</div>
                                     <div className="text-lg font-bold text-white">
                                         {new Date(shoreData.timestamp).toLocaleTimeString([], {
                                             hour: '2-digit',
@@ -1097,25 +1099,25 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             </div>
                         </div>
                         <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
-                            <div className="text-sm text-slate-400 uppercase tracking-wider">Max Drift</div>
+                            <div className={t.typography.label}>Max Drift</div>
                             <div className="text-sm font-black font-mono text-slate-200">
                                 {snapshot ? formatDistance(snapshot.maxDistanceRecorded) : `--`}
                             </div>
                         </div>
                         <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
-                            <div className="text-sm text-slate-400 uppercase tracking-wider">Rode</div>
+                            <div className={t.typography.label}>Rode</div>
                             <div className="text-sm font-black font-mono text-amber-400">
                                 {snapshot?.config.rodeLength ?? `--`}m
                             </div>
                         </div>
                         <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
-                            <div className="text-sm text-slate-400 uppercase tracking-wider">Depth</div>
+                            <div className={t.typography.label}>Depth</div>
                             <div className="text-sm font-black font-mono text-sky-400">
                                 {snapshot?.config.waterDepth ?? `--`}m
                             </div>
                         </div>
                         <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
-                            <div className="text-sm text-slate-400 uppercase tracking-wider">Scope</div>
+                            <div className={t.typography.label}>Scope</div>
                             <div className="text-sm font-black font-mono text-slate-200">
                                 {snapshot ? (snapshot.config.rodeLength / snapshot.config.waterDepth).toFixed(1) : `--`}
                                 :1

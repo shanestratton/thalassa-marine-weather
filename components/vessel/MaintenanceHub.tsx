@@ -11,12 +11,22 @@ import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('MaintenanceHub');
 import { LocalMaintenanceService as MaintenanceService } from '../../services/vessel/LocalMaintenanceService';
-import { calculateStatus, type TaskWithStatus, type TrafficLight } from '../../services/MaintenanceService';
-import type { MaintenanceTask, MaintenanceCategory, MaintenanceTriggerType, MaintenanceHistory } from '../../types';
+import {
+    calculateStatus,
+    type TaskWithStatus,
+    type TrafficLight as _TrafficLight,
+} from '../../services/MaintenanceService';
+import type {
+    MaintenanceTask,
+    MaintenanceCategory,
+    MaintenanceTriggerType as _MaintenanceTriggerType,
+    MaintenanceHistory,
+} from '../../types';
 import { triggerHaptic } from '../../utils/system';
 import { exportChecklist, exportServiceHistory } from '../../services/MaintenancePdfService';
 import { SlideToAction } from '../ui/SlideToAction';
 import { EmptyState } from '../ui/EmptyState';
+import { ShimmerBlock } from '../ui/ShimmerBlock';
 import { PageHeader } from '../ui/PageHeader';
 import { toast } from '../Toast';
 import { UndoToast } from '../ui/UndoToast';
@@ -544,8 +554,9 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
                 {/* ═══ TRAFFIC LIGHT LIST (scrollable) ═══ */}
                 <div ref={listRef} className="flex-1 overflow-y-auto px-4 pb-4 min-h-0 space-y-3">
                     {loading ? (
-                        <div className="flex items-center justify-center py-12">
-                            <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                        <div className="space-y-3">
+                            <ShimmerBlock variant="card" />
+                            <ShimmerBlock variant="list" rows={5} />
                         </div>
                     ) : groupedTasks.length === 0 ? (
                         <EmptyState

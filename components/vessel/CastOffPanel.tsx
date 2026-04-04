@@ -294,7 +294,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                     Live
                                 </span>
                                 {currentLeg && (
-                                    <span className="ml-auto px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-sky-500/10 text-sky-400 border border-sky-500/15">
+                                    <span className="ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold uppercase bg-sky-500/10 text-sky-400 border border-sky-500/15">
                                         Leg {currentLeg.leg_number}
                                     </span>
                                 )}
@@ -491,7 +491,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             <div className="text-center py-6">
                                 <span className="text-4xl">🗺️</span>
                                 <p className="text-sm text-gray-400 mt-3">No draft voyages yet</p>
-                                <p className="text-[11px] text-gray-600 mt-1 mb-4">
+                                <p className="text-[11px] text-gray-500 mt-1 mb-4">
                                     Create your first passage to get started
                                 </p>
                                 <button
@@ -521,7 +521,7 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                                                     {v.departure_port || '?'} → {v.destination_port || '?'}
                                                 </p>
                                             </div>
-                                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold uppercase bg-sky-500/10 text-sky-400 border border-sky-500/15">
+                                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase bg-sky-500/10 text-sky-400 border border-sky-500/15">
                                                 Draft
                                             </span>
                                         </div>

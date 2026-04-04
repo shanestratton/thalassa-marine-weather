@@ -320,7 +320,7 @@ export const SwingCircleCanvas: React.FC<SwingCircleCanvasProps> = ({ snapshot, 
                 if (visibleCount > 0) {
                     const badgeX = W - 8;
                     const badgeY = 14;
-                    ctx.font = 'bold 9px system-ui';
+                    ctx.font = 'bold 11px system-ui';
                     ctx.textAlign = 'right';
                     ctx.textBaseline = 'middle';
                     ctx.fillStyle = 'rgba(56, 189, 248, 0.5)';
