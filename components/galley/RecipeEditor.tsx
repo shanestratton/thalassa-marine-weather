@@ -124,7 +124,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                 </button>
                 <div className="text-center">
                     <h2 className="text-white font-black text-sm tracking-wider">NEW RECIPE</h2>
-                    <p className="text-[10px] text-gray-500 mt-0.5">
+                    <p className="text-[11px] text-gray-500 mt-0.5">
                         Step {step} of {totalSteps}
                     </p>
                 </div>
@@ -342,7 +342,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                                     {tags.map((t) => (
                                         <span
                                             key={t}
-                                            className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 text-[10px] font-bold"
+                                            className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 text-[11px] font-bold"
                                         >
                                             {t}
                                         </span>
@@ -367,7 +367,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                                 >
                                     <span className="text-2xl block mb-1">🔒</span>
                                     <span className="text-xs font-bold text-white block">Personal</span>
-                                    <span className="text-[10px] text-gray-500 block mt-0.5">Only you</span>
+                                    <span className="text-[11px] text-gray-500 block mt-0.5">Only you</span>
                                 </button>
                                 <button
                                     onClick={() => setVisibility('shared')}
@@ -379,7 +379,7 @@ export const RecipeEditor: React.FC<RecipeEditorProps> = ({ onClose, onSaved }) 
                                 >
                                     <span className="text-2xl block mb-1">🌍</span>
                                     <span className="text-xs font-bold text-white block">Community</span>
-                                    <span className="text-[10px] text-gray-500 block mt-0.5">All sailors</span>
+                                    <span className="text-[11px] text-gray-500 block mt-0.5">All sailors</span>
                                 </button>
                             </div>
                         </div>

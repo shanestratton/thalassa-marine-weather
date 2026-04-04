@@ -175,7 +175,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                 <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                     ✅ Watch Briefing
                     <span
-                        className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                        className={`ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold border ${
                             allChecked
                                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                                 : 'bg-sky-500/10 border-sky-500/20 text-sky-400'

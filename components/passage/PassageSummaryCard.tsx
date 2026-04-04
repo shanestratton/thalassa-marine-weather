@@ -193,7 +193,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                     <div>
-                        <div className="text-[10px] text-sky-400 uppercase tracking-widest font-bold mb-0.5">
+                        <div className="text-[11px] text-sky-400 uppercase tracking-widest font-bold mb-0.5">
                             Departure
                         </div>
                         <div className="text-xs text-white font-mono">
@@ -203,7 +203,7 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                         </div>
                     </div>
                     <div>
-                        <div className="text-[10px] text-emerald-400 uppercase tracking-widest font-bold mb-0.5">
+                        <div className="text-[11px] text-emerald-400 uppercase tracking-widest font-bold mb-0.5">
                             Arrival
                         </div>
                         <div className="text-xs text-white font-mono">

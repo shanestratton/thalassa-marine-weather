@@ -200,7 +200,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                     {/* Route tags */}
                     <div className="flex items-center gap-1.5 min-w-0 flex-1">
                         {passage.departure && (
-                            <span className="px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/15 rounded text-emerald-400/90 text-[10px] font-bold truncate max-w-[120px]">
+                            <span className="px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/15 rounded text-emerald-400/90 text-[11px] font-bold truncate max-w-[120px]">
                                 {passage.departure.name}
                             </span>
                         )}
@@ -235,7 +235,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                             </>
                         )}
                         {passage.arrival && (
-                            <span className="px-1.5 py-0.5 bg-red-500/10 border border-red-500/15 rounded text-red-400/90 text-[10px] font-bold truncate max-w-[120px]">
+                            <span className="px-1.5 py-0.5 bg-red-500/10 border border-red-500/15 rounded text-red-400/90 text-[11px] font-bold truncate max-w-[120px]">
                                 {passage.arrival.name}
                             </span>
                         )}
@@ -244,10 +244,10 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                     {/* Stats pills */}
                     {passage.routeAnalysis && (
                         <div className="flex items-center gap-1.5 shrink-0">
-                            <span className="px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-300 text-[10px] font-black tabular-nums border border-sky-500/10">
+                            <span className="px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-300 text-[11px] font-black tabular-nums border border-sky-500/10">
                                 {passage.routeAnalysis.totalDistance.toFixed(0)} NM
                             </span>
-                            <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 text-[10px] font-black tabular-nums border border-amber-500/10">
+                            <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 text-[11px] font-black tabular-nums border border-amber-500/10">
                                 {formatDuration(passage.routeAnalysis.estimatedDuration)}
                             </span>
                         </div>
@@ -277,7 +277,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
 
                 {/* ── Progress indicator ── */}
                 {isoProgress && (
-                    <div className="px-3 pb-1.5 flex items-center gap-1.5 text-[10px] text-amber-400/70">
+                    <div className="px-3 pb-1.5 flex items-center gap-1.5 text-[11px] text-amber-400/70">
                         <div className="w-2 h-2 border border-amber-400/60 border-t-transparent rounded-full animate-spin" />
                         {progressLabel}
                     </div>
@@ -289,7 +289,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                         <button
                             aria-label="Export GPX"
                             onClick={handleExportGPX}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sky-400 text-[10px] font-bold uppercase tracking-wider hover:bg-sky-500/5 active:bg-sky-500/10 transition-colors"
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-sky-400 text-[11px] font-bold uppercase tracking-wider hover:bg-sky-500/5 active:bg-sky-500/10 transition-colors"
                         >
                             <svg
                                 className="w-3 h-3"
@@ -310,7 +310,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                         <button
                             aria-label="Share Brief"
                             onClick={handleShareBrief}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-amber-400 text-[10px] font-bold uppercase tracking-wider hover:bg-amber-500/5 active:bg-amber-500/10 transition-colors"
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-amber-400 text-[11px] font-bold uppercase tracking-wider hover:bg-amber-500/5 active:bg-amber-500/10 transition-colors"
                         >
                             <svg
                                 className="w-3 h-3"
@@ -331,7 +331,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                         <button
                             aria-label="Save to Log"
                             onClick={handleSaveToLog}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-emerald-400 text-[10px] font-bold uppercase tracking-wider hover:bg-emerald-500/5 active:bg-emerald-500/10 transition-colors"
+                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-emerald-400 text-[11px] font-bold uppercase tracking-wider hover:bg-emerald-500/5 active:bg-emerald-500/10 transition-colors"
                         >
                             <svg
                                 className="w-3 h-3"
@@ -353,7 +353,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
 
                 {/* Toast */}
                 {passageToast && (
-                    <div className="px-3 py-1.5 text-center text-[10px] font-bold text-emerald-400 border-t border-white/[0.06] animate-in fade-in duration-200">
+                    <div className="px-3 py-1.5 text-center text-[11px] font-bold text-emerald-400 border-t border-white/[0.06] animate-in fade-in duration-200">
                         {passageToast}
                     </div>
                 )}

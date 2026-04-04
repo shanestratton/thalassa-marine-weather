@@ -955,7 +955,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         {/* Guardian status badge */}
                         {snapshot?.guardianStatus && snapshot.guardianStatus !== 'idle' && (
                             <div
-                                className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 border ${
+                                className={`px-2 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider flex items-center gap-1 border ${
                                     snapshot.guardianStatus === 'armed' || snapshot.guardianStatus === 'already_armed'
                                         ? 'bg-emerald-500/[0.08] border-emerald-500/20 text-emerald-400'
                                         : snapshot.guardianStatus === 'arming'

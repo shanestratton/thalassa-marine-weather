@@ -238,7 +238,7 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
                 <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                     🏥 Medical & Emergency
                     <span
-                        className={`ml-auto px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                        className={`ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold border ${
                             allCriticalDone
                                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                                 : 'bg-red-500/10 border-red-500/20 text-red-400'
@@ -340,7 +340,7 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
                                 onClick={() => selectKit(cat.key)}
                                 className={`flex-1 py-2 px-2 rounded-xl text-center border transition-all active:scale-[0.97] ${colorMap[cat.color]}`}
                             >
-                                <span className="text-[10px] font-bold uppercase tracking-wider block">
+                                <span className="text-[11px] font-bold uppercase tracking-wider block">
                                     {cat.key === 'cat_c' ? 'Coastal' : cat.key === 'cat_b' ? 'Offshore' : 'Ocean'}
                                 </span>
                             </button>
@@ -419,7 +419,7 @@ export const MedicalFirstAidCard: React.FC<MedicalFirstAidCardProps> = ({ voyage
                                 updateTelemedNumber(preset.number);
                                 triggerHaptic('light');
                             }}
-                            className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-all active:scale-[0.97] ${
+                            className={`px-2 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider border transition-all active:scale-[0.97] ${
                                 telemedNumber === preset.number
                                     ? 'bg-sky-500/15 border-sky-500/30 text-sky-300'
                                     : 'bg-white/[0.03] border-white/[0.08] text-gray-500 hover:text-gray-300'

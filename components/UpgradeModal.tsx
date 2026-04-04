@@ -74,7 +74,7 @@ const PlanCard: React.FC<{
                 </div>
                 <div className="text-right">
                     <p className="text-xl font-black text-white">${info.priceAnnual.toFixed(2)}</p>
-                    <p className="text-[10px] text-gray-500">/year</p>
+                    <p className="text-[11px] text-gray-500">/year</p>
                 </div>
             </div>
 
@@ -82,7 +82,7 @@ const PlanCard: React.FC<{
             <div className="space-y-1.5">
                 {features.map((f, i) =>
                     f.feature === '_header' ? (
-                        <p key={i} className="text-[10px] font-bold text-amber-400/70 uppercase tracking-widest pt-1">
+                        <p key={i} className="text-[11px] font-bold text-amber-400/70 uppercase tracking-widest pt-1">
                             {f.label}
                         </p>
                     ) : (
@@ -185,7 +185,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
 
                     {/* Free tier note */}
                     <div className="text-center py-2">
-                        <p className="text-[10px] text-gray-500">
+                        <p className="text-[11px] text-gray-500">
                             Deckhand (Free) includes basic 3-day weather, map, and Chandlery browsing.
                         </p>
                     </div>
@@ -207,7 +207,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                         Start 7-Day Free Trial — {selectedInfo.label}
                     </button>
 
-                    <p className="text-center text-[10px] text-gray-500 pb-1">
+                    <p className="text-center text-[11px] text-gray-500 pb-1">
                         ${selectedInfo.priceAnnual.toFixed(2)}/year after trial • {selectedInfo.priceMonthly}/month
                     </p>
 

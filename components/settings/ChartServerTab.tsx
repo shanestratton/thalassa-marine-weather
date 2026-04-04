@@ -310,7 +310,7 @@ export const ChartServerTab: React.FC = () => {
                 <div className="px-4 pt-1">
                     <button
                         onClick={() => setShowAdvanced((v) => !v)}
-                        className="text-[10px] text-gray-500 hover:text-gray-400 transition-colors flex items-center gap-1"
+                        className="text-[11px] text-gray-500 hover:text-gray-400 transition-colors flex items-center gap-1"
                     >
                         <span
                             style={{
@@ -380,16 +380,16 @@ export const ChartServerTab: React.FC = () => {
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm font-bold text-white truncate">{chart.name}</p>
                                     {chart.description && (
-                                        <p className="text-[10px] text-gray-500 truncate">{chart.description}</p>
+                                        <p className="text-[11px] text-gray-500 truncate">{chart.description}</p>
                                     )}
                                     <div className="flex items-center gap-2 mt-0.5">
-                                        <span className="text-[10px] text-gray-500 font-mono">
+                                        <span className="text-[11px] text-gray-500 font-mono">
                                             z{chart.minZoom}–{chart.maxZoom}
                                         </span>
-                                        <span className="text-[10px] text-gray-500">·</span>
-                                        <span className="text-[10px] text-gray-500">{chart.type}</span>
-                                        <span className="text-[10px] text-gray-500">·</span>
-                                        <span className="text-[10px] text-gray-500">{chart.format}</span>
+                                        <span className="text-[11px] text-gray-500">·</span>
+                                        <span className="text-[11px] text-gray-500">{chart.type}</span>
+                                        <span className="text-[11px] text-gray-500">·</span>
+                                        <span className="text-[11px] text-gray-500">{chart.format}</span>
                                     </div>
                                 </div>
                                 <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />

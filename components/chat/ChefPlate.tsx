@@ -219,7 +219,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                 <div className="absolute bottom-0 left-0 right-0 p-4">
                     <p className="text-lg font-black text-white leading-tight drop-shadow-lg">{meal.title}</p>
                     <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                        <span className="px-2 py-0.5 rounded-full bg-white/15 backdrop-blur-sm text-[10px] font-bold text-amber-200 border border-white/10">
+                        <span className="px-2 py-0.5 rounded-full bg-white/15 backdrop-blur-sm text-[11px] font-bold text-amber-200 border border-white/10">
                             ⏱️ {readyInLabel}
                         </span>
                         {(() => {
@@ -234,7 +234,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                                         : 'text-red-300 border-red-500/20 bg-red-500/15';
                             return (
                                 <span
-                                    className={`px-2 py-0.5 rounded-full backdrop-blur-sm text-[10px] font-bold border ${diffColors}`}
+                                    className={`px-2 py-0.5 rounded-full backdrop-blur-sm text-[11px] font-bold border ${diffColors}`}
                                 >
                                     {diff.emoji} {diff.label}
                                 </span>
@@ -249,7 +249,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                 {/* Status badge */}
                 <div className="absolute top-3 left-3">
                     <span
-                        className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase backdrop-blur-sm ${
+                        className={`px-2 py-1 rounded-full text-[11px] font-bold uppercase backdrop-blur-sm ${
                             prepStarted
                                 ? 'bg-orange-500/30 text-orange-300 border border-orange-500/30'
                                 : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/20'
@@ -264,8 +264,8 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
             <div className="p-4 bg-slate-950/80 border-b border-white/[0.06]">
                 <div className="flex items-center justify-between">
                     <div>
-                        <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">Crew Count</p>
-                        <p className="text-[10px] text-gray-500 mt-0.5">Ingredients scale live</p>
+                        <p className="text-[11px] text-gray-500 uppercase tracking-widest font-bold">Crew Count</p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">Ingredients scale live</p>
                     </div>
                     <div className="flex items-center gap-3" role="group" aria-label="Crew count for recipe scaling">
                         <button
@@ -316,7 +316,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                     </div>
                 </div>
                 {crewCount !== baseServings && (
-                    <p className="text-[10px] text-amber-400/60 mt-2 text-right">
+                    <p className="text-[11px] text-amber-400/60 mt-2 text-right">
                         Scaled from {baseServings} → {crewCount} serves (×{ratio.toFixed(1)})
                     </p>
                 )}
@@ -327,7 +327,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                 <div className="flex-1 p-3 bg-slate-900 border-b border-r border-white/[0.06] flex items-center gap-2">
                     <span className="text-base">📦</span>
                     <div>
-                        <p className="text-[10px] text-gray-500 uppercase tracking-widest">Ingredients</p>
+                        <p className="text-[11px] text-gray-500 uppercase tracking-widest">Ingredients</p>
                         <p className="text-sm font-black text-white">{scaledIngredients.length}</p>
                     </div>
                 </div>
@@ -342,7 +342,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                 >
                     <span className="text-base">{totalShortfallCount === 0 ? '✅' : '⚠️'}</span>
                     <div>
-                        <p className="text-[10px] text-gray-500 uppercase tracking-widest">Stores</p>
+                        <p className="text-[11px] text-gray-500 uppercase tracking-widest">Stores</p>
                         <p
                             className={`text-sm font-black ${
                                 totalShortfallCount === 0
@@ -363,7 +363,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                 <div className="flex border-b border-white/[0.06]">
                     <button
                         onClick={() => setActiveTab('ingredients')}
-                        className={`flex-1 py-2.5 text-[10px] font-bold uppercase tracking-widest transition-all ${
+                        className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-widest transition-all ${
                             activeTab === 'ingredients'
                                 ? 'text-amber-400 border-b-2 border-amber-400 bg-amber-500/[0.05]'
                                 : 'text-gray-500 hover:text-gray-400'
@@ -385,7 +385,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                                 setLoadingInstructions(false);
                             }
                         }}
-                        className={`flex-1 py-2.5 text-[10px] font-bold uppercase tracking-widest transition-all ${
+                        className={`flex-1 py-2.5 text-[11px] font-bold uppercase tracking-widest transition-all ${
                             activeTab === 'directions'
                                 ? 'text-orange-400 border-b-2 border-orange-400 bg-orange-500/[0.05]'
                                 : 'text-gray-500 hover:text-gray-400'
@@ -435,7 +435,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                                     <p className="text-xs font-bold text-white truncate">
                                         {ing.scaledAmount} {ing.unit} {ing.name}
                                     </p>
-                                    <p className="text-[10px] text-gray-500">
+                                    <p className="text-[11px] text-gray-500">
                                         {hasEnough
                                             ? isAggregateShort
                                                 ? `⚠️ Enough here, short across all meals · ${available} on hand`
@@ -475,7 +475,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                                     href={`https://spoonacular.com/recipes/${meal.title.toLowerCase().replace(/\s+/g, '-')}-${meal.spoonacular_id}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="inline-block mt-3 px-4 py-2 rounded-lg bg-white/[0.06] border border-white/[0.1] text-[10px] font-bold text-sky-400 hover:bg-white/[0.1] transition-all"
+                                    className="inline-block mt-3 px-4 py-2 rounded-lg bg-white/[0.06] border border-white/[0.1] text-[11px] font-bold text-sky-400 hover:bg-white/[0.1] transition-all"
                                 >
                                     🔗 View on Spoonacular
                                 </a>
@@ -486,10 +486,10 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                             {/* Progress bar */}
                             <div className="mb-3">
                                 <div className="flex items-center justify-between mb-1.5">
-                                    <p className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">
+                                    <p className="text-[11px] text-gray-500 uppercase tracking-widest font-bold">
                                         Progress
                                     </p>
-                                    <p className="text-[10px] text-orange-400 font-bold">
+                                    <p className="text-[11px] text-orange-400 font-bold">
                                         {completedSteps.size}/{instructions.length} steps
                                     </p>
                                 </div>
@@ -544,7 +544,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                                 <div className="text-center py-4 rounded-xl bg-emerald-500/[0.08] border border-emerald-500/15">
                                     <p className="text-lg mb-1">🎉</p>
                                     <p className="text-xs font-bold text-emerald-400">All steps complete!</p>
-                                    <p className="text-[10px] text-gray-500 mt-0.5">
+                                    <p className="text-[11px] text-gray-500 mt-0.5">
                                         Tap ‘Complete Meal’ to subtract from stores
                                     </p>
                                 </div>

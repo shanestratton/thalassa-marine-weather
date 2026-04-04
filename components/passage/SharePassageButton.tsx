@@ -141,7 +141,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                     style={{ backdropFilter: 'blur(24px)' }}
                 >
                     <div className="px-3 py-2 border-b border-white/[0.06]">
-                        <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
+                        <p className="text-[11px] font-bold text-white/40 uppercase tracking-widest">
                             Share Passage Plan
                         </p>
                     </div>
@@ -178,7 +178,7 @@ const SharePassageButton: React.FC<SharePassageButtonProps> = ({ briefData, clas
                     <div className="px-3 py-1.5 border-t border-white/[0.06]">
                         <button
                             onClick={() => setMenuOpen(false)}
-                            className="w-full text-center text-[10px] text-gray-500 font-bold uppercase tracking-wider py-1 hover:text-gray-400 transition-colors"
+                            className="w-full text-center text-[11px] text-gray-500 font-bold uppercase tracking-wider py-1 hover:text-gray-400 transition-colors"
                         >
                             Cancel
                         </button>

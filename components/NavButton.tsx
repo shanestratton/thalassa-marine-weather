@@ -59,7 +59,7 @@ export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onCli
             {badge && (
                 <span className="absolute -top-1 -right-1.5 flex items-center justify-center min-w-[14px] h-[14px] bg-red-500 rounded-full border-2 border-slate-900 shadow-lg shadow-red-500/30">
                     {typeof badge === 'number' && badge > 0 && (
-                        <span className="text-[8px] font-black text-white leading-none px-0.5">
+                        <span className="text-[11px] font-black text-white leading-none px-0.5">
                             {badge > 99 ? '99+' : badge}
                         </span>
                     )}

@@ -260,11 +260,11 @@ const DayCard: React.FC<{ day: GalleyDayPlan; crew: number }> = ({ day, crew }) 
                         }}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                    <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/50 backdrop-blur-sm rounded-full text-[10px] font-bold text-amber-300 uppercase tracking-wider">
+                    <div className="absolute top-2 left-2 px-2 py-0.5 bg-black/50 backdrop-blur-sm rounded-full text-[11px] font-bold text-amber-300 uppercase tracking-wider">
                         {MEAL_EMOJIS[i]} {MEAL_LABELS[i]}
                     </div>
                     <div
-                        className={`absolute top-2 right-2 px-2 py-0.5 bg-black/50 backdrop-blur-sm rounded-full text-[10px] font-bold ${
+                        className={`absolute top-2 right-2 px-2 py-0.5 bg-black/50 backdrop-blur-sm rounded-full text-[11px] font-bold ${
                             meal.readyInMinutes >= 120 ? 'text-red-400' : 'text-gray-300'
                         }`}
                     >
@@ -323,7 +323,7 @@ const ShoppingListView: React.FC<{ items: ShoppingItem[]; crew: number; days: nu
 
             {aisles.map(([aisle, aisleItems]) => (
                 <div key={aisle}>
-                    <div className="text-[10px] font-bold text-gray-500 uppercase tracking-[0.15em] mb-1.5 flex items-center gap-1.5">
+                    <div className="text-[11px] font-bold text-gray-500 uppercase tracking-[0.15em] mb-1.5 flex items-center gap-1.5">
                         <div className="w-2 h-2 rounded-full bg-emerald-500/30" />
                         {aisle}
                     </div>
@@ -385,7 +385,7 @@ const ProvisionAlert: React.FC<{ provisions: ProvisionSummary }> = ({ provisions
                                     : 'bg-emerald-500/5 text-gray-300'
                             }`}
                         >
-                            <span className="text-[10px]">{item.status === 'needed' ? '🔴' : '🟢'}</span>
+                            <span className="text-[11px]">{item.status === 'needed' ? '🔴' : '🟢'}</span>
                             <span className="flex-1 truncate">{item.ingredient_name}</span>
                             {item.status === 'needed' ? (
                                 <span className="font-mono text-[11px] text-red-400">
@@ -397,7 +397,7 @@ const ProvisionAlert: React.FC<{ provisions: ProvisionSummary }> = ({ provisions
                                 </span>
                             )}
                             {item.store_item_name && (
-                                <span className="text-[10px] text-gray-500 truncate max-w-[80px]">
+                                <span className="text-[11px] text-gray-500 truncate max-w-[80px]">
                                     → {item.store_item_name}
                                 </span>
                             )}

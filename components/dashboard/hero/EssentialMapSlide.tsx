@@ -413,14 +413,14 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                     {isLive && (
                         <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-400/20">
                             <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                            <span className="text-[8px] text-emerald-300/80 font-bold tracking-wider">LIVE</span>
+                            <span className="text-[11px] text-emerald-300/80 font-bold tracking-wider">LIVE</span>
                         </div>
                     )}
                     {radarFrames[activeFrame]?.type === 'forecast' && (
                         <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-500/20 border border-amber-400/20">
                             <div className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                            <span className="text-[8px] text-amber-300/80 font-bold tracking-wider">FORECAST</span>
-                            <span className="text-[8px] text-amber-300/50 font-mono font-semibold">{timeLabel}</span>
+                            <span className="text-[11px] text-amber-300/80 font-bold tracking-wider">FORECAST</span>
+                            <span className="text-[11px] text-amber-300/50 font-mono font-semibold">{timeLabel}</span>
                         </div>
                     )}
                     {timeLabel && !isLive && radarFrames[activeFrame]?.type !== 'forecast' && (

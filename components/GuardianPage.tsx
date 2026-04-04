@@ -340,7 +340,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         />
                         <span className="text-sm font-bold text-white truncate">{vesselName || 'Your Vessel'}</span>
                         {armed && (
-                            <span className="px-1.5 py-0.5 bg-red-500/20 border border-red-500/30 rounded text-[10px] font-black text-red-400 uppercase tracking-wider">
+                            <span className="px-1.5 py-0.5 bg-red-500/20 border border-red-500/30 rounded text-[11px] font-black text-red-400 uppercase tracking-wider">
                                 Armed
                             </span>
                         )}
@@ -534,7 +534,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                             )}
                                         </div>
                                         {user.armed && (
-                                            <div className="text-[10px] text-red-400 font-bold uppercase tracking-wider mt-0.5">
+                                            <div className="text-[11px] text-red-400 font-bold uppercase tracking-wider mt-0.5">
                                                 🛡️ Armed
                                             </div>
                                         )}
@@ -564,7 +564,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             Alert Feed
                         </span>
                         {alerts.length > 0 && (
-                            <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 text-[10px] font-bold rounded-full">
+                            <span className="px-1.5 py-0.5 bg-amber-500/20 text-amber-300 text-[11px] font-bold rounded-full">
                                 {alerts.length}
                             </span>
                         )}
@@ -591,7 +591,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                                     <span className={`text-xs font-bold ${style.color}`}>
                                                         {alert.title}
                                                     </span>
-                                                    <span className="text-[10px] text-gray-500 shrink-0 ml-2">
+                                                    <span className="text-[11px] text-gray-500 shrink-0 ml-2">
                                                         {timeAgo(alert.created_at)}
                                                     </span>
                                                 </div>
@@ -599,7 +599,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                                     {alert.body}
                                                 </p>
                                                 {alert.source_vessel_name && (
-                                                    <div className="text-[10px] text-gray-500 mt-1">
+                                                    <div className="text-[11px] text-gray-500 mt-1">
                                                         from {alert.source_vessel_name}
                                                     </div>
                                                 )}

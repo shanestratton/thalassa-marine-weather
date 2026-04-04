@@ -368,7 +368,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                                                 className={`flex-1 h-5 ${windHeatColor(hp.windSpeed)} flex items-center justify-center transition-all hover:scale-y-[1.4] hover:z-10 relative group cursor-default`}
                                                 title={`+${hIdx * 6}h: ${hp.windSpeed}kt ${hp.windDirection}° | ${hp.waveHeight}m`}
                                             >
-                                                <span className="text-[8px] font-mono text-white/60 group-hover:text-white/90 transition-colors">
+                                                <span className="text-[11px] font-mono text-white/60 group-hover:text-white/90 transition-colors">
                                                     {Math.round(hp.windSpeed)}
                                                 </span>
                                             </div>
@@ -393,7 +393,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                                     {/* Sparkline overlay */}
                                     <div className="flex items-center gap-3 mt-1.5 ml-[80px]">
                                         <div className="flex items-center gap-1">
-                                            <span className="text-[8px] text-gray-500 uppercase">Wind</span>
+                                            <span className="text-[11px] text-gray-500 uppercase">Wind</span>
                                             <Sparkline
                                                 points={f.points}
                                                 color={pal.bar}
@@ -402,7 +402,7 @@ export const ModelComparisonCard: React.FC<ModelComparisonCardProps> = ({ data }
                                             />
                                         </div>
                                         <div className="flex items-center gap-1">
-                                            <span className="text-[8px] text-gray-500 uppercase">Wave</span>
+                                            <span className="text-[11px] text-gray-500 uppercase">Wave</span>
                                             <Sparkline
                                                 points={f.points}
                                                 color={pal.bar}

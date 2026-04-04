@@ -29,7 +29,7 @@ const PinDropCard: React.FC<{ lat: number; lon: number; label: string }> = ({ la
             <p className="text-[11px] text-white/40 font-mono">
                 {latStr}, {lonStr}
             </p>
-            <p className="text-[10px] text-sky-400/60 mt-1.5 font-semibold">Tap to view on map →</p>
+            <p className="text-[11px] text-sky-400/60 mt-1.5 font-semibold">Tap to view on map →</p>
         </button>
     );
 };

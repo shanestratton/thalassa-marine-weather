@@ -44,7 +44,7 @@ const ProgressBar: React.FC<{ progress: UploadProgress }> = ({ progress }) => {
     return (
         <div className="space-y-1">
             <div className="flex items-center justify-between">
-                <span className="text-[10px] text-gray-400 uppercase tracking-wider font-bold">
+                <span className="text-[11px] text-gray-400 uppercase tracking-wider font-bold">
                     {progress.phase === 'downloading'
                         ? '⬇ Downloading'
                         : progress.phase === 'uploading'
@@ -57,7 +57,7 @@ const ProgressBar: React.FC<{ progress: UploadProgress }> = ({ progress }) => {
                                 ? '✗ Error'
                                 : ''}
                 </span>
-                <span className="text-[10px] text-white/60 font-mono">{pct}%</span>
+                <span className="text-[11px] text-white/60 font-mono">{pct}%</span>
             </div>
             <div className="w-full h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                 <div
@@ -65,8 +65,8 @@ const ProgressBar: React.FC<{ progress: UploadProgress }> = ({ progress }) => {
                     style={{ width: `${pct}%` }}
                 />
             </div>
-            <p className="text-[10px] text-gray-500">{progress.message}</p>
-            {progress.error && <p className="text-[10px] text-red-400 mt-1">{progress.error}</p>}
+            <p className="text-[11px] text-gray-500">{progress.message}</p>
+            {progress.error && <p className="text-[11px] text-red-400 mt-1">{progress.error}</p>}
         </div>
     );
 };
@@ -95,7 +95,7 @@ const ChartPackageRow: React.FC<{
                 {isActive && activeProgress && activeProgress.phase !== 'idle' ? (
                     <ProgressBar progress={activeProgress} />
                 ) : (
-                    <p className="text-[10px] text-gray-500">
+                    <p className="text-[11px] text-gray-500">
                         {sizeLabel} · {pkg.isZipped ? 'ZIP → MBTiles' : pkg.format.toUpperCase()}
                         {pkg.source === 'linz' && ' · LINZ CC-BY'}
                         {pkg.credit && ` · ${pkg.credit}`}
@@ -108,7 +108,7 @@ const ChartPackageRow: React.FC<{
                     onDownload(pkg);
                 }}
                 disabled={!!busy}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 ${
+                className={`shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-black uppercase tracking-wider transition-all active:scale-95 ${
                     busy
                         ? 'bg-white/[0.03] text-gray-500 cursor-not-allowed'
                         : isActive && activeProgress?.phase === 'done'
@@ -156,7 +156,7 @@ const RegionHeader: React.FC<{
             <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
         </svg>
         <span className="text-[11px] font-bold uppercase tracking-widest text-white/40 flex-1 text-left">{label}</span>
-        <span className="text-[10px] text-white/20 font-mono">{count}</span>
+        <span className="text-[11px] text-white/20 font-mono">{count}</span>
     </button>
 );
 
@@ -370,7 +370,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                                     <span className="text-xs font-bold text-emerald-300 flex-1 text-left">
                                                         {server.name || server.host}
                                                     </span>
-                                                    <span className="text-[10px] text-emerald-400/60 font-mono">
+                                                    <span className="text-[11px] text-emerald-400/60 font-mono">
                                                         {server.host}:{server.port}
                                                     </span>
                                                 </button>
@@ -379,13 +379,13 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                     )}
 
                                     {isScanning && foundServers.length === 0 && (
-                                        <p className="text-[10px] text-gray-500 text-center py-1">
+                                        <p className="text-[11px] text-gray-500 text-center py-1">
                                             Scanning local network for AvNav servers…
                                         </p>
                                     )}
 
                                     {!isScanning && scanStatus === 'idle' && foundServers.length === 0 && (
-                                        <p className="text-[10px] text-gray-500 text-center py-1">
+                                        <p className="text-[11px] text-gray-500 text-center py-1">
                                             No AvNav servers found. Enter the address manually below.
                                         </p>
                                     )}
@@ -459,7 +459,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                             <span className="text-sm">🗺️</span>
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-xs font-bold text-white truncate">{chart.name}</p>
-                                                <p className="text-[10px] text-gray-500">
+                                                <p className="text-[11px] text-gray-500">
                                                     z{chart.minZoom}–{chart.maxZoom} · {chart.format}
                                                 </p>
                                             </div>
@@ -515,7 +515,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                 <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">
                                     Upload From Phone
                                 </p>
-                                <p className="text-[10px] text-gray-500 leading-relaxed">
+                                <p className="text-[11px] text-gray-500 leading-relaxed">
                                     Select chart files from your phone to install on AvNav. Supports{' '}
                                     <span className="text-emerald-400 font-mono">.mbtiles</span>{' '}
                                     <span className="text-amber-400 font-mono">.oesenc</span>{' '}
@@ -583,7 +583,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                             triggerHaptic('light');
                                             setDownloadMode('phone-proxy');
                                         }}
-                                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${
+                                        className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
                                             downloadMode === 'phone-proxy'
                                                 ? 'bg-sky-500/15 border border-sky-500/30 text-sky-400'
                                                 : 'bg-white/[0.03] border border-white/[0.06] text-gray-500'
@@ -596,7 +596,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                             triggerHaptic('light');
                                             setDownloadMode('pi-direct');
                                         }}
-                                        className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${
+                                        className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
                                             downloadMode === 'pi-direct'
                                                 ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400'
                                                 : 'bg-white/[0.03] border border-white/[0.06] text-gray-500'
@@ -652,7 +652,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                 ))}
 
                                 {!linzKey && (
-                                    <p className="text-[10px] text-gray-500 text-center py-2 border-t border-white/[0.04] mt-2">
+                                    <p className="text-[11px] text-gray-500 text-center py-2 border-t border-white/[0.04] mt-2">
                                         Add a LINZ API key in Settings to see NZ charts
                                     </p>
                                 )}
@@ -663,7 +663,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                 <p className="text-[11px] font-bold text-sky-400 mb-1">
                                     ⛵ Community Charts — South Pacific
                                 </p>
-                                <p className="text-[10px] text-gray-400 leading-relaxed">
+                                <p className="text-[11px] text-gray-400 leading-relaxed">
                                     Fiji, Tonga, Vanuatu, French Polynesia and more — satellite + Navionics overlays
                                     made by cruisers, for cruisers. Courtesy of{' '}
                                     <span className="text-sky-300 font-bold">Bruce Balan's Chart Locker</span>. Not
@@ -678,7 +678,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                             {/* ── o-Charts Info ── */}
                             <div className="px-3 py-2.5 rounded-xl bg-amber-500/5 border border-amber-500/10">
                                 <p className="text-[11px] font-bold text-amber-400 mb-1">🔐 o-Charts (DRM)</p>
-                                <p className="text-[10px] text-gray-400 leading-relaxed">
+                                <p className="text-[11px] text-gray-400 leading-relaxed">
                                     Upload <span className="font-mono text-amber-300">.oesenc</span> files purchased
                                     from <span className="text-amber-400">o-charts.org</span>. Requires a USB dongle
                                     connected to your AvNav Pi for decryption. Use the{' '}
@@ -711,7 +711,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                             <span className="text-sky-400 font-bold">Chart Locker</span> to download free NOAA/LINZ
                             charts or upload your own
                         </p>
-                        <p className="text-[10px] text-gray-500 pt-1 border-t border-white/[0.04]">
+                        <p className="text-[11px] text-gray-500 pt-1 border-t border-white/[0.04]">
                             Charts will appear as map overlays. Toggle them in the map layer panel.
                         </p>
                     </div>

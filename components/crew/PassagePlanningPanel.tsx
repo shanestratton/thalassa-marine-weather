@@ -44,10 +44,10 @@ export const PassagePlanningPanel: React.FC<PassagePlanningPanelProps> = ({
         <div className="bg-white/[0.02] border border-violet-500/15 rounded-xl p-4 space-y-3 animate-in slide-in-from-top-2 duration-200">
             {/* Crew count badge (read-only) */}
             <div className="flex items-center justify-between">
-                <span className="text-[10px] font-black text-violet-400/60 uppercase tracking-widest">
+                <span className="text-[11px] font-black text-violet-400/60 uppercase tracking-widest">
                     Passage Details
                 </span>
-                <span className="px-2.5 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/20 text-[10px] font-bold text-sky-400">
+                <span className="px-2.5 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/20 text-[11px] font-bold text-sky-400">
                     👥 {planCrewCount} crew
                 </span>
             </div>
@@ -55,7 +55,7 @@ export const PassagePlanningPanel: React.FC<PassagePlanningPanelProps> = ({
             {/* Departure + ETA */}
             <div className="grid grid-cols-2 gap-2">
                 <div className="min-w-0">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
+                    <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
                         Departure
                     </label>
                     <input
@@ -67,7 +67,7 @@ export const PassagePlanningPanel: React.FC<PassagePlanningPanelProps> = ({
                     />
                 </div>
                 <div className="min-w-0">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
+                    <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
                         ETA
                     </label>
                     <input
@@ -83,7 +83,7 @@ export const PassagePlanningPanel: React.FC<PassagePlanningPanelProps> = ({
             {/* Ports */}
             <div className="grid grid-cols-2 gap-2">
                 <div>
-                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
+                    <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
                         From
                     </label>
                     <input
@@ -96,7 +96,7 @@ export const PassagePlanningPanel: React.FC<PassagePlanningPanelProps> = ({
                     />
                 </div>
                 <div>
-                    <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
+                    <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
                         To
                     </label>
                     <input
@@ -112,7 +112,7 @@ export const PassagePlanningPanel: React.FC<PassagePlanningPanelProps> = ({
 
             {/* Notes */}
             <div>
-                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
+                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest mb-1 block">
                     Notes
                 </label>
                 <textarea
@@ -127,7 +127,7 @@ export const PassagePlanningPanel: React.FC<PassagePlanningPanelProps> = ({
 
             {/* Readiness indicators */}
             {planDeparture && planEta && (
-                <div className="flex gap-2 text-[10px]">
+                <div className="flex gap-2 text-[11px]">
                     <span className="px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/15 text-emerald-400 font-bold">
                         ✅ Dates set
                     </span>

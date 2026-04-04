@@ -108,7 +108,7 @@ const WheelRating: React.FC<WheelRatingProps> = ({ rating, count, interactive, o
             ))}
         </div>
         {count !== undefined && count > 0 && (
-            <span className="text-[10px] text-gray-500 font-medium ml-0.5">({count})</span>
+            <span className="text-[11px] text-gray-500 font-medium ml-0.5">({count})</span>
         )}
     </div>
 );
@@ -205,21 +205,21 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                         <h3 className="text-lg font-bold text-white leading-tight">{recipe.title}</h3>
                         <div className="flex items-center gap-3 mt-1.5">
                             <WheelRating rating={recipe.ratingAvg} count={recipe.ratingCount} size={12} />
-                            <span className="text-[10px] text-gray-500">·</span>
-                            <span className="text-[10px] text-gray-500">⏱️ {recipe.readyInMinutes}min</span>
-                            <span className="text-[10px] text-gray-500">·</span>
-                            <span className="text-[10px] text-gray-500">👤 {recipe.authorName}</span>
+                            <span className="text-[11px] text-gray-500">·</span>
+                            <span className="text-[11px] text-gray-500">⏱️ {recipe.readyInMinutes}min</span>
+                            <span className="text-[11px] text-gray-500">·</span>
+                            <span className="text-[11px] text-gray-500">👤 {recipe.authorName}</span>
                         </div>
                     </div>
 
                     {/* Your rating */}
                     <div className="p-3 rounded-xl bg-amber-500/[0.05] border border-amber-500/15">
-                        <p className="text-[10px] text-amber-400/80 font-bold uppercase tracking-wider mb-2">
+                        <p className="text-[11px] text-amber-400/80 font-bold uppercase tracking-wider mb-2">
                             Your Rating
                         </p>
                         <WheelRating rating={userRating ?? 0} interactive={!submitting} onRate={handleRate} size={22} />
                         {userRating && (
-                            <p className="text-[10px] text-amber-400/60 mt-1">
+                            <p className="text-[11px] text-amber-400/60 mt-1">
                                 You gave this {userRating} helm{userRating !== 1 ? 's' : ''} ☸
                             </p>
                         )}
@@ -229,7 +229,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                     {ingredients.length > 0 && (
                         <div>
                             <div className="flex items-center gap-2 mb-2">
-                                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
+                                <p className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">
                                     Ingredients
                                 </p>
                                 <span className="text-[11px] text-sky-400/60 bg-sky-500/10 px-1.5 py-0.5 rounded-full">
@@ -242,7 +242,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                                         key={i}
                                         className="flex items-center gap-2 py-1.5 border-b border-white/[0.04] last:border-0"
                                     >
-                                        <span className="text-[10px] text-amber-400">•</span>
+                                        <span className="text-[11px] text-amber-400">•</span>
                                         <span className="text-xs text-white flex-1">{ing.name}</span>
                                         <span className="text-[11px] text-gray-400 tabular-nums">
                                             {ing.amount > 0 && `${ing.amount} ${ing.unit}`}
@@ -256,13 +256,13 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                     {/* Directions */}
                     {instructions.length > 0 && (
                         <div>
-                            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-2">
+                            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-wider mb-2">
                                 Directions
                             </p>
                             <div className="space-y-2.5">
                                 {instructions.map((step) => (
                                     <div key={step.number} className="flex gap-2.5">
-                                        <span className="w-6 h-6 rounded-full bg-amber-500/15 text-amber-400 text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">
+                                        <span className="w-6 h-6 rounded-full bg-amber-500/15 text-amber-400 text-[11px] font-bold flex items-center justify-center shrink-0 mt-0.5">
                                             {step.number}
                                         </span>
                                         <p className="text-xs text-gray-300 leading-relaxed flex-1">{step.step}</p>
@@ -278,7 +278,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                             <button
                                 onClick={handleReportImage}
                                 disabled={reportSent}
-                                className="flex items-center gap-1.5 text-[10px] text-gray-500 hover:text-red-400/70 transition-colors disabled:opacity-40"
+                                className="flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-red-400/70 transition-colors disabled:opacity-40"
                                 aria-label="Report image"
                             >
                                 <span>⚑</span>
@@ -533,7 +533,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                 setBilgeInput('');
                                 triggerHaptic('medium');
                             }}
-                            className={`px-3 py-2 rounded-xl text-[10px] font-bold transition-all active:scale-95 whitespace-nowrap ${
+                            className={`px-3 py-2 rounded-xl text-[11px] font-bold transition-all active:scale-95 whitespace-nowrap ${
                                 bilgeDiveMode
                                     ? 'bg-sky-500/15 text-sky-300 border border-sky-500/25'
                                     : 'bg-white/[0.04] text-gray-400 border border-white/[0.06] hover:bg-white/[0.06]'
@@ -554,7 +554,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                         setBilgeIngredients((prev) => prev.filter((i) => i !== ing));
                                         triggerHaptic('light');
                                     }}
-                                    className="px-2.5 py-1 rounded-lg bg-sky-500/15 text-sky-300 text-[10px] font-bold border border-sky-500/20 hover:bg-sky-500/25 transition-all flex items-center gap-1"
+                                    className="px-2.5 py-1 rounded-lg bg-sky-500/15 text-sky-300 text-[11px] font-bold border border-sky-500/20 hover:bg-sky-500/25 transition-all flex items-center gap-1"
                                 >
                                     {ing} <span className="text-sky-400/60">✕</span>
                                 </button>
@@ -566,7 +566,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                         setBilgeExclusions((prev) => prev.filter((i) => i !== ing));
                                         triggerHaptic('light');
                                     }}
-                                    className="px-2.5 py-1 rounded-lg bg-red-500/15 text-red-300 text-[10px] font-bold border border-red-500/20 hover:bg-red-500/25 transition-all flex items-center gap-1"
+                                    className="px-2.5 py-1 rounded-lg bg-red-500/15 text-red-300 text-[11px] font-bold border border-red-500/20 hover:bg-red-500/25 transition-all flex items-center gap-1"
                                 >
                                     −{ing} <span className="text-red-400/60">✕</span>
                                 </button>
@@ -589,7 +589,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                         <button
                                             key={tag.id}
                                             onClick={() => handleToggleFilter(tag.id)}
-                                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all whitespace-nowrap active:scale-95 ${
+                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap active:scale-95 ${
                                                 activeFilters.has(tag.id)
                                                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 shadow-sm shadow-amber-500/10'
                                                     : 'bg-white/[0.03] text-gray-400 border border-white/[0.06] hover:bg-white/[0.06]'
@@ -613,7 +613,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                         setSortBy(opt.key);
                                         triggerHaptic('light');
                                     }}
-                                    className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all whitespace-nowrap ${
+                                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap ${
                                         sortBy === opt.key
                                             ? 'bg-amber-500/15 text-amber-300 border border-amber-500/25'
                                             : 'bg-white/[0.04] text-gray-400 border border-white/[0.06] hover:bg-white/[0.06]'
@@ -628,7 +628,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     setShowFavouritesOnly((v) => !v);
                                     triggerHaptic('light');
                                 }}
-                                className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all whitespace-nowrap ${
+                                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap ${
                                     showFavouritesOnly
                                         ? 'bg-rose-500/15 text-rose-300 border border-rose-500/25'
                                         : 'bg-white/[0.04] text-gray-400 border border-white/[0.06] hover:bg-white/[0.06]'
@@ -648,7 +648,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                     {/* ── Active Filter Summary ── */}
                     {activeFilters.size > 0 && !bilgeDiveMode && (
                         <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-gray-500">Filtering:</span>
+                            <span className="text-[11px] text-gray-500">Filtering:</span>
                             <div className="flex gap-1 flex-wrap flex-1">
                                 {[...activeFilters].map((tag) => {
                                     const def = NAUTICAL_TAG_DEFS.find((d) => d.id === tag);
@@ -667,7 +667,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     setActiveFilters(new Set());
                                     triggerHaptic('light');
                                 }}
-                                className="text-[10px] text-gray-500 hover:text-white transition-colors"
+                                className="text-[11px] text-gray-500 hover:text-white transition-colors"
                             >
                                 Clear
                             </button>
@@ -765,7 +765,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                         <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
                                             <div>
                                                 <p className="text-xs font-bold text-white truncate">{recipe.title}</p>
-                                                <p className="text-[10px] text-gray-500 mt-0.5">
+                                                <p className="text-[11px] text-gray-500 mt-0.5">
                                                     by {recipe.authorName} · ⏱️ {recipe.readyInMinutes}min
                                                 </p>
                                             </div>

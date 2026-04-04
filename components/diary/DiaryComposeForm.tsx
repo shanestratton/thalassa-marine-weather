@@ -247,7 +247,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                     )}
                                 </svg>
                                 <span
-                                    className={`text-[8px] font-bold uppercase tracking-wider leading-none ${isRecording ? 'text-red-400' : 'text-emerald-400/70'}`}
+                                    className={`text-[11px] font-bold uppercase tracking-wider leading-none ${isRecording ? 'text-red-400' : 'text-emerald-400/70'}`}
                                 >
                                     {isRecording ? 'Stop' : 'Voice'}
                                 </span>
@@ -267,7 +267,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                 }`}
                             >
                                 <span className="text-lg">{polishing ? '⏳' : '✨'}</span>
-                                <span className="text-[8px] font-bold text-purple-300/70 uppercase tracking-wider leading-none">
+                                <span className="text-[11px] font-bold text-purple-300/70 uppercase tracking-wider leading-none">
                                     Polish
                                 </span>
                             </button>

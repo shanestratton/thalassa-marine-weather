@@ -262,7 +262,7 @@ export const DepthGauge: React.FC<DepthGaugeProps> = ({
                     {hasOffset ? 'Depth Below Keel' : 'Depth Below Transducer'}
                 </span>
                 {hasOffset && (
-                    <span className="text-[10px] font-semibold text-sky-400/70 mt-0.5">
+                    <span className="text-[11px] font-semibold text-sky-400/70 mt-0.5">
                         Keel offset: {keelOffset.toFixed(1)}m
                     </span>
                 )}

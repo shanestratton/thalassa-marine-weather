@@ -180,7 +180,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                                     ? `${goCount} departure window${goCount !== 1 ? 's' : ''} open`
                                     : 'No ideal windows — proceed with caution'}
                             </p>
-                            <p className="text-[10px] text-gray-500 mt-0.5">
+                            <p className="text-[11px] text-gray-500 mt-0.5">
                                 {result.source === 'live' ? 'Live forecast' : 'Cached data'} ·{' '}
                                 {new Date(result.analysisTime).toLocaleTimeString([], {
                                     hour: '2-digit',
@@ -190,7 +190,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                         </div>
                         <button
                             onClick={analyse}
-                            className="px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/20 transition-all"
+                            className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 hover:bg-cyan-500/20 transition-all"
                         >
                             Refresh
                         </button>
@@ -282,7 +282,7 @@ const WindowCard: React.FC<{
                             </span>
                         )}
                     </div>
-                    <p className="text-[10px] font-bold text-white/80 mt-0.5 uppercase tracking-wider">
+                    <p className="text-[11px] font-bold text-white/80 mt-0.5 uppercase tracking-wider">
                         {w.rating === 'go' ? '✅' : w.rating === 'marginal' ? '⚠️' : '❌'} {w.rating.toUpperCase()}
                     </p>
                 </div>
@@ -301,19 +301,19 @@ const WindowCard: React.FC<{
             {/* Details */}
             <div className="grid grid-cols-3 gap-2 text-center mb-2">
                 <div>
-                    <p className="text-[10px] text-gray-500 uppercase font-bold">Wind</p>
+                    <p className="text-[11px] text-gray-500 uppercase font-bold">Wind</p>
                     <p className="text-xs font-bold text-white">
                         {w.summary.dominantWindDir} {w.summary.avgWindKts}–{w.summary.maxWindKts}kt
                     </p>
                 </div>
                 <div>
-                    <p className="text-[10px] text-gray-500 uppercase font-bold">Wave</p>
+                    <p className="text-[11px] text-gray-500 uppercase font-bold">Wave</p>
                     <p className="text-xs font-bold text-white">
                         {w.summary.avgWaveM}–{w.summary.maxWaveM}m
                     </p>
                 </div>
                 <div>
-                    <p className="text-[10px] text-gray-500 uppercase font-bold">Rain</p>
+                    <p className="text-[11px] text-gray-500 uppercase font-bold">Rain</p>
                     <p className="text-xs font-bold text-white">{w.summary.rainProbability}%</p>
                 </div>
             </div>

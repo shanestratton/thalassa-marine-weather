@@ -554,7 +554,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
 
                 {/* Active count badge */}
                 {activeCount > 1 && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-white text-slate-900 text-[10px] font-black flex items-center justify-center shadow-md">
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-white text-slate-900 text-[11px] font-black flex items-center justify-center shadow-md">
                         {activeCount}
                     </span>
                 )}

@@ -194,7 +194,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
         <div className="space-y-4">
             {/* Recipe Name */}
             <div>
-                <label className="block text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1.5">
+                <label className="block text-[11px] text-gray-500 font-bold uppercase tracking-wider mb-1.5">
                     Recipe Name *
                 </label>
                 <input
@@ -209,7 +209,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
 
             {/* Photo */}
             <div>
-                <label className="block text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1.5">
+                <label className="block text-[11px] text-gray-500 font-bold uppercase tracking-wider mb-1.5">
                     Photo (optional)
                 </label>
                 <input
@@ -249,7 +249,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
 
             {/* Cook Time */}
             <div>
-                <label className="block text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1.5">
+                <label className="block text-[11px] text-gray-500 font-bold uppercase tracking-wider mb-1.5">
                     Cook Time (minutes)
                 </label>
                 <div className="flex items-center gap-3">
@@ -274,7 +274,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
 
             {/* Nautical Tags */}
             <div>
-                <label className="block text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-1.5">
+                <label className="block text-[11px] text-gray-500 font-bold uppercase tracking-wider mb-1.5">
                     Galley Tags (auto-suggested)
                 </label>
                 <div className="flex flex-wrap gap-1.5">
@@ -291,7 +291,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                                 });
                                 triggerHaptic('light');
                             }}
-                            className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all active:scale-95 ${
+                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
                                 selectedTags.has(tag.id)
                                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                                     : 'bg-white/[0.03] text-gray-500 border border-white/[0.06]'
@@ -371,7 +371,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
 
     const renderDirections = () => (
         <div className="space-y-3">
-            <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">Cooking Steps</p>
+            <p className="text-[11px] text-gray-500 font-bold uppercase tracking-wider">Cooking Steps</p>
 
             {directions.map((dir, i) => (
                 <div key={i} className="flex gap-2 items-start">
@@ -418,7 +418,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                 )}
                 <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-white truncate">{title}</p>
-                    <p className="text-[10px] text-gray-500">
+                    <p className="text-[11px] text-gray-500">
                         ⏱️ {readyInMinutes}min · {ingredients.filter((i) => i.name.trim()).length} ingredients ·{' '}
                         {directions.filter((d) => d.trim()).length} steps
                     </p>
@@ -427,7 +427,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
 
             {/* Visibility toggle */}
             <div>
-                <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wider mb-2">Save To</p>
+                <p className="text-[11px] text-gray-500 font-bold uppercase tracking-wider mb-2">Save To</p>
 
                 <div className="space-y-2">
                     <button
@@ -441,10 +441,10 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         <span className="text-lg">🔒</span>
                         <div className="text-left">
                             <p className="text-xs font-bold text-white">My Recipes</p>
-                            <p className="text-[10px] text-gray-500">Only visible to you</p>
+                            <p className="text-[11px] text-gray-500">Only visible to you</p>
                         </div>
                         {visibility === 'private' && (
-                            <span className="ml-auto w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center text-black text-[10px] font-bold">
+                            <span className="ml-auto w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center text-black text-[11px] font-bold">
                                 ✓
                             </span>
                         )}
@@ -461,10 +461,10 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         <span className="text-lg">👥</span>
                         <div className="text-left">
                             <p className="text-xs font-bold text-white">Community Galley</p>
-                            <p className="text-[10px] text-gray-500">Shared with all Thalassa sailors</p>
+                            <p className="text-[11px] text-gray-500">Shared with all Thalassa sailors</p>
                         </div>
                         {visibility === 'community' && (
-                            <span className="ml-auto w-5 h-5 rounded-full bg-sky-500 flex items-center justify-center text-black text-[10px] font-bold">
+                            <span className="ml-auto w-5 h-5 rounded-full bg-sky-500 flex items-center justify-center text-black text-[11px] font-bold">
                                 ✓
                             </span>
                         )}
@@ -489,7 +489,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                 <div className="flex items-center justify-between p-4 border-b border-white/[0.06]">
                     <div>
                         <p className="text-sm font-bold text-white">📝 New Recipe</p>
-                        <p className="text-[10px] text-gray-500">
+                        <p className="text-[11px] text-gray-500">
                             Step {step + 1} of {STEPS.length} — {STEPS[step]}
                         </p>
                     </div>

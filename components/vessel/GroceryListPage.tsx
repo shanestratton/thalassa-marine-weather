@@ -311,7 +311,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                                             />
                                                         </svg>
                                                     )}
-                                                    {isPurchasing && <span className="text-[10px]">⏳</span>}
+                                                    {isPurchasing && <span className="text-[11px]">⏳</span>}
                                                 </button>
 
                                                 {/* Name + purchase info */}
@@ -360,7 +360,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                 {budget && budget.total > 0 && (
                     <div className="shrink-0 mx-4 mb-3 p-3 rounded-xl bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.04] border border-emerald-500/10">
                         <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
+                            <span className="text-[11px] font-black text-emerald-400 uppercase tracking-widest">
                                 💰 Voyage Spend
                             </span>
                             <span className="text-sm font-black text-emerald-400 tabular-nums">
@@ -436,7 +436,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                         <p className="text-[11px] text-gray-400 mb-4">{priceItem.ingredient_name}</p>
 
                         {/* Price input */}
-                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                        <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
                             Price (optional)
                         </label>
                         <div className="flex items-center gap-2 mt-1 mb-4">
@@ -456,7 +456,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                         </div>
 
                         {/* Store name */}
-                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                        <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
                             Store (optional)
                         </label>
                         <input
@@ -472,7 +472,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                     key={s}
                                     type="button"
                                     onClick={() => setStoreName(s)}
-                                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all active:scale-95 ${
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
                                         storeName === s
                                             ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                                             : 'bg-white/[0.04] text-gray-500 border border-white/[0.06] hover:text-gray-300'
@@ -516,7 +516,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                         <h3 className="text-sm font-black text-white mb-4">➕ Add to Shopping List</h3>
 
                         {/* Item name */}
-                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                        <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
                             Item Name
                         </label>
                         <input
@@ -532,7 +532,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                         {/* Qty + Unit row */}
                         <div className="flex gap-2 mb-3">
                             <div className="flex-1">
-                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
                                     Qty
                                 </label>
                                 <input
@@ -545,7 +545,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                 />
                             </div>
                             <div className="flex-1">
-                                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                                <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
                                     Unit
                                 </label>
                                 <select
@@ -569,7 +569,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                         </div>
 
                         {/* Zone picker */}
-                        <label className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">
+                        <label className="text-[11px] font-bold text-gray-500 uppercase tracking-widest">
                             Aisle / Zone
                         </label>
                         <div className="flex flex-wrap gap-1.5 mt-1 mb-4">
@@ -578,7 +578,7 @@ export const GroceryListPage: React.FC<GroceryListPageProps> = ({ onBack }) => {
                                     key={z}
                                     type="button"
                                     onClick={() => setAddZone(z)}
-                                    className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all active:scale-95 ${
+                                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all active:scale-95 ${
                                         addZone === z
                                             ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                                             : 'bg-white/[0.04] text-gray-500 border border-white/[0.06] hover:text-gray-300'

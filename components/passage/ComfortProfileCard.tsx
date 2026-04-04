@@ -68,7 +68,7 @@ export const ComfortProfileCard: React.FC<ComfortProfileCardProps> = ({ voyageId
                     </span>
                     <span className={`text-sm font-bold ${windColor}`}>
                         {profile.maxWindKts}kt
-                        <span className="text-[10px] opacity-60 ml-1">{windSeverity}</span>
+                        <span className="text-[11px] opacity-60 ml-1">{windSeverity}</span>
                     </span>
                 </div>
                 <input
@@ -80,7 +80,7 @@ export const ComfortProfileCard: React.FC<ComfortProfileCardProps> = ({ voyageId
                     onChange={(e) => updateField('maxWindKts', Number(e.target.value))}
                     className="w-full accent-cyan-500"
                 />
-                <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+                <div className="flex justify-between text-[11px] text-gray-500 mt-1">
                     <span>10kt Light</span>
                     <span>25kt Fresh</span>
                     <span>40kt Gale</span>
@@ -104,7 +104,7 @@ export const ComfortProfileCard: React.FC<ComfortProfileCardProps> = ({ voyageId
                     onChange={(e) => updateField('maxWaveM', Number(e.target.value))}
                     className="w-full accent-cyan-500"
                 />
-                <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+                <div className="flex justify-between text-[11px] text-gray-500 mt-1">
                     <span>0.5m Calm</span>
                     <span>2.5m Moderate</span>
                     <span>5m Rough</span>

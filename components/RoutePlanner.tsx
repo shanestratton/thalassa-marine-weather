@@ -340,12 +340,12 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                     </span>
                                 </div>
                                 {voyagePlan.distanceApprox && (
-                                    <span className="ml-1 px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 text-[10px] font-bold border border-sky-500/15">
+                                    <span className="ml-1 px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-400 text-[11px] font-bold border border-sky-500/15">
                                         {voyagePlan.distanceApprox}
                                     </span>
                                 )}
                                 {voyagePlan.durationApprox && (
-                                    <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 text-[10px] font-bold border border-amber-500/15">
+                                    <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 text-[11px] font-bold border border-amber-500/15">
                                         {voyagePlan.durationApprox}
                                     </span>
                                 )}

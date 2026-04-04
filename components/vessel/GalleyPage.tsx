@@ -68,7 +68,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                 </button>
                 <div className="flex-1">
                     <h1 className="text-base font-black">Galley</h1>
-                    <p className="text-[10px] text-amber-400/60 uppercase tracking-widest">
+                    <p className="text-[11px] text-amber-400/60 uppercase tracking-widest">
                         {activeMeals.length} active · {savedRecipes.length} saved · {reservedCount} reserved
                     </p>
                 </div>
@@ -125,7 +125,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                     <div className="relative h-28 bg-gradient-to-br from-amber-900/60 via-orange-800/40 to-red-900/60">
                                         <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/70 to-transparent">
                                             <p className="text-sm font-black text-white">{meal.title}</p>
-                                            <p className="text-[10px] text-amber-300/70">
+                                            <p className="text-[11px] text-amber-300/70">
                                                 {meal.planned_date} · {meal.meal_slot} · {meal.servings_planned} serves
                                             </p>
                                         </div>
@@ -142,7 +142,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                             </div>
                                         ))}
                                         {meal.ingredients.length > 5 && (
-                                            <p className="text-[10px] text-gray-500 pl-6">
+                                            <p className="text-[11px] text-gray-500 pl-6">
                                                 +{meal.ingredients.length - 5} more
                                             </p>
                                         )}
@@ -197,7 +197,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                     <p className="text-xs font-bold text-red-300">
                                         {shoppingSummary.remaining} items still needed
                                     </p>
-                                    <p className="text-[10px] text-gray-500">
+                                    <p className="text-[11px] text-gray-500">
                                         {shoppingSummary.purchased}/{shoppingSummary.total} purchased
                                     </p>
                                 </div>
@@ -228,7 +228,7 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                         </div>
                                         <div className="flex-1 min-w-0">
                                             <p className="text-xs font-bold text-white truncate">{recipe.title}</p>
-                                            <p className="text-[10px] text-gray-500">
+                                            <p className="text-[11px] text-gray-500">
                                                 ⏱️ {recipe.ready_in_minutes} min · 👥 {recipe.servings} serves ·{' '}
                                                 {recipe.ingredients.length} ingredients
                                             </p>
@@ -243,13 +243,13 @@ export const GalleyPage: React.FC<GalleyPageProps> = ({ onBack }) => {
                                         {recipe.ingredients.slice(0, 4).map((ing, i) => (
                                             <span
                                                 key={i}
-                                                className="px-2 py-0.5 rounded-full text-[10px] bg-white/[0.04] text-gray-400 border border-white/[0.06]"
+                                                className="px-2 py-0.5 rounded-full text-[11px] bg-white/[0.04] text-gray-400 border border-white/[0.06]"
                                             >
                                                 {ing.name}
                                             </span>
                                         ))}
                                         {recipe.ingredients.length > 4 && (
-                                            <span className="text-[10px] text-gray-500">
+                                            <span className="text-[11px] text-gray-500">
                                                 +{recipe.ingredients.length - 4}
                                             </span>
                                         )}

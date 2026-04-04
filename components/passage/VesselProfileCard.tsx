@@ -88,7 +88,7 @@ export const VesselProfileCard: React.FC<VesselProfileCardProps> = ({ onReviewed
                         onChange={(e) => updateField('loaFeet', Number(e.target.value))}
                         className="w-full accent-violet-500"
                     />
-                    <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+                    <div className="flex justify-between text-[11px] text-gray-500 mt-1">
                         <span>24ft</span>
                         <span className="text-violet-400/50 font-bold">Hull speed: {hullSpeed}kt</span>
                         <span>65ft</span>
@@ -112,7 +112,7 @@ export const VesselProfileCard: React.FC<VesselProfileCardProps> = ({ onReviewed
                         onChange={(e) => updateField('cruisingSpeedKts', Number(e.target.value))}
                         className="w-full accent-cyan-500"
                     />
-                    <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+                    <div className="flex justify-between text-[11px] text-gray-500 mt-1">
                         <span>3kt</span>
                         <span>12kt</span>
                     </div>
@@ -135,7 +135,7 @@ export const VesselProfileCard: React.FC<VesselProfileCardProps> = ({ onReviewed
                         onChange={(e) => updateField('motoringSpeedKts', Number(e.target.value))}
                         className="w-full accent-amber-500"
                     />
-                    <div className="flex justify-between text-[10px] text-gray-500 mt-1">
+                    <div className="flex justify-between text-[11px] text-gray-500 mt-1">
                         <span>3kt</span>
                         <span>8kt</span>
                     </div>
