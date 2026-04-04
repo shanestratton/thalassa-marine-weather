@@ -19,6 +19,7 @@ import { Capacitor } from '@capacitor/core';
 import { PageHeader } from '../ui/PageHeader';
 import { EmptyState } from '../ui/EmptyState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
+import { OfflineBadge } from '../ui/OfflineBadge';
 import { UndoToast } from '../ui/UndoToast';
 import { FormField } from '../ui/FormField';
 import { ModalSheet } from '../ui/ModalSheet';
@@ -263,6 +264,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                     title="Ship's Stores"
                     onBack={onBack}
                     breadcrumbs={["Ship's Office", "Ship's Stores"]}
+                    status={<OfflineBadge />}
                     subtitle={
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             {stats

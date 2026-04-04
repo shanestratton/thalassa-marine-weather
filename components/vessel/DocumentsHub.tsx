@@ -20,6 +20,7 @@ import { ModalSheet } from '../ui/ModalSheet';
 import { UndoToast } from '../ui/UndoToast';
 import { EmptyState } from '../ui/EmptyState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
+import { OfflineBadge } from '../ui/OfflineBadge';
 import { useRealtimeSync } from '../../hooks/useRealtimeSync';
 import { useSuccessFlash } from '../../hooks/useSuccessFlash';
 import { SwipeableDocCard, getExpiryStatus } from './documents/SwipeableDocCard';
@@ -413,6 +414,7 @@ export const DocumentsHub: React.FC<DocumentsHubProps> = ({ onBack }) => {
                     title="Documents"
                     onBack={onBack}
                     breadcrumbs={["Ship's Office", 'Documents']}
+                    status={<OfflineBadge />}
                     subtitle={
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             {documents.length} Documents

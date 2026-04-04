@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { t } from '../theme';
 import { MarineWeatherReport, UnitPreferences } from '../types';
 import { WindIcon, WaveIcon, CompassIcon, ArrowRightIcon, XIcon } from './Icons';
+import { RetryCard } from './ui/RetryCard';
 
 interface ForecastSheetProps {
     data: MarineWeatherReport | null;
@@ -129,7 +130,7 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
 
                             {/* Close Button */}
                             <button
-                                aria-label="Is Visible"
+                                aria-label="Close forecast sheet"
                                 onClick={() => {
                                     setIsVisible(false);
                                     setTimeout(onClose, 300);
@@ -212,14 +213,18 @@ export const ForecastSheet: React.FC<ForecastSheetProps> = React.memo(
                                         <button
                                             onClick={onViewFull}
                                             className="w-full py-3.5 bg-gradient-to-r from-sky-600 to-sky-600 hover:from-sky-500 hover:to-sky-500 text-white font-bold rounded-xl shadow-lg shadow-sky-900/20 transition-all flex items-center justify-center gap-2 group active:scale-95"
-                                            aria-label="View Full"
+                                            aria-label="View full weather report"
                                         >
                                             View Full Report
                                             <ArrowRightIcon className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                                         </button>
                                     </div>
                                 ) : (
-                                    <div className="text-center py-8 text-red-300">Failed to load data.</div>
+                                    <RetryCard
+                                        title="Forecast Unavailable"
+                                        description="Weather data could not be loaded. Check your connection."
+                                        icon="🌊"
+                                    />
                                 )}
                             </div>
                         </div>

@@ -23,6 +23,7 @@ import { toast } from '../Toast';
 import { ModalSheet } from '../ui/ModalSheet';
 import { EmptyState } from '../ui/EmptyState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
+import { OfflineBadge } from '../ui/OfflineBadge';
 import { FormField } from '../ui/FormField';
 import { generateUUID } from '../../services/vessel/LocalDatabase';
 import { SwipeableItemCard } from './checklists/SwipeableItemCard';
@@ -336,6 +337,7 @@ export const ChecklistsPage: React.FC<ChecklistsPageProps> = ({ onBack }) => {
                     title="Checklists"
                     onBack={onBack}
                     breadcrumbs={["Ship's Office", 'Checklists']}
+                    status={<OfflineBadge />}
                     subtitle={
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             {headings.length} Section{headings.length !== 1 ? 's' : ''} · {totalDetails} Item
