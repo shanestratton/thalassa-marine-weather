@@ -116,9 +116,7 @@ describe('AisGuardZone', () => {
         it('removes all alerts', () => {
             AisGuardZone.setEnabled(true);
             AisGuardZone.setRadius(10);
-            AisGuardZone.checkFeatures(0, 0, [
-                { mmsi: 111, lat: 0.001, lon: 0.001, name: 'A', sog: 5, cog: 0, shipType: 'Other' },
-            ]);
+            AisGuardZone.checkFeatures(0, 0, [makeGeoFeature(111, 0.001, 0.001, 'A')]);
 
             AisGuardZone.clearAlerts();
             expect(AisGuardZone.getState().alerts).toEqual([]);
