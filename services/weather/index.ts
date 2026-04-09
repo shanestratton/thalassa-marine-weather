@@ -72,23 +72,27 @@ const _fetchWeatherByStrategyImpl = async (
     const [wkResult, sgResult, omResult, tideResult] = await Promise.allSettled([
         // 1. WeatherKit: PRIMARY atmospheric source
         fetchWeatherKitFull(lat, lon).catch((e) => {
+            log.warn('WeatherKit failed:', e?.message || e);
             return null;
         }),
 
         // 2. StormGlass: Marine data (waves, swell, water temp, currents)
         needsStormGlass
             ? fetchStormGlassWeather(lat, lon, name, locationType).catch((e) => {
+                  log.warn('StormGlass failed:', e?.message || e);
                   return null;
               })
             : Promise.resolve(null),
 
         // 3. OpenMeteo: Fallback atmospheric + CAPE for wind field map
         fetchOpenMeteo(lat, lon, name, false, 'best_match').catch((e) => {
+            log.warn('OpenMeteo failed:', e?.message || e);
             return null;
         }),
 
         // 4. WorldTides: Direct tide fetch (24h cached — always fires)
         fetchRealTides(lat, lon).catch((e) => {
+            log.warn('Tides failed:', e?.message || e);
             return null;
         }),
     ]);

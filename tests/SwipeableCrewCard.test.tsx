@@ -123,9 +123,9 @@ describe('SwipeableCrewCard', () => {
         expect(screen.getByText('⚓')).toBeTruthy();
     });
 
-    it('shows "Captain\'s Registers" label in crew mode', () => {
+    it('shows "Skipper\'s Registers" label in crew mode', () => {
         const member = makeMember();
         render(<SwipeableCrewCard member={member} mode="crew" onDelete={vi.fn()} />);
-        expect(screen.getByText("Captain's Registers")).toBeTruthy();
+        expect(screen.getByText("Skipper's Registers")).toBeTruthy();
     });
 });

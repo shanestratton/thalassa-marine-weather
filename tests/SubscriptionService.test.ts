@@ -23,9 +23,9 @@ describe('SubscriptionService', () => {
         });
 
         it('has labels for all tiers', () => {
-            expect(TIER_INFO.free.label).toBe('Crew (Free)');
-            expect(TIER_INFO.crew.label).toBe('Crew');
-            expect(TIER_INFO.owner.label).toBe('Vessel Owner');
+            expect(TIER_INFO.free.label).toBe('Deckhand');
+            expect(TIER_INFO.crew.label).toBe('First Mate');
+            expect(TIER_INFO.owner.label).toBe('Skipper');
         });
     });
 
@@ -91,9 +91,9 @@ describe('SubscriptionService', () => {
 
     describe('tierLabel', () => {
         it('returns display labels', () => {
-            expect(tierLabel('free')).toBe('Crew (Free)');
-            expect(tierLabel('crew')).toBe('Crew');
-            expect(tierLabel('owner')).toBe('Vessel Owner');
+            expect(tierLabel('free')).toBe('Deckhand');
+            expect(tierLabel('crew')).toBe('First Mate');
+            expect(tierLabel('owner')).toBe('Skipper');
         });
     });
 
