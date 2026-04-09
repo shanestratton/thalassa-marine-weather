@@ -53,7 +53,7 @@ describe('ModalSheet', () => {
                 <p>Content</p>
             </ModalSheet>,
         );
-        const closeBtn = screen.getByLabelText('Close');
+        const closeBtn = screen.getByLabelText('Close modal');
         fireEvent.click(closeBtn);
         expect(onClose).toHaveBeenCalledTimes(1);
     });
