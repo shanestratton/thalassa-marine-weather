@@ -32,6 +32,7 @@ import { ScopeRadar } from './anchor-watch/ScopeRadar';
 import { SoundCheckModal } from './anchor-watch/SoundCheckModal';
 import { ShoreWatchModal } from './anchor-watch/ShoreWatchModal';
 import { AisStreamService } from '../services/AisStreamService';
+import { PageHeader } from './ui/PageHeader';
 
 import {
     navStatusColorSimple,
@@ -472,34 +473,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden slide-up-enter`}
                 style={{ overscrollBehaviorY: 'none' }}
             >
-                {/* ── Header — consistent with other vessel pages ── */}
-                <div className="shrink-0 px-4 pt-4 pb-3">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                            {onBack && (
-                                <button
-                                    onClick={onBack}
-                                    aria-label="Go back"
-                                    className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                                >
-                                    <svg
-                                        className="w-5 h-5"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="currentColor"
-                                        strokeWidth={2}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M15.75 19.5L8.25 12l7.5-7.5"
-                                        />
-                                    </svg>
-                                </button>
-                            )}
-                            <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Anchor Watch</h1>
-                        </div>
-                        {/* Shore toggle */}
+                <PageHeader
+                    title="Anchor Watch"
+                    onBack={onBack}
+                    action={
                         <button
                             aria-label="Show Shore Modal"
                             onClick={() => setShowShoreModal(true)}
@@ -507,8 +484,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         >
                             Shore
                         </button>
-                    </div>
-                </div>
+                    }
+                />
 
                 {/* ── Content — single screen, no scroll ── */}
                 <div className="flex-1 min-h-0 flex flex-col pb-[98px]">
@@ -776,27 +753,25 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     if (viewMode === 'shore') {
         return (
             <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
-                {/* Header — glassmorphism */}
-                <div className={t.header.glass}>
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <h1 className="text-lg font-black text-white flex items-center gap-2">
-                                <span className="text-sky-400">📱</span> Shore Watch
-                            </h1>
-                            <p className="text-sm flex items-center gap-1.5 mt-0.5">
-                                {syncState?.peerConnected ? (
-                                    <>
-                                        <span className="w-2 h-2 bg-emerald-500 rounded-full inline-block animate-pulse shadow-[0_0_4px_rgba(16,185,129,0.5)]" />{' '}
-                                        <span className="text-emerald-400">Vessel Connected</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <span className="w-2 h-2 bg-red-500 rounded-full inline-block animate-pulse" />{' '}
-                                        <span className="text-red-400">Vessel Offline</span>
-                                    </>
-                                )}
-                            </p>
-                        </div>
+                <PageHeader
+                    title="Shore Watch"
+                    subtitle={
+                        <p className="text-[11px] flex items-center gap-1.5 mt-0.5 font-bold uppercase tracking-widest">
+                            {syncState?.peerConnected ? (
+                                <>
+                                    <span className="w-2 h-2 bg-emerald-500 rounded-full inline-block animate-pulse shadow-[0_0_4px_rgba(16,185,129,0.5)]" />{' '}
+                                    <span className="text-emerald-400">Vessel Connected</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span className="w-2 h-2 bg-red-500 rounded-full inline-block animate-pulse" />{' '}
+                                    <span className="text-red-400">Vessel Offline</span>
+                                </>
+                            )}
+                        </p>
+                    }
+                    onBack={onBack}
+                    action={
                         <button
                             onClick={handleStopWatch}
                             className="px-3 py-1.5 bg-red-500/[0.08] border border-red-500/20 rounded-lg text-red-400 text-sm font-bold transition-all active:scale-95"
@@ -804,8 +779,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         >
                             Leave
                         </button>
-                    </div>
-                </div>
+                    }
+                />
 
                 {/* Vessel Disconnection Banner */}
                 {!syncState?.peerConnected && (
@@ -938,19 +913,13 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
     return (
         <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden pb-[98px]`}>
-            {/* Header — glassmorphism */}
-            <div className={t.header.glass}>
-                <div className="flex items-center justify-between">
-                    <div>
-                        <h1 className={`${t.typography.pageTitle} flex items-center gap-2`}>
-                            <span className="text-amber-400">⚓</span> Anchor Deployed
-                        </h1>
-                        <p className={`${t.typography.caption} font-mono`}>
-                            {snapshot?.watchStartedAt
-                                ? `${formatElapsed(snapshot.watchStartedAt)} elapsed`
-                                : 'Monitoring...'}
-                        </p>
-                    </div>
+            <PageHeader
+                title="Anchor Deployed"
+                subtitle={
+                    snapshot?.watchStartedAt ? `${formatElapsed(snapshot.watchStartedAt)} elapsed` : 'Monitoring...'
+                }
+                onBack={onBack}
+                action={
                     <div className="flex items-center gap-2">
                         {/* Guardian status badge */}
                         {snapshot?.guardianStatus && snapshot.guardianStatus !== 'idle' && (
@@ -973,7 +942,6 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                               : 'bg-red-400'
                                     }`}
                                 />
-                                🛡️{' '}
                                 {snapshot.guardianStatus === 'armed'
                                     ? 'Armed'
                                     : snapshot.guardianStatus === 'already_armed'
@@ -988,8 +956,8 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                             className={`w-3 h-3 rounded-full ${isHolding ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)] animate-pulse'}`}
                         />
                     </div>
-                </div>
-            </div>
+                }
+            />
 
             {/* Action Buttons — glassmorphism pills */}
             <div className="shrink-0 px-3 py-1.5 flex gap-2">
