@@ -30,6 +30,25 @@ import { triggerHaptic } from '../../utils/system';
 import { CustomRecipeForm } from './CustomRecipeForm';
 import { toast } from '../Toast';
 
+// ── Group accent palette — gives each filter group its own pop colour ─────
+const TAG_GROUP_ACCENT: Record<
+    NonNullable<(typeof NAUTICAL_TAG_DEFS)[number]['group']>,
+    { active: string; idle: string }
+> = {
+    sea_state: {
+        active: 'bg-sky-500/20 text-sky-200 border-sky-400/40 shadow-md shadow-sky-500/20',
+        idle: 'bg-sky-500/[0.04] text-sky-300/60 border-sky-400/10 hover:bg-sky-500/10 hover:text-sky-200',
+    },
+    provisioning: {
+        active: 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40 shadow-md shadow-emerald-500/20',
+        idle: 'bg-emerald-500/[0.04] text-emerald-300/60 border-emerald-400/10 hover:bg-emerald-500/10 hover:text-emerald-200',
+    },
+    gear: {
+        active: 'bg-amber-500/20 text-amber-200 border-amber-400/40 shadow-md shadow-amber-500/20',
+        idle: 'bg-amber-500/[0.04] text-amber-300/60 border-amber-400/10 hover:bg-amber-500/10 hover:text-amber-200',
+    },
+};
+
 // ── Fallback Food Icons ────────────────────────────────────────────────────
 // Deterministic selection based on recipe ID hash — adds variety when no photo
 const FALLBACK_FOOD_ICONS = ['🍲', '🍳', '🐟', '🥗', '🍞', '🫕'] as const;
@@ -582,22 +601,26 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     key={group.label}
                                     className="flex items-center gap-1.5 overflow-x-auto no-scrollbar"
                                 >
-                                    <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider whitespace-nowrap shrink-0 w-16">
+                                    <span className="text-[10px] text-gray-500 font-black uppercase tracking-[0.15em] whitespace-nowrap shrink-0 w-14">
                                         {group.label}
                                     </span>
-                                    {group.tags.map((tag) => (
-                                        <button
-                                            key={tag.id}
-                                            onClick={() => handleToggleFilter(tag.id)}
-                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap active:scale-95 ${
-                                                activeFilters.has(tag.id)
-                                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 shadow-sm shadow-amber-500/10'
-                                                    : 'bg-white/[0.03] text-gray-400 border border-white/[0.06] hover:bg-white/[0.06]'
-                                            }`}
-                                        >
-                                            {tag.emoji} {tag.label}
-                                        </button>
-                                    ))}
+                                    {group.tags.map((tag) => {
+                                        const isActive = activeFilters.has(tag.id);
+                                        const accent = TAG_GROUP_ACCENT[tag.group];
+                                        return (
+                                            <button
+                                                key={tag.id}
+                                                onClick={() => handleToggleFilter(tag.id)}
+                                                aria-pressed={isActive}
+                                                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full border text-[11px] font-extrabold uppercase tracking-wider transition-all whitespace-nowrap active:scale-95 ${
+                                                    isActive ? accent.active : accent.idle
+                                                }`}
+                                            >
+                                                <span className="text-sm leading-none">{tag.emoji}</span>
+                                                <span>{tag.label}</span>
+                                            </button>
+                                        );
+                                    })}
                                 </div>
                             ))}
                         </div>
@@ -648,18 +671,23 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                     {/* ── Active Filter Summary ── */}
                     {activeFilters.size > 0 && !bilgeDiveMode && (
                         <div className="flex items-center gap-2">
-                            <span className="text-[11px] text-gray-500">Filtering:</span>
+                            <span className="text-[10px] text-gray-500 font-black uppercase tracking-[0.15em]">
+                                Filtering
+                            </span>
                             <div className="flex gap-1 flex-wrap flex-1">
                                 {[...activeFilters].map((tag) => {
                                     const def = NAUTICAL_TAG_DEFS.find((d) => d.id === tag);
-                                    return def ? (
+                                    if (!def) return null;
+                                    const accent = TAG_GROUP_ACCENT[def.group];
+                                    return (
                                         <span
                                             key={tag}
-                                            className="px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-400 text-[11px] font-bold"
+                                            className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-extrabold uppercase tracking-wider ${accent.active}`}
                                         >
-                                            {def.emoji} {def.label}
+                                            <span className="text-xs leading-none">{def.emoji}</span>
+                                            <span>{def.label}</span>
                                         </span>
-                                    ) : null;
+                                    );
                                 })}
                             </div>
                             <button
@@ -667,7 +695,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     setActiveFilters(new Set());
                                     triggerHaptic('light');
                                 }}
-                                className="text-[11px] text-gray-500 hover:text-white transition-colors"
+                                className="text-[10px] font-black uppercase tracking-wider text-gray-500 hover:text-white transition-colors"
                             >
                                 Clear
                             </button>

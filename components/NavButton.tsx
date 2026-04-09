@@ -68,10 +68,10 @@ export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onCli
         </div>
         <span
             style={{
-                fontSize: label.length > 6 ? 8 : 10,
+                fontSize: 9,
                 fontWeight: 900,
                 textTransform: 'uppercase',
-                letterSpacing: label.length > 6 ? '0.06em' : '0.15em',
+                letterSpacing: '0.1em',
                 color: active ? 'rgba(255, 255, 255, 0.85)' : 'rgba(255, 255, 255, 0.45)',
                 marginTop: 6,
                 lineHeight: 1,

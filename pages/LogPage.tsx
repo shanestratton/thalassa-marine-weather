@@ -581,7 +581,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             {/* ── Stop / New Entry — pinned at bottom ── */}
                             <div
                                 className="shrink-0 px-4 pt-2"
-                                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}
+                                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                             >
                                 <div className="flex gap-2">
                                     <button
@@ -819,7 +819,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             {/* ── Slide to Start CTA — pinned at bottom ── */}
                             <div
                                 className="shrink-0 px-4 pt-2"
-                                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}
+                                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                             >
                                 <SlideToAction
                                     label="Slide to Start Tracking"
