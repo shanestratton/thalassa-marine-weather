@@ -52,6 +52,8 @@ vi.mock('../components/Icons', () => ({
     CrosshairIcon: () => <span>⊕</span>,
     LockIcon: () => <span>🔒</span>,
     CompassIcon: () => <span>🧭</span>,
+    CalendarIcon: () => <span>📅</span>,
+    ClockIcon: () => <span>🕐</span>,
 }));
 
 import { RoutePlanner } from '../components/RoutePlanner';
