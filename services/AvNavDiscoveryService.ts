@@ -80,13 +80,11 @@ class AvNavDiscoveryServiceClass {
         // Always run network probes (delegates to AvNavService.scanNetwork — WebRTC + full /24)
         await this.scanWeb();
 
-        // Mark complete when scan finishes naturally
-        if (this.status === 'scanning') {
+        // Mark complete only if we weren't stopped externally — stop() clears scanTimeout.
+        if (this.scanTimeout) {
+            clearTimeout(this.scanTimeout);
+            this.scanTimeout = null;
             this.setStatus('done');
-            if (this.scanTimeout) {
-                clearTimeout(this.scanTimeout);
-                this.scanTimeout = null;
-            }
         }
     }
 

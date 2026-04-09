@@ -21,16 +21,28 @@ function makeFakeReport(overrides: Partial<MarineWeatherReport> = {}): MarineWea
     return {
         modelUsed: 'openmeteo',
         locationName: 'Test Location',
-        windSpeed: 15,
-        windDirection: 180,
-        windGust: 25,
-        waveHeight: 1.5,
-        wavePeriod: 8,
-        waveDirection: 200,
-        pressure: 1013,
-        temperature: 22,
-        humidity: 65,
-        cloudCover: 40,
+        current: {
+            windSpeed: 15,
+            windDirection: 'S',
+            windDegree: 180,
+            waveHeight: 1.5,
+            swellPeriod: 8,
+            airTemperature: 22,
+            condition: 'Partly Cloudy',
+            description: 'Partly Cloudy',
+            uvIndex: 5,
+            humidity: 65,
+            precipitation: 0,
+            pressure: 1013,
+            visibility: 10,
+            day: 'Mon',
+            date: '2025-01-01',
+        },
+        forecast: [],
+        hourly: [],
+        tides: [],
+        boatingAdvice: 'Conditions favourable',
+        generatedAt: new Date().toISOString(),
         ...overrides,
     } as MarineWeatherReport;
 }
@@ -66,7 +78,7 @@ describe('saveToCache / getFromCache', () => {
         saveToCache('Sydney Heads', report);
         const cached = getFromCache('Sydney Heads');
         expect(cached).not.toBeNull();
-        expect(cached!.windSpeed).toBe(15);
+        expect(cached!.current.windSpeed).toBe(15);
     });
 
     it('normalizes location name (spaces → underscores, lowercase)', () => {
@@ -85,7 +97,7 @@ describe('saveToCache / getFromCache', () => {
         saveToCache('Test', report);
         const fallback = localStorage.getItem('last_marine_report');
         expect(fallback).not.toBeNull();
-        expect(JSON.parse(fallback!).windSpeed).toBe(15);
+        expect(JSON.parse(fallback!).current.windSpeed).toBe(15);
     });
 });
 
@@ -171,7 +183,7 @@ describe('getFromCacheOffline', () => {
         expect(result).not.toBeNull();
         expect(result!.stale).toBe(true);
         expect(result!.ageMinutes).toBe(60);
-        expect(result!.data.windSpeed).toBe(15);
+        expect(result!.data.current.windSpeed).toBe(15);
     });
 
     it('returns non-stale data when cache is fresh', () => {
