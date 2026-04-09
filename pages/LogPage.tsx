@@ -26,6 +26,7 @@ import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
 
 import { UndoToast } from '../components/ui/UndoToast';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { PageHeader } from '../components/ui/PageHeader';
 import { useLogPageState } from '../hooks/useLogPageState';
 import { ShipLogEntry } from '../types';
 
@@ -363,59 +364,31 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 </div>
             ) : (
                 <div className="flex flex-col h-full">
-                    {/* ── Header: Maritime Journal aesthetic ── */}
-                    <div className="shrink-0 px-4 pt-3 pb-1 relative z-30">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                {onBack && (
-                                    <button
-                                        aria-label="Go back"
-                                        onClick={onBack}
-                                        className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                                    >
-                                        <svg
-                                            className="w-5 h-5"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={2}
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M15.75 19.5L8.25 12l7.5-7.5"
-                                            />
-                                        </svg>
-                                    </button>
-                                )}
-                                <div>
-                                    <h1 className="text-lg font-extrabold text-white uppercase tracking-[0.2em] leading-tight">
-                                        Ship's Log
-                                    </h1>
-                                    <div className="flex items-center gap-1.5 mt-0.5">
-                                        {isTracking ? (
-                                            <>
-                                                <span
-                                                    className={`w-1.5 h-1.5 rounded-full ${
-                                                        gpsStatus === 'locked'
-                                                            ? 'bg-emerald-400 animate-pulse'
-                                                            : gpsStatus === 'stale'
-                                                              ? 'bg-amber-400 animate-pulse'
-                                                              : 'bg-red-500 animate-pulse'
-                                                    }`}
-                                                />
-                                                <span className="text-[10px] font-bold text-emerald-400/80 uppercase tracking-widest">
-                                                    Recording
-                                                </span>
-                                            </>
-                                        ) : (
-                                            <span className="text-[10px] font-medium text-slate-600 uppercase tracking-widest">
-                                                GPS Voyage Recorder
-                                            </span>
-                                        )}
-                                    </div>
+                    {/* ── Header ── */}
+                    <PageHeader
+                        title="Ship's Log"
+                        subtitle={
+                            isTracking ? (
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                    <span
+                                        className={`w-1.5 h-1.5 rounded-full ${
+                                            gpsStatus === 'locked'
+                                                ? 'bg-emerald-400 animate-pulse'
+                                                : gpsStatus === 'stale'
+                                                  ? 'bg-amber-400 animate-pulse'
+                                                  : 'bg-red-500 animate-pulse'
+                                        }`}
+                                    />
+                                    <span className="text-[10px] font-bold text-emerald-400/80 uppercase tracking-widest">
+                                        Recording
+                                    </span>
                                 </div>
-                            </div>
+                            ) : (
+                                'GPS Voyage Recorder'
+                            )
+                        }
+                        onBack={onBack}
+                        action={
                             <div className="relative">
                                 <button
                                     aria-label="Open menu"
@@ -495,8 +468,8 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     </>
                                 )}
                             </div>
-                        </div>
-                    </div>
+                        }
+                    />
 
                     {/* ── Career Totals — Vertical Gauge Tiles ── */}
                     <div className="shrink-0 px-4 pb-2">

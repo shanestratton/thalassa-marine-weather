@@ -2,8 +2,7 @@
  * VesselHub — Nav Station dashboard.
  *
  * Premium glassmorphic vertical hierarchy:
- *   Section A: Active Watch Hero (Anchor + Passages) + Secondary (Guardian + Radio)
- *   Section B: Log Book slim strip
+ *   Section A: Active Watch — 3-row grid (Voyage Entries/Route Planner, Anchor Watch/Guardian, Radio Report)
  *   Section B½: Passage Planning (standalone)
  *   Section C: Ship's Office vertical list (all office cards)
  *   Section C½: Networking (NMEA Gateway + AvNav Charts)
@@ -60,7 +59,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
     const [anchorRadius, setAnchorRadius] = useState(0);
     const [showAdminPanel, setShowAdminPanel] = useState(false);
-    const [expanded, setExpanded] = useState<Set<string>>(new Set(['watch', 'logbook', 'passage']));
+    const [expanded, setExpanded] = useState<Set<string>>(new Set(['watch', 'passage']));
     const [_isAdmin, setIsAdmin] = useState(false);
 
     const toggleSection = (id: string) => {
@@ -154,21 +153,82 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         onToggle={toggleSection}
                     />
                     <CollapsibleContent open={expanded.has('watch')}>
-                        {/* Hero card — Anchor + Passages side by side */}
-                        <div style={GLASS.card} className="p-0 overflow-hidden mb-3 card-lift">
-                            <div className="flex">
-                                {/* Left: Anchor Watch */}
-                                <button
-                                    aria-label="Anchor Watch"
-                                    onClick={() => {
-                                        triggerHaptic('light');
-                                        onNavigate('compass');
-                                    }}
-                                    className="flex-1 p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] border-r border-white/[0.06]"
-                                >
-                                    <div className="flex items-center gap-2.5 mb-2">
+                        {/* Row 1 — Voyage Entries + Route Planner */}
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                            <button
+                                aria-label="Open voyage entries log book"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('details');
+                                }}
+                                style={GLASS.card}
+                                className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                            >
+                                <div className="flex items-center gap-2.5">
+                                    <div className="p-2 rounded-lg" style={{ background: 'rgba(14, 165, 233, 0.12)' }}>
+                                        <BookIcon color="#0ea5e9" />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[13px] font-black text-white tracking-wide">
+                                            Voyage Entries
+                                        </h4>
+                                        <p className="text-[11px] font-bold uppercase tracking-widest text-sky-400 mt-0.5">
+                                            Add Entry
+                                        </p>
+                                    </div>
+                                </div>
+                            </button>
+
+                            <button
+                                aria-label="Route Planner"
+                                onClick={() => {
+                                    if (isObserver) return;
+                                    triggerHaptic('light');
+                                    onNavigate('route');
+                                }}
+                                style={GLASS.card}
+                                className={`p-3.5 text-left transition-all active:scale-[0.98] card-lift ${
+                                    isObserver ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/[0.03]'
+                                }`}
+                            >
+                                <div className="flex items-center gap-2.5">
+                                    <div className="p-2 rounded-lg" style={{ background: 'rgba(34, 211, 238, 0.12)' }}>
+                                        <CompassIcon />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[13px] font-black text-white tracking-wide">
+                                            Route Planner
+                                        </h4>
+                                        <p
+                                            className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${
+                                                isObserver ? 'text-gray-500' : 'text-cyan-400'
+                                            }`}
+                                        >
+                                            {isObserver ? 'Vessel Required' : 'Route Plan'}
+                                        </p>
+                                    </div>
+                                </div>
+                            </button>
+                        </div>
+
+                        {/* Row 2 — Anchor Watch + Guardian */}
+                        <div className="grid grid-cols-2 gap-3 mb-3">
+                            <button
+                                aria-label="Anchor Watch"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('compass');
+                                }}
+                                style={GLASS.card}
+                                className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                            >
+                                <div className="flex items-center gap-2.5">
+                                    <div
+                                        className="p-2 rounded-lg flex items-center justify-center"
+                                        style={{ background: `${anchorColor}1f` }}
+                                    >
                                         <div
-                                            className="w-2.5 h-2.5 rounded-full"
+                                            className="w-3 h-3 rounded-full"
                                             style={{
                                                 backgroundColor: anchorColor,
                                                 boxShadow:
@@ -176,47 +236,21 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                                 animation: anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
                                             }}
                                         />
-                                        <span className="text-sm font-black text-white tracking-wide">
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[13px] font-black text-white tracking-wide">
                                             Anchor Watch
-                                        </span>
+                                        </h4>
+                                        <p
+                                            className="text-[11px] font-bold uppercase tracking-widest mt-0.5"
+                                            style={{ color: anchorColor }}
+                                        >
+                                            {anchorLabel}
+                                        </p>
                                     </div>
-                                    <p
-                                        className="text-xs font-bold uppercase tracking-widest"
-                                        style={{ color: anchorColor }}
-                                    >
-                                        {anchorLabel}
-                                    </p>
-                                </button>
+                                </div>
+                            </button>
 
-                                {/* Right: Passages */}
-                                <button
-                                    aria-label="Route Planner"
-                                    onClick={() => {
-                                        if (isObserver) return;
-                                        triggerHaptic('light');
-                                        onNavigate('route');
-                                    }}
-                                    className={`flex-1 p-4 text-left transition-all active:scale-[0.98] ${
-                                        isObserver ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/[0.03]'
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-2.5 mb-2">
-                                        <CompassIcon />
-                                        <span className="text-sm font-black text-white tracking-wide">
-                                            Route Planner
-                                        </span>
-                                    </div>
-                                    <p
-                                        className={`text-xs font-bold uppercase tracking-widest ${isObserver ? 'text-gray-500' : 'text-cyan-400'}`}
-                                    >
-                                        {isObserver ? 'Vessel Required' : 'Route Plan'}
-                                    </p>
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Secondary row — Guardian + Radio */}
-                        <div className="grid grid-cols-2 gap-3">
                             <button
                                 aria-label="Open Guardian bay watch"
                                 onClick={() => {
@@ -238,64 +272,28 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     </div>
                                 </div>
                             </button>
-
-                            <button
-                                aria-label="Open radio position reporting"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('radio');
-                                }}
-                                style={GLASS.card}
-                                className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
-                            >
-                                <div className="flex items-center gap-2.5">
-                                    <div className="p-2 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.12)' }}>
-                                        <SignalIcon color="#f59e0b" />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-[13px] font-black text-white tracking-wide">Radio</h4>
-                                        <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
-                                            Report Pos
-                                        </p>
-                                    </div>
-                                </div>
-                            </button>
                         </div>
-                    </CollapsibleContent>
-                </div>
 
-                {/* ═══════════════════════════════════════════ */}
-                {/* SECTION B: LOG BOOK — Slim horizontal strip */}
-                {/* ═══════════════════════════════════════════ */}
-                <div className="mb-4">
-                    <SectionHeader
-                        color="#0ea5e9"
-                        label="Log Book"
-                        id="logbook"
-                        expanded={expanded.has('logbook')}
-                        onToggle={toggleSection}
-                    />
-                    <CollapsibleContent open={expanded.has('logbook')}>
+                        {/* Row 3 — Radio Report (full width) */}
                         <button
-                            aria-label="Open voyage entries log book"
+                            aria-label="Open radio position reporting"
                             onClick={() => {
                                 triggerHaptic('light');
-                                onNavigate('details');
+                                onNavigate('radio');
                             }}
                             style={GLASS.card}
-                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                            className="w-full p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
                         >
-                            <div className="p-2 rounded-lg" style={{ background: 'rgba(14, 165, 233, 0.12)' }}>
-                                <BookIcon color="#0ea5e9" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <span className="text-[13px] font-black text-white tracking-wide">Voyage Entries</span>
-                                <p className="text-[11px] text-gray-500 truncate mt-0.5 italic">
-                                    Tap to view or add entries
-                                </p>
-                            </div>
-                            <div className="p-1.5 rounded-lg" style={{ background: 'rgba(14, 165, 233, 0.12)' }}>
-                                <PlusIcon color="#0ea5e9" />
+                            <div className="flex items-center gap-2.5">
+                                <div className="p-2 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.12)' }}>
+                                    <SignalIcon color="#f59e0b" />
+                                </div>
+                                <div>
+                                    <h4 className="text-[13px] font-black text-white tracking-wide">Radio Report</h4>
+                                    <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
+                                        Report Pos
+                                    </p>
+                                </div>
                             </div>
                         </button>
                     </CollapsibleContent>

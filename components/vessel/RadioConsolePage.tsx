@@ -13,7 +13,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { GpsService, type GpsPosition } from '../../services/GpsService';
 import { useSettings } from '../../context/SettingsContext';
 import { triggerHaptic } from '../../utils/system';
-import './RadioConsolePage.css';
+import { PageHeader } from '../ui/PageHeader';
 
 interface RadioConsolePageProps {
     onBack: () => void;
@@ -199,50 +199,56 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
 
     const utcTime = new Date().toISOString().slice(11, 19);
 
+    const gpsStatusClass = gpsError
+        ? 'bg-red-500/10 border-red-500/30 text-red-400'
+        : gpsAge === 'LIVE'
+          ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+          : 'bg-amber-500/10 border-amber-500/30 text-amber-400';
+
     return (
-        <div className="radio-console slide-up-enter">
-            {/* ── Header bar ── */}
-            <div className="radio-console__header">
-                <button onClick={onBack} className="radio-console__back" aria-label="Back to vessel">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                    </svg>
-                </button>
-                <div className="radio-console__title">
-                    <div className="radio-console__title-icon">📻</div>
-                    <div>
-                        <h1>Radio Console</h1>
-                        <p>Report Position</p>
+        <div className="w-full h-full flex flex-col bg-slate-950 slide-up-enter overflow-y-auto">
+            <PageHeader
+                title="Radio Console"
+                subtitle="Report Position"
+                onBack={onBack}
+                action={
+                    <div
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-extrabold uppercase tracking-widest ${gpsStatusClass}`}
+                    >
+                        <span
+                            className={`w-1.5 h-1.5 rounded-full bg-current ${gpsAge === 'LIVE' && !gpsError ? 'animate-pulse' : ''}`}
+                        />
+                        <span>{gpsError ? 'No Fix' : gpsAge}</span>
                     </div>
-                </div>
-                <div
-                    className={`radio-console__gps-status ${gpsError ? 'error' : gpsAge === 'LIVE' ? 'live' : 'stale'}`}
-                >
-                    <div className="radio-console__gps-dot" />
-                    <span>{gpsError ? 'NO FIX' : gpsAge}</span>
-                </div>
-            </div>
+                }
+            />
 
             {/* ── Vessel identity strip ── */}
-            <div className="radio-console__identity">
-                <div className="radio-console__vessel-name">{vesselName}</div>
-                <div className="radio-console__id-row">
+            <div className="shrink-0 px-5 py-4 border-b border-white/[0.06]">
+                <div className="text-2xl font-black text-white uppercase tracking-wide mb-2.5">{vesselName}</div>
+                <div className="flex flex-wrap gap-2">
                     {callSign && (
-                        <div className="radio-console__id-chip">
-                            <span className="label">CS</span>
-                            <span className="value">{callSign}</span>
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.04] border border-white/[0.08]">
+                            <span className="text-[9px] font-extrabold tracking-widest text-slate-500 uppercase">
+                                CS
+                            </span>
+                            <span className="text-[13px] font-bold text-sky-400 tracking-wide">{callSign}</span>
                         </div>
                     )}
                     {mmsi && (
-                        <div className="radio-console__id-chip">
-                            <span className="label">MMSI</span>
-                            <span className="value">{mmsi}</span>
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.04] border border-white/[0.08]">
+                            <span className="text-[9px] font-extrabold tracking-widest text-slate-500 uppercase">
+                                MMSI
+                            </span>
+                            <span className="text-[13px] font-bold text-sky-400 tracking-wide">{mmsi}</span>
                         </div>
                     )}
                     {rego && (
-                        <div className="radio-console__id-chip">
-                            <span className="label">REGO</span>
-                            <span className="value">{rego}</span>
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white/[0.04] border border-white/[0.08]">
+                            <span className="text-[9px] font-extrabold tracking-widest text-slate-500 uppercase">
+                                Rego
+                            </span>
+                            <span className="text-[13px] font-bold text-sky-400 tracking-wide">{rego}</span>
                         </div>
                     )}
                     {!callSign && !mmsi && !rego && (
@@ -251,30 +257,37 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                                 localStorage.setItem('thalassa_settings_return_to', 'radio');
                                 onNavigate?.('settings');
                             }}
-                            className="radio-console__id-chip empty"
-                            style={{ cursor: 'pointer' }}
+                            className="px-2.5 py-1 rounded-md bg-white/[0.02] border border-dashed border-white/10 text-[11px] font-bold text-slate-500 hover:text-slate-400 hover:border-white/20 transition-colors"
                         >
-                            <span className="value">⚙️ Set identity in Vessel Settings →</span>
+                            ⚙️ Set identity in Vessel Settings →
                         </button>
                     )}
                 </div>
             </div>
 
             {/* ── Position display ── */}
-            <div className="radio-console__position">
+            <div className="shrink-0 px-5 py-7 bg-white/[0.02] border-b border-white/[0.06]">
                 {position ? (
-                    <>
-                        <div className="radio-console__coord">
-                            <span className="radio-console__coord-label">LAT</span>
-                            <span className="radio-console__coord-value">{formatLat(position.latitude)}</span>
+                    <div className="flex flex-col gap-3 font-mono">
+                        <div className="flex items-baseline gap-3">
+                            <span className="text-[11px] font-extrabold tracking-[0.2em] text-slate-500 w-8 shrink-0">
+                                LAT
+                            </span>
+                            <span className="text-3xl sm:text-4xl font-black text-sky-400 tracking-tight">
+                                {formatLat(position.latitude)}
+                            </span>
                         </div>
-                        <div className="radio-console__coord">
-                            <span className="radio-console__coord-label">LON</span>
-                            <span className="radio-console__coord-value">{formatLon(position.longitude)}</span>
+                        <div className="flex items-baseline gap-3">
+                            <span className="text-[11px] font-extrabold tracking-[0.2em] text-slate-500 w-8 shrink-0">
+                                LON
+                            </span>
+                            <span className="text-3xl sm:text-4xl font-black text-sky-400 tracking-tight">
+                                {formatLon(position.longitude)}
+                            </span>
                         </div>
-                    </>
+                    </div>
                 ) : (
-                    <div className="radio-console__no-fix">
+                    <div className="flex flex-col items-center justify-center gap-3 py-8 text-slate-500">
                         <svg
                             width="32"
                             height="32"
@@ -282,6 +295,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                             fill="none"
                             stroke="currentColor"
                             strokeWidth={1.5}
+                            className="animate-pulse"
                         >
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
                             <path
@@ -290,44 +304,51 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                                 d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
                             />
                         </svg>
-                        <span>Acquiring GPS Fix…</span>
+                        <span className="text-[13px] font-bold tracking-wider uppercase">Acquiring GPS Fix…</span>
                     </div>
                 )}
             </div>
 
             {/* ── SOG / COG / UTC strip ── */}
-            <div className="radio-console__metrics">
-                <div className="radio-console__metric">
-                    <span className="radio-console__metric-label">SOG</span>
-                    <span className="radio-console__metric-value">
+            <div className="shrink-0 flex items-center px-5 py-4 border-b border-white/[0.06]">
+                <div className="flex-1 text-center">
+                    <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase mb-1">SOG</div>
+                    <div className="text-[22px] font-black text-white font-mono">
                         {position ? sogKts.toFixed(1) : '—'}
-                        <span className="radio-console__metric-unit">kts</span>
-                    </span>
+                        <span className="text-[11px] font-bold text-slate-500 ml-0.5">kts</span>
+                    </div>
                 </div>
-                <div className="radio-console__metric-divider" />
-                <div className="radio-console__metric">
-                    <span className="radio-console__metric-label">COG</span>
-                    <span className="radio-console__metric-value">
+                <div className="w-px h-8 bg-white/[0.08] shrink-0" />
+                <div className="flex-1 text-center">
+                    <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase mb-1">COG</div>
+                    <div className="text-[22px] font-black text-white font-mono">
                         {position ? `${Math.round(cogDeg)}` : '—'}
-                        <span className="radio-console__metric-unit">°T</span>
-                    </span>
+                        <span className="text-[11px] font-bold text-slate-500 ml-0.5">°T</span>
+                    </div>
                 </div>
-                <div className="radio-console__metric-divider" />
-                <div className="radio-console__metric">
-                    <span className="radio-console__metric-label">UTC</span>
-                    <span className="radio-console__metric-value radio-console__metric-value--time">{utcTime}</span>
+                <div className="w-px h-8 bg-white/[0.08] shrink-0" />
+                <div className="flex-1 text-center">
+                    <div className="text-[9px] font-extrabold tracking-[0.2em] text-slate-500 uppercase mb-1">UTC</div>
+                    <div className="text-[18px] font-black text-white font-mono tracking-wider">{utcTime}</div>
                 </div>
             </div>
 
             {/* ── Action buttons ── */}
-            <div className="radio-console__actions">
+            <div
+                className="flex gap-3 px-5 py-6 mt-auto"
+                style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
+            >
                 <button
                     onClick={handleSpeak}
                     disabled={!position || isSpeaking}
-                    className={`radio-console__btn radio-console__btn--speak ${isSpeaking ? 'speaking' : ''}`}
+                    className={`flex-1 flex items-center justify-center gap-2.5 py-4 px-5 rounded-2xl text-[13px] font-extrabold uppercase tracking-wider transition-all border disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.97] ${
+                        isSpeaking
+                            ? 'bg-sky-500/20 border-sky-500/40 text-sky-300 animate-pulse'
+                            : 'bg-sky-500/10 border-sky-500/30 text-sky-400 hover:bg-sky-500/15'
+                    }`}
                     aria-label="Read position aloud"
                 >
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
                         <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
@@ -340,7 +361,11 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                 <button
                     onClick={handleCopy}
                     disabled={!position}
-                    className={`radio-console__btn radio-console__btn--copy ${copied ? 'copied' : ''}`}
+                    className={`flex-1 flex items-center justify-center gap-2.5 py-4 px-5 rounded-2xl text-[13px] font-extrabold uppercase tracking-wider transition-all border disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.97] ${
+                        copied
+                            ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                            : 'bg-white/[0.04] border-white/10 text-slate-300 hover:bg-white/[0.08]'
+                    }`}
                     aria-label="Copy position to clipboard"
                 >
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>

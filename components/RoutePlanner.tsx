@@ -21,6 +21,7 @@ import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { useUI } from '../context/UIContext';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { FirstRunHint } from './ui/FirstRunHint';
+import { PageHeader } from './ui/PageHeader';
 
 export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () => void }> = ({
     onTriggerUpgrade,
@@ -90,31 +91,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
     }, [voyagePlan, origin, destination, setPage, clearVoyagePlan]);
     return (
         <div className="relative flex-1 bg-slate-950 overflow-hidden flex flex-col">
-            {/* ═══ HEADER ═══ */}
-            <div className="shrink-0 px-4 pt-4 pb-3">
-                <div className="flex items-center gap-3">
-                    {onBack && (
-                        <button
-                            onClick={onBack}
-                            aria-label="Go back"
-                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
-                        >
-                            <svg
-                                className="w-5 h-5 text-gray-400"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                            </svg>
-                        </button>
-                    )}
-                    <div className="flex-1">
-                        <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Route Planner</h1>
-                    </div>
-                </div>
-            </div>
+            <PageHeader title="Route Planner" onBack={onBack} />
 
             {/* FULL SCREEN MAP MODAL - PORTALED TO ESCAPE TRANSFORMS */}
             {isMapOpen &&
@@ -435,17 +412,21 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                 Unlock Route Planning
                             </button>
                         ) : (
-                            <FirstRunHint id="route-calc" message="Enter origin & destination, then slide to calculate" position="top">
-                            <SlideToAction
-                                label="Slide to Calculate Route"
-                                thumbIcon={<CompassIcon className="w-5 h-5 text-white" rotation={0} />}
-                                onConfirm={() => {
-                                    handleCalculate();
-                                }}
-                                loading={loading}
-                                loadingText={LOADING_PHASES[loadingStep] || 'Calculating…'}
-                                theme="emerald"
-                            />
+                            <FirstRunHint
+                                id="route-calc"
+                                message="Enter origin & destination, then slide to calculate"
+                                position="top"
+                            >
+                                <SlideToAction
+                                    label="Slide to Calculate Route"
+                                    thumbIcon={<CompassIcon className="w-5 h-5 text-white" rotation={0} />}
+                                    onConfirm={() => {
+                                        handleCalculate();
+                                    }}
+                                    loading={loading}
+                                    loadingText={LOADING_PHASES[loadingStep] || 'Calculating…'}
+                                    theme="emerald"
+                                />
                             </FirstRunHint>
                         )}
                     </div>

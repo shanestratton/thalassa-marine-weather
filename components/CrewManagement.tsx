@@ -43,6 +43,7 @@ import { lazyRetry } from '../utils/lazyRetry';
 import { InviteCrewModal } from './crew/InviteCrewModal';
 import { CrewRoster } from './crew/CrewRoster';
 import { ReadinessCardStack } from './crew/ReadinessCardStack';
+import { PageHeader } from './ui/PageHeader';
 
 const CastOffPanel = lazyRetry(
     () => import('./vessel/CastOffPanel').then((m) => ({ default: m.CastOffPanel })),
@@ -333,18 +334,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     if (!isAuthed) {
         return (
             <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
-                <div className="shrink-0 px-4 pt-4 pb-3 flex items-center gap-2">
-                    <button
-                        aria-label="Go back"
-                        onClick={onBack}
-                        className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                    >
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                        </svg>
-                    </button>
-                    <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Passage Planning</h1>
-                </div>
+                <PageHeader title="Passage Planning" onBack={onBack} />
                 <div className="flex-1 flex items-center justify-center p-8">
                     <div className="text-center">
                         <div className="text-4xl mb-4">👥</div>
@@ -378,27 +368,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
     return (
         <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`}>
-            {/* Header */}
-            <div className="shrink-0 px-4 pt-4 pb-3">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <button
-                            aria-label="Go back"
-                            onClick={onBack}
-                            className="p-1.5 -ml-1.5 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
-                        >
-                            <svg
-                                className="w-5 h-5"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2}
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                            </svg>
-                        </button>
-                        <h1 className="text-xl font-extrabold text-white uppercase tracking-wider">Passage Planning</h1>
-                    </div>
+            <PageHeader
+                title="Passage Planning"
+                onBack={onBack}
+                action={
                     <button
                         aria-label="Invite crew member"
                         onClick={() => {
@@ -410,8 +383,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     >
                         + Invite Crew
                     </button>
-                </div>
-            </div>
+                }
+            />
 
             {/* Content */}
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-24" style={{ WebkitOverflowScrolling: 'touch' }}>

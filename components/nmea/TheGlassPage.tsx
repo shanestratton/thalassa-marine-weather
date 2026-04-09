@@ -13,6 +13,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNmeaStore } from './useNmeaStore';
 import { triggerHaptic } from '../../utils/system';
+import { PageHeader } from '../ui/PageHeader';
 import type { TimestampedMetric, DataFreshness } from '../../services/NmeaStore';
 
 interface TheGlassPageProps {
@@ -625,71 +626,22 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     return (
         <div className="relative h-full bg-slate-950 overflow-hidden slide-up-enter">
             <div className="flex flex-col h-full">
-                {/* ═══ HEADER ═══ */}
-                <div
-                    className="shrink-0 px-4 pt-4 pb-3 flex items-center gap-3"
-                    style={{ paddingTop: 'calc(env(safe-area-inset-top, 20px) + 8px)' }}
-                >
-                    <button
-                        onClick={handleBack}
-                        aria-label="Go back"
-                        className="p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center press"
-                    >
-                        <svg
-                            className="w-5 h-5 text-gray-400"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                        >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                        </svg>
-                    </button>
-                    <div className="flex-1 flex items-center justify-center gap-2.5">
-                        {/* Logo mark */}
-                        <svg width="30" height="30" viewBox="0 0 32 32" fill="none">
-                            <defs>
-                                <linearGradient id="logo-grad" x1="0" y1="0" x2="1" y2="1">
-                                    <stop offset="0%" stopColor="#22d3ee" />
-                                    <stop offset="100%" stopColor="#a78bfa" />
-                                </linearGradient>
-                            </defs>
-                            <circle cx="16" cy="16" r="13" stroke="url(#logo-grad)" strokeWidth="2" fill="none" />
-                            <path
-                                d="M16 4 L16 28 M4 16 L28 16"
-                                stroke="url(#logo-grad)"
-                                strokeWidth="1"
-                                opacity="0.5"
+                <PageHeader
+                    title="Instrument Panel"
+                    onBack={handleBack}
+                    action={
+                        <div className="flex items-center gap-1.5">
+                            <div
+                                className={`w-2 h-2 rounded-full ${
+                                    isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                                }`}
                             />
-                            <path
-                                d="M8 8 L24 24 M24 8 L8 24"
-                                stroke="url(#logo-grad)"
-                                strokeWidth="0.7"
-                                opacity="0.3"
-                            />
-                            <circle cx="16" cy="16" r="3.5" fill="url(#logo-grad)" />
-                        </svg>
-                        <div className="text-left">
-                            <h1 className="text-base font-black text-white uppercase tracking-[0.18em] leading-none">
-                                Thalassa Skipper
-                            </h1>
-                            <p className="text-[8px] font-bold uppercase tracking-[0.3em] text-cyan-400/70 mt-1">
-                                The Sailor&apos;s Assistant
-                            </p>
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">
+                                {isConnected ? 'Live' : 'Demo'}
+                            </span>
                         </div>
-                    </div>
-                    {/* Connection status */}
-                    <div className="flex items-center gap-1.5 min-w-[44px] justify-end">
-                        <div
-                            className={`w-2 h-2 rounded-full ${
-                                isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
-                            }`}
-                        />
-                        <span className="text-[9px] font-bold uppercase tracking-wider text-gray-500">
-                            {isConnected ? 'Live' : 'Demo'}
-                        </span>
-                    </div>
-                </div>
+                    }
+                />
 
                 {/* ═══ INSTRUMENT PANEL ═══ */}
                 <div
