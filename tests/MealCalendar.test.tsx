@@ -21,6 +21,7 @@ vi.mock('../services/GalleyRecipeService', () => ({
 
 vi.mock('../services/ShoppingListService', () => ({
     addManualItem: vi.fn().mockResolvedValue(undefined),
+    getShoppingList: vi.fn(() => ({ total: 0, purchased: 0, remaining: 0, totalCost: 0, currency: 'AUD', zones: [] })),
 }));
 
 vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
