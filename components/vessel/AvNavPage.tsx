@@ -165,7 +165,12 @@ const RegionHeader: React.FC<{
 export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
     // AvNav chart state
     const [skHost, setSkHost] = useState(AvNavService.getHost());
-    const [skPort, setSkPort] = useState(String(AvNavService.getPort()));
+    const [skPort, setSkPort] = useState(() => {
+        // AvNav defaults to port 8080 — only honour the saved port if it isn't
+        // the Signal K default (3000) inherited from the shared service.
+        const current = AvNavService.getPort();
+        return current && current !== 3000 ? String(current) : '8080';
+    });
     const [skStatus, setSkStatus] = useState<AvNavConnectionStatus>(AvNavService.getStatus());
     const [skCharts, setSkCharts] = useState<AvNavChart[]>(AvNavService.getCharts());
     const [skApiVersion, setSkApiVersion] = useState<string | null>(AvNavService.getApiVersion());
@@ -209,7 +214,8 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
 
     const handleSkConnect = useCallback(() => {
         triggerHaptic('medium');
-        AvNavService.configure(skHost, parseInt(skPort, 10) || 3000, 'avnav');
+        // AvNav default port is 8080 (not 3000 — that's Signal K's default).
+        AvNavService.configure(skHost, parseInt(skPort, 10) || 8080, 'avnav');
         AvNavService.start();
     }, [skHost, skPort]);
 
