@@ -24,7 +24,7 @@ function nativeLog(msg: string): void {
     Preferences.set({ key, value: val })
         .then(() => Preferences.get({ key }))
         .catch(() => {});
-    console.error(`[AvNav] ${msg}`);
+    console.info(`[AvNav] ${msg}`);
 }
 
 /** Awaitable version — ensures logs appear sequentially in Xcode */
@@ -37,7 +37,7 @@ export async function nativeLogAsync(msg: string): Promise<void> {
     } catch {
         /* ignore */
     }
-    console.error(`[AvNav] ${msg}`);
+    console.info(`[AvNav] ${msg}`);
 }
 
 // ── Types ──

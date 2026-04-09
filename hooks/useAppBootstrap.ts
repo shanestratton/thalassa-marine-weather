@@ -59,10 +59,10 @@ export function useAppBootstrap() {
 
     // ── Signal K auto-reconnect ───────────────────────────────────
     useEffect(() => {
-        console.error('[Boot] AvNav: importing service...');
+        console.info('[Boot] AvNav: importing service...');
         import('../services/AvNavService')
             .then(({ AvNavService }) => {
-                console.error('[Boot] AvNav: imported OK, calling autoStart');
+                console.info('[Boot] AvNav: imported OK, calling autoStart');
                 AvNavService.autoStart();
             })
             .catch((err) => {

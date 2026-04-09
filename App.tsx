@@ -11,7 +11,8 @@ import { NotificationManager } from './components/NotificationManager';
 import { ProcessOverlay } from './components/ProcessOverlay';
 import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
-import { NAV_ICON_WX, NAV_ICON_MAP, NAV_ICON_CHAT, NAV_ICON_VESSEL } from './components/icons/NavIconAssets';
+import { NAV_ICON_MAP, NAV_ICON_CHAT, NAV_ICON_VESSEL } from './components/icons/NavIconAssets';
+import { StormGlassNavIcon } from './components/icons/StormGlassNavIcon';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemStatusButton } from './components/SystemStatusButton';
 import { ToastPortal, toast } from './components/Toast';
@@ -543,10 +544,7 @@ const App: React.FC = () => {
                         >
                             <NavButton
                                 icon={
-                                    <img
-                                        src={NAV_ICON_WX}
-                                        alt=""
-                                        draggable={false}
+                                    <StormGlassNavIcon
                                         className="w-full h-full object-contain"
                                         style={{
                                             WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
