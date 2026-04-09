@@ -646,7 +646,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                 {/* ═══ INSTRUMENT PANEL ═══ */}
                 <div
                     className="flex-1 min-h-0 overflow-y-auto px-3 pb-4"
-                    style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}
+                    style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     {/* ── ROW 1: SOG (left) + TWS GAUGE (center overlap) + AWS (right) ── */}
                     <div className="relative mb-2">

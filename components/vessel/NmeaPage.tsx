@@ -147,7 +147,7 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass })
                 {/* Content — fills viewport */}
                 <div
                     className="flex-1 px-4 min-h-0 overflow-y-auto"
-                    style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 12px)' }}
+                    style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     {/* ═══ CONNECTION CARD ═══ */}
                     <div

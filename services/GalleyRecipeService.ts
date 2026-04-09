@@ -1189,17 +1189,17 @@ export interface NauticalTagMeta {
 }
 
 export const NAUTICAL_TAG_DEFS: NauticalTagMeta[] = [
-    // Sea State
-    { id: 'at_anchor', label: 'At Anchor', emoji: '⚓', group: 'sea_state' },
+    // Sea State — single-word vessel condition
+    { id: 'at_anchor', label: 'Anchored', emoji: '⚓', group: 'sea_state' },
     { id: 'underway', label: 'Underway', emoji: '⛵', group: 'sea_state' },
-    { id: 'rough_weather', label: 'Rough Weather', emoji: '🌊', group: 'sea_state' },
-    // Provisioning
-    { id: 'fresh_catch', label: 'Fresh Catch', emoji: '🎣', group: 'provisioning' },
-    { id: 'fresh_produce', label: 'Fresh Produce', emoji: '🥬', group: 'provisioning' },
-    { id: 'pantry_staples', label: 'Pantry Staples', emoji: '🥫', group: 'provisioning' },
-    // Gear
+    { id: 'rough_weather', label: 'Stormy', emoji: '🌊', group: 'sea_state' },
+    // Provisioning — single-word ingredient category
+    { id: 'fresh_catch', label: 'Seafood', emoji: '🎣', group: 'provisioning' },
+    { id: 'fresh_produce', label: 'Produce', emoji: '🥬', group: 'provisioning' },
+    { id: 'pantry_staples', label: 'Pantry', emoji: '🥫', group: 'provisioning' },
+    // Gear — cooking method (single word or short hyphenated)
     { id: 'one_pot', label: 'One-Pot', emoji: '🍲', group: 'gear' },
-    { id: 'stove_top', label: 'Stove-Top', emoji: '🔥', group: 'gear' },
+    { id: 'stove_top', label: 'Stovetop', emoji: '🔥', group: 'gear' },
     { id: 'oven', label: 'Oven', emoji: '♨️', group: 'gear' },
     { id: 'no_cook', label: 'No-Cook', emoji: '❄️', group: 'gear' },
 ];
