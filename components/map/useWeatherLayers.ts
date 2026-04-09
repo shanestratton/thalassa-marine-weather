@@ -855,16 +855,31 @@ export function useWeatherLayers(
             setRainReady(false);
             setRainFrameIndex(0);
 
+            const abortCtrl = new AbortController();
             let stale = false;
 
             (async () => {
                 try {
-                    // 1. Fetch RainViewer radar frames (past + short nowcast)
-                    const radarData = await fetch('https://api.rainviewer.com/public/weather-maps.json')
-                        .then((r) => r.json())
-                        .catch(() => null);
-                    const past: { path: string; time: number }[] = radarData?.radar?.past ?? [];
-                    const nowcast: { path: string; time: number }[] = radarData?.radar?.nowcast ?? [];
+                    // 1. Fetch RainViewer radar frames (past + short nowcast) — with retry
+                    let radarData: Record<string, unknown> | null = null;
+                    for (let attempt = 0; attempt < 3; attempt++) {
+                        try {
+                            const resp = await fetch('https://api.rainviewer.com/public/weather-maps.json', {
+                                signal: abortCtrl.signal,
+                            });
+                            radarData = await resp.json();
+                            break;
+                        } catch (fetchErr) {
+                            if (abortCtrl.signal.aborted) throw fetchErr;
+                            log.warn(`RainViewer fetch attempt ${attempt + 1} failed:`, fetchErr);
+                            if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+                        }
+                    }
+                    if (abortCtrl.signal.aborted) return;
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const radar = (radarData as any)?.radar;
+                    const past: { path: string; time: number }[] = radar?.past ?? [];
+                    const nowcast: { path: string; time: number }[] = radar?.nowcast ?? [];
                     const allRadar = [...past, ...nowcast];
 
                     // 2. Rainbow.ai forecast tiles (1km res) — via Supabase Edge Proxy
@@ -876,7 +891,9 @@ export function useWeatherLayers(
 
                     if (supabaseUrl) {
                         try {
-                            const snapResp = await fetch(`${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot`);
+                            const snapResp = await fetch(`${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot`, {
+                                signal: abortCtrl.signal,
+                            });
                             if (snapResp.ok) {
                                 const snapData = await snapResp.json();
                                 rainbowSnapshot = snapData.snapshot || null;
@@ -885,6 +902,7 @@ export function useWeatherLayers(
                                 log.warn(`Rainbow.ai snapshot failed: ${snapResp.status}`);
                             }
                         } catch (err) {
+                            if (abortCtrl.signal.aborted) return;
                             log.warn('Rainbow.ai snapshot fetch failed, using radar only:', err);
                         }
                     }
@@ -932,7 +950,7 @@ export function useWeatherLayers(
                     setRainFrameIndex(nowIdx);
 
                     // 4. Set up map sources
-                    if (stale) return; // Bail if effect was cleaned up during fetch
+                    if (stale || abortCtrl.signal.aborted) return; // Bail if effect was cleaned up during fetch
                     const m = mapRef.current;
                     if (!m) return;
 
@@ -1014,9 +1032,10 @@ export function useWeatherLayers(
                 }
             })();
 
-            // Store cleanup for this rain session (called by effect teardown)
+            // Store cleanup for this rain session (called ONLY when rain is toggled off)
             rainCleanupRef.current = () => {
                 stale = true;
+                abortCtrl.abort();
                 if (rainFadeTimerRef.current) {
                     clearTimeout(rainFadeTimerRef.current);
                     rainFadeTimerRef.current = null;
@@ -1092,13 +1111,15 @@ export function useWeatherLayers(
         // added/removed, route and supporting overlays always render on top.
         promoteNavLayers(map);
 
-        // ── Unified cleanup: runs when activeKey changes ──
+        // ── Scoped cleanup: rain teardown is handled at two distinct points ──
+        // 1. Line 701: when rain is toggled OFF (removes layers + resets state)
+        // 2. Unmount effect: resets refs (line ~1165)
+        // Previously this return() destroyed rain on EVERY activeKey change,
+        // causing rain to vanish when toggling wind/pressure/etc.
         return () => {
-            // Call rain cleanup if it was set up in this render
-            if (rainCleanupRef.current) {
-                rainCleanupRef.current();
-                rainCleanupRef.current = null;
-            }
+            // No-op — intentionally empty.
+            // Rain layers persist across layer toggles and are only cleaned up
+            // when rain is explicitly toggled off or the component unmounts.
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeKey, mapReady, updateIsobars]);
@@ -1136,6 +1157,11 @@ export function useWeatherLayers(
     // ── Cleanup on unmount — ensures fresh re-initialization on re-entry ──
     useEffect(() => {
         return () => {
+            // Invoke rain cleanup to remove map layers + abort pending fetches
+            if (rainCleanupRef.current) {
+                rainCleanupRef.current();
+                rainCleanupRef.current = null;
+            }
             setWindReady(false);
             setRainReady(false);
             setRainFrameCount(0);

@@ -68,7 +68,11 @@ const INPUT_CLASS =
     'w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:border-sky-500 outline-none font-mono placeholder-gray-500';
 
 const UnitToggle: React.FC<{ value: string; onClick: () => void }> = ({ value, onClick }) => (
-    <button aria-label="Click" onClick={onClick} className="text-sky-400 hover:text-white uppercase">
+    <button
+        aria-label="Select vessel detail option"
+        onClick={onClick}
+        className="text-sky-400 hover:text-white uppercase"
+    >
         {value}
     </button>
 );

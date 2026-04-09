@@ -1,27 +1,26 @@
 /**
- * NmeaPage — Standalone NMEA Gateway dashboard for the Vessel Hub.
+ * NmeaPage — Standalone NMEA Gateway connection page for the Vessel Hub.
  *
- * Shows connection status, live instrument data, and connection controls.
- * Tap any instrument card to open a fullscreen gauge overlay.
- * Includes AvNav chart server configuration for nautical chart integration.
+ * Shows connection status, configuration controls, and AIS Hub settings.
+ * The "Instrument Panel" CTA navigates to the full multimeter dashboard.
  */
 import React, { useState, useCallback, useEffect } from 'react';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('NmeaPage');
-import { useNmeaStore, NmeaValue, NmeaStatusDot } from '../nmea/useNmeaStore';
+import { useNmeaStore, NmeaStatusDot } from '../nmea/useNmeaStore';
 import { NmeaListenerService } from '../../services/NmeaListenerService';
-import { NmeaStore, type TimestampedMetric } from '../../services/NmeaStore';
+import { NmeaStore } from '../../services/NmeaStore';
 import { triggerHaptic } from '../../utils/system';
 import { AisStore } from '../../services/AisStore';
 import { AisHubService, type AisHubStats } from '../../services/AisHubService';
 
 import { PageHeader } from '../ui/PageHeader';
 import { FormField } from '../ui/FormField';
-import { NmeaGaugeOverlay, type GaugeMetricId } from '../nmea/NmeaGaugeOverlay';
 
 interface NmeaPageProps {
     onBack: () => void;
+    onNavigateToGlass?: () => void;
 }
 
 // ── Device presets — auto-fills port for common NMEA gateways ──
@@ -33,7 +32,7 @@ const DEVICE_PRESETS = [
     { id: 'direct', label: 'Direct TCP (NMEA 0183)', port: '10110' },
 ] as const;
 
-export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
+export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack, onNavigateToGlass }) => {
     const state = useNmeaStore();
     // One-time migrations: clear old defaults so new YDWG-02 defaults take effect
     if (localStorage.getItem('nmea_host') === '192.168.1.1') localStorage.removeItem('nmea_host');
@@ -41,7 +40,6 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
     const [host, setHost] = useState(localStorage.getItem('nmea_host') || '192.168.1.151');
     const [port, setPort] = useState(localStorage.getItem('nmea_port') || '1456');
     const [device, setDevice] = useState(localStorage.getItem('nmea_device') || 'ydwg02');
-    const [activeGauge, setActiveGauge] = useState<{ id: GaugeMetricId; metric: TimestampedMetric } | null>(null);
 
     // Direct subscription to NmeaListenerService for connection status —
     // avoids the race condition where NmeaStore.start() misses the initial
@@ -134,28 +132,6 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
         NmeaListenerService.stop();
         NmeaStore.stop();
     }, []);
-
-    const openGauge = useCallback((id: GaugeMetricId, metric: TimestampedMetric) => {
-        triggerHaptic('light');
-        setActiveGauge({ id, metric });
-    }, []);
-
-    // Instrument data cards — each maps to a gauge type
-    const instruments: { label: string; id: GaugeMetricId; metric: TimestampedMetric; unit: string; icon: string }[] = [
-        { label: 'True Wind Speed', id: 'tws', metric: state.tws, unit: 'kts', icon: '💨' },
-        { label: 'True Wind Angle', id: 'twa', metric: state.twa, unit: '°', icon: '🧭' },
-        { label: 'Speed Through Water', id: 'stw', metric: state.stw, unit: 'kts', icon: '🌊' },
-        { label: 'Speed Over Ground', id: 'sog', metric: state.sog, unit: 'kts', icon: '📡' },
-        { label: 'Course Over Ground', id: 'cog', metric: state.cog, unit: '°', icon: '🗺️' },
-        { label: 'Heading', id: 'heading', metric: state.heading, unit: '°', icon: '⚓' },
-        { label: 'Depth', id: 'depth', metric: state.depth, unit: 'm', icon: '🔵' },
-        { label: 'Water Temperature', id: 'waterTemp', metric: state.waterTemp, unit: '°C', icon: '🌡️' },
-        { label: 'Engine RPM', id: 'rpm', metric: state.rpm, unit: 'rpm', icon: '⚙️' },
-        { label: 'Battery Voltage', id: 'voltage', metric: state.voltage, unit: 'V', icon: '🔋' },
-    ];
-
-    // Get the live metric for the active gauge (so it updates in real-time)
-    const liveActiveMetric = activeGauge ? (state[activeGauge.id as keyof typeof state] as TimestampedMetric) : null;
 
     return (
         <div className="relative h-full bg-slate-950 overflow-hidden slide-up-enter">
@@ -398,63 +374,24 @@ export const NmeaPage: React.FC<NmeaPageProps> = ({ onBack }) => {
                         )}
                     </div>
 
-                    {/* ═══ INSTRUMENT GRID ═══ */}
-                    <h3 className="shrink-0 text-label text-gray-400 font-bold uppercase tracking-widest mb-2">
-                        Live Instruments
-                    </h3>
-                    <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden pb-4">
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                            {instruments.map((inst) => (
-                                <button
-                                    aria-label="View gauge details"
-                                    key={inst.id}
-                                    onClick={() => openGauge(inst.id, inst.metric)}
-                                    className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col justify-between min-h-[90px]
-                                               active:bg-white/[0.08] active:scale-[0.97] transition-all cursor-pointer text-left"
-                                >
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <span className="text-base">{inst.icon}</span>
-                                        <span className="text-label text-gray-400 font-bold uppercase tracking-widest leading-tight">
-                                            {inst.label}
-                                        </span>
-                                    </div>
-                                    <NmeaValue
-                                        metric={inst.metric}
-                                        unit={inst.unit}
-                                        decimals={inst.unit === '°' || inst.unit === 'rpm' ? 0 : 1}
-                                        className="text-xl font-black"
-                                    />
-                                    {/* Subtle chevron hint */}
-                                    <div className="mt-1 flex justify-end opacity-20">
-                                        <svg
-                                            className="w-3.5 h-3.5 text-gray-400"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={2}
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M8.25 4.5l7.5 7.5-7.5 7.5"
-                                            />
-                                        </svg>
-                                    </div>
-                                </button>
-                            ))}
+                    {/* ═══ INSTRUMENT PANEL CTA ═══ */}
+                    {onNavigateToGlass && (
+                        <div style={{ paddingBottom: '8px' }}>
+                            <button
+                                onClick={() => {
+                                    triggerHaptic('medium');
+                                    onNavigateToGlass();
+                                }}
+                                aria-label="Open Instrument Panel"
+                                className="w-full py-3.5 rounded-2xl text-sm font-black uppercase tracking-[0.2em] transition-all active:scale-[0.97] bg-gradient-to-r from-sky-600 via-cyan-500 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-cyan-500 border border-sky-400/20 flex items-center justify-center gap-2"
+                            >
+                                <span className="text-lg">🧭</span>
+                                <span>Instrument Panel</span>
+                            </button>
                         </div>
-                    </div>
+                    )}
                 </div>
             </div>
-
-            {/* ═══ FULLSCREEN GAUGE OVERLAY ═══ */}
-            {activeGauge && liveActiveMetric && (
-                <NmeaGaugeOverlay
-                    metricId={activeGauge.id}
-                    metric={liveActiveMetric}
-                    onClose={() => setActiveGauge(null)}
-                />
-            )}
         </div>
     );
 };

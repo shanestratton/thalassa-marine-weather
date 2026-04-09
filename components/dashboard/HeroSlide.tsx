@@ -900,6 +900,11 @@ const HeroSlideComponent = ({
                                         windGust={data.windGust}
                                         condition={data.condition}
                                         units={units}
+                                        onMapTap={() => {
+                                            window.dispatchEvent(
+                                                new CustomEvent('thalassa:navigate', { detail: { tab: 'map' } }),
+                                            );
+                                        }}
                                     />
                                 ) : showTideGraph ? (
                                     /* COASTAL LAYOUT — widgets above card, tide inside card */

@@ -21,6 +21,7 @@ interface EssentialMapSlideProps {
     windGust?: number | null;
     condition?: string | null;
     units?: UnitPreferences;
+    onMapTap?: () => void;
 }
 
 type EssentialFrame = {
@@ -41,6 +42,7 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
     windGust: _windGust,
     condition,
     units,
+    onMapTap,
 }) => {
     const token = import.meta.env.VITE_MAPBOX_ACCESS_TOKEN;
     const lon = coordinates?.lon ?? 151.2;
@@ -320,6 +322,16 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                         />
                     </div>
                 </div>
+
+                {/* Tap-to-open overlay — covers map area but not scrubber controls */}
+                {onMapTap && (
+                    <button
+                        aria-label="Open full map"
+                        onClick={onMapTap}
+                        className="absolute inset-0 bottom-10 cursor-pointer z-[1]"
+                        style={{ background: 'transparent' }}
+                    />
+                )}
 
                 {/* Layer 5: Radar scrubber bar + play control */}
                 {radarFrames.length > 1 && (

@@ -1848,9 +1848,9 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData): void {
         border-top:3px solid ${d.accentColor};border-radius:14px;
         padding:0;color:#fff;
         font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',sans-serif;
-        min-width:280px;max-width:320px;z-index:600;
+        min-width:200px;max-width:320px;z-index:600;
         box-shadow:0 8px 32px rgba(0,0,0,0.7),0 0 16px ${d.accentColor}15;
-        overflow:hidden;
+        overflow:hidden;pointer-events:auto;cursor:pointer;
     `;
 
     // ── Header: Storm name + classification + close button ──
@@ -1883,34 +1883,30 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData): void {
 
     header.appendChild(headerLeft);
 
-    // Close button
-    if (d.onClose) {
-        const closeBtn = document.createElement('button');
-        closeBtn.style.cssText = `
-            width:24px;height:24px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);
-            background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.5);
-            display:flex;align-items:center;justify-content:center;
-            cursor:pointer;font-size:13px;font-weight:700;line-height:1;
-            pointer-events:auto;margin-left:8px;flex-shrink:0;
-            transition:background 0.15s,color 0.15s;
-        `;
-        closeBtn.textContent = '✕';
-        closeBtn.addEventListener('mouseenter', () => {
-            closeBtn.style.background = 'rgba(255,255,255,0.15)';
-            closeBtn.style.color = '#fff';
-        });
-        closeBtn.addEventListener('mouseleave', () => {
-            closeBtn.style.background = 'rgba(255,255,255,0.06)';
-            closeBtn.style.color = 'rgba(255,255,255,0.5)';
-        });
-        closeBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            d.onClose!();
-        });
-        header.appendChild(closeBtn);
-    }
+    // Chevron toggle (replaces close button)
+    const chevron = document.createElement('div');
+    chevron.style.cssText = `
+        width:24px;height:24px;display:flex;align-items:center;justify-content:center;
+        flex-shrink:0;margin-left:8px;transition:transform 0.2s ease;
+        color:rgba(255,255,255,0.4);
+    `;
+    chevron.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`;
+    header.appendChild(chevron);
 
     card.appendChild(header);
+
+    // ── Collapsible body — hidden by default ──
+    const body = document.createElement('div');
+    body.style.cssText = 'display:none;';
+
+    let expanded = false;
+    card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        expanded = !expanded;
+        body.style.display = expanded ? 'block' : 'none';
+        chevron.style.transform = expanded ? 'rotate(180deg)' : 'rotate(0deg)';
+        card.style.minWidth = expanded ? '280px' : '200px';
+    });
 
     // ── Advisory History Table ──
     if (d.advisories.length > 0) {
@@ -1984,7 +1980,7 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData): void {
             tableWrap.appendChild(row);
         }
 
-        card.appendChild(tableWrap);
+        body.appendChild(tableWrap);
     }
 
     // ── Footer: Pressure trend + Data age + Next advisory ──
@@ -2068,6 +2064,8 @@ function buildStormBadgeDOM(wrapper: HTMLElement, d: StormBadgeData): void {
     advRow.appendChild(advVal);
     footer.appendChild(advRow);
 
-    card.appendChild(footer);
+    body.appendChild(footer);
+
+    card.appendChild(body);
     wrapper.appendChild(card);
 }

@@ -160,7 +160,7 @@ class AvNavDiscoveryServiceClass {
         this.abortController = new AbortController();
         const { signal } = this.abortController;
 
-        // Common endpoints to probe
+        // Common endpoints to probe — both Signal K and AvNav
         const candidates = [
             // Dev mock server
             { host: 'localhost', port: 3100 },
@@ -168,10 +168,23 @@ class AvNavDiscoveryServiceClass {
             { host: 'localhost', port: 3000 },
             // Common Signal K default
             { host: 'signalk.local', port: 3000 },
-            // Common Pi/router IPs
+            // AvNav defaults (typically runs on port 8080)
+            { host: 'avnav.local', port: 8080 },
+            { host: 'raspberrypi.local', port: 8080 },
+            { host: 'openplotter.local', port: 8080 },
+            // Common Pi/router IPs — Signal K (3000)
             { host: '192.168.1.1', port: 3000 },
             { host: '192.168.0.1', port: 3000 },
             { host: '10.10.10.1', port: 3000 },
+            // Common Pi/router IPs — AvNav (8080)
+            { host: '192.168.1.1', port: 8080 },
+            { host: '192.168.0.1', port: 8080 },
+            { host: '10.10.10.1', port: 8080 },
+            // Typical Raspberry Pi DHCP assignments
+            { host: '192.168.1.100', port: 8080 },
+            { host: '192.168.0.100', port: 8080 },
+            { host: '192.168.1.10', port: 8080 },
+            { host: '192.168.0.10', port: 8080 },
         ];
 
         const probes = candidates.map(({ host, port }) => this.probeEndpoint(host, port, signal));
@@ -181,44 +194,81 @@ class AvNavDiscoveryServiceClass {
     }
 
     private async probeEndpoint(host: string, port: number, signal: AbortSignal): Promise<void> {
+        // Try Signal K endpoint first
+        const signalkFound = await this.probeSignalK(host, port, signal);
+        if (signalkFound) return;
+
+        // Try AvNav endpoint
+        await this.probeAvNav(host, port, signal);
+    }
+
+    /** Probe for Signal K server at /signalk */
+    private async probeSignalK(host: string, port: number, signal: AbortSignal): Promise<boolean> {
         const url = `http://${host}:${port}/signalk`;
         try {
             const resp = await fetch(url, {
                 signal,
                 mode: 'cors',
                 headers: { Accept: 'application/json' },
-                // Short timeout via AbortSignal
             });
 
-            // Also set a per-probe timeout
-            const timeoutId = setTimeout(() => {
-                // Can't abort a single probe from the shared controller,
-                // so we just ignore late results
-            }, 4000);
-
             if (resp.ok) {
-                clearTimeout(timeoutId);
                 const data = await resp.json().catch(() => null);
-
-                // Validate it's actually a Signal K endpoint
                 if (data?.endpoints || data?.server) {
                     const server: DiscoveredServer = {
-                        name: data.server?.id ? `${data.server.id} (${host})` : `AvNav (${host}:${port})`,
+                        name: data.server?.id ? `${data.server.id} (${host})` : `Signal K (${host}:${port})`,
                         host,
                         port,
                         source: 'probe',
                     };
 
                     if (!this.servers.some((s) => s.host === server.host && s.port === server.port)) {
-                        log.info(`Found via probe: ${server.name}`);
+                        log.info(`Found Signal K via probe: ${server.name}`);
                         this.servers = [...this.servers, server];
                         this.notifyServers();
                     }
+                    return true;
                 }
             }
         } catch {
             // Expected for most probes — host unreachable, CORS, timeout
         }
+        return false;
+    }
+
+    /** Probe for AvNav server at /api/status or /viewer/avnav_navi.php */
+    private async probeAvNav(host: string, port: number, signal: AbortSignal): Promise<boolean> {
+        const baseUrl = `http://${host}:${port}`;
+        const avnavPaths = ['/api/status', '/viewer/avnav_navi.php'];
+
+        for (const path of avnavPaths) {
+            try {
+                const resp = await fetch(`${baseUrl}${path}`, {
+                    signal,
+                    mode: 'cors',
+                    headers: { Accept: 'application/json' },
+                });
+
+                if (resp.ok) {
+                    const server: DiscoveredServer = {
+                        name: `AvNav (${host}:${port})`,
+                        host,
+                        port,
+                        source: 'probe',
+                    };
+
+                    if (!this.servers.some((s) => s.host === server.host && s.port === server.port)) {
+                        log.info(`Found AvNav via probe: ${server.name}`);
+                        this.servers = [...this.servers, server];
+                        this.notifyServers();
+                    }
+                    return true;
+                }
+            } catch {
+                // Expected — host unreachable
+            }
+        }
+        return false;
     }
 
     // ── Internal ─────────────────────────────────────────────────────────

@@ -95,6 +95,10 @@ const GpxImportPage = lazyRetry(
     () => import('./components/vessel/GpxImportPage').then((m) => ({ default: m.GpxImportPage })),
     'GpxImportPage',
 );
+const TheGlassPage = lazyRetry(
+    () => import('./components/nmea/TheGlassPage').then((m) => ({ default: m.TheGlassPage })),
+    'TheGlassPage',
+);
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -222,7 +226,16 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: NmeaGatewayPage,
         boundaryName: 'NmeaGateway',
         group: 'vessel',
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
+        getProps: (ctx) => ({
+            onBack: () => ctx.setPage('vessel'),
+            onNavigateToGlass: () => ctx.setPage('glass'),
+        }),
+    },
+    glass: {
+        component: TheGlassPage,
+        boundaryName: 'TheGlass',
+        group: 'vessel',
+        getProps: (ctx) => ({ onBack: () => ctx.setPage('nmea') }),
     },
     avnav: {
         component: AvNavPage,

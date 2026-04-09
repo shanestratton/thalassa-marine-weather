@@ -63,7 +63,8 @@ export const FirstRunHint: React.FC<FirstRunHintProps> = ({
     };
 
     return (
-        <div className="relative inline-flex">
+        <div className="relative w-full">
+            {/* Must be full-width so child rows stretch to match siblings */}
             {children}
 
             {visible && (
