@@ -5,8 +5,8 @@
  *   Section A: Active Watch Hero (Anchor + Passages) + Secondary (Guardian + Radio)
  *   Section B: Log Book slim strip
  *   Section B½: Passage Planning (standalone)
- *   Section B¾: Networking (NMEA Gateway + AvNav Charts)
  *   Section C: Ship's Office vertical list (all office cards)
+ *   Section C½: Networking (NMEA Gateway + AvNav Charts)
  *   Section D: Account (settings)
  */
 import React, { useState, useEffect } from 'react';
@@ -60,8 +60,18 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
     const [anchorRadius, setAnchorRadius] = useState(0);
     const [showAdminPanel, setShowAdminPanel] = useState(false);
-    const [officeExpanded, setOfficeExpanded] = useState(false);
+    const [expanded, setExpanded] = useState<Set<string>>(new Set(['watch', 'logbook', 'passage']));
     const [_isAdmin, setIsAdmin] = useState(false);
+
+    const toggleSection = (id: string) => {
+        triggerHaptic('light');
+        setExpanded((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
 
     // Load admin role async
     useEffect(() => {
@@ -136,351 +146,377 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* SECTION A: ACTIVE WATCH — Hero Card        */}
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
-                    <SectionLabel color="#ef4444" label="Active Watch" />
+                    <SectionHeader
+                        color="#ef4444"
+                        label="Active Watch"
+                        id="watch"
+                        expanded={expanded.has('watch')}
+                        onToggle={toggleSection}
+                    />
+                    <CollapsibleContent open={expanded.has('watch')}>
+                        {/* Hero card — Anchor + Passages side by side */}
+                        <div style={GLASS.card} className="p-0 overflow-hidden mb-3 card-lift">
+                            <div className="flex">
+                                {/* Left: Anchor Watch */}
+                                <button
+                                    aria-label="Anchor Watch"
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        onNavigate('compass');
+                                    }}
+                                    className="flex-1 p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] border-r border-white/[0.06]"
+                                >
+                                    <div className="flex items-center gap-2.5 mb-2">
+                                        <div
+                                            className="w-2.5 h-2.5 rounded-full"
+                                            style={{
+                                                backgroundColor: anchorColor,
+                                                boxShadow:
+                                                    anchorStatus !== 'disarmed' ? `0 0 8px ${anchorColor}60` : 'none',
+                                                animation: anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
+                                            }}
+                                        />
+                                        <span className="text-sm font-black text-white tracking-wide">
+                                            Anchor Watch
+                                        </span>
+                                    </div>
+                                    <p
+                                        className="text-xs font-bold uppercase tracking-widest"
+                                        style={{ color: anchorColor }}
+                                    >
+                                        {anchorLabel}
+                                    </p>
+                                </button>
 
-                    {/* Hero card — Anchor + Passages side by side */}
-                    <div style={GLASS.card} className="p-0 overflow-hidden mb-3 card-lift">
-                        <div className="flex">
-                            {/* Left: Anchor Watch */}
+                                {/* Right: Passages */}
+                                <button
+                                    aria-label="Route Planner"
+                                    onClick={() => {
+                                        if (isObserver) return;
+                                        triggerHaptic('light');
+                                        onNavigate('route');
+                                    }}
+                                    className={`flex-1 p-4 text-left transition-all active:scale-[0.98] ${
+                                        isObserver ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/[0.03]'
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-2.5 mb-2">
+                                        <CompassIcon />
+                                        <span className="text-sm font-black text-white tracking-wide">
+                                            Route Planner
+                                        </span>
+                                    </div>
+                                    <p
+                                        className={`text-xs font-bold uppercase tracking-widest ${isObserver ? 'text-gray-500' : 'text-cyan-400'}`}
+                                    >
+                                        {isObserver ? 'Vessel Required' : 'Route Plan'}
+                                    </p>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Secondary row — Guardian + Radio */}
+                        <div className="grid grid-cols-2 gap-3">
                             <button
-                                aria-label="Anchor Watch"
+                                aria-label="Open Guardian bay watch"
                                 onClick={() => {
                                     triggerHaptic('light');
-                                    onNavigate('compass');
+                                    onNavigate('guardian');
                                 }}
-                                className="flex-1 p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] border-r border-white/[0.06]"
+                                style={GLASS.card}
+                                className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
                             >
-                                <div className="flex items-center gap-2.5 mb-2">
-                                    <div
-                                        className="w-2.5 h-2.5 rounded-full"
-                                        style={{
-                                            backgroundColor: anchorColor,
-                                            boxShadow:
-                                                anchorStatus !== 'disarmed' ? `0 0 8px ${anchorColor}60` : 'none',
-                                            animation: anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
-                                        }}
-                                    />
-                                    <span className="text-sm font-black text-white tracking-wide">Anchor Watch</span>
+                                <div className="flex items-center gap-2.5">
+                                    <div className="p-2 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.12)' }}>
+                                        <ShieldIcon color="#f59e0b" />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[13px] font-black text-white tracking-wide">Guardian</h4>
+                                        <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
+                                            Bay Watch
+                                        </p>
+                                    </div>
                                 </div>
-                                <p
-                                    className="text-xs font-bold uppercase tracking-widest"
-                                    style={{ color: anchorColor }}
-                                >
-                                    {anchorLabel}
-                                </p>
                             </button>
 
-                            {/* Right: Passages */}
                             <button
-                                aria-label="Route Planner"
+                                aria-label="Open radio position reporting"
                                 onClick={() => {
-                                    if (isObserver) return;
                                     triggerHaptic('light');
-                                    onNavigate('route');
+                                    onNavigate('radio');
                                 }}
-                                className={`flex-1 p-4 text-left transition-all active:scale-[0.98] ${
-                                    isObserver ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/[0.03]'
-                                }`}
+                                style={GLASS.card}
+                                className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
                             >
-                                <div className="flex items-center gap-2.5 mb-2">
-                                    <CompassIcon />
-                                    <span className="text-sm font-black text-white tracking-wide">Route Planner</span>
+                                <div className="flex items-center gap-2.5">
+                                    <div className="p-2 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.12)' }}>
+                                        <SignalIcon color="#f59e0b" />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[13px] font-black text-white tracking-wide">Radio</h4>
+                                        <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
+                                            Report Pos
+                                        </p>
+                                    </div>
                                 </div>
-                                <p
-                                    className={`text-xs font-bold uppercase tracking-widest ${isObserver ? 'text-gray-500' : 'text-cyan-400'}`}
-                                >
-                                    {isObserver ? 'Vessel Required' : 'Route Plan'}
-                                </p>
                             </button>
                         </div>
-                    </div>
-
-                    {/* Secondary row — Guardian + Radio */}
-                    <div className="grid grid-cols-2 gap-3">
-                        <button
-                            aria-label="Open Guardian bay watch"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate('guardian');
-                            }}
-                            style={GLASS.card}
-                            className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
-                        >
-                            <div className="flex items-center gap-2.5">
-                                <div className="p-2 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.12)' }}>
-                                    <ShieldIcon color="#f59e0b" />
-                                </div>
-                                <div>
-                                    <h4 className="text-[13px] font-black text-white tracking-wide">Guardian</h4>
-                                    <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
-                                        Bay Watch
-                                    </p>
-                                </div>
-                            </div>
-                        </button>
-
-                        <button
-                            aria-label="Open radio position reporting"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate('radio');
-                            }}
-                            style={GLASS.card}
-                            className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
-                        >
-                            <div className="flex items-center gap-2.5">
-                                <div className="p-2 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.12)' }}>
-                                    <SignalIcon color="#f59e0b" />
-                                </div>
-                                <div>
-                                    <h4 className="text-[13px] font-black text-white tracking-wide">Radio</h4>
-                                    <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
-                                        Report Pos
-                                    </p>
-                                </div>
-                            </div>
-                        </button>
-                    </div>
+                    </CollapsibleContent>
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
                 {/* SECTION B: LOG BOOK — Slim horizontal strip */}
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
-                    <SectionLabel color="#0ea5e9" label="Log Book" />
-                    <button
-                        aria-label="Open voyage entries log book"
-                        onClick={() => {
-                            triggerHaptic('light');
-                            onNavigate('details');
-                        }}
-                        style={GLASS.card}
-                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
-                    >
-                        <div className="p-2 rounded-lg" style={{ background: 'rgba(14, 165, 233, 0.12)' }}>
-                            <BookIcon color="#0ea5e9" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                            <span className="text-[13px] font-black text-white tracking-wide">Voyage Entries</span>
-                            <p className="text-[11px] text-gray-500 truncate mt-0.5 italic">
-                                Tap to view or add entries
-                            </p>
-                        </div>
-                        <div className="p-1.5 rounded-lg" style={{ background: 'rgba(14, 165, 233, 0.12)' }}>
-                            <PlusIcon color="#0ea5e9" />
-                        </div>
-                    </button>
+                    <SectionHeader
+                        color="#0ea5e9"
+                        label="Log Book"
+                        id="logbook"
+                        expanded={expanded.has('logbook')}
+                        onToggle={toggleSection}
+                    />
+                    <CollapsibleContent open={expanded.has('logbook')}>
+                        <button
+                            aria-label="Open voyage entries log book"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('details');
+                            }}
+                            style={GLASS.card}
+                            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                        >
+                            <div className="p-2 rounded-lg" style={{ background: 'rgba(14, 165, 233, 0.12)' }}>
+                                <BookIcon color="#0ea5e9" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <span className="text-[13px] font-black text-white tracking-wide">Voyage Entries</span>
+                                <p className="text-[11px] text-gray-500 truncate mt-0.5 italic">
+                                    Tap to view or add entries
+                                </p>
+                            </div>
+                            <div className="p-1.5 rounded-lg" style={{ background: 'rgba(14, 165, 233, 0.12)' }}>
+                                <PlusIcon color="#0ea5e9" />
+                            </div>
+                        </button>
+                    </CollapsibleContent>
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
                 {/* SECTION B½: PASSAGE PLANNING — Standalone  */}
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
-                    <SectionLabel color="#8b5cf6" label="Passage Planning" />
-                    <div style={GLASS.listContainer}>
-                        <FirstRunHint id="passage-planning" message="Plan your first voyage here" position="top">
+                    <SectionHeader
+                        color="#8b5cf6"
+                        label="Passage Planning"
+                        id="passage"
+                        expanded={expanded.has('passage')}
+                        onToggle={toggleSection}
+                    />
+                    <CollapsibleContent open={expanded.has('passage')}>
+                        <div style={GLASS.listContainer}>
+                            <FirstRunHint id="passage-planning" message="Plan your first voyage here" position="top">
+                                <OfficeRow
+                                    icon={<CrewIcon color="#8b5cf6" />}
+                                    label="Passage Planning"
+                                    status={
+                                        passageCrewCount > 0
+                                            ? `${passageCrewCount} crew`
+                                            : pendingCrewInvites > 0
+                                              ? `${pendingCrewInvites} Pending`
+                                              : 'Plan Your Voyage'
+                                    }
+                                    statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#8b5cf6'}
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        onNavigate('crew');
+                                    }}
+                                    badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
+                                />
+                            </FirstRunHint>
                             <OfficeRow
-                                icon={<CrewIcon color="#8b5cf6" />}
-                                label="Passage Planning"
-                                status={
-                                    passageCrewCount > 0
-                                        ? `${passageCrewCount} crew`
-                                        : pendingCrewInvites > 0
-                                          ? `${pendingCrewInvites} Pending`
-                                          : 'Plan Your Voyage'
-                                }
-                                statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#8b5cf6'}
+                                icon={<GpxIcon color="#10b981" />}
+                                label="Import GPX"
+                                status="OpenCPN • Navionics"
+                                statusColor="#10b981"
                                 onClick={() => {
                                     triggerHaptic('light');
-                                    onNavigate('crew');
-                                }}
-                                badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
-                            />
-                        </FirstRunHint>
-                        <OfficeRow
-                            icon={<GpxIcon color="#10b981" />}
-                            label="Import GPX"
-                            status="OpenCPN • Navionics"
-                            statusColor="#10b981"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate('gpx-import');
-                            }}
-                        />
-                    </div>
-                </div>
-
-                {/* ═══════════════════════════════════════════ */}
-                {/* SECTION B¾: NETWORKING — NMEA + AvNav      */}
-                {/* ═══════════════════════════════════════════ */}
-                <div className="mb-4">
-                    <SectionLabel color="#22d3ee" label="Networking" />
-                    <div style={GLASS.listContainer}>
-                        <OfficeRow
-                            icon={<SignalIcon color="#a855f7" />}
-                            label="NMEA Gateway"
-                            status="Instruments & AIS"
-                            statusColor="#9ca3af"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate('nmea');
-                            }}
-                        />
-                        <ListDivider />
-                        <FirstRunHint id="avnav-charts" message="Connect your chart server here" position="top">
-                            <OfficeRow
-                                icon={<MapChartIcon color="#22d3ee" />}
-                                label="AvNav Charts"
-                                status="Chart Server"
-                                statusColor="#9ca3af"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('avnav');
+                                    onNavigate('gpx-import');
                                 }}
                             />
-                        </FirstRunHint>
-                    </div>
+                        </div>
+                    </CollapsibleContent>
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
                 {/* SECTION C: SHIP'S OFFICE — Collapsible      */}
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
-                    <SectionLabel color="#0ea5e9" label="Ship's Office" />
-                    <div style={GLASS.listContainer}>
-                        {/* Always visible — top 3 most-used */}
-                        <OfficeRow
-                            icon={<PenIcon color="#0ea5e9" />}
-                            label="Diary"
-                            status="Daily Notes"
-                            statusColor="#9ca3af"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate('diary');
-                            }}
-                        />
-                        <ListDivider />
-                        <OfficeRow
-                            icon={<BoxIcon color="#f59e0b" />}
-                            label="Ship's Stores"
-                            status="Provisions & Spares"
-                            statusColor="#9ca3af"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate('inventory');
-                            }}
-                        />
-                        <ListDivider />
-                        <OfficeRow
-                            icon={<ChecklistIcon color="#22d3ee" />}
-                            label="Checklists"
-                            status="Safety & Passage"
-                            statusColor="#9ca3af"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate('checklists');
-                            }}
-                        />
+                    <SectionHeader
+                        color="#0ea5e9"
+                        label="Ship's Office"
+                        id="office"
+                        expanded={expanded.has('office')}
+                        onToggle={toggleSection}
+                    />
+                    <CollapsibleContent open={expanded.has('office')}>
+                        <div style={GLASS.listContainer}>
+                            <OfficeRow
+                                icon={<PenIcon color="#0ea5e9" />}
+                                label="Diary"
+                                status="Daily Notes"
+                                statusColor="#9ca3af"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('diary');
+                                }}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<BoxIcon color="#f59e0b" />}
+                                label="Ship's Stores"
+                                status="Provisions & Spares"
+                                statusColor="#9ca3af"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('inventory');
+                                }}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<ChecklistIcon color="#22d3ee" />}
+                                label="Checklists"
+                                status="Safety & Passage"
+                                statusColor="#9ca3af"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('checklists');
+                                }}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<ChartIcon color="#22d3ee" />}
+                                label="Polars"
+                                status={isObserver ? 'Vessel Required' : 'Tuning'}
+                                statusColor={isObserver ? '#6b7280' : '#9ca3af'}
+                                onClick={() => {
+                                    if (isObserver) return;
+                                    triggerHaptic('light');
+                                    onNavigate('polars');
+                                }}
+                                disabled={isObserver}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<WrenchIcon color="#0ea5e9" />}
+                                label="R&M"
+                                status="Tasks & Expiry"
+                                statusColor="#9ca3af"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('maintenance');
+                                }}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<ClipboardIcon color="#ef4444" />}
+                                label="Equipment"
+                                status="Register"
+                                statusColor="#9ca3af"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('equipment');
+                                }}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<DocShieldIcon color="#0ea5e9" />}
+                                label="Documents"
+                                status="Legal"
+                                statusColor="#9ca3af"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('documents');
+                                }}
+                            />
+                        </div>
+                    </CollapsibleContent>
+                </div>
 
-                        {/* Collapsible — remaining items */}
-                        {officeExpanded && (
-                            <>
-                                <ListDivider />
+                {/* ═══════════════════════════════════════════ */}
+                {/* SECTION C½: NETWORKING — NMEA + AvNav       */}
+                {/* ═══════════════════════════════════════════ */}
+                <div className="mb-4">
+                    <SectionHeader
+                        color="#22d3ee"
+                        label="Networking"
+                        id="network"
+                        expanded={expanded.has('network')}
+                        onToggle={toggleSection}
+                    />
+                    <CollapsibleContent open={expanded.has('network')}>
+                        <div style={GLASS.listContainer}>
+                            <OfficeRow
+                                icon={<SignalIcon color="#a855f7" />}
+                                label="NMEA Gateway"
+                                status="Instruments & AIS"
+                                statusColor="#9ca3af"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('nmea');
+                                }}
+                            />
+                            <ListDivider />
+                            <FirstRunHint id="avnav-charts" message="Connect your chart server here" position="top">
                                 <OfficeRow
-                                    icon={<ChartIcon color="#22d3ee" />}
-                                    label="Polars"
-                                    status={isObserver ? 'Vessel Required' : 'Tuning'}
-                                    statusColor={isObserver ? '#6b7280' : '#9ca3af'}
-                                    onClick={() => {
-                                        if (isObserver) return;
-                                        triggerHaptic('light');
-                                        onNavigate('polars');
-                                    }}
-                                    disabled={isObserver}
-                                />
-                                <ListDivider />
-                                <OfficeRow
-                                    icon={<WrenchIcon color="#0ea5e9" />}
-                                    label="R&M"
-                                    status="Tasks & Expiry"
+                                    icon={<MapChartIcon color="#22d3ee" />}
+                                    label="AvNav Charts"
+                                    status="Chart Server"
                                     statusColor="#9ca3af"
                                     onClick={() => {
                                         triggerHaptic('light');
-                                        onNavigate('maintenance');
+                                        onNavigate('avnav');
                                     }}
                                 />
-                                <ListDivider />
-                                <OfficeRow
-                                    icon={<ClipboardIcon color="#ef4444" />}
-                                    label="Equipment"
-                                    status="Register"
-                                    statusColor="#9ca3af"
-                                    onClick={() => {
-                                        triggerHaptic('light');
-                                        onNavigate('equipment');
-                                    }}
-                                />
-                                <ListDivider />
-                                <OfficeRow
-                                    icon={<DocShieldIcon color="#0ea5e9" />}
-                                    label="Documents"
-                                    status="Legal"
-                                    statusColor="#9ca3af"
-                                    onClick={() => {
-                                        triggerHaptic('light');
-                                        onNavigate('documents');
-                                    }}
-                                />
-                            </>
-                        )}
-
-                        {/* Toggle button */}
-                        <button
-                            onClick={() => {
-                                triggerHaptic('light');
-                                setOfficeExpanded((v) => !v);
-                            }}
-                            className="w-full py-2.5 flex items-center justify-center gap-1.5 text-[11px] font-bold text-slate-500 uppercase tracking-widest hover:text-slate-400 transition-colors border-t border-white/[0.04]"
-                            aria-label={officeExpanded ? 'Show fewer items' : 'Show more items'}
-                        >
-                            {officeExpanded ? 'Show Less' : 'Show More'}
-                            <svg
-                                className={`w-3 h-3 transition-transform duration-200 ${officeExpanded ? 'rotate-180' : ''}`}
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2.5}
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                            </svg>
-                        </button>
-                    </div>
+                            </FirstRunHint>
+                        </div>
+                    </CollapsibleContent>
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
                 {/* SECTION D: ACCOUNT — Settings only         */}
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-6">
-                    <SectionLabel color="#9ca3af" label="Account" />
-                    <div style={GLASS.listContainer}>
-                        <OfficeRow
-                            icon={<UserIcon color="#9ca3af" />}
-                            label="Account & Settings"
-                            status={(() => {
-                                const tier = (settings as Record<string, unknown>).subscriptionTier as string;
-                                if (tier === 'owner') return 'Vessel Owner';
-                                if (tier === 'crew') return 'Crew Plan';
-                                return 'Free Plan';
-                            })()}
-                            statusColor={(() => {
-                                const tier = (settings as Record<string, unknown>).subscriptionTier as string;
-                                if (tier === 'owner') return '#f59e0b';
-                                if (tier === 'crew') return '#22d3ee';
-                                return '#9ca3af';
-                            })()}
-                            onClick={() => onNavigate('settings')}
-                        />
-                    </div>
+                    <SectionHeader
+                        color="#9ca3af"
+                        label="Account"
+                        id="account"
+                        expanded={expanded.has('account')}
+                        onToggle={toggleSection}
+                    />
+                    <CollapsibleContent open={expanded.has('account')}>
+                        <div style={GLASS.listContainer}>
+                            <OfficeRow
+                                icon={<UserIcon color="#9ca3af" />}
+                                label="Account & Settings"
+                                status={(() => {
+                                    const tier = (settings as Record<string, unknown>).subscriptionTier as string;
+                                    if (tier === 'owner') return 'Vessel Owner';
+                                    if (tier === 'crew') return 'Crew Plan';
+                                    return 'Free Plan';
+                                })()}
+                                statusColor={(() => {
+                                    const tier = (settings as Record<string, unknown>).subscriptionTier as string;
+                                    if (tier === 'owner') return '#f59e0b';
+                                    if (tier === 'crew') return '#22d3ee';
+                                    return '#9ca3af';
+                                })()}
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('settings');
+                                }}
+                            />
+                        </div>
+                    </CollapsibleContent>
                 </div>
             </div>
 
@@ -494,13 +530,54 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 // ── Shared Components ──
 // ══════════════════════════════════════
 
-/** Section label with colored pip */
-const SectionLabel: React.FC<{ color: string; label: string }> = ({ color, label }) => (
-    <div className="flex items-center gap-2 mb-2.5">
+/** Collapsible section header with colored pip and chevron */
+const SectionHeader: React.FC<{
+    color: string;
+    label: string;
+    id: string;
+    expanded: boolean;
+    onToggle: (id: string) => void;
+}> = ({ color, label, id, expanded, onToggle }) => (
+    <button
+        onClick={() => {
+            triggerHaptic('light');
+            onToggle(id);
+        }}
+        className="w-full flex items-center gap-2 mb-2.5 py-1 active:opacity-70 transition-opacity"
+        aria-expanded={expanded}
+        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
+    >
         <div className="w-1 h-3.5 rounded-full" style={{ backgroundColor: color }} />
-        <span className="text-[11px] font-black uppercase tracking-[0.2em]" style={{ color }}>
+        <span className="text-[11px] font-black uppercase tracking-[0.2em] flex-1 text-left" style={{ color }}>
             {label}
         </span>
+        <svg
+            className="w-4 h-4 transition-transform duration-200"
+            style={{
+                color,
+                opacity: 0.6,
+                transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+            }}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2.5}
+        >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+        </svg>
+    </button>
+);
+
+/** Animated collapsible content wrapper */
+const CollapsibleContent: React.FC<{ open: boolean; children: React.ReactNode }> = ({ open, children }) => (
+    <div
+        style={{
+            display: 'grid',
+            gridTemplateRows: open ? '1fr' : '0fr',
+            transition: 'grid-template-rows 0.25s ease',
+        }}
+    >
+        <div style={{ overflow: 'hidden' }}>{children}</div>
     </div>
 );
 

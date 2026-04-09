@@ -209,7 +209,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
 
     const handleSkConnect = useCallback(() => {
         triggerHaptic('medium');
-        AvNavService.configure(skHost, parseInt(skPort, 10) || 3000);
+        AvNavService.configure(skHost, parseInt(skPort, 10) || 3000, 'avnav');
         AvNavService.start();
     }, [skHost, skPort]);
 

@@ -5,7 +5,8 @@ import { lazyRetry } from '../utils/lazyRetry';
 const log = createLogger('Dashboard');
 import { t } from '../theme';
 import { useDashboardController } from '../hooks/useDashboardController';
-import { ClockIcon } from './Icons';
+import { triggerHaptic } from '../utils/system';
+
 import { HeroSection } from './dashboard/Hero';
 import { CompactHeaderRow } from './dashboard/CompactHeaderRow';
 import { StatusBadges } from './dashboard/StatusBadges';
@@ -17,7 +18,7 @@ import { HeroWidgets } from './dashboard/HeroWidgets';
 import { CurrentConditionsCard } from './dashboard/CurrentConditionsCard';
 import { RainForecastCard } from './dashboard/RainForecastCard';
 import { ShimmerBlock } from './ui/ShimmerBlock';
-import { CacheAgeBadge } from './ui/CacheAgeBadge';
+
 import { useSettings } from '../context/SettingsContext';
 
 import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
@@ -600,6 +601,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         moonPhase={getMoonPhase(new Date(widgetCardTime)).emoji}
                                         dashboardMode={userSettings.dashboardMode || 'full'}
                                         onToggleDashboardMode={() => {
+                                            triggerHaptic('light');
                                             const goingEssential = userSettings.dashboardMode !== 'essential';
                                             updateSettings({ dashboardMode: goingEssential ? 'essential' : 'full' });
                                             if (goingEssential) {
@@ -647,6 +649,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         isInland || isOffshore
                                             ? undefined
                                             : () => {
+                                                  triggerHaptic('light');
                                                   const goingEssential = isExpanded; // isExpanded means currently full, so toggling goes to essential
                                                   updateSettings({
                                                       dashboardMode: goingEssential ? 'essential' : 'full',
@@ -819,24 +822,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                         </div>
                     )}
                 </div>
-                {data && (
-                    <div className="mt-8 text-center pb-8 opacity-40 hover:opacity-100 transition-opacity">
-                        <CacheAgeBadge timestamp={data.generatedAt} className="justify-center mb-2" />
-                        <div className="mt-1 flex items-center justify-center gap-2 text-sm font-mono text-sky-500/50">
-                            <ClockIcon className="w-3 h-3" />
-                            <span>
-                                UPDATED:{' '}
-                                {new Date(data.generatedAt).toLocaleTimeString('en-US', {
-                                    timeZone: data.timeZone,
-                                    hour: 'numeric',
-                                    minute: '2-digit',
-                                })}
-                            </span>
-                            <span>•</span>
-                            <span>NEXT: {(refreshInterval / 60000).toFixed(0)}m</span>
-                        </div>
-                    </div>
-                )}
             </div>
         </DashboardWidgetContext.Provider>
     );

@@ -472,24 +472,53 @@ function addSquallHUD(map: mapboxgl.Map): void {
     hud.id = SQUALL_HUD_ID;
     hud.style.cssText = `
         position: absolute;
-        bottom: 80px;
-        left: 12px;
+        top: 56px;
+        left: 16px;
         z-index: 300;
         background: rgba(10, 12, 20, 0.88);
         backdrop-filter: blur(12px);
         border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 12px;
         padding: 10px 12px;
-        pointer-events: none;
+        pointer-events: auto;
+        cursor: pointer;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
     `;
+
+    // Header row — always visible
+    const headerRow = document.createElement('div');
+    headerRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
 
     // Title
     const title = document.createElement('div');
     title.style.cssText =
-        'font-size: 10px; font-weight: 800; color: #fff; letter-spacing: 0.5px; margin-bottom: 6px; text-transform: uppercase;';
+        'font-size: 10px; font-weight: 800; color: #fff; letter-spacing: 0.5px; text-transform: uppercase;';
     title.textContent = '⛈️ Squall Threat';
-    hud.appendChild(title);
+    headerRow.appendChild(title);
+
+    // Chevron
+    const chevron = document.createElement('div');
+    chevron.style.cssText = `
+        width:18px;height:18px;display:flex;align-items:center;justify-content:center;
+        flex-shrink:0;transition:transform 0.2s ease;
+        color:rgba(255,255,255,0.4);
+    `;
+    chevron.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`;
+    headerRow.appendChild(chevron);
+
+    hud.appendChild(headerRow);
+
+    // Collapsible body — hidden by default
+    const body = document.createElement('div');
+    body.style.cssText = 'display:none;margin-top:6px;';
+
+    let expanded = false;
+    hud.addEventListener('click', (e) => {
+        e.stopPropagation();
+        expanded = !expanded;
+        body.style.display = expanded ? 'block' : 'none';
+        chevron.style.transform = expanded ? 'rotate(180deg)' : 'rotate(0deg)';
+    });
 
     // Legend rows
     for (const { label, color, min } of THREAT_LEGEND) {
@@ -515,7 +544,7 @@ function addSquallHUD(map: mapboxgl.Map): void {
         temp.textContent = min;
         row.appendChild(temp);
 
-        hud.appendChild(row);
+        body.appendChild(row);
     }
 
     // Data source
@@ -523,7 +552,7 @@ function addSquallHUD(map: mapboxgl.Map): void {
     source.style.cssText =
         'font-size: 8px; color: rgba(255,255,255,0.25); margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 5px;';
     source.textContent = 'IR: SSEC Dvorak Enhanced · Radar: RainViewer';
-    hud.appendChild(source);
+    body.appendChild(source);
 
     // Data Age warning — prominent, tactical
     const ageRow = document.createElement('div');
@@ -548,8 +577,9 @@ function addSquallHUD(map: mapboxgl.Map): void {
     ageText.style.cssText = 'font-size: 11px; font-weight: 800; color: #FFA500; letter-spacing: 0.3px;';
     ageText.textContent = 'Data Age: —';
     ageRow.appendChild(ageText);
-    hud.appendChild(ageRow);
+    body.appendChild(ageRow);
 
+    hud.appendChild(body);
     map.getContainer().appendChild(hud);
 }
 

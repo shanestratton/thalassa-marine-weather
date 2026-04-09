@@ -418,7 +418,7 @@ type ChartCallback = (charts: AvNavChart[]) => void;
 
 // ── Constants ──
 
-const DEFAULT_HOST = 'signalk.local';
+const DEFAULT_HOST = '';
 const DEFAULT_PORT = 3000;
 const RECONNECT_BASE_MS = 3000;
 const RECONNECT_MAX_MS = 30000;
@@ -622,12 +622,12 @@ class AvNavServiceClass {
                     }
                 }
 
-                // Neither LAN nor WAN responded — still set connected optimistically for LAN
-                this.activeHost = this.host;
-                nativeLog(`No probe response, connecting optimistically to LAN: ${directUrl}`);
-                this.reconnectAttempts = 0;
-                this.setStatus('connected');
-                await this.tryFetchAvNavCharts(directUrl);
+                // Neither LAN nor WAN responded — report error and schedule retry
+                const triedHosts = hostsToTry.join(', ');
+                nativeLog(`No probe response from any host (${triedHosts}), scheduling reconnect`);
+                this.lastError = `Unreachable: ${triedHosts}`;
+                this.setStatus('error');
+                if (this.enabled) this.scheduleReconnect();
                 return;
             }
 

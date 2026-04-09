@@ -51,6 +51,8 @@ interface ChannelListProps {
     proposalParentId: string | null;
     setProposalParentId: (id: string | null) => void;
     onOpenCaptainsTable?: () => void;
+    /** Whether the skipper has invited crew or the user is on a crew — gates the Crew Chat button */
+    hasCrewInvited?: boolean;
 }
 
 const ChannelListInner: React.FC<ChannelListProps> = ({
@@ -76,6 +78,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
     proposalParentId,
     setProposalParentId,
     onOpenCaptainsTable,
+    hasCrewInvited = false,
 }) => {
     const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
 
@@ -233,72 +236,74 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                 </button>
             )}
 
-            {/* ── Crew Chat (Private Group) — only visible to voyage crew ── */}
-            <button
-                aria-label="Crew Chat (Private Group)"
-                onClick={async () => {
-                    try {
-                        const { getActivePassageId } = await import('../../services/PassagePlanService');
-                        const { getDraftVoyages } = await import('../../services/VoyageService');
-                        const { ChatService } = await import('../../services/ChatService');
+            {/* ── Crew Chat (Private Group) — only visible when crew have been invited ── */}
+            {hasCrewInvited && (
+                <button
+                    aria-label="Crew Chat (Private Group)"
+                    onClick={async () => {
+                        try {
+                            const { getActivePassageId } = await import('../../services/PassagePlanService');
+                            const { getDraftVoyages } = await import('../../services/VoyageService');
+                            const { ChatService } = await import('../../services/ChatService');
 
-                        const passageId = getActivePassageId();
-                        if (!passageId) {
-                            const { toast } = await import('../Toast');
-                            toast.error('Select a passage in Passage Planning first');
-                            return;
+                            const passageId = getActivePassageId();
+                            if (!passageId) {
+                                const { toast } = await import('../Toast');
+                                toast.error('Select a passage in Passage Planning first');
+                                return;
+                            }
+
+                            const drafts = await getDraftVoyages();
+                            const voyage = drafts.find((v) => v.id === passageId);
+                            const voyageName =
+                                voyage?.voyage_name || (voyage?.departure_port && voyage?.destination_port)
+                                    ? `${voyage?.departure_port} → ${voyage?.destination_port}`
+                                    : 'Crew Chat';
+
+                            const channel = await ChatService.createVoyageChannel(passageId, voyageName);
+                            if (channel) {
+                                onOpenChannel(channel);
+                            } else {
+                                const { toast } = await import('../Toast');
+                                toast.error('Sign in to use Crew Chat');
+                            }
+                        } catch (e) {
+                            console.error('Crew chat error:', e);
                         }
-
-                        const drafts = await getDraftVoyages();
-                        const voyage = drafts.find((v) => v.id === passageId);
-                        const voyageName =
-                            voyage?.voyage_name || (voyage?.departure_port && voyage?.destination_port)
-                                ? `${voyage?.departure_port} → ${voyage?.destination_port}`
-                                : 'Crew Chat';
-
-                        const channel = await ChatService.createVoyageChannel(passageId, voyageName);
-                        if (channel) {
-                            onOpenChannel(channel);
-                        } else {
-                            const { toast } = await import('../Toast');
-                            toast.error('Sign in to use Crew Chat');
-                        }
-                    } catch (e) {
-                        console.error('Crew chat error:', e);
-                    }
-                }}
-                className="w-full group flex items-center gap-3.5 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.03] hover:from-emerald-500/[0.12] hover:to-teal-500/[0.06] border border-emerald-500/15 hover:border-emerald-500/30 transition-all duration-200 active:scale-[0.98] mb-3"
-            >
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 flex items-center justify-center text-xl group-hover:scale-110 transition-transform duration-200">
-                    👥
-                </div>
-                <div className="text-left flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                        <p className="text-lg font-semibold text-white/85 group-hover:text-white transition-colors">
-                            Crew Chat
+                    }}
+                    className="w-full group flex items-center gap-3.5 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/[0.06] to-teal-500/[0.03] hover:from-emerald-500/[0.12] hover:to-teal-500/[0.06] border border-emerald-500/15 hover:border-emerald-500/30 transition-all duration-200 active:scale-[0.98] mb-3"
+                >
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500/20 to-teal-600/10 border border-emerald-500/25 flex items-center justify-center text-xl group-hover:scale-110 transition-transform duration-200">
+                        👥
+                    </div>
+                    <div className="text-left flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                            <p className="text-lg font-semibold text-white/85 group-hover:text-white transition-colors">
+                                Crew Chat
+                            </p>
+                            <span className="text-[11px] font-bold text-emerald-400/70 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
+                                PRIVATE GROUP
+                            </span>
+                        </div>
+                        <p className="text-sm text-white/60 truncate mt-0.5">
+                            Only visible to crew on the{' '}
+                            {(() => {
+                                try {
+                                    const s = localStorage.getItem('CapacitorStorage.thalassa_settings');
+                                    return s ? JSON.parse(s)?.vessel?.name || 'vessel' : 'vessel';
+                                } catch {
+                                    return 'vessel';
+                                }
+                            })()}
                         </p>
-                        <span className="text-[11px] font-bold text-emerald-400/70 bg-emerald-500/10 px-1.5 py-0.5 rounded-full">
-                            PRIVATE GROUP
+                    </div>
+                    <div className="w-6 h-6 rounded-full bg-emerald-500/10 group-hover:bg-emerald-500/20 flex items-center justify-center transition-all group-hover:translate-x-0.5">
+                        <span className="text-emerald-400/30 group-hover:text-emerald-400/70 text-xs transition-colors">
+                            ›
                         </span>
                     </div>
-                    <p className="text-sm text-white/60 truncate mt-0.5">
-                        Only visible to crew on the{' '}
-                        {(() => {
-                            try {
-                                const s = localStorage.getItem('CapacitorStorage.thalassa_settings');
-                                return s ? JSON.parse(s)?.vessel?.name || 'vessel' : 'vessel';
-                            } catch {
-                                return 'vessel';
-                            }
-                        })()}
-                    </p>
-                </div>
-                <div className="w-6 h-6 rounded-full bg-emerald-500/10 group-hover:bg-emerald-500/20 flex items-center justify-center transition-all group-hover:translate-x-0.5">
-                    <span className="text-emerald-400/30 group-hover:text-emerald-400/70 text-xs transition-colors">
-                        ›
-                    </span>
-                </div>
-            </button>
+                </button>
+            )}
 
             <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/60 px-1 mb-2">Channels</p>
 

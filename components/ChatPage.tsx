@@ -124,6 +124,7 @@ export const ChatPage: React.FC = React.memo(() => {
     // Loading — must be declared before hooks since they receive setLoading
     const [loading, setLoading] = useState(true);
     const [loadingStatus, _setLoadingStatus] = useState<string | null>(null); // Connecting to Crew Talk…
+    const [hasCrewInvited, setHasCrewInvited] = useState(false);
 
     // Passage Planning visibility
     const [_passageStatus, setPassageStatus] = useState<PassageStatus>(getPassageStatusSync());
@@ -434,6 +435,15 @@ export const ChatPage: React.FC = React.memo(() => {
                 } catch (e) {
                     console.warn('Suppressed:', e);
                     /* non-critical */
+                }
+
+                // Check if user has crew (as skipper or crew member) — gates Crew Chat visibility
+                try {
+                    const { getMyCrew, getMyMemberships } = await import('../services/CrewService');
+                    const [myCrew, myMemberships] = await Promise.all([getMyCrew(), getMyMemberships()]);
+                    setHasCrewInvited(myCrew.length > 0 || myMemberships.length > 0);
+                } catch {
+                    /* non-critical — Crew Chat stays hidden */
                 }
             } catch (e) {
                 // Outer catch — loadChannels() or channel restore failed
@@ -782,6 +792,7 @@ export const ChatPage: React.FC = React.memo(() => {
                             memberChannelIds={memberChannelIds}
                             proposalParentId={proposalParentId}
                             setProposalParentId={setProposalParentId}
+                            hasCrewInvited={hasCrewInvited}
                             onOpenCaptainsTable={() => {
                                 setNavDirection('forward');
                                 setView('captains_table');

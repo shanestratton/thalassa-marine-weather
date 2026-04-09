@@ -343,6 +343,7 @@ export const LayerFABMenu: React.FC<{
     const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [stormMenuOpen, setStormMenuOpen] = useState(false);
     const [_linzKeyInput, _setLinzKeyInput] = useState('');
+    const [showMore, setShowMore] = useState(false);
 
     // Auto-dismiss menu after 5 seconds of inactivity
     useEffect(() => {
@@ -356,7 +357,10 @@ export const LayerFABMenu: React.FC<{
 
     // Reset submenu when main menu closes
     useEffect(() => {
-        if (!showLayerMenu) setStormMenuOpen(false);
+        if (!showLayerMenu) {
+            setStormMenuOpen(false);
+            setShowMore(false);
+        }
     }, [showLayerMenu]);
 
     // Sort cyclones by distance from user
@@ -623,531 +627,574 @@ export const LayerFABMenu: React.FC<{
                         </>
                     )}
 
-                    {/* ── AIS Vessels ── */}
-                    {onToggleAis && (
-                        <>
-                            <button
-                                aria-label="Toggle weather radar layer"
-                                onClick={() => {
-                                    onToggleAis();
-                                    triggerHaptic('light');
-                                }}
-                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${aisVisible ? 'bg-sky-500/20 text-sky-400 border-l-2 border-sky-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                    {/* ── Show More / Collapse toggle ── */}
+                    {!showMore && (
+                        <button
+                            aria-label="Show more layer options"
+                            onClick={() => {
+                                setShowMore(true);
+                                triggerHaptic('light');
+                                // Reset auto-dismiss timer
+                                if (dismissTimer.current) clearTimeout(dismissTimer.current);
+                                dismissTimer.current = setTimeout(() => setShowLayerMenu(false), 8000);
+                            }}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-gray-500 hover:bg-white/5 transition-colors"
+                        >
+                            <span className="text-[11px] font-bold uppercase tracking-wider">Show more</span>
+                            <svg
+                                className="w-3.5 h-3.5"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2.5}
                             >
-                                <span className="text-xl">⛴️</span>
-                                <span className="text-sm font-bold flex-1">AIS Vessels</span>
-                                {aisVisible && (
-                                    <span className="flex items-center gap-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
-                                        <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
-                                            Active
-                                        </span>
-                                    </span>
-                                )}
-                            </button>
-                            <div className="h-px bg-white/[0.06] mx-3" />
-                        </>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
                     )}
 
-                    {/* ── My Vessel (GPS Tracking) ── */}
-                    {onToggleVesselTracking && (
+                    {showMore && (
                         <>
-                            <button
-                                aria-label="Toggle vessel tracking"
-                                onClick={() => {
-                                    onToggleVesselTracking();
-                                    triggerHaptic('light');
-                                }}
-                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${vesselTrackingVisible ? 'bg-sky-500/20 text-sky-400 border-l-2 border-sky-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
-                            >
-                                <span className="text-xl">📍</span>
-                                <span className="text-sm font-bold flex-1">My Vessel</span>
-                                {vesselTrackingVisible ? (
-                                    <span className="flex items-center gap-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50 animate-pulse" />
-                                        <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
-                                            Live
-                                        </span>
-                                        {onLocateVessel && (
-                                            <span
-                                                role="button"
-                                                tabIndex={0}
-                                                aria-label="Fly to vessel position"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    onLocateVessel();
-                                                    setShowLayerMenu(false);
-                                                    triggerHaptic('medium');
-                                                }}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') {
-                                                        e.stopPropagation();
-                                                        onLocateVessel();
-                                                        setShowLayerMenu(false);
-                                                    }
-                                                }}
-                                                className="ml-1 w-6 h-6 rounded-full bg-sky-500/20 border border-sky-500/30 flex items-center justify-center hover:bg-sky-500/40 transition-all active:scale-90 cursor-pointer"
-                                            >
-                                                <svg
-                                                    className="w-3 h-3 text-sky-400"
-                                                    fill="none"
-                                                    viewBox="0 0 24 24"
-                                                    stroke="currentColor"
-                                                    strokeWidth={2.5}
-                                                >
-                                                    <circle cx="12" cy="12" r="3" />
-                                                    <path strokeLinecap="round" d="M12 2v4m0 12v4M2 12h4m12 0h4" />
-                                                </svg>
-                                            </span>
-                                        )}
-                                    </span>
-                                ) : (
-                                    <span className="text-[11px] text-gray-500">GPS</span>
-                                )}
-                            </button>
-                            <div className="h-px bg-white/[0.06] mx-3" />
-                        </>
-                    )}
-
-                    {/* ── Weather layers: Rain, Wind, Temp, Clouds, Sea Marks ── */}
-                    {(
-                        [
-                            { key: 'rain', label: 'Rain', icon: '🌧️' },
-                            { key: 'velocity', label: 'Wind', icon: '💨' },
-                            { key: 'pressure', label: 'Synoptic', icon: '📊' },
-                            { key: 'temperature', label: 'Temp', icon: '🌡️' },
-                            { key: 'clouds', label: 'Clouds', icon: '☁️' },
-                            { key: 'sea', label: 'Sea Marks', icon: '⚓' },
-                        ] as const
-                    ).map((layer) => {
-                        const isActive = activeLayers.has(layer.key);
-                        return (
-                            <button
-                                aria-label="Select depth contour layer"
-                                key={layer.key}
-                                onClick={() => {
-                                    toggleLayer(layer.key);
-                                    triggerHaptic('light');
-                                }}
-                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${isActive ? 'bg-sky-500/20 text-sky-400 border-l-2 border-sky-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
-                            >
-                                <span className="text-xl">{layer.icon}</span>
-                                <span className="text-sm font-bold flex-1">{layer.label}</span>
-                                {isActive && (
-                                    <span className="flex items-center gap-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
-                                        <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
-                                            Active
-                                        </span>
-                                    </span>
-                                )}
-                            </button>
-                        );
-                    })}
-
-                    {/* ── Chokepoints (last) ── */}
-                    {onToggleChokepoint && (
-                        <>
-                            <div className="h-px bg-white/[0.06] mx-3" />
-                            <button
-                                aria-label="Toggle nautical chart overlay"
-                                onClick={() => {
-                                    onToggleChokepoint();
-                                    triggerHaptic('light');
-                                }}
-                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${chokepointVisible ? 'bg-red-500/15 text-red-400 border-l-2 border-red-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
-                            >
-                                <span className="text-xl">🔺</span>
-                                <span className="text-sm font-bold flex-1">Chokepoints</span>
-                                {chokepointVisible && (
-                                    <span className="flex items-center gap-1">
-                                        <span className="w-1.5 h-1.5 rounded-full bg-red-400 shadow-lg shadow-red-400/50" />
-                                        <span className="text-[11px] font-bold text-red-400 uppercase tracking-wider">
-                                            Active
-                                        </span>
-                                    </span>
-                                )}
-                            </button>
-                        </>
-                    )}
-
-                    {/* ── Interactive Sea Marks (OpenSeaMap) ── */}
-                    {onToggleSeamark && (
-                        <>
-                            <div className="h-px bg-white/[0.06] mx-3" />
-                            <button
-                                aria-label="Toggle interactive sea marks"
-                                onClick={() => {
-                                    onToggleSeamark();
-                                    triggerHaptic('light');
-                                }}
-                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${seamarkVisible ? (chartsActive ? 'bg-violet-500/15 text-violet-400 border-l-2 border-violet-400' : 'bg-teal-500/20 text-teal-400 border-l-2 border-teal-400') : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
-                            >
-                                <span className="text-xl">🔱</span>
-                                <div className="flex-1">
-                                    <span className="text-sm font-bold">Sea Marks</span>
-                                    {chartsActive && seamarkVisible && (
-                                        <p className="text-[11px] text-violet-400/60 mt-0.5">
-                                            Identify mode — tap chart icons
-                                        </p>
-                                    )}
-                                </div>
-                                {seamarkVisible ? (
-                                    <span className="flex items-center gap-1">
-                                        {seamarkLoading ? (
-                                            <>
-                                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                                                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
-                                                    Loading
-                                                </span>
-                                            </>
-                                        ) : chartsActive ? (
-                                            <>
-                                                <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shadow-lg shadow-violet-400/50" />
-                                                <span className="text-[11px] font-bold text-violet-400 uppercase tracking-wider">
-                                                    {seamarkFeatureCount > 0 ? `ID · ${seamarkFeatureCount}` : 'ID'}
-                                                </span>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shadow-lg shadow-teal-400/50" />
-                                                <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">
-                                                    {seamarkFeatureCount > 0 ? `${seamarkFeatureCount}` : 'z10+'}
-                                                </span>
-                                            </>
-                                        )}
-                                    </span>
-                                ) : (
-                                    <span className="text-[11px] text-gray-500">
-                                        {chartsActive ? 'Tap to identify' : 'Tap to show'}
-                                    </span>
-                                )}
-                            </button>
-                        </>
-                    )}
-
-                    {/* ── Tide Stations ── */}
-                    {onToggleTideStations && (
-                        <>
-                            <div className="h-px bg-white/[0.06] mx-3" />
-                            <button
-                                aria-label="Toggle tide stations"
-                                onClick={() => {
-                                    onToggleTideStations();
-                                    triggerHaptic('light');
-                                }}
-                                className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${tideStationsVisible ? 'bg-teal-500/20 text-teal-400 border-l-2 border-teal-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
-                            >
-                                <span className="text-xl">🌊</span>
-                                <div className="flex-1">
-                                    <span className="text-sm font-bold">Tide Stations</span>
-                                    {!tideStationsVisible && (
-                                        <p className="text-[11px] text-gray-500 mt-0.5">
-                                            Near coast — tap for predictions
-                                        </p>
-                                    )}
-                                </div>
-                                {tideStationsVisible ? (
-                                    <span className="flex items-center gap-1">
-                                        {tideStationLoading ? (
-                                            <>
-                                                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
-                                                <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
-                                                    Loading
-                                                </span>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shadow-lg shadow-teal-400/50" />
-                                                <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">
-                                                    {tideStationCount > 0 ? `${tideStationCount}` : 'Active'}
-                                                </span>
-                                            </>
-                                        )}
-                                    </span>
-                                ) : (
-                                    <span className="text-[11px] text-gray-500">Tap to show</span>
-                                )}
-                            </button>
-                        </>
-                    )}
-
-                    {/* ── Nautical Charts (AvNav) ── */}
-                    {skCharts.length > 0 && onToggleSkChart && (
-                        <>
-                            <div className="h-px bg-white/[0.06] mx-3" />
-                            <div className="px-4 pt-3 pb-1">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-[11px] font-black text-emerald-400/80 uppercase tracking-[0.2em]">
-                                        ⚓ Nautical Charts
-                                    </span>
-                                    <span
-                                        className={`w-1.5 h-1.5 rounded-full ${
-                                            skConnectionStatus === 'connected'
-                                                ? 'bg-emerald-400 shadow-lg shadow-emerald-400/50'
-                                                : skConnectionStatus === 'connecting'
-                                                  ? 'bg-amber-400 animate-pulse'
-                                                  : 'bg-gray-500'
-                                        }`}
-                                    />
-                                    <span className="text-[11px] text-gray-500 ml-auto">AvNav</span>
-                                </div>
-                            </div>
-                            {skCharts.map((chart) => {
-                                const isActive = skChartIds.has(chart.id);
-                                return (
+                            {/* ── AIS Vessels ── */}
+                            {onToggleAis && (
+                                <>
                                     <button
-                                        aria-label={`Toggle chart ${chart.name}`}
-                                        key={chart.id}
+                                        aria-label="Toggle weather radar layer"
                                         onClick={() => {
-                                            onToggleSkChart(chart.id);
+                                            onToggleAis();
                                             triggerHaptic('light');
                                         }}
-                                        className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
-                                            isActive
-                                                ? 'bg-emerald-500/15 text-emerald-400 border-l-2 border-emerald-400'
-                                                : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'
-                                        }`}
+                                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${aisVisible ? 'bg-sky-500/20 text-sky-400 border-l-2 border-sky-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
                                     >
-                                        <span className="text-lg">🗺️</span>
-                                        <div className="flex-1 min-w-0">
-                                            <span className="text-sm font-bold block truncate">{chart.name}</span>
-                                            {chart.description && (
-                                                <span className="text-[11px] text-gray-500 block truncate">
-                                                    {chart.description}
-                                                </span>
-                                            )}
-                                        </div>
-                                        {isActive ? (
+                                        <span className="text-xl">⛴️</span>
+                                        <span className="text-sm font-bold flex-1">AIS Vessels</span>
+                                        {aisVisible && (
                                             <span className="flex items-center gap-1">
                                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
                                                 <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
-                                                    On
+                                                    Active
                                                 </span>
-                                                {chart.bounds && onFlyToChart && (
+                                            </span>
+                                        )}
+                                    </button>
+                                    <div className="h-px bg-white/[0.06] mx-3" />
+                                </>
+                            )}
+
+                            {/* ── My Vessel (GPS Tracking) ── */}
+                            {onToggleVesselTracking && (
+                                <>
+                                    <button
+                                        aria-label="Toggle vessel tracking"
+                                        onClick={() => {
+                                            onToggleVesselTracking();
+                                            triggerHaptic('light');
+                                        }}
+                                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${vesselTrackingVisible ? 'bg-sky-500/20 text-sky-400 border-l-2 border-sky-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                                    >
+                                        <span className="text-xl">📍</span>
+                                        <span className="text-sm font-bold flex-1">My Vessel</span>
+                                        {vesselTrackingVisible ? (
+                                            <span className="flex items-center gap-1">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50 animate-pulse" />
+                                                <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+                                                    Live
+                                                </span>
+                                                {onLocateVessel && (
                                                     <span
                                                         role="button"
                                                         tabIndex={0}
-                                                        aria-label="Fly to chart area"
+                                                        aria-label="Fly to vessel position"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            onFlyToChart(chart);
+                                                            onLocateVessel();
                                                             setShowLayerMenu(false);
                                                             triggerHaptic('medium');
                                                         }}
                                                         onKeyDown={(e) => {
                                                             if (e.key === 'Enter') {
                                                                 e.stopPropagation();
-                                                                onFlyToChart(chart);
+                                                                onLocateVessel();
                                                                 setShowLayerMenu(false);
                                                             }
                                                         }}
-                                                        className="ml-1 w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center hover:bg-emerald-500/40 transition-all active:scale-90 cursor-pointer"
+                                                        className="ml-1 w-6 h-6 rounded-full bg-sky-500/20 border border-sky-500/30 flex items-center justify-center hover:bg-sky-500/40 transition-all active:scale-90 cursor-pointer"
                                                     >
                                                         <svg
-                                                            className="w-3 h-3 text-emerald-400"
+                                                            className="w-3 h-3 text-sky-400"
                                                             fill="none"
                                                             viewBox="0 0 24 24"
                                                             stroke="currentColor"
                                                             strokeWidth={2.5}
                                                         >
+                                                            <circle cx="12" cy="12" r="3" />
                                                             <path
                                                                 strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                                d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
-                                                            />
-                                                            <path
-                                                                strokeLinecap="round"
-                                                                strokeLinejoin="round"
-                                                                d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                                                                d="M12 2v4m0 12v4M2 12h4m12 0h4"
                                                             />
                                                         </svg>
                                                     </span>
                                                 )}
                                             </span>
                                         ) : (
-                                            <span className="text-[11px] text-gray-500">
-                                                z{chart.minZoom}–{chart.maxZoom}
+                                            <span className="text-[11px] text-gray-500">GPS</span>
+                                        )}
+                                    </button>
+                                    <div className="h-px bg-white/[0.06] mx-3" />
+                                </>
+                            )}
+
+                            {/* ── Weather layers: Rain, Wind, Temp, Clouds, Sea Marks ── */}
+                            {(
+                                [
+                                    { key: 'rain', label: 'Rain', icon: '🌧️' },
+                                    { key: 'velocity', label: 'Wind', icon: '💨' },
+                                    { key: 'pressure', label: 'Synoptic', icon: '📊' },
+                                    { key: 'temperature', label: 'Temp', icon: '🌡️' },
+                                    { key: 'clouds', label: 'Clouds', icon: '☁️' },
+                                    { key: 'sea', label: 'Sea Marks', icon: '⚓' },
+                                ] as const
+                            ).map((layer) => {
+                                const isActive = activeLayers.has(layer.key);
+                                return (
+                                    <button
+                                        aria-label="Select depth contour layer"
+                                        key={layer.key}
+                                        onClick={() => {
+                                            toggleLayer(layer.key);
+                                            triggerHaptic('light');
+                                        }}
+                                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${isActive ? 'bg-sky-500/20 text-sky-400 border-l-2 border-sky-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                                    >
+                                        <span className="text-xl">{layer.icon}</span>
+                                        <span className="text-sm font-bold flex-1">{layer.label}</span>
+                                        {isActive && (
+                                            <span className="flex items-center gap-1">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
+                                                <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+                                                    Active
+                                                </span>
                                             </span>
                                         )}
                                     </button>
                                 );
                             })}
-                            {/* Opacity slider */}
-                            {skChartIds.size > 0 && onSkChartOpacityChange && (
-                                <div className="px-4 py-2 flex items-center gap-2">
-                                    <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider shrink-0">
-                                        Opacity
-                                    </span>
-                                    <input
-                                        type="range"
-                                        min={0.1}
-                                        max={1}
-                                        step={0.05}
-                                        value={skChartOpacity}
-                                        onChange={(e) => onSkChartOpacityChange(parseFloat(e.target.value))}
-                                        className="flex-1 h-1 accent-emerald-400 cursor-pointer"
-                                        style={{
-                                            WebkitAppearance: 'none',
-                                            background: `linear-gradient(to right, rgba(52,211,153,0.6) ${skChartOpacity * 100}%, rgba(255,255,255,0.1) ${skChartOpacity * 100}%)`,
-                                            borderRadius: 4,
-                                            height: 4,
-                                        }}
-                                    />
-                                    <span className="text-[11px] text-gray-400 font-mono w-8 text-right">
-                                        {Math.round(skChartOpacity * 100)}%
-                                    </span>
-                                </div>
-                            )}
-                        </>
-                    )}
 
-                    {/* ── Free Chart Sources (NOAA, LINZ) ── */}
-                    {chartCatalogSources.length > 0 && onToggleChartSource && (
-                        <>
-                            <div className="h-px bg-white/[0.06] mx-3" />
-                            <div className="px-4 pt-3 pb-1">
-                                <span className="text-[11px] font-black text-sky-400/80 uppercase tracking-[0.2em]">
-                                    🗺️ Free Charts
-                                </span>
-                            </div>
-                            {chartCatalogSources.map((src) => {
-                                const isActive = src.enabled && !!src.tileUrl;
-                                const needsKey = src.requiresKey && !src.tileUrl;
-                                return (
-                                    <div key={src.id}>
-                                        <button
-                                            aria-label={`Toggle ${src.name}`}
-                                            onClick={() => {
-                                                if (needsKey) {
-                                                    // Show LINZ key prompt
-                                                    const key = prompt(
-                                                        'Enter your free LINZ API key\n(Get one at data.linz.govt.nz)',
-                                                    );
-                                                    if (key && key.length > 10 && onUpdateLinzKey) {
-                                                        onUpdateLinzKey(key);
-                                                        // Auto-enable after key entry
-                                                        setTimeout(() => onToggleChartSource(src.id), 100);
-                                                    }
-                                                } else {
-                                                    onToggleChartSource(src.id);
-                                                }
-                                                triggerHaptic('light');
-                                            }}
-                                            className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
-                                                isActive
-                                                    ? 'bg-sky-500/15 text-sky-400 border-l-2 border-sky-400'
-                                                    : needsKey
-                                                      ? 'text-gray-500 hover:bg-white/5 border-l-2 border-transparent'
-                                                      : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'
-                                            }`}
-                                        >
-                                            <span className="text-lg">{src.flag}</span>
-                                            <div className="flex-1 min-w-0">
-                                                <span className="text-sm font-bold block truncate">{src.name}</span>
-                                                <span className="text-[11px] text-gray-500 block truncate">
-                                                    {src.description}
+                            {/* ── Chokepoints (last) ── */}
+                            {onToggleChokepoint && (
+                                <>
+                                    <div className="h-px bg-white/[0.06] mx-3" />
+                                    <button
+                                        aria-label="Toggle nautical chart overlay"
+                                        onClick={() => {
+                                            onToggleChokepoint();
+                                            triggerHaptic('light');
+                                        }}
+                                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${chokepointVisible ? 'bg-red-500/15 text-red-400 border-l-2 border-red-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                                    >
+                                        <span className="text-xl">🔺</span>
+                                        <span className="text-sm font-bold flex-1">Chokepoints</span>
+                                        {chokepointVisible && (
+                                            <span className="flex items-center gap-1">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-red-400 shadow-lg shadow-red-400/50" />
+                                                <span className="text-[11px] font-bold text-red-400 uppercase tracking-wider">
+                                                    Active
                                                 </span>
-                                            </div>
-                                            {isActive ? (
-                                                <span className="flex items-center gap-1">
-                                                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shadow-lg shadow-sky-400/50" />
-                                                    <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">
-                                                        On
+                                            </span>
+                                        )}
+                                    </button>
+                                </>
+                            )}
+
+                            {/* ── Interactive Sea Marks (OpenSeaMap) ── */}
+                            {onToggleSeamark && (
+                                <>
+                                    <div className="h-px bg-white/[0.06] mx-3" />
+                                    <button
+                                        aria-label="Toggle interactive sea marks"
+                                        onClick={() => {
+                                            onToggleSeamark();
+                                            triggerHaptic('light');
+                                        }}
+                                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${seamarkVisible ? (chartsActive ? 'bg-violet-500/15 text-violet-400 border-l-2 border-violet-400' : 'bg-teal-500/20 text-teal-400 border-l-2 border-teal-400') : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                                    >
+                                        <span className="text-xl">🔱</span>
+                                        <div className="flex-1">
+                                            <span className="text-sm font-bold">Sea Marks</span>
+                                            {chartsActive && seamarkVisible && (
+                                                <p className="text-[11px] text-violet-400/60 mt-0.5">
+                                                    Identify mode — tap chart icons
+                                                </p>
+                                            )}
+                                        </div>
+                                        {seamarkVisible ? (
+                                            <span className="flex items-center gap-1">
+                                                {seamarkLoading ? (
+                                                    <>
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                                        <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
+                                                            Loading
+                                                        </span>
+                                                    </>
+                                                ) : chartsActive ? (
+                                                    <>
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shadow-lg shadow-violet-400/50" />
+                                                        <span className="text-[11px] font-bold text-violet-400 uppercase tracking-wider">
+                                                            {seamarkFeatureCount > 0
+                                                                ? `ID · ${seamarkFeatureCount}`
+                                                                : 'ID'}
+                                                        </span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shadow-lg shadow-teal-400/50" />
+                                                        <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">
+                                                            {seamarkFeatureCount > 0
+                                                                ? `${seamarkFeatureCount}`
+                                                                : 'z10+'}
+                                                        </span>
+                                                    </>
+                                                )}
+                                            </span>
+                                        ) : (
+                                            <span className="text-[11px] text-gray-500">
+                                                {chartsActive ? 'Tap to identify' : 'Tap to show'}
+                                            </span>
+                                        )}
+                                    </button>
+                                </>
+                            )}
+
+                            {/* ── Tide Stations ── */}
+                            {onToggleTideStations && (
+                                <>
+                                    <div className="h-px bg-white/[0.06] mx-3" />
+                                    <button
+                                        aria-label="Toggle tide stations"
+                                        onClick={() => {
+                                            onToggleTideStations();
+                                            triggerHaptic('light');
+                                        }}
+                                        className={`w-full flex items-center gap-3 px-4 py-3 text-left transition-colors ${tideStationsVisible ? 'bg-teal-500/20 text-teal-400 border-l-2 border-teal-400' : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'}`}
+                                    >
+                                        <span className="text-xl">🌊</span>
+                                        <div className="flex-1">
+                                            <span className="text-sm font-bold">Tide Stations</span>
+                                            {!tideStationsVisible && (
+                                                <p className="text-[11px] text-gray-500 mt-0.5">
+                                                    Near coast — tap for predictions
+                                                </p>
+                                            )}
+                                        </div>
+                                        {tideStationsVisible ? (
+                                            <span className="flex items-center gap-1">
+                                                {tideStationLoading ? (
+                                                    <>
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                                                        <span className="text-[11px] font-bold text-amber-400 uppercase tracking-wider">
+                                                            Loading
+                                                        </span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-teal-400 shadow-lg shadow-teal-400/50" />
+                                                        <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">
+                                                            {tideStationCount > 0 ? `${tideStationCount}` : 'Active'}
+                                                        </span>
+                                                    </>
+                                                )}
+                                            </span>
+                                        ) : (
+                                            <span className="text-[11px] text-gray-500">Tap to show</span>
+                                        )}
+                                    </button>
+                                </>
+                            )}
+
+                            {/* ── Nautical Charts (AvNav) ── */}
+                            {skCharts.length > 0 && onToggleSkChart && (
+                                <>
+                                    <div className="h-px bg-white/[0.06] mx-3" />
+                                    <div className="px-4 pt-3 pb-1">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[11px] font-black text-emerald-400/80 uppercase tracking-[0.2em]">
+                                                ⚓ Nautical Charts
+                                            </span>
+                                            <span
+                                                className={`w-1.5 h-1.5 rounded-full ${
+                                                    skConnectionStatus === 'connected'
+                                                        ? 'bg-emerald-400 shadow-lg shadow-emerald-400/50'
+                                                        : skConnectionStatus === 'connecting'
+                                                          ? 'bg-amber-400 animate-pulse'
+                                                          : 'bg-gray-500'
+                                                }`}
+                                            />
+                                            <span className="text-[11px] text-gray-500 ml-auto">AvNav</span>
+                                        </div>
+                                    </div>
+                                    {skCharts.map((chart) => {
+                                        const isActive = skChartIds.has(chart.id);
+                                        return (
+                                            <button
+                                                aria-label={`Toggle chart ${chart.name}`}
+                                                key={chart.id}
+                                                onClick={() => {
+                                                    onToggleSkChart(chart.id);
+                                                    triggerHaptic('light');
+                                                }}
+                                                className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                                                    isActive
+                                                        ? 'bg-emerald-500/15 text-emerald-400 border-l-2 border-emerald-400'
+                                                        : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'
+                                                }`}
+                                            >
+                                                <span className="text-lg">🗺️</span>
+                                                <div className="flex-1 min-w-0">
+                                                    <span className="text-sm font-bold block truncate">
+                                                        {chart.name}
                                                     </span>
-                                                    {onFlyToChartSource && (
-                                                        <span
-                                                            role="button"
-                                                            tabIndex={0}
-                                                            aria-label="Fly to chart area"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                onFlyToChartSource(src);
-                                                                setShowLayerMenu(false);
-                                                                triggerHaptic('medium');
-                                                            }}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter') {
+                                                    {chart.description && (
+                                                        <span className="text-[11px] text-gray-500 block truncate">
+                                                            {chart.description}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                {isActive ? (
+                                                    <span className="flex items-center gap-1">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
+                                                        <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">
+                                                            On
+                                                        </span>
+                                                        {chart.bounds && onFlyToChart && (
+                                                            <span
+                                                                role="button"
+                                                                tabIndex={0}
+                                                                aria-label="Fly to chart area"
+                                                                onClick={(e) => {
                                                                     e.stopPropagation();
-                                                                    onFlyToChartSource(src);
+                                                                    onFlyToChart(chart);
                                                                     setShowLayerMenu(false);
-                                                                }
-                                                            }}
-                                                            className="ml-1 w-6 h-6 rounded-full bg-sky-500/20 border border-sky-500/30 flex items-center justify-center hover:bg-sky-500/40 transition-all active:scale-90 cursor-pointer"
-                                                        >
+                                                                    triggerHaptic('medium');
+                                                                }}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter') {
+                                                                        e.stopPropagation();
+                                                                        onFlyToChart(chart);
+                                                                        setShowLayerMenu(false);
+                                                                    }
+                                                                }}
+                                                                className="ml-1 w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center hover:bg-emerald-500/40 transition-all active:scale-90 cursor-pointer"
+                                                            >
+                                                                <svg
+                                                                    className="w-3 h-3 text-emerald-400"
+                                                                    fill="none"
+                                                                    viewBox="0 0 24 24"
+                                                                    stroke="currentColor"
+                                                                    strokeWidth={2.5}
+                                                                >
+                                                                    <path
+                                                                        strokeLinecap="round"
+                                                                        strokeLinejoin="round"
+                                                                        d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+                                                                    />
+                                                                    <path
+                                                                        strokeLinecap="round"
+                                                                        strokeLinejoin="round"
+                                                                        d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                                                                    />
+                                                                </svg>
+                                                            </span>
+                                                        )}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[11px] text-gray-500">
+                                                        z{chart.minZoom}–{chart.maxZoom}
+                                                    </span>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                    {/* Opacity slider */}
+                                    {skChartIds.size > 0 && onSkChartOpacityChange && (
+                                        <div className="px-4 py-2 flex items-center gap-2">
+                                            <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider shrink-0">
+                                                Opacity
+                                            </span>
+                                            <input
+                                                type="range"
+                                                min={0.1}
+                                                max={1}
+                                                step={0.05}
+                                                value={skChartOpacity}
+                                                onChange={(e) => onSkChartOpacityChange(parseFloat(e.target.value))}
+                                                className="flex-1 h-1 accent-emerald-400 cursor-pointer"
+                                                style={{
+                                                    WebkitAppearance: 'none',
+                                                    background: `linear-gradient(to right, rgba(52,211,153,0.6) ${skChartOpacity * 100}%, rgba(255,255,255,0.1) ${skChartOpacity * 100}%)`,
+                                                    borderRadius: 4,
+                                                    height: 4,
+                                                }}
+                                            />
+                                            <span className="text-[11px] text-gray-400 font-mono w-8 text-right">
+                                                {Math.round(skChartOpacity * 100)}%
+                                            </span>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+
+                            {/* ── Free Chart Sources (NOAA, LINZ) ── */}
+                            {chartCatalogSources.length > 0 && onToggleChartSource && (
+                                <>
+                                    <div className="h-px bg-white/[0.06] mx-3" />
+                                    <div className="px-4 pt-3 pb-1">
+                                        <span className="text-[11px] font-black text-sky-400/80 uppercase tracking-[0.2em]">
+                                            🗺️ Free Charts
+                                        </span>
+                                    </div>
+                                    {chartCatalogSources.map((src) => {
+                                        const isActive = src.enabled && !!src.tileUrl;
+                                        const needsKey = src.requiresKey && !src.tileUrl;
+                                        return (
+                                            <div key={src.id}>
+                                                <button
+                                                    aria-label={`Toggle ${src.name}`}
+                                                    onClick={() => {
+                                                        if (needsKey) {
+                                                            // Show LINZ key prompt
+                                                            const key = prompt(
+                                                                'Enter your free LINZ API key\n(Get one at data.linz.govt.nz)',
+                                                            );
+                                                            if (key && key.length > 10 && onUpdateLinzKey) {
+                                                                onUpdateLinzKey(key);
+                                                                // Auto-enable after key entry
+                                                                setTimeout(() => onToggleChartSource(src.id), 100);
+                                                            }
+                                                        } else {
+                                                            onToggleChartSource(src.id);
+                                                        }
+                                                        triggerHaptic('light');
+                                                    }}
+                                                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                                                        isActive
+                                                            ? 'bg-sky-500/15 text-sky-400 border-l-2 border-sky-400'
+                                                            : needsKey
+                                                              ? 'text-gray-500 hover:bg-white/5 border-l-2 border-transparent'
+                                                              : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'
+                                                    }`}
+                                                >
+                                                    <span className="text-lg">{src.flag}</span>
+                                                    <div className="flex-1 min-w-0">
+                                                        <span className="text-sm font-bold block truncate">
+                                                            {src.name}
+                                                        </span>
+                                                        <span className="text-[11px] text-gray-500 block truncate">
+                                                            {src.description}
+                                                        </span>
+                                                    </div>
+                                                    {isActive ? (
+                                                        <span className="flex items-center gap-1">
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shadow-lg shadow-sky-400/50" />
+                                                            <span className="text-[11px] font-bold text-sky-400 uppercase tracking-wider">
+                                                                On
+                                                            </span>
+                                                            {onFlyToChartSource && (
+                                                                <span
+                                                                    role="button"
+                                                                    tabIndex={0}
+                                                                    aria-label="Fly to chart area"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        onFlyToChartSource(src);
+                                                                        setShowLayerMenu(false);
+                                                                        triggerHaptic('medium');
+                                                                    }}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter') {
+                                                                            e.stopPropagation();
+                                                                            onFlyToChartSource(src);
+                                                                            setShowLayerMenu(false);
+                                                                        }
+                                                                    }}
+                                                                    className="ml-1 w-6 h-6 rounded-full bg-sky-500/20 border border-sky-500/30 flex items-center justify-center hover:bg-sky-500/40 transition-all active:scale-90 cursor-pointer"
+                                                                >
+                                                                    <svg
+                                                                        className="w-3 h-3 text-sky-400"
+                                                                        fill="none"
+                                                                        viewBox="0 0 24 24"
+                                                                        stroke="currentColor"
+                                                                        strokeWidth={2.5}
+                                                                    >
+                                                                        <path
+                                                                            strokeLinecap="round"
+                                                                            strokeLinejoin="round"
+                                                                            d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+                                                                        />
+                                                                        <path
+                                                                            strokeLinecap="round"
+                                                                            strokeLinejoin="round"
+                                                                            d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                                                                        />
+                                                                    </svg>
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                    ) : needsKey ? (
+                                                        <span className="text-[11px] text-amber-400/70 flex items-center gap-1">
                                                             <svg
-                                                                className="w-3 h-3 text-sky-400"
+                                                                className="w-3 h-3"
                                                                 fill="none"
                                                                 viewBox="0 0 24 24"
                                                                 stroke="currentColor"
-                                                                strokeWidth={2.5}
+                                                                strokeWidth={2}
                                                             >
                                                                 <path
                                                                     strokeLinecap="round"
                                                                     strokeLinejoin="round"
-                                                                    d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
-                                                                />
-                                                                <path
-                                                                    strokeLinecap="round"
-                                                                    strokeLinejoin="round"
-                                                                    d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                                                                    d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"
                                                                 />
                                                             </svg>
+                                                            Setup
                                                         </span>
+                                                    ) : (
+                                                        <span className="text-[11px] text-gray-500">{src.region}</span>
                                                     )}
-                                                </span>
-                                            ) : needsKey ? (
-                                                <span className="text-[11px] text-amber-400/70 flex items-center gap-1">
-                                                    <svg
-                                                        className="w-3 h-3"
-                                                        fill="none"
-                                                        viewBox="0 0 24 24"
-                                                        stroke="currentColor"
-                                                        strokeWidth={2}
-                                                    >
-                                                        <path
-                                                            strokeLinecap="round"
-                                                            strokeLinejoin="round"
-                                                            d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z"
+                                                </button>
+                                                {/* Opacity slider for active sources */}
+                                                {isActive && onChartSourceOpacity && (
+                                                    <div className="px-4 py-1.5 flex items-center gap-2">
+                                                        <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider shrink-0">
+                                                            Opacity
+                                                        </span>
+                                                        <input
+                                                            type="range"
+                                                            min={0.1}
+                                                            max={1}
+                                                            step={0.05}
+                                                            value={src.opacity}
+                                                            onChange={(e) =>
+                                                                onChartSourceOpacity(src.id, parseFloat(e.target.value))
+                                                            }
+                                                            className="flex-1 h-1 accent-sky-400 cursor-pointer"
+                                                            style={{
+                                                                WebkitAppearance: 'none',
+                                                                background: `linear-gradient(to right, rgba(56,189,248,0.6) ${src.opacity * 100}%, rgba(255,255,255,0.1) ${src.opacity * 100}%)`,
+                                                                borderRadius: 4,
+                                                                height: 4,
+                                                            }}
                                                         />
-                                                    </svg>
-                                                    Setup
-                                                </span>
-                                            ) : (
-                                                <span className="text-[11px] text-gray-500">{src.region}</span>
-                                            )}
-                                        </button>
-                                        {/* Opacity slider for active sources */}
-                                        {isActive && onChartSourceOpacity && (
-                                            <div className="px-4 py-1.5 flex items-center gap-2">
-                                                <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider shrink-0">
-                                                    Opacity
-                                                </span>
-                                                <input
-                                                    type="range"
-                                                    min={0.1}
-                                                    max={1}
-                                                    step={0.05}
-                                                    value={src.opacity}
-                                                    onChange={(e) =>
-                                                        onChartSourceOpacity(src.id, parseFloat(e.target.value))
-                                                    }
-                                                    className="flex-1 h-1 accent-sky-400 cursor-pointer"
-                                                    style={{
-                                                        WebkitAppearance: 'none',
-                                                        background: `linear-gradient(to right, rgba(56,189,248,0.6) ${src.opacity * 100}%, rgba(255,255,255,0.1) ${src.opacity * 100}%)`,
-                                                        borderRadius: 4,
-                                                        height: 4,
-                                                    }}
-                                                />
-                                                <span className="text-[11px] text-gray-400 font-mono w-8 text-right">
-                                                    {Math.round(src.opacity * 100)}%
-                                                </span>
+                                                        <span className="text-[11px] text-gray-400 font-mono w-8 text-right">
+                                                            {Math.round(src.opacity * 100)}%
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
+                                        );
+                                    })}
+                                </>
+                            )}
+
+                            {/* Close showMore wrapper */}
                         </>
                     )}
 

@@ -33,6 +33,17 @@ const mapConditionToKey = (cond: string): WeatherConditionKey => {
     return 'default';
 };
 
+/** Haversine distance in km between two lat/lon points */
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371;
+    const dLat = ((lat2 - lat1) * Math.PI) / 180;
+    const dLon = ((lon2 - lon1) * Math.PI) / 180;
+    const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export const useAppController = () => {
     const { weatherData, loading, fetchWeather, selectLocation } = useWeather();
     const { settings, updateSettings } = useSettings();
@@ -49,6 +60,8 @@ export const useAppController = () => {
     const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
     const [isMobileLandscape, setIsMobileLandscape] = useState(false);
 
+    const gpsBootRan = React.useRef(false);
+
     // 1. Initial Load
     useEffect(() => {
         const onboarded = localStorage.getItem('thalassa_v3_onboarded');
@@ -60,6 +73,43 @@ export const useAppController = () => {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [settings.defaultLocation]);
+
+    // 1b. GPS Auto-Locate — update weather if user has moved significantly since last session
+    useEffect(() => {
+        if (gpsBootRan.current) return;
+        const onboarded = localStorage.getItem('thalassa_v3_onboarded');
+        if (!onboarded) return; // don't run during onboarding
+
+        gpsBootRan.current = true;
+
+        // Fire GPS check in background — non-blocking
+        GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 8 }).then(async (pos) => {
+            if (!pos) return; // GPS denied or timed out — keep saved location
+
+            const { latitude, longitude } = pos;
+
+            // Check distance from current weather/saved location
+            const saved = weatherData?.coordinates;
+            if (saved) {
+                const dist = haversineKm(saved.lat, saved.lon, latitude, longitude);
+                if (dist < 10) return; // Haven't moved significantly — keep current weather
+            }
+
+            // User has moved! Reverse geocode for a readable name
+            let locationName = `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
+            try {
+                const geoName = await reverseGeocode(latitude, longitude);
+                if (geoName) locationName = geoName;
+            } catch {
+                // geocode failed — use coordinate string
+            }
+
+            log.info(`GPS boot: moved to ${locationName} (${latitude.toFixed(2)}, ${longitude.toFixed(2)})`);
+            setQuery(locationName);
+            selectLocation(locationName, { lat: latitude, lon: longitude }).catch(() => {});
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     // 2. Background Image Sync
     useEffect(() => {
