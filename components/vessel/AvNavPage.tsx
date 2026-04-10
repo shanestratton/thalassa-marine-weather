@@ -189,6 +189,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
     const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
     const [activePackageId, setActivePackageId] = useState<string | null>(null);
     const [expandedRegions, setExpandedRegions] = useState<Set<ChartRegion>>(new Set());
+    const [localCharts, setLocalCharts] = useState<Array<{ name: string; size: number; uri: string }>>([]);
 
     // Setup Guide modal — auto-show on first visit, dismissable with "don't show again"
     const [showSetupGuide, setShowSetupGuide] = useState(() => {
@@ -210,6 +211,12 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
     const catalog = useMemo(() => ChartLockerService.getFullCatalog(linzKey), [linzKey]);
     const regions = useMemo(() => ChartLockerService.getRegions(catalog), [catalog]);
 
+    // Refresh locally saved charts (downloaded to phone but not yet on AvNav)
+    const refreshLocalCharts = useCallback(async () => {
+        const charts = await ChartLockerService.getLocalCharts();
+        setLocalCharts(charts);
+    }, []);
+
     useEffect(() => {
         const unsubSk = AvNavService.onStatusChange((s) => {
             setSkStatus(s);
@@ -220,13 +227,16 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
         const unsubScanStatus = AvNavDiscoveryService.onStatusChange(setScanStatus);
         const unsubScanServers = AvNavDiscoveryService.onServersChange(setFoundServers);
 
+        // Load locally downloaded charts
+        refreshLocalCharts();
+
         return () => {
             unsubSk();
             unsubSkCharts();
             unsubScanStatus();
             unsubScanServers();
         };
-    }, []);
+    }, [refreshLocalCharts]);
 
     const handleSkConnect = useCallback(() => {
         triggerHaptic('medium');
@@ -280,16 +290,50 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
             setActivePackageId(pkg.id);
             setUploadProgress(null);
 
-            await ChartLockerService.downloadChart(
-                pkg,
-                downloadMode,
+            if (!skConnected) {
+                // No AvNav connection — save to phone only
+                await ChartLockerService.downloadToPhoneOnly(pkg, setUploadProgress);
+                refreshLocalCharts();
+            } else {
+                // Full flow: download + upload to AvNav
+                await ChartLockerService.downloadChart(
+                    pkg,
+                    downloadMode,
+                    skHost,
+                    parseInt(skPort, 10) || 8080,
+                    deleteAfterUpload,
+                    setUploadProgress,
+                );
+            }
+        },
+        [downloadMode, skHost, skPort, deleteAfterUpload, skConnected, refreshLocalCharts],
+    );
+
+    const handleUploadLocal = useCallback(
+        async (fileName: string) => {
+            triggerHaptic('medium');
+            setActivePackageId(`local-${fileName}`);
+            setUploadProgress(null);
+
+            await ChartLockerService.uploadLocalChart(
+                fileName,
                 skHost,
                 parseInt(skPort, 10) || 8080,
                 deleteAfterUpload,
                 setUploadProgress,
             );
+            refreshLocalCharts();
         },
-        [downloadMode, skHost, skPort, deleteAfterUpload],
+        [skHost, skPort, deleteAfterUpload, refreshLocalCharts],
+    );
+
+    const handleDeleteLocal = useCallback(
+        async (fileName: string) => {
+            triggerHaptic('light');
+            await ChartLockerService.deleteLocalChart(fileName);
+            refreshLocalCharts();
+        },
+        [refreshLocalCharts],
     );
 
     const toggleRegion = useCallback((region: ChartRegion) => {
@@ -516,7 +560,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                         <div className="flex-1 text-left">
                             <p className="text-sm font-bold text-white">Chart Locker</p>
                             <p className="text-[11px] text-gray-400">
-                                Upload charts to AvNav · Free NOAA & LINZ charts
+                                Download & upload charts · Free NOAA & LINZ charts
                             </p>
                         </div>
                         <svg
@@ -578,6 +622,95 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                 </button>
                             </div>
 
+                            {/* ── Charts Saved on Phone ── */}
+                            {localCharts.length > 0 && (
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-2">
+                                        <p className="text-[11px] font-bold uppercase tracking-widest text-white/40 flex-1">
+                                            Charts on Phone
+                                        </p>
+                                        <span className="text-[11px] text-amber-400/60 font-mono bg-amber-500/10 px-2 py-0.5 rounded-full">
+                                            {localCharts.length} file{localCharts.length !== 1 ? 's' : ''}
+                                        </span>
+                                    </div>
+                                    <p className="text-[11px] text-gray-500 leading-relaxed">
+                                        {skConnected
+                                            ? 'Tap ⬆ to upload saved charts to your AvNav server.'
+                                            : 'Connect to AvNav to upload these charts to your Pi.'}
+                                    </p>
+                                    {localCharts.map((chart) => {
+                                        const isLocalActive = activePackageId === `local-${chart.name}`;
+                                        const localBusy =
+                                            isLocalActive &&
+                                            uploadProgress &&
+                                            uploadProgress.phase !== 'idle' &&
+                                            uploadProgress.phase !== 'done' &&
+                                            uploadProgress.phase !== 'error';
+                                        const sizeStr =
+                                            chart.size >= 1024 * 1024 * 1024
+                                                ? `${(chart.size / 1024 / 1024 / 1024).toFixed(1)} GB`
+                                                : `${Math.round(chart.size / 1024 / 1024)} MB`;
+
+                                        return (
+                                            <div
+                                                key={chart.name}
+                                                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]"
+                                            >
+                                                <span className="text-sm shrink-0">📱</span>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-xs font-bold text-white truncate">
+                                                        {chart.name}
+                                                    </p>
+                                                    {isLocalActive &&
+                                                    uploadProgress &&
+                                                    uploadProgress.phase !== 'idle' ? (
+                                                        <ProgressBar progress={uploadProgress} />
+                                                    ) : (
+                                                        <p className="text-[11px] text-gray-500">
+                                                            {sizeStr} · Saved on phone
+                                                        </p>
+                                                    )}
+                                                </div>
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                    {skConnected && (
+                                                        <button
+                                                            onClick={() => handleUploadLocal(chart.name)}
+                                                            disabled={isBusy}
+                                                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-black transition-all active:scale-95 ${
+                                                                localBusy
+                                                                    ? 'bg-white/[0.03] text-gray-500 cursor-not-allowed'
+                                                                    : isLocalActive && uploadProgress?.phase === 'done'
+                                                                      ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400'
+                                                                      : 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20'
+                                                            }`}
+                                                        >
+                                                            {localBusy ? (
+                                                                <div className="w-3 h-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
+                                                            ) : isLocalActive && uploadProgress?.phase === 'done' ? (
+                                                                '✓'
+                                                            ) : (
+                                                                '⬆'
+                                                            )}
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={() => handleDeleteLocal(chart.name)}
+                                                        disabled={isBusy}
+                                                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-black transition-all active:scale-95 ${
+                                                            isBusy
+                                                                ? 'bg-white/[0.03] text-gray-500 cursor-not-allowed'
+                                                                : 'bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20'
+                                                        }`}
+                                                    >
+                                                        🗑
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+
                             {/* ── Settings ── */}
                             <div className="space-y-2 px-1">
                                 {/* Delete after upload toggle */}
@@ -628,9 +761,11 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                     </button>
                                 </div>
                                 <p className="text-[11px] text-gray-500 leading-relaxed px-0.5">
-                                    {downloadMode === 'phone-proxy'
-                                        ? 'Downloads chart to your phone first, then uploads to Pi. Works without Pi internet.'
-                                        : 'Tells the Pi to download directly. Faster, but Pi needs internet access. Falls back to phone if unavailable.'}
+                                    {!skConnected
+                                        ? 'Not connected to AvNav — charts will be saved to your phone. Upload them later when connected.'
+                                        : downloadMode === 'phone-proxy'
+                                          ? 'Downloads chart to your phone first, then uploads to Pi. Works without Pi internet.'
+                                          : 'Tells the Pi to download directly. Faster, but Pi needs internet access. Falls back to phone if unavailable.'}
                                 </p>
                             </div>
 

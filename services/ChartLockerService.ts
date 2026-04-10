@@ -1439,6 +1439,270 @@ class ChartLockerServiceImpl {
         }
     }
 
+    // ── Download to phone only (no AvNav required) ──
+
+    /**
+     * Download a chart to the phone only — no upload to AvNav.
+     * Useful when the user has no AvNav connection (e.g., on shore Wi-Fi
+     * pre-downloading charts before heading offshore).
+     */
+    async downloadToPhoneOnly(
+        pkg: ChartPackage,
+        onProgress?: (progress: UploadProgress) => void,
+    ): Promise<{ success: boolean; fileName?: string; error?: string }> {
+        const defaultFileName = pkg.url.split('/').pop() || `${pkg.id}.${pkg.format}`;
+
+        try {
+            // Phase 0: Resolve MediaFire URL if needed
+            let downloadUrl = pkg.url;
+            let fileName = defaultFileName;
+
+            if (pkg.isMediaFire) {
+                onProgress?.({
+                    phase: 'downloading',
+                    progress: 0,
+                    message: `Resolving download link for ${pkg.name}...`,
+                    bytesTransferred: 0,
+                    bytesTotal: pkg.sizeMB * 1024 * 1024,
+                });
+
+                downloadUrl = await this.resolveMediaFireUrl(pkg.url);
+                const urlPath = new URL(downloadUrl).pathname;
+                fileName = decodeURIComponent(urlPath.split('/').pop() || defaultFileName);
+            }
+
+            // Sanitise filename
+            fileName = fileName.replace(/%[0-9A-Fa-f]{2}/g, '_').replace(/[^a-zA-Z0-9_.-]/g, '_');
+
+            // Phase 1: Download to phone disk
+            onProgress?.({
+                phase: 'downloading',
+                progress: 0.01,
+                message: `Downloading ${pkg.name} to device...`,
+                bytesTransferred: 0,
+                bytesTotal: pkg.sizeMB * 1024 * 1024,
+            });
+
+            log.info(
+                `[Phone] Downloading ${pkg.name} (${pkg.sizeMB} MB) to phone from ${downloadUrl.substring(0, 80)}...`,
+            );
+
+            let localFileUri: string;
+            let actualSize = pkg.sizeMB * 1024 * 1024;
+
+            try {
+                localFileUri = await this.downloadViaXhrToDisk(downloadUrl, fileName, pkg.sizeMB, onProgress);
+            } catch (xhrErr) {
+                log.warn(
+                    `[Phone] XHR stream failed, falling back to Filesystem.downloadFile: ${(xhrErr as Error)?.message}`,
+                );
+
+                const dlResult = await Filesystem.downloadFile({
+                    url: downloadUrl,
+                    path: `chart_downloads/${fileName}`,
+                    directory: Directory.Cache,
+                    progress: true,
+                });
+
+                localFileUri = dlResult.path || '';
+                if (!localFileUri) {
+                    throw new Error('Download failed — no file written');
+                }
+            }
+
+            // Get actual file size
+            try {
+                const stat = await Filesystem.stat({
+                    path: `chart_downloads/${fileName}`,
+                    directory: Directory.Cache,
+                });
+                actualSize = stat.size || actualSize;
+            } catch {
+                /* use estimate */
+            }
+
+            log.info(`[Phone] Saved to phone: ${localFileUri} (${(actualSize / 1024 / 1024).toFixed(1)} MB)`);
+
+            onProgress?.({
+                phase: 'done',
+                progress: 1,
+                message: `${pkg.name} saved to phone (${(actualSize / 1024 / 1024).toFixed(0)} MB) — connect to AvNav to upload`,
+                bytesTransferred: actualSize,
+                bytesTotal: actualSize,
+            });
+
+            return { success: true, fileName };
+        } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            log.error(`[Phone] Download failed: ${errMsg}`);
+
+            onProgress?.({
+                phase: 'error',
+                progress: 0,
+                message: 'Download failed',
+                bytesTransferred: 0,
+                bytesTotal: 0,
+                error: errMsg,
+            });
+
+            return { success: false, error: errMsg };
+        }
+    }
+
+    // ── Local chart management ──
+
+    /**
+     * List chart files stored locally on the phone (in chart_downloads/).
+     * Returns file names, sizes, and URIs for charts waiting to be uploaded.
+     */
+    async getLocalCharts(): Promise<Array<{ name: string; size: number; uri: string }>> {
+        try {
+            const listing = await Filesystem.readdir({
+                path: 'chart_downloads',
+                directory: Directory.Cache,
+            });
+
+            const charts: Array<{ name: string; size: number; uri: string }> = [];
+            for (const file of listing.files) {
+                if (file.type === 'file') {
+                    try {
+                        const stat = await Filesystem.stat({
+                            path: `chart_downloads/${file.name}`,
+                            directory: Directory.Cache,
+                        });
+                        charts.push({
+                            name: file.name,
+                            size: stat.size || 0,
+                            uri: stat.uri || '',
+                        });
+                    } catch {
+                        charts.push({ name: file.name, size: 0, uri: '' });
+                    }
+                }
+            }
+
+            return charts;
+        } catch {
+            // Directory doesn't exist yet — no downloads
+            return [];
+        }
+    }
+
+    /**
+     * Upload a previously downloaded chart file from the phone to AvNav.
+     * Used when the user pre-downloaded charts while on shore Wi-Fi
+     * and is now connected to their AvNav Pi on the boat.
+     */
+    async uploadLocalChart(
+        fileName: string,
+        host: string,
+        port: number,
+        deleteAfter: boolean,
+        onProgress?: (progress: UploadProgress) => void,
+    ): Promise<{ success: boolean; error?: string }> {
+        try {
+            // Get file size
+            let fileSize = 0;
+            try {
+                const stat = await Filesystem.stat({
+                    path: `chart_downloads/${fileName}`,
+                    directory: Directory.Cache,
+                });
+                fileSize = stat.size || 0;
+            } catch {
+                throw new Error(`File not found: ${fileName}`);
+            }
+
+            onProgress?.({
+                phase: 'uploading',
+                progress: 0,
+                message: `Uploading ${fileName} to AvNav...`,
+                bytesTransferred: 0,
+                bytesTotal: fileSize,
+            });
+
+            const result = await this.uploadFileFromDisk(
+                `chart_downloads/${fileName}`,
+                fileName,
+                host,
+                port,
+                (progress, loaded, total) => {
+                    onProgress?.({
+                        phase: 'uploading',
+                        progress,
+                        message: `Uploading to AvNav... ${(loaded / 1024 / 1024).toFixed(0)} / ${(total / 1024 / 1024).toFixed(0)} MB`,
+                        bytesTransferred: loaded,
+                        bytesTotal: total,
+                    });
+                },
+            );
+
+            if (!result.success) {
+                throw new Error(result.error || 'Upload failed');
+            }
+
+            // Clean up local copy if requested
+            if (deleteAfter) {
+                onProgress?.({
+                    phase: 'deleting',
+                    progress: 1,
+                    message: 'Cleaning up...',
+                    bytesTransferred: 0,
+                    bytesTotal: 0,
+                });
+
+                try {
+                    await Filesystem.deleteFile({
+                        path: `chart_downloads/${fileName}`,
+                        directory: Directory.Cache,
+                    });
+                    log.info(`[Upload] Cleaned up: chart_downloads/${fileName}`);
+                } catch {
+                    log.info(`[Upload] Cleanup skipped (file may not exist)`);
+                }
+            }
+
+            onProgress?.({
+                phase: 'done',
+                progress: 1,
+                message: `${fileName} installed on AvNav ✓`,
+                bytesTransferred: fileSize,
+                bytesTotal: fileSize,
+            });
+
+            return { success: true };
+        } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            log.error(`[Upload] Local chart upload failed: ${errMsg}`);
+
+            onProgress?.({
+                phase: 'error',
+                progress: 0,
+                message: 'Upload failed',
+                bytesTransferred: 0,
+                bytesTotal: 0,
+                error: errMsg,
+            });
+
+            return { success: false, error: errMsg };
+        }
+    }
+
+    /**
+     * Delete a locally stored chart file.
+     */
+    async deleteLocalChart(fileName: string): Promise<void> {
+        try {
+            await Filesystem.deleteFile({
+                path: `chart_downloads/${fileName}`,
+                directory: Directory.Cache,
+            });
+            log.info(`[Phone] Deleted: chart_downloads/${fileName}`);
+        } catch {
+            log.warn(`[Phone] Delete failed or file doesn't exist: ${fileName}`);
+        }
+    }
+
     // ── Combined download handler ──
 
     /**
