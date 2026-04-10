@@ -457,11 +457,11 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
     // Which recipes to display
     const displayRecipes = bilgeDiveMode ? bilgeDiveResults.map((r) => r.recipe) : filteredRecipes;
 
-    // Filter tag groups
+    // Filter tag groups — icon split from label for clean alignment
     const tagGroups = [
-        { label: '⚓ Sea State', tags: NAUTICAL_TAG_DEFS.filter((t) => t.group === 'sea_state') },
-        { label: '🧭 Provisions', tags: NAUTICAL_TAG_DEFS.filter((t) => t.group === 'provisioning') },
-        { label: '🍳 Gear', tags: NAUTICAL_TAG_DEFS.filter((t) => t.group === 'gear') },
+        { icon: '⚓', label: 'Sea State', tags: NAUTICAL_TAG_DEFS.filter((t) => t.group === 'sea_state') },
+        { icon: '🧭', label: 'Provisions', tags: NAUTICAL_TAG_DEFS.filter((t) => t.group === 'provisioning') },
+        { icon: '🍳', label: 'Gear', tags: NAUTICAL_TAG_DEFS.filter((t) => t.group === 'gear') },
     ];
 
     const sortOptions: { key: CaptainsTableSort; label: string; emoji: string }[] = [
@@ -513,14 +513,14 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
             {isOpen && (
                 <div className="mt-2 space-y-3 animate-in slide-in-from-top-2 duration-200">
                     {/* ── Search Bar + Bilge Dive Toggle ── */}
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 items-stretch">
                         {!bilgeDiveMode ? (
                             <div className="flex-1 relative">
                                 <input
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     placeholder="Search recipes…"
-                                    className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
+                                    className="w-full h-full bg-white/[0.04] border border-white/[0.08] rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
                                     data-no-keyboard-scroll
                                 />
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">
@@ -535,7 +535,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     onChange={(e) => setBilgeInput(e.target.value)}
                                     onKeyDown={handleBilgeKeyDown}
                                     placeholder="Type ingredient, press Enter… (prefix - to exclude)"
-                                    className="w-full bg-white/[0.04] border border-sky-500/20 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-sky-500/40"
+                                    className="w-full h-full bg-white/[0.04] border border-sky-500/20 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-sky-500/40"
                                     data-no-keyboard-scroll
                                 />
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sky-400 text-xs">
@@ -552,14 +552,15 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                 setBilgeInput('');
                                 triggerHaptic('medium');
                             }}
-                            className={`px-3 py-2 rounded-xl text-[11px] font-bold transition-all active:scale-95 whitespace-nowrap ${
+                            className={`px-4 py-2.5 rounded-xl text-[11px] font-bold transition-all active:scale-95 whitespace-nowrap flex items-center gap-1.5 ${
                                 bilgeDiveMode
                                     ? 'bg-sky-500/15 text-sky-300 border border-sky-500/25'
                                     : 'bg-white/[0.04] text-gray-400 border border-white/[0.06] hover:bg-white/[0.06]'
                             }`}
                             title="Bilge Dive — search by ingredients you have"
                         >
-                            🧭 Bilge Dive
+                            <span className="text-sm leading-none">🧭</span>
+                            <span>Bilge Dive</span>
                         </button>
                     </div>
 
@@ -595,40 +596,42 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
 
                     {/* ── Quick Filter Tags ── */}
                     {!bilgeDiveMode && (
-                        <div className="space-y-2">
+                        <div className="flex flex-col gap-3">
                             {tagGroups.map((group) => (
-                                <div
-                                    key={group.label}
-                                    className="flex items-center gap-1.5 overflow-x-auto no-scrollbar"
-                                >
-                                    <span className="text-[10px] text-gray-500 font-black uppercase tracking-[0.15em] whitespace-nowrap shrink-0 w-14">
-                                        {group.label}
+                                <div key={group.label} className="flex items-center gap-3">
+                                    {/* Fixed-width label — keeps pill buttons vertically aligned */}
+                                    <span className="text-[10px] text-gray-500/70 font-black uppercase tracking-[0.12em] whitespace-nowrap shrink-0 w-[5.5rem] flex items-center gap-1.5">
+                                        <span className="text-xs opacity-60 leading-none">{group.icon}</span>
+                                        <span>{group.label}</span>
                                     </span>
-                                    {group.tags.map((tag) => {
-                                        const isActive = activeFilters.has(tag.id);
-                                        const accent = TAG_GROUP_ACCENT[tag.group];
-                                        return (
-                                            <button
-                                                key={tag.id}
-                                                onClick={() => handleToggleFilter(tag.id)}
-                                                aria-pressed={isActive}
-                                                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-full border text-[11px] font-extrabold uppercase tracking-wider transition-all whitespace-nowrap active:scale-95 ${
-                                                    isActive ? accent.active : accent.idle
-                                                }`}
-                                            >
-                                                <span className="text-sm leading-none">{tag.emoji}</span>
-                                                <span>{tag.label}</span>
-                                            </button>
-                                        );
-                                    })}
+                                    {/* Pill buttons — wrap on narrow screens */}
+                                    <div className="flex flex-wrap gap-2">
+                                        {group.tags.map((tag) => {
+                                            const isActive = activeFilters.has(tag.id);
+                                            const accent = TAG_GROUP_ACCENT[tag.group];
+                                            return (
+                                                <button
+                                                    key={tag.id}
+                                                    onClick={() => handleToggleFilter(tag.id)}
+                                                    aria-pressed={isActive}
+                                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[11px] font-extrabold uppercase tracking-wider transition-all whitespace-nowrap active:scale-95 ${
+                                                        isActive ? accent.active : accent.idle
+                                                    }`}
+                                                >
+                                                    <span className="text-sm leading-none">{tag.emoji}</span>
+                                                    <span>{tag.label}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
                                 </div>
                             ))}
                         </div>
                     )}
 
                     {/* ── Sort + Actions Row ── */}
-                    <div className="flex items-center gap-2">
-                        <div className="flex gap-1 flex-1 overflow-x-auto no-scrollbar">
+                    <div className="flex items-center gap-2 pt-1 border-t border-white/[0.04]">
+                        <div className="flex gap-2 flex-1 overflow-x-auto no-scrollbar">
                             {sortOptions.map((opt) => (
                                 <button
                                     key={opt.key}
@@ -636,13 +639,14 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                         setSortBy(opt.key);
                                         triggerHaptic('light');
                                     }}
-                                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap ${
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all whitespace-nowrap ${
                                         sortBy === opt.key
-                                            ? 'bg-amber-500/15 text-amber-300 border border-amber-500/25'
-                                            : 'bg-white/[0.04] text-gray-400 border border-white/[0.06] hover:bg-white/[0.06]'
+                                            ? 'bg-white/[0.08] text-white border border-white/[0.12]'
+                                            : 'bg-white/[0.03] text-gray-500 border border-white/[0.06] hover:bg-white/[0.06] hover:text-gray-300'
                                     }`}
                                 >
-                                    {opt.emoji} {opt.label}
+                                    <span className="text-sm leading-none">{opt.emoji}</span>
+                                    <span>{opt.label}</span>
                                 </button>
                             ))}
                             {/* Favourites filter */}
@@ -651,20 +655,22 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                     setShowFavouritesOnly((v) => !v);
                                     triggerHaptic('light');
                                 }}
-                                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap ${
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all whitespace-nowrap ${
                                     showFavouritesOnly
                                         ? 'bg-rose-500/15 text-rose-300 border border-rose-500/25'
-                                        : 'bg-white/[0.04] text-gray-400 border border-white/[0.06] hover:bg-white/[0.06]'
+                                        : 'bg-white/[0.03] text-gray-500 border border-white/[0.06] hover:bg-white/[0.06] hover:text-gray-300'
                                 }`}
                             >
-                                {showFavouritesOnly ? '♥' : '♡'} Favourites
+                                <span className="text-sm leading-none">{showFavouritesOnly ? '♥' : '♡'}</span>
+                                <span>Favourites</span>
                             </button>
                         </div>
                         <button
                             onClick={() => setShowUploadForm(true)}
-                            className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/25 text-[11px] font-bold text-amber-300 hover:from-amber-500/25 hover:to-orange-500/25 transition-all active:scale-95 whitespace-nowrap"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/25 text-[11px] font-bold text-amber-300 hover:from-amber-500/25 hover:to-orange-500/25 transition-all active:scale-95 whitespace-nowrap"
                         >
-                            📝 Share
+                            <span className="text-sm leading-none">📝</span>
+                            <span>Share</span>
                         </button>
                     </div>
 
