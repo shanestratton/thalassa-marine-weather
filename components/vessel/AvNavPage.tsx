@@ -276,13 +276,22 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
     const handlePickAndUpload = useCallback(async () => {
         triggerHaptic('medium');
         setActivePackageId('local-upload');
-        await ChartLockerService.pickAndUpload(
-            skHost,
-            parseInt(skPort, 10) || 8080,
-            deleteAfterUpload,
-            setUploadProgress,
-        );
-    }, [skHost, skPort, deleteAfterUpload]);
+        setUploadProgress(null);
+
+        if (!skConnected) {
+            // No AvNav connection — save to phone for later upload
+            await ChartLockerService.pickAndSaveToPhone(setUploadProgress);
+            refreshLocalCharts();
+        } else {
+            // Connected — pick and upload directly
+            await ChartLockerService.pickAndUpload(
+                skHost,
+                parseInt(skPort, 10) || 8080,
+                deleteAfterUpload,
+                setUploadProgress,
+            );
+        }
+    }, [skHost, skPort, deleteAfterUpload, skConnected, refreshLocalCharts]);
 
     const handleDownloadChart = useCallback(
         async (pkg: ChartPackage) => {
@@ -559,9 +568,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                         <span className="text-lg">📦</span>
                         <div className="flex-1 text-left">
                             <p className="text-sm font-bold text-white">Chart Locker</p>
-                            <p className="text-[11px] text-gray-400">
-                                Download & upload charts · Free NOAA & LINZ charts
-                            </p>
+                            <p className="text-[11px] text-gray-400">Free charts, o-charts & community charts</p>
                         </div>
                         <svg
                             className={`w-4 h-4 text-gray-500 transition-transform ${lockerExpanded ? 'rotate-180' : ''}`}
@@ -576,13 +583,16 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
 
                     {lockerExpanded && (
                         <div className="mt-4 space-y-4">
-                            {/* ── Upload from Phone ── */}
+                            {/* ── Your Chart Files ── */}
                             <div className="space-y-2">
                                 <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">
-                                    Upload From Phone
+                                    Your Chart Files
                                 </p>
                                 <p className="text-[11px] text-gray-500 leading-relaxed">
-                                    Select chart files from your phone to install on AvNav. Supports{' '}
+                                    Select chart files from your phone — o-charts, free charts, anything.{' '}
+                                    {skConnected
+                                        ? 'Uploads directly to your AvNav Pi.'
+                                        : 'Saves to phone for later upload to AvNav.'}{' '}
                                     <span className="text-emerald-400 font-mono">.mbtiles</span>{' '}
                                     <span className="text-amber-400 font-mono">.oesenc</span>{' '}
                                     <span className="text-sky-400 font-mono">.gemf</span>{' '}
@@ -600,24 +610,22 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
 
                                 <button
                                     onClick={handlePickAndUpload}
-                                    disabled={!skConnected || isBusy}
+                                    disabled={isBusy}
                                     className={`w-full py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
-                                        !skConnected
-                                            ? 'bg-white/[0.03] border border-white/[0.06] text-gray-500 cursor-not-allowed'
-                                            : isBusy
-                                              ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400 cursor-not-allowed'
-                                              : 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25'
+                                        isBusy
+                                            ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400 cursor-not-allowed'
+                                            : 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25'
                                     }`}
                                 >
-                                    {!skConnected ? (
-                                        '🔗 Connect to AvNav First'
-                                    ) : isBusy ? (
+                                    {isBusy ? (
                                         <span className="flex items-center justify-center gap-2">
                                             <span className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
                                             Working…
                                         </span>
+                                    ) : skConnected ? (
+                                        '📂 Select & Upload to AvNav'
                                     ) : (
-                                        '📂 Select Chart File'
+                                        '📂 Select & Save to Phone'
                                     )}
                                 </button>
                             </div>
@@ -710,6 +718,58 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                     })}
                                 </div>
                             )}
+
+                            {/* ── o-Charts ── */}
+                            <div className="space-y-2">
+                                <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">
+                                    o-Charts (Paid)
+                                </p>
+                                <div className="px-3 py-3 rounded-xl bg-amber-500/5 border border-amber-500/10 space-y-2.5">
+                                    <p className="text-[11px] text-gray-300 leading-relaxed">
+                                        Premium nautical charts from{' '}
+                                        <span className="text-amber-400 font-bold">o-charts.org</span> — official
+                                        hydrographic office data with worldwide coverage.
+                                    </p>
+
+                                    <div className="space-y-1.5 text-[11px]">
+                                        <div className="flex items-start gap-2">
+                                            <span className="text-amber-400 mt-0.5 shrink-0">1.</span>
+                                            <span className="text-gray-400">
+                                                Purchase charts at{' '}
+                                                <span className="text-amber-300 font-bold">o-charts.org</span> and
+                                                download the <span className="font-mono text-amber-300">.oesenc</span>{' '}
+                                                files to your phone or computer
+                                            </span>
+                                        </div>
+                                        <div className="flex items-start gap-2">
+                                            <span className="text-amber-400 mt-0.5 shrink-0">2.</span>
+                                            <span className="text-gray-400">
+                                                Tap{' '}
+                                                <span className="text-emerald-400 font-bold">
+                                                    Select {skConnected ? '& Upload to AvNav' : '& Save to Phone'}
+                                                </span>{' '}
+                                                above to pick the file
+                                                {skConnected
+                                                    ? ' — it uploads straight to your Pi'
+                                                    : ' — save it now, upload when on the boat'}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-start gap-2">
+                                            <span className="text-amber-400 mt-0.5 shrink-0">3.</span>
+                                            <span className="text-gray-400">
+                                                Plug the{' '}
+                                                <span className="text-white font-bold">o-charts USB dongle</span> into
+                                                your AvNav Pi — required for decryption
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <p className="text-[10px] text-gray-500 border-t border-amber-500/10 pt-2">
+                                        o-charts are DRM-protected — they can only be decrypted by AvNav/OpenCPN with
+                                        the USB dongle attached. They cannot be viewed directly on the phone.
+                                    </p>
+                                </div>
+                            </div>
 
                             {/* ── Settings ── */}
                             <div className="space-y-2 px-1">
@@ -829,17 +889,6 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                 <p className="text-[11px] text-gray-500 mt-1">
                                     Downloads are automated — Thalassa resolves the links, downloads the zip, and
                                     uploads to your AvNav Pi. One tap. ☕
-                                </p>
-                            </div>
-
-                            {/* ── o-Charts Info ── */}
-                            <div className="px-3 py-2.5 rounded-xl bg-amber-500/5 border border-amber-500/10">
-                                <p className="text-[11px] font-bold text-amber-400 mb-1">🔐 o-Charts (DRM)</p>
-                                <p className="text-[11px] text-gray-400 leading-relaxed">
-                                    Upload <span className="font-mono text-amber-300">.oesenc</span> files purchased
-                                    from <span className="text-amber-400">o-charts.org</span>. Requires a USB dongle
-                                    connected to your AvNav Pi for decryption. Use the{' '}
-                                    <span className="text-emerald-400 font-bold">Upload From Phone</span> button above.
                                 </p>
                             </div>
                         </div>
