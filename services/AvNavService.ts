@@ -1161,11 +1161,12 @@ class AvNavServiceClass {
      * Uses CapacitorHttp to probe common ports on the local subnet.
      *
      * Strategy:
-     *   1. Try mDNS-style hostnames first (fast, no subnet needed)
+     *   1. Try mDNS-style hostnames in parallel (fast, no subnet needed)
      *   2. Detect local IP via WebRTC
-     *   3. Probe .1–.254 on common ports (8080, 8082, 3000) with short timeouts
+     *   3. Probe every .1–.254 on ports 8080/8082/3000 with controlled concurrency
      *
-     * Returns discovered servers sorted by response time.
+     * If WebRTC fails (common on iOS — WKWebView blocks local IP candidates),
+     * falls back to a full /24 scan on common boat network subnets.
      */
     async scanNetwork(
         onProgress?: (scanned: number, total: number) => void,
@@ -1173,26 +1174,30 @@ class AvNavServiceClass {
     ): Promise<DiscoveredServer[]> {
         const found: DiscoveredServer[] = [];
         const PORTS = [8080, 8082, 3000];
-        const TIMEOUT = 1500; // Short timeout per probe
+        const TIMEOUT = 3000; // 3s per probe — enough for slow LAN/Wi-Fi hops
 
-        // ── Phase 1: Quick mDNS-style hostname probes ──
+        // ── Phase 1: Quick mDNS-style hostname probes (parallel) ──
         const mdnsHosts = ['avnav.local', 'signalk.local', 'raspberrypi.local', 'openplotter.local'];
-        nativeLog(`[scan] Phase 1: probing ${mdnsHosts.length} mDNS hostnames...`);
+        nativeLog(`[scan] Phase 1: probing ${mdnsHosts.length} mDNS hostnames in parallel...`);
 
+        const mdnsFactories: Array<() => Promise<void>> = [];
         for (const hostname of mdnsHosts) {
             for (const port of PORTS) {
-                try {
-                    const server = await this.probeServer(hostname, port, TIMEOUT);
-                    if (server) {
-                        found.push(server);
-                        onFound?.(server);
-                        nativeLog(`[scan] Found: ${hostname}:${port} (${server.serverType})`);
+                mdnsFactories.push(async () => {
+                    try {
+                        const server = await this.probeServer(hostname, port, TIMEOUT);
+                        if (server && !found.some((s) => s.host === server.host && s.port === server.port)) {
+                            found.push(server);
+                            onFound?.(server);
+                            nativeLog(`[scan] Found: ${hostname}:${port} (${server.serverType})`);
+                        }
+                    } catch {
+                        /* not found */
                     }
-                } catch {
-                    /* not found */
-                }
+                });
             }
         }
+        await this.runConcurrent(mdnsFactories, 12); // All 12 at once — they're just DNS lookups
 
         // ── Phase 2: Detect local IP via WebRTC ──
         let subnet: string | null = null;
@@ -1209,91 +1214,78 @@ class AvNavServiceClass {
             nativeLog(`[scan] WebRTC IP detection failed: ${(err as Error)?.message}`);
         }
 
-        if (!subnet) {
-            // Fallback: try common subnets
-            nativeLog('[scan] Falling back to common subnets: 192.168.1.x, 192.168.0.x, 10.10.10.x');
-            const fallbackSubnets = ['192.168.1', '192.168.0', '10.10.10', '192.168.50'];
-            // Only probe a few common gateway-adjacent IPs, not all 254
-            const quickIps = [1, 2, 10, 20, 50, 100, 150, 200];
+        // ── Phase 3: Full /24 subnet scan ──
+        // Build the list of subnets to scan. If WebRTC found our subnet, scan
+        // it first. Always also scan common boat-network subnets as fallback
+        // (WebRTC fails on iOS WKWebView, so we can't rely on it).
+        const subnetsToScan: string[] = [];
 
-            const total = fallbackSubnets.length * quickIps.length * PORTS.length;
-            let scanned = 0;
-
-            const batchProbes: Promise<void>[] = [];
-            for (const sub of fallbackSubnets) {
-                for (const lastOctet of quickIps) {
-                    for (const port of PORTS) {
-                        const ip = `${sub}.${lastOctet}`;
-                        if (found.some((s) => s.host === ip && s.port === port)) continue;
-
-                        batchProbes.push(
-                            this.probeServer(ip, port, TIMEOUT)
-                                .then((server) => {
-                                    scanned++;
-                                    onProgress?.(scanned, total);
-                                    if (
-                                        server &&
-                                        !found.some((s) => s.host === server.host && s.port === server.port)
-                                    ) {
-                                        found.push(server);
-                                        onFound?.(server);
-                                    }
-                                })
-                                .catch(() => {
-                                    scanned++;
-                                    onProgress?.(scanned, total);
-                                }),
-                        );
-                    }
-                }
-            }
-
-            // Run probes with concurrency limit
-            await this.runBatched(batchProbes, 20);
-            return found;
+        if (subnet) {
+            subnetsToScan.push(subnet);
         }
 
-        // ── Phase 3: Full /24 subnet scan ──
-        const total = 254 * PORTS.length;
+        // Add common boat-network subnets that we haven't already queued
+        for (const fallback of ['192.168.1', '192.168.0', '192.168.50', '10.10.10']) {
+            if (!subnetsToScan.includes(fallback)) {
+                subnetsToScan.push(fallback);
+            }
+        }
+
+        nativeLog(`[scan] Phase 3: scanning ${subnetsToScan.length} subnet(s): ${subnetsToScan.join(', ')}`);
+
+        // Build probe factories — lazy, so they only start when the pool runs them
+        const probeFactories: Array<() => Promise<void>> = [];
+        const totalProbes = subnetsToScan.length * 254 * PORTS.length;
         let scanned = 0;
 
-        // Split into batches for concurrency control
-        const batchProbes: Promise<void>[] = [];
-        for (let i = 1; i <= 254; i++) {
-            const ip = `${subnet}.${i}`;
-            for (const port of PORTS) {
-                if (found.some((s) => s.host === ip && s.port === port)) continue;
+        for (const sub of subnetsToScan) {
+            for (let i = 1; i <= 254; i++) {
+                const ip = `${sub}.${i}`;
+                for (const port of PORTS) {
+                    if (found.some((s) => s.host === ip && s.port === port)) continue;
 
-                batchProbes.push(
-                    this.probeServer(ip, port, TIMEOUT)
-                        .then((server) => {
+                    probeFactories.push(async () => {
+                        try {
+                            const server = await this.probeServer(ip, port, TIMEOUT);
                             scanned++;
-                            onProgress?.(scanned, total);
+                            onProgress?.(scanned, totalProbes);
                             if (server && !found.some((s) => s.host === server.host && s.port === server.port)) {
                                 found.push(server);
                                 onFound?.(server);
+                                nativeLog(`[scan] Found: ${ip}:${port} (${server.serverType})`);
                             }
-                        })
-                        .catch(() => {
+                        } catch {
                             scanned++;
-                            onProgress?.(scanned, total);
-                        }),
-                );
+                            onProgress?.(scanned, totalProbes);
+                        }
+                    });
+                }
             }
         }
 
-        // Run with concurrency of 30 (don't flood the network)
-        await this.runBatched(batchProbes, 30);
+        // Run with true concurrency control — only N probes in-flight at a time.
+        // 20 concurrent keeps the network responsive without saturating the stack.
+        await this.runConcurrent(probeFactories, 20);
 
-        nativeLog(`[scan] Complete: found ${found.length} server(s)`);
+        nativeLog(`[scan] Complete: found ${found.length} server(s) across ${subnetsToScan.length} subnet(s)`);
         return found;
     }
 
-    /** Run promises in batches to limit concurrency */
-    private async runBatched(tasks: Promise<void>[], concurrency: number): Promise<void> {
-        for (let i = 0; i < tasks.length; i += concurrency) {
-            await Promise.allSettled(tasks.slice(i, i + concurrency));
-        }
+    /**
+     * Run async factories with true concurrency control.
+     * Unlike the old runBatched (which awaited pre-started promises),
+     * this only starts a new task when a slot frees up.
+     */
+    private async runConcurrent(factories: Array<() => Promise<void>>, concurrency: number): Promise<void> {
+        let idx = 0;
+        const run = async (): Promise<void> => {
+            while (idx < factories.length) {
+                const factory = factories[idx++];
+                await factory();
+            }
+        };
+        const workers = Array.from({ length: Math.min(concurrency, factories.length) }, () => run());
+        await Promise.allSettled(workers);
     }
 
     /** Probe a single host:port for an AvNav or SignalK server */
