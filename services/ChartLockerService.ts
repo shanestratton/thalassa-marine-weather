@@ -1439,6 +1439,103 @@ class ChartLockerServiceImpl {
         }
     }
 
+    /**
+     * Pick a chart file from the phone and save it locally for later upload.
+     * Memory-safe: reads file in 2 MB chunks to avoid OOM on large o-chart files.
+     */
+    async pickAndSaveToPhone(
+        onProgress?: (progress: UploadProgress) => void,
+    ): Promise<{ success: boolean; fileName?: string; error?: string }> {
+        try {
+            onProgress?.({
+                phase: 'picking',
+                progress: 0,
+                message: 'Select a chart file...',
+                bytesTransferred: 0,
+                bytesTotal: 0,
+            });
+
+            const file = await this.pickFile();
+            if (!file) {
+                onProgress?.({ phase: 'idle', progress: 0, message: '', bytesTransferred: 0, bytesTotal: 0 });
+                return { success: false, error: 'No file selected' };
+            }
+
+            const fileName = file.name.replace(/[^a-zA-Z0-9_.-]/g, '_');
+            const totalBytes = file.size;
+
+            onProgress?.({
+                phase: 'downloading',
+                progress: 0.01,
+                message: `Saving ${file.name} to phone...`,
+                bytesTransferred: 0,
+                bytesTotal: totalBytes,
+            });
+
+            log.info(`[Phone] Saving picked file: ${fileName} (${(totalBytes / 1024 / 1024).toFixed(1)} MB)`);
+
+            // Write in 2 MB chunks to keep memory flat
+            const CHUNK_SIZE = 2 * 1024 * 1024;
+            let offset = 0;
+
+            // Create/clear the file
+            await Filesystem.writeFile({
+                path: `chart_downloads/${fileName}`,
+                data: '',
+                directory: Directory.Cache,
+            });
+
+            while (offset < totalBytes) {
+                const end = Math.min(offset + CHUNK_SIZE, totalBytes);
+                const chunk = file.slice(offset, end);
+                const arrayBuffer = await chunk.arrayBuffer();
+                const base64Chunk = this.uint8ToBase64(new Uint8Array(arrayBuffer));
+
+                await Filesystem.appendFile({
+                    path: `chart_downloads/${fileName}`,
+                    data: base64Chunk,
+                    directory: Directory.Cache,
+                });
+
+                offset = end;
+
+                onProgress?.({
+                    phase: 'downloading',
+                    progress: Math.min(offset / totalBytes, 0.99),
+                    message: `Saving to phone... ${Math.round(offset / 1024 / 1024)} / ${Math.round(totalBytes / 1024 / 1024)} MB`,
+                    bytesTransferred: offset,
+                    bytesTotal: totalBytes,
+                });
+            }
+
+            log.info(`[Phone] Saved: chart_downloads/${fileName}`);
+
+            onProgress?.({
+                phase: 'done',
+                progress: 1,
+                message: `${file.name} saved to phone (${Math.round(totalBytes / 1024 / 1024)} MB) — connect to AvNav to upload`,
+                bytesTransferred: totalBytes,
+                bytesTotal: totalBytes,
+            });
+
+            return { success: true, fileName };
+        } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            log.error(`[Phone] Save failed: ${errMsg}`);
+
+            onProgress?.({
+                phase: 'error',
+                progress: 0,
+                message: 'Save failed',
+                bytesTransferred: 0,
+                bytesTotal: 0,
+                error: errMsg,
+            });
+
+            return { success: false, error: errMsg };
+        }
+    }
+
     // ── Download to phone only (no AvNav required) ──
 
     /**
