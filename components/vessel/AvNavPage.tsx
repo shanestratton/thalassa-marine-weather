@@ -22,6 +22,9 @@ import {
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { FormField } from '../ui/FormField';
+import { ModalSheet } from '../ui/ModalSheet';
+
+const SETUP_GUIDE_KEY = 'thalassa_avnav_setup_dismissed';
 
 interface AvNavPageProps {
     onBack: () => void;
@@ -186,6 +189,19 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
     const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
     const [activePackageId, setActivePackageId] = useState<string | null>(null);
     const [expandedRegions, setExpandedRegions] = useState<Set<ChartRegion>>(new Set());
+
+    // Setup Guide modal — auto-show on first visit, dismissable with "don't show again"
+    const [showSetupGuide, setShowSetupGuide] = useState(() => {
+        return localStorage.getItem(SETUP_GUIDE_KEY) !== 'true';
+    });
+    const [dontShowAgain, setDontShowAgain] = useState(false);
+
+    const handleCloseGuide = useCallback(() => {
+        if (dontShowAgain) {
+            localStorage.setItem(SETUP_GUIDE_KEY, 'true');
+        }
+        setShowSetupGuide(false);
+    }, [dontShowAgain]);
 
     // LINZ key from localStorage (same as ChartCatalogService)
     const linzKey = typeof localStorage !== 'undefined' ? localStorage.getItem('thalassa_linz_api_key') : null;
@@ -695,33 +711,202 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                     )}
                 </div>
 
-                {/* ═══ SETUP GUIDE ═══ */}
-                <div className="mb-3 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
-                    <h3 className="text-sm font-bold text-white mb-2">📋 Quick Setup Guide</h3>
-                    <div className="space-y-2 text-[11px] text-gray-400 leading-relaxed">
-                        <p>
-                            <span className="text-white font-bold">1.</span> Install AvNav on a Raspberry Pi or laptop
-                            aboard your vessel
-                        </p>
-                        <p>
-                            <span className="text-white font-bold">2.</span> Connect your device to the same Wi-Fi
-                            network as your AvNav server
-                        </p>
-                        <p>
-                            <span className="text-white font-bold">3.</span> Tap{' '}
-                            <span className="text-sky-400 font-bold">Scan Network</span> above or enter the server IP
-                            manually
-                        </p>
-                        <p>
-                            <span className="text-white font-bold">4.</span> Use the{' '}
-                            <span className="text-sky-400 font-bold">Chart Locker</span> to download free NOAA/LINZ
-                            charts or upload your own
-                        </p>
-                        <p className="text-[11px] text-gray-500 pt-1 border-t border-white/[0.04]">
-                            Charts will appear as map overlays. Toggle them in the map layer panel.
-                        </p>
+                {/* ═══ SETUP GUIDE TRIGGER ═══ */}
+                <button
+                    onClick={() => setShowSetupGuide(true)}
+                    className="mb-3 w-full flex items-center gap-3 p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-all active:scale-[0.98]"
+                >
+                    <span className="text-xl">📋</span>
+                    <div className="flex-1 text-left">
+                        <span className="text-xs font-bold text-white">Setup Guide</span>
+                        <span className="block text-[11px] text-gray-500">How to install AvNav on a Raspberry Pi</span>
                     </div>
-                </div>
+                    <svg
+                        className="w-4 h-4 text-white/30"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                    >
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
+                </button>
+
+                {/* ═══ SETUP GUIDE MODAL ═══ */}
+                <ModalSheet isOpen={showSetupGuide} onClose={handleCloseGuide} title="AvNav Setup Guide">
+                    <div className="space-y-5 text-[13px] text-gray-300 leading-relaxed -mt-1">
+                        {/* What is AvNav */}
+                        <div>
+                            <p className="text-white/80">
+                                <span className="text-sky-400 font-bold">AvNav</span> is free, open-source chart server
+                                software that runs on a <span className="text-white font-bold">Raspberry Pi</span>{' '}
+                                aboard your vessel. It serves nautical charts to Thalassa over Wi-Fi — including{' '}
+                                <span className="text-emerald-400 font-bold">free NOAA/LINZ charts</span> and{' '}
+                                <span className="text-amber-400 font-bold">paid o-charts</span>.
+                            </p>
+                            <p className="text-[11px] text-gray-500 mt-1.5">
+                                Without AvNav running, chart overlays, the Chart Locker, and network scan features on
+                                this page will not work.
+                            </p>
+                        </div>
+
+                        {/* What you need */}
+                        <div>
+                            <h4 className="text-xs font-black uppercase tracking-widest text-white/60 mb-2">
+                                What You Need
+                            </h4>
+                            <ul className="space-y-1.5 text-[12px]">
+                                <li className="flex items-start gap-2">
+                                    <span className="text-sky-400 mt-0.5">•</span>
+                                    <span>
+                                        A <span className="text-white font-bold">Raspberry Pi 4</span> (or 3B+) with
+                                        power supply
+                                    </span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                    <span className="text-sky-400 mt-0.5">•</span>
+                                    <span>
+                                        A <span className="text-white font-bold">64 GB microSD card</span> (or larger)
+                                    </span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                    <span className="text-sky-400 mt-0.5">•</span>
+                                    <span>A computer to flash the SD card (Windows, Mac, or Linux)</span>
+                                </li>
+                            </ul>
+                        </div>
+
+                        {/* Step-by-step */}
+                        <div>
+                            <h4 className="text-xs font-black uppercase tracking-widest text-white/60 mb-2">
+                                Installation
+                            </h4>
+                            <div className="space-y-3">
+                                {/* Step 1 */}
+                                <div className="flex gap-3">
+                                    <span className="shrink-0 w-6 h-6 rounded-full bg-sky-500/20 text-sky-400 text-xs font-black flex items-center justify-center">
+                                        1
+                                    </span>
+                                    <div>
+                                        <p className="text-white font-bold text-[12px]">Download the AvNav image</p>
+                                        <p className="text-[11px] text-gray-400 mt-0.5">
+                                            Get the latest <span className="text-white">AvNav Touch</span> image from{' '}
+                                            <span className="text-sky-400 font-bold">avnav.de/en/install.html</span>
+                                        </p>
+                                        <p className="text-[11px] text-gray-500 mt-0.5">
+                                            This is a complete Raspberry Pi OS with AvNav pre-installed.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Step 2 */}
+                                <div className="flex gap-3">
+                                    <span className="shrink-0 w-6 h-6 rounded-full bg-sky-500/20 text-sky-400 text-xs font-black flex items-center justify-center">
+                                        2
+                                    </span>
+                                    <div>
+                                        <p className="text-white font-bold text-[12px]">
+                                            Flash the image to your SD card
+                                        </p>
+                                        <p className="text-[11px] text-gray-400 mt-0.5">
+                                            Use one of these free tools to write the image:
+                                        </p>
+                                        <div className="mt-1.5 space-y-1">
+                                            <div className="flex items-center gap-2 text-[11px]">
+                                                <span className="w-14 text-right text-gray-500 font-bold">Windows</span>
+                                                <span className="text-emerald-400 font-bold">Raspberry Pi Imager</span>
+                                                <span className="text-gray-600">or</span>
+                                                <span className="text-emerald-400 font-bold">balenaEtcher</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 text-[11px]">
+                                                <span className="w-14 text-right text-gray-500 font-bold">Mac</span>
+                                                <span className="text-emerald-400 font-bold">Raspberry Pi Imager</span>
+                                                <span className="text-gray-600">or</span>
+                                                <span className="text-emerald-400 font-bold">balenaEtcher</span>
+                                            </div>
+                                            <div className="flex items-center gap-2 text-[11px]">
+                                                <span className="w-14 text-right text-gray-500 font-bold">Linux</span>
+                                                <span className="text-emerald-400 font-bold">Raspberry Pi Imager</span>
+                                                <span className="text-gray-600">or</span>
+                                                <code className="text-emerald-400 font-bold text-[10px]">dd</code>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Step 3 */}
+                                <div className="flex gap-3">
+                                    <span className="shrink-0 w-6 h-6 rounded-full bg-sky-500/20 text-sky-400 text-xs font-black flex items-center justify-center">
+                                        3
+                                    </span>
+                                    <div>
+                                        <p className="text-white font-bold text-[12px]">
+                                            Boot the Pi and connect to Wi-Fi
+                                        </p>
+                                        <p className="text-[11px] text-gray-400 mt-0.5">
+                                            Insert the SD card, power on the Pi, and connect it to your boat&apos;s
+                                            Wi-Fi network. AvNav starts automatically on boot.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Step 4 */}
+                                <div className="flex gap-3">
+                                    <span className="shrink-0 w-6 h-6 rounded-full bg-sky-500/20 text-sky-400 text-xs font-black flex items-center justify-center">
+                                        4
+                                    </span>
+                                    <div>
+                                        <p className="text-white font-bold text-[12px]">Connect from Thalassa</p>
+                                        <p className="text-[11px] text-gray-400 mt-0.5">
+                                            Make sure your phone is on the same Wi-Fi, then tap{' '}
+                                            <span className="text-sky-400 font-bold">Scan Network</span> above — or
+                                            enter the Pi&apos;s IP address and port{' '}
+                                            <span className="text-white font-bold">8080</span> manually.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Step 5 */}
+                                <div className="flex gap-3">
+                                    <span className="shrink-0 w-6 h-6 rounded-full bg-sky-500/20 text-sky-400 text-xs font-black flex items-center justify-center">
+                                        5
+                                    </span>
+                                    <div>
+                                        <p className="text-white font-bold text-[12px]">Add your charts</p>
+                                        <p className="text-[11px] text-gray-400 mt-0.5">
+                                            Use the <span className="text-sky-400 font-bold">Chart Locker</span> to
+                                            download free NOAA or LINZ charts, upload your own, or install{' '}
+                                            <span className="text-amber-400 font-bold">o-charts</span> (paid) for
+                                            premium coverage. Charts appear as map overlays in Thalassa.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Divider */}
+                        <div className="border-t border-white/[0.06]" />
+
+                        {/* Don't show again */}
+                        <div className="flex items-center justify-between">
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={dontShowAgain}
+                                    onChange={(e) => setDontShowAgain(e.target.checked)}
+                                    className="w-4 h-4 rounded border-white/20 bg-white/5 text-sky-500 focus:ring-sky-500/30 focus:ring-offset-0"
+                                />
+                                <span className="text-[11px] text-gray-500">Don&apos;t show this on page load</span>
+                            </label>
+                            <button
+                                onClick={handleCloseGuide}
+                                className="px-4 py-1.5 rounded-xl text-xs font-bold uppercase tracking-widest bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500/25 transition-all active:scale-95"
+                            >
+                                Got It
+                            </button>
+                        </div>
+                    </div>
+                </ModalSheet>
             </div>
         </div>
     );
