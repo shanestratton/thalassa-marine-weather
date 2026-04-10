@@ -936,7 +936,7 @@ class ChartLockerServiceImpl {
             }
 
             // Sanitise filename (no URL encoding artifacts)
-            fileName = fileName.replace(/%[0-9A-Fa-f]{2}/g, '_').replace(/[^a-zA-Z0-9_.\-]/g, '_');
+            fileName = fileName.replace(/%[0-9A-Fa-f]{2}/g, '_').replace(/[^a-zA-Z0-9_.-]/g, '_');
 
             // Phase 1: Download to phone disk (NOT into memory)
             onProgress?.({
@@ -951,12 +951,22 @@ class ChartLockerServiceImpl {
                 `[Proxy] Streaming ${pkg.name} (${pkg.sizeMB} MB) to disk from ${downloadUrl.substring(0, 80)}...`,
             );
 
-            // Use Capacitor Filesystem.downloadFile() — writes directly to disk,
-            // no in-memory buffering. This is the ONLY safe way to handle 500MB+ files.
+            // Download via chunked XHR stream — writes to disk in 2 MB chunks,
+            // keeping memory flat and providing real-time progress events.
+            // (Filesystem.downloadFile with progress:true doesn't emit JS-level
+            //  events, so the UI would hang with no updates.)
             let localFileUri: string;
             let actualSize = pkg.sizeMB * 1024 * 1024; // Estimated; updated after download
 
             try {
+                localFileUri = await this.downloadViaXhrToDisk(downloadUrl, fileName, pkg.sizeMB, onProgress);
+            } catch (xhrErr) {
+                // Fallback: If ReadableStream isn't available, use Filesystem.downloadFile
+                // (no progress events, but at least the file gets downloaded)
+                log.warn(
+                    `[Proxy] XHR stream failed, falling back to Filesystem.downloadFile: ${(xhrErr as Error)?.message}`,
+                );
+
                 const dlResult = await Filesystem.downloadFile({
                     url: downloadUrl,
                     path: `chart_downloads/${fileName}`,
@@ -965,41 +975,23 @@ class ChartLockerServiceImpl {
                 });
 
                 localFileUri = dlResult.path || '';
-
                 if (!localFileUri) {
-                    throw new Error('Filesystem.downloadFile returned no path');
-                }
-
-                // Get actual file size
-                try {
-                    const stat = await Filesystem.stat({
-                        path: `chart_downloads/${fileName}`,
-                        directory: Directory.Cache,
-                    });
-                    actualSize = stat.size || actualSize;
-                } catch {
-                    /* use estimate */
-                }
-
-                log.info(`[Proxy] Downloaded to disk: ${localFileUri} (${(actualSize / 1024 / 1024).toFixed(1)} MB)`);
-            } catch (fsErr) {
-                // Fallback: If Filesystem.downloadFile() isn't available (older Capacitor),
-                // use chunked XHR streaming approach with smaller memory footprint
-                log.warn(
-                    `[Proxy] Filesystem.downloadFile failed, falling back to XHR stream: ${(fsErr as Error)?.message}`,
-                );
-
-                localFileUri = await this.downloadViaXhrToDisk(downloadUrl, fileName, pkg.sizeMB, onProgress);
-                try {
-                    const stat = await Filesystem.stat({
-                        path: `chart_downloads/${fileName}`,
-                        directory: Directory.Cache,
-                    });
-                    actualSize = stat.size || actualSize;
-                } catch {
-                    /* use estimate */
+                    throw new Error('Download failed — no file written');
                 }
             }
+
+            // Get actual file size
+            try {
+                const stat = await Filesystem.stat({
+                    path: `chart_downloads/${fileName}`,
+                    directory: Directory.Cache,
+                });
+                actualSize = stat.size || actualSize;
+            } catch {
+                /* use estimate */
+            }
+
+            log.info(`[Proxy] Downloaded to disk: ${localFileUri} (${(actualSize / 1024 / 1024).toFixed(1)} MB)`);
 
             onProgress?.({
                 phase: 'downloading',
@@ -1177,8 +1169,16 @@ class ChartLockerServiceImpl {
     }
 
     /**
-     * Upload a file from local disk to AvNav without loading it into memory.
-     * Reads the file in chunks, converts to base64, and uploads via CapacitorHttp.
+     * Upload a file from local disk to AvNav.
+     *
+     * Strategy (memory-safe):
+     *   1. Get the native file URI via Filesystem.getUri()
+     *   2. Fetch the local file as a Blob (native memory, not a JS string)
+     *   3. Upload via XHR + FormData with real progress events
+     *
+     * This avoids loading the entire file as a base64 JS string which
+     * caused OOM crashes for files >200 MB (base64 adds 33% overhead,
+     * so a 500 MB file became a ~667 MB string in the JS heap).
      */
     private async uploadFileFromDisk(
         filePath: string,
@@ -1189,93 +1189,83 @@ class ChartLockerServiceImpl {
     ): Promise<{ success: boolean; error?: string }> {
         const baseUrl = `http://${host}:${port}`;
 
-        // Read file as base64 from disk (Filesystem reads are memory-efficient)
         try {
-            const fileData = await Filesystem.readFile({
+            // Get native file URI (file:///…) from Capacitor cache directory
+            const uri = await Filesystem.getUri({
                 path: filePath,
                 directory: Directory.Cache,
             });
 
-            const base64Data = typeof fileData.data === 'string' ? fileData.data : ''; // Blob case shouldn't happen for readFile
+            log.info(`[Upload] Loading blob from ${uri.uri.substring(0, 80)}...`);
+            onProgress?.(0.02, 0, 1);
 
-            if (!base64Data) {
-                throw new Error('Could not read file data');
-            }
+            // Fetch the local file as a Blob — stays in native memory, no base64 overhead
+            const fileResp = await fetch(uri.uri);
+            const blob = await fileResp.blob();
+            const fileSizeBytes = blob.size;
 
-            const fileSizeBytes = Math.ceil((base64Data.length * 3) / 4); // Approximate
-
-            log.info(
-                `[Upload] Uploading ${fileName} (${(fileSizeBytes / 1024 / 1024).toFixed(1)} MB) via CapacitorHttp`,
-            );
-
+            log.info(`[Upload] Uploading ${fileName} (${(fileSizeBytes / 1024 / 1024).toFixed(1)} MB) via XHR`);
             onProgress?.(0.05, 0, fileSizeBytes);
 
-            // Upload via CapacitorHttp POST with base64 body
+            // AvNav accepts chart uploads at these endpoints
             const endpoints = [
                 `${baseUrl}/viewer/api/handler?request=upload&type=chart&name=${encodeURIComponent(fileName)}`,
                 `${baseUrl}/api/handler?request=upload&type=chart&name=${encodeURIComponent(fileName)}`,
             ];
 
+            // Try each endpoint with XHR + FormData for real upload progress
             for (const endpoint of endpoints) {
-                try {
-                    const response = await CapacitorHttp.post({
-                        url: endpoint,
-                        headers: { 'Content-Type': 'application/octet-stream' },
-                        data: base64Data,
-                    });
-
-                    if (response.status >= 200 && response.status < 300) {
-                        onProgress?.(1, fileSizeBytes, fileSizeBytes);
-                        log.info(`[Upload] Success via CapacitorHttp: ${fileName}`);
-                        return { success: true };
-                    }
-                } catch (e) {
-                    log.warn(`[Upload] Endpoint failed: ${endpoint}`, e);
+                const result = await this.xhrUploadBlob(endpoint, blob, fileName, fileSizeBytes, onProgress);
+                if (result.success) {
+                    log.info(`[Upload] Success: ${fileName}`);
+                    return { success: true };
                 }
+                log.warn(`[Upload] Endpoint failed: ${endpoint} — ${result.error}`);
             }
 
-            // Fallback: XHR upload (for CORS-friendly environments)
-            log.info(`[Upload] CapacitorHttp failed, trying XHR...`);
+            return { success: false, error: 'All upload endpoints failed' };
+        } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            log.error(`[Upload] Failed: ${errMsg}`);
+            return { success: false, error: errMsg };
+        }
+    }
 
-            // Decode base64 to blob for XHR upload
-            const binaryString = atob(base64Data);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
-            }
-            const blob = new Blob([bytes]);
-
+    /** Upload a Blob to a URL via XHR + FormData with progress tracking */
+    private xhrUploadBlob(
+        url: string,
+        blob: Blob,
+        fileName: string,
+        totalBytes: number,
+        onProgress?: (progress: number, loaded: number, total: number) => void,
+    ): Promise<{ success: boolean; error?: string }> {
+        return new Promise((resolve) => {
             const formData = new FormData();
             formData.append('file', blob, fileName);
 
-            return new Promise((resolve) => {
-                const xhr = new XMLHttpRequest();
-                xhr.open('POST', `${baseUrl}/viewer/api/handler?request=upload&type=chart`, true);
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', url, true);
 
-                xhr.upload.onprogress = (e) => {
-                    if (e.lengthComputable && onProgress) {
-                        onProgress(e.loaded / e.total, e.loaded, e.total);
-                    }
-                };
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable && onProgress) {
+                    onProgress(e.loaded / e.total, e.loaded, e.total);
+                }
+            };
 
-                xhr.onload = () => {
-                    if (xhr.status >= 200 && xhr.status < 300) {
-                        resolve({ success: true });
-                    } else {
-                        resolve({ success: false, error: `HTTP ${xhr.status}` });
-                    }
-                };
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    onProgress?.(1, totalBytes, totalBytes);
+                    resolve({ success: true });
+                } else {
+                    resolve({ success: false, error: `HTTP ${xhr.status}` });
+                }
+            };
 
-                xhr.onerror = () => resolve({ success: false, error: 'Network error' });
-                xhr.ontimeout = () => resolve({ success: false, error: 'Timeout' });
-                xhr.timeout = 30 * 60 * 1000;
-                xhr.send(formData);
-            });
-        } catch (err) {
-            const errMsg = err instanceof Error ? err.message : String(err);
-            log.error(`[Upload] All methods failed: ${errMsg}`);
-            return { success: false, error: errMsg };
-        }
+            xhr.onerror = () => resolve({ success: false, error: 'Network error' });
+            xhr.ontimeout = () => resolve({ success: false, error: 'Upload timed out' });
+            xhr.timeout = 30 * 60 * 1000; // 30 min for large files over LAN
+            xhr.send(formData);
+        });
     }
 
     // ── Pi-Direct Download ──
