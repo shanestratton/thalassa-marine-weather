@@ -16,6 +16,7 @@ import { triggerHaptic } from '../../utils/system';
 import { GpsService as _GpsService } from '../../services/GpsService';
 import { createPinMarker } from '../../utils/createMarkerEl';
 import { AvNavService, encryptOchartsUrl } from '../../services/AvNavService';
+import { MBTilesService } from '../../services/MBTilesService';
 
 interface UseMapInitOptions {
     containerRef: MutableRefObject<HTMLDivElement | null>;
@@ -184,11 +185,33 @@ export function useMapInit(opts: UseMapInitOptions) {
             pitch: 0,
             maxPitch: 60,
             maxTileCacheSize: 200,
-            // ocharts DRM: intercept tile requests and encrypt URLs via the DRM provider.
-            // NOTE: Mapbox GL v3 doesn't support addProtocol (that's MapLibre-only).
-            // We return the encrypted http:// URL directly. Tile loading is handled
-            // by CapacitorHttp native networking (global fetch patching is enabled).
+            // Tile request interceptor — handles two cases:
+            // 1. Local MBTiles: mbtiles.local URLs → blob URLs from sql.js (synchronous)
+            // 2. ocharts DRM: encrypted URLs for AvNav DRM tile requests
             transformRequest: (url: string, resourceType?: string) => {
+                // ── Local MBTiles tiles ──
+                // Fake mbtiles.local URLs are created by useLocalCharts. We intercept
+                // them here and return blob URLs from the in-memory SQLite database.
+                // sql.js queries are synchronous, so this adds zero async overhead.
+                if (resourceType === 'Tile' && url.includes('mbtiles.local/')) {
+                    const match = url.match(/mbtiles\.local\/([^/]+)\/(\d+)\/(\d+)\/(\d+)/);
+                    if (match) {
+                        const chartName = decodeURIComponent(match[1]);
+                        const z = Number(match[2]);
+                        const x = Number(match[3]);
+                        const y = Number(match[4]);
+                        const blobUrl = MBTilesService.getTileBlobUrl(chartName, z, x, y);
+                        if (blobUrl) {
+                            return { url: blobUrl };
+                        }
+                        // Missing tile — return transparent 1x1 PNG
+                        return {
+                            url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAAlwSFlzAAAWJQAAFiUBSVIk8AAAAA0lEQVQI12P4z8BQDwAEgAF/QualzQAAAABJRU5ErkJggg==',
+                        };
+                    }
+                }
+
+                // ── ocharts DRM ──
                 if (resourceType === 'Tile' && url.includes('192.168')) {
                     const charts = AvNavService.getCharts();
                     for (const chart of charts) {

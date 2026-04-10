@@ -12,6 +12,7 @@ import { type ActiveCyclone } from '../../services/weather/CycloneTrackingServic
 import { type AvNavChart } from '../../services/AvNavService';
 import { type AvNavConnectionStatus } from '../../services/AvNavService';
 import { type ChartSource, type ChartSourceId } from '../../services/ChartCatalogService';
+import { type OpenChart } from '../../services/MBTilesService';
 import { triggerHaptic } from '../../utils/system';
 
 // ── Resolve truncated ATCF storm names (10-char limit) ──
@@ -288,6 +289,13 @@ export const LayerFABMenu: React.FC<{
     onChartSourceOpacity?: (id: ChartSourceId, opacity: number) => void;
     onFlyToChartSource?: (src: ChartSource) => void;
     onUpdateLinzKey?: (key: string) => void;
+    localCharts?: OpenChart[];
+    localChartIds?: Set<string>;
+    localChartOpacity?: number;
+    localChartsLoading?: boolean;
+    onToggleLocalChart?: (fileName: string) => void;
+    onLocalChartOpacityChange?: (opacity: number) => void;
+    onFlyToLocalChart?: (chart: OpenChart) => void;
 }> = ({
     activeLayers,
     showLayerMenu,
@@ -338,6 +346,13 @@ export const LayerFABMenu: React.FC<{
     onChartSourceOpacity,
     onFlyToChartSource,
     onUpdateLinzKey,
+    localCharts = [],
+    localChartIds = new Set<string>(),
+    localChartOpacity = 0.7,
+    localChartsLoading = false,
+    onToggleLocalChart,
+    onLocalChartOpacityChange,
+    onFlyToLocalChart,
 }) => {
     const activeCount = activeLayers.size;
     const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1185,6 +1200,131 @@ export const LayerFABMenu: React.FC<{
                                                         />
                                                         <span className="text-[11px] text-gray-400 font-mono w-8 text-right">
                                                             {Math.round(src.opacity * 100)}%
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </>
+                            )}
+
+                            {/* ── Local MBTiles Charts (on-phone) ── */}
+                            {localCharts.length > 0 && onToggleLocalChart && (
+                                <>
+                                    <div className="h-px bg-white/[0.06] mx-3" />
+                                    <div className="px-4 pt-3 pb-1 flex items-center gap-2">
+                                        <span className="text-[11px] font-black text-purple-400/80 uppercase tracking-[0.2em]">
+                                            📱 Charts on Phone
+                                        </span>
+                                        {localChartsLoading && (
+                                            <span className="w-3 h-3 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                                        )}
+                                    </div>
+                                    {localCharts.map((chart) => {
+                                        const isActive = localChartIds.has(chart.fileName);
+                                        return (
+                                            <div key={chart.fileName}>
+                                                <button
+                                                    aria-label={`Toggle ${chart.name}`}
+                                                    onClick={() => {
+                                                        onToggleLocalChart(chart.fileName);
+                                                        triggerHaptic('light');
+                                                    }}
+                                                    className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                                                        isActive
+                                                            ? 'bg-purple-500/15 text-purple-400 border-l-2 border-purple-400'
+                                                            : 'text-gray-400 hover:bg-white/5 border-l-2 border-transparent'
+                                                    }`}
+                                                >
+                                                    <span className="text-lg">🗺️</span>
+                                                    <div className="flex-1 min-w-0">
+                                                        <span className="text-sm font-bold block truncate">
+                                                            {chart.name}
+                                                        </span>
+                                                        <span className="text-[11px] text-gray-500 block truncate">
+                                                            {chart.memoryMB} MB · zoom {chart.metadata.minzoom ?? 0}-
+                                                            {chart.metadata.maxzoom ?? 18}
+                                                        </span>
+                                                    </div>
+                                                    {isActive ? (
+                                                        <span className="flex items-center gap-1">
+                                                            <span className="w-1.5 h-1.5 rounded-full bg-purple-400 shadow-lg shadow-purple-400/50" />
+                                                            <span className="text-[11px] font-bold text-purple-400 uppercase tracking-wider">
+                                                                On
+                                                            </span>
+                                                            {onFlyToLocalChart && chart.metadata.bounds && (
+                                                                <span
+                                                                    role="button"
+                                                                    tabIndex={0}
+                                                                    aria-label="Fly to chart area"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        onFlyToLocalChart(chart);
+                                                                        setShowLayerMenu(false);
+                                                                        triggerHaptic('medium');
+                                                                    }}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter') {
+                                                                            e.stopPropagation();
+                                                                            onFlyToLocalChart(chart);
+                                                                            setShowLayerMenu(false);
+                                                                        }
+                                                                    }}
+                                                                    className="ml-1 w-6 h-6 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center hover:bg-purple-500/40 transition-all active:scale-90 cursor-pointer"
+                                                                >
+                                                                    <svg
+                                                                        className="w-3 h-3 text-purple-400"
+                                                                        fill="none"
+                                                                        viewBox="0 0 24 24"
+                                                                        stroke="currentColor"
+                                                                        strokeWidth={2.5}
+                                                                    >
+                                                                        <path
+                                                                            strokeLinecap="round"
+                                                                            strokeLinejoin="round"
+                                                                            d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+                                                                        />
+                                                                        <path
+                                                                            strokeLinecap="round"
+                                                                            strokeLinejoin="round"
+                                                                            d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                                                                        />
+                                                                    </svg>
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[11px] text-gray-500">
+                                                            {chart.metadata.format}
+                                                        </span>
+                                                    )}
+                                                </button>
+                                                {/* Opacity slider */}
+                                                {isActive && onLocalChartOpacityChange && (
+                                                    <div className="px-4 py-1.5 flex items-center gap-2">
+                                                        <span className="text-[11px] text-gray-500 font-bold uppercase tracking-wider shrink-0">
+                                                            Opacity
+                                                        </span>
+                                                        <input
+                                                            type="range"
+                                                            min={0.1}
+                                                            max={1}
+                                                            step={0.05}
+                                                            value={localChartOpacity}
+                                                            onChange={(e) =>
+                                                                onLocalChartOpacityChange(parseFloat(e.target.value))
+                                                            }
+                                                            className="flex-1 h-1 accent-purple-400 cursor-pointer"
+                                                            style={{
+                                                                WebkitAppearance: 'none',
+                                                                background: `linear-gradient(to right, rgba(168,85,247,0.6) ${localChartOpacity * 100}%, rgba(255,255,255,0.1) ${localChartOpacity * 100}%)`,
+                                                                borderRadius: 4,
+                                                                height: 4,
+                                                            }}
+                                                        />
+                                                        <span className="text-[11px] text-gray-400 font-mono w-8 text-right">
+                                                            {Math.round(localChartOpacity * 100)}%
                                                         </span>
                                                     </div>
                                                 )}

@@ -49,6 +49,7 @@ import { useSquallMap } from './useSquallMap';
 import { useVesselTracker } from './useVesselTracker';
 import { useAvNavCharts } from './useAvNavCharts';
 import { useChartCatalog } from './useChartCatalog';
+import { useLocalCharts } from './useLocalCharts';
 import { useSeamarkLayer } from './useSeamarkLayer';
 import { useTideStationLayer } from './useTideStationLayer';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
@@ -264,6 +265,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [tideStationsVisible, setTideStationsVisible] = useState(false);
     const [skChartIds, setSkChartIds] = useState<Set<string>>(new Set());
     const [skChartOpacity, setSkChartOpacity] = useState(0.7);
+    const [localChartIds, setLocalChartIds] = useState<Set<string>>(new Set());
+    const [localChartOpacity, setLocalChartOpacity] = useState(0.7);
 
     // Auto-enable newly discovered charts
     useEffect(() => {
@@ -612,7 +615,10 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Free Chart Catalog (NOAA, LINZ) ──
     const chartCatalog = useChartCatalog(mapRef, mapReady);
-    const chartsActive = skChartIds.size > 0 || chartCatalog.hasEnabledCharts;
+
+    // ── Local MBTiles Charts (on-phone, no AvNav needed) ──
+    const localCharts = useLocalCharts(mapRef, mapReady, localChartIds, localChartOpacity);
+    const chartsActive = skChartIds.size > 0 || chartCatalog.hasEnabledCharts || localChartIds.size > 0;
 
     // ── Interactive Sea Marks (OpenSeaMap / Overpass API) ──
     // When o-charts are active: 'identify' mode (invisible hit targets, still click-to-identify)
@@ -807,6 +813,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onChartSourceOpacity={chartCatalog.setOpacity}
                         onFlyToChartSource={chartCatalog.flyToSource}
                         onUpdateLinzKey={chartCatalog.updateLinzKey}
+                        localCharts={localCharts.availableCharts}
+                        localChartIds={localChartIds}
+                        localChartOpacity={localChartOpacity}
+                        localChartsLoading={localCharts.loading}
+                        onToggleLocalChart={(fileName: string) => {
+                            setLocalChartIds((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(fileName)) next.delete(fileName);
+                                else next.add(fileName);
+                                return next;
+                            });
+                        }}
+                        onLocalChartOpacityChange={setLocalChartOpacity}
+                        onFlyToLocalChart={localCharts.flyToChart}
                     />
                 )}
 
