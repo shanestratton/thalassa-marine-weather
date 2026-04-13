@@ -1,17 +1,18 @@
 /**
- * AvNavPage — Standalone AvNav Chart Server dashboard for the Vessel Hub.
+ * AvNavPage — "Boat Network" dashboard in the Vessel Hub.
  *
- * Dedicated page for managing AvNav/SignalK chart server connection,
- * network scanning, viewing available nautical charts, and the
- * Chart Locker for uploading/downloading charts to the Pi.
+ * Uses the unified BoatNetworkService to discover the Pi once,
+ * then auto-configures AvNav charts, Signal K / NMEA, and Pi Cache.
+ * Also includes the Chart Locker for uploading/downloading charts.
  */
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { AvNavService, type AvNavChart, type AvNavConnectionStatus } from '../../services/AvNavService';
-import {
-    AvNavDiscoveryService,
-    type DiscoveredServer,
-    type DiscoveryStatus,
-} from '../../services/AvNavDiscoveryService';
+import { BoatNetworkService, useBoatNetwork } from '../../services/BoatNetworkService';
+import { PiProvisionService, DEFAULT_USERNAME, type ProvisionProgress } from '../../services/PiProvisionService';
+import { NmeaListenerService } from '../../services/NmeaListenerService';
+import { NmeaStore } from '../../services/NmeaStore';
+import { piCache } from '../../services/PiCacheService';
+import { LocationStore } from '../../stores/LocationStore';
 import {
     ChartLockerService,
     type ChartPackage,
@@ -21,14 +22,39 @@ import {
 } from '../../services/ChartLockerService';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
-import { FormField } from '../ui/FormField';
 import { ModalSheet } from '../ui/ModalSheet';
 
 const SETUP_GUIDE_KEY = 'thalassa_avnav_setup_dismissed';
 
+const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+
 interface AvNavPageProps {
     onBack: () => void;
 }
+
+// ── Phase display for SSH provisioning ──
+
+const PHASE_DISPLAY: Record<string, { icon: string; color: string }> = {
+    idle: { icon: '', color: '' },
+    connecting: { icon: '\u{1F50C}', color: 'text-sky-300' },
+    checking: { icon: '\u{1F50D}', color: 'text-sky-300' },
+    installing: { icon: '\u{1F4E6}', color: 'text-amber-300' },
+    verifying: { icon: '\u2705', color: 'text-emerald-300' },
+    configuring: { icon: '\u2699\uFE0F', color: 'text-sky-300' },
+    done: { icon: '\u{1F389}', color: 'text-emerald-300' },
+    error: { icon: '\u274C', color: 'text-red-300' },
+};
+
+// ── Service badge config ──
+
+const SERVICE_BADGES: Record<string, { label: string; color: string }> = {
+    signalk: { label: 'Signal K :3000', color: 'bg-sky-500/15 border-sky-500/30 text-sky-400' },
+    'signalk-nmea': { label: 'NMEA TCP :10110', color: 'bg-purple-500/15 border-purple-500/30 text-purple-400' },
+    avnav: { label: 'AvNav Charts :8080', color: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400' },
+    'avnav-alt': { label: 'AvNav Charts :8082', color: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400' },
+    'pi-cache': { label: 'Weather Cache :3001', color: 'bg-amber-500/15 border-amber-500/30 text-amber-400' },
+};
 
 // ── Chart Locker Sub-Components ──
 
@@ -49,15 +75,15 @@ const ProgressBar: React.FC<{ progress: UploadProgress }> = ({ progress }) => {
             <div className="flex items-center justify-between">
                 <span className="text-[11px] text-gray-400 uppercase tracking-wider font-bold">
                     {progress.phase === 'downloading'
-                        ? '⬇ Downloading'
+                        ? '\u2B07 Downloading'
                         : progress.phase === 'uploading'
-                          ? '⬆ Uploading to Pi'
+                          ? '\u2B06 Uploading to Pi'
                           : progress.phase === 'deleting'
-                            ? '🗑 Cleaning up'
+                            ? '\u{1F5D1} Cleaning up'
                             : progress.phase === 'done'
-                              ? '✓ Complete'
+                              ? '\u2713 Complete'
                               : progress.phase === 'error'
-                                ? '✗ Error'
+                                ? '\u2717 Error'
                                 : ''}
                 </span>
                 <span className="text-[11px] text-white/60 font-mono">{pct}%</span>
@@ -81,7 +107,8 @@ const ChartPackageRow: React.FC<{
     activeProgress: UploadProgress | null;
     onDownload: (pkg: ChartPackage) => void;
 }> = ({ pkg, isActive, activeProgress, onDownload }) => {
-    const sourceBadge = pkg.source === 'noaa' ? '🇺🇸' : pkg.source === 'linz' ? '🇳🇿' : '⛵';
+    const sourceBadge =
+        pkg.source === 'noaa' ? '\u{1F1FA}\u{1F1F8}' : pkg.source === 'linz' ? '\u{1F1F3}\u{1F1FF}' : '\u26F5';
     const busy =
         isActive &&
         activeProgress &&
@@ -99,7 +126,7 @@ const ChartPackageRow: React.FC<{
                     <ProgressBar progress={activeProgress} />
                 ) : (
                     <p className="text-[11px] text-gray-500">
-                        {sizeLabel} · {pkg.isZipped ? 'ZIP → MBTiles' : pkg.format.toUpperCase()}
+                        {sizeLabel} · {pkg.isZipped ? 'ZIP \u2192 MBTiles' : pkg.format.toUpperCase()}
                         {pkg.source === 'linz' && ' · LINZ CC-BY'}
                         {pkg.credit && ` · ${pkg.credit}`}
                     </p>
@@ -124,11 +151,11 @@ const ChartPackageRow: React.FC<{
                 {busy ? (
                     <div className="w-3 h-3 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
                 ) : isActive && activeProgress?.phase === 'done' ? (
-                    '✓'
+                    '\u2713'
                 ) : isActive && activeProgress?.phase === 'error' ? (
-                    '↻'
+                    '\u21BB'
                 ) : (
-                    '⬇'
+                    '\u2B07'
                 )}
             </button>
         </div>
@@ -166,21 +193,21 @@ const RegionHeader: React.FC<{
 // ── Main Component ──
 
 export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
-    // AvNav chart state
-    const [skHost, setSkHost] = useState(AvNavService.getHost());
-    const [skPort, setSkPort] = useState(() => {
-        // AvNav defaults to port 8080 — only honour the saved port if it isn't
-        // the Signal K default (3000) inherited from the shared service.
-        const current = AvNavService.getPort();
-        return current && current !== 3000 ? String(current) : '8080';
-    });
+    // ── Boat Network discovery state ──
+    const network = useBoatNetwork();
+
+    // ── AvNav chart state (still needed for chart list after connect) ──
     const [skStatus, setSkStatus] = useState<AvNavConnectionStatus>(AvNavService.getStatus());
     const [skCharts, setSkCharts] = useState<AvNavChart[]>(AvNavService.getCharts());
     const [skApiVersion, setSkApiVersion] = useState<string | null>(AvNavService.getApiVersion());
-    const [skLastError, setSkLastError] = useState<string | null>(AvNavService.getLastError());
-    const [skExpanded, setSkExpanded] = useState(true);
-    const [scanStatus, setScanStatus] = useState<DiscoveryStatus>(AvNavDiscoveryService.getStatus());
-    const [foundServers, setFoundServers] = useState<DiscoveredServer[]>(AvNavDiscoveryService.getServers());
+
+    // ── "Connect All" state ──
+    const [connectAllDone, setConnectAllDone] = useState(false);
+
+    // ── SSH provisioning state ──
+    const [sshPassword, setSshPassword] = useState('');
+    const [provisionProgress, setProvisionProgress] = useState<ProvisionProgress | null>(null);
+    const [provisionExpanded, setProvisionExpanded] = useState(false);
 
     // Chart Locker state
     const [lockerExpanded, setLockerExpanded] = useState(false);
@@ -191,7 +218,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
     const [expandedRegions, setExpandedRegions] = useState<Set<ChartRegion>>(new Set());
     const [localCharts, setLocalCharts] = useState<Array<{ name: string; size: number; uri: string }>>([]);
 
-    // Setup Guide modal — auto-show on first visit, dismissable with "don't show again"
+    // Setup Guide modal
     const [showSetupGuide, setShowSetupGuide] = useState(() => {
         return localStorage.getItem(SETUP_GUIDE_KEY) !== 'true';
     });
@@ -204,28 +231,42 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
         setShowSetupGuide(false);
     }, [dontShowAgain]);
 
-    // LINZ key from localStorage (same as ChartCatalogService)
+    // LINZ key from localStorage
     const linzKey = typeof localStorage !== 'undefined' ? localStorage.getItem('thalassa_linz_api_key') : null;
 
     // Build catalog
     const catalog = useMemo(() => ChartLockerService.getFullCatalog(linzKey), [linzKey]);
     const regions = useMemo(() => ChartLockerService.getRegions(catalog), [catalog]);
 
-    // Refresh locally saved charts (downloaded to phone but not yet on AvNav)
+    // Refresh locally saved charts
     const refreshLocalCharts = useCallback(async () => {
         const charts = await ChartLockerService.getLocalCharts();
         setLocalCharts(charts);
     }, []);
 
+    // Derived state
+    const piHost = network.piHost;
+    const skConnected = skStatus === 'connected';
+    const skConnecting = skStatus === 'connecting';
+    const hasPiCache = network.services.some((s) => s.name === 'pi-cache');
+    const hasAvNav = network.services.some((s) => s.name === 'avnav' || s.name === 'avnav-alt');
+    const hasSignalK = network.services.some((s) => s.name === 'signalk');
+    const hasNmea = network.services.some((s) => s.name === 'signalk-nmea');
+
+    // Derive chart host/port from discovered services
+    const chartService = network.services.find(
+        (s) => s.name === 'avnav' || s.name === 'avnav-alt' || s.name === 'signalk',
+    );
+    const chartHost = piHost || '';
+    const chartPort = chartService?.port || 8080;
+    const chartServerType: 'avnav' | 'signalk' = chartService?.name === 'signalk' ? 'signalk' : 'avnav';
+
     useEffect(() => {
         const unsubSk = AvNavService.onStatusChange((s) => {
             setSkStatus(s);
             setSkApiVersion(AvNavService.getApiVersion());
-            setSkLastError(AvNavService.getLastError());
         });
         const unsubSkCharts = AvNavService.onChartsChange((c) => setSkCharts(c));
-        const unsubScanStatus = AvNavDiscoveryService.onStatusChange(setScanStatus);
-        const unsubScanServers = AvNavDiscoveryService.onServersChange(setFoundServers);
 
         // Load locally downloaded charts
         refreshLocalCharts();
@@ -233,43 +274,91 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
         return () => {
             unsubSk();
             unsubSkCharts();
-            unsubScanStatus();
-            unsubScanServers();
         };
     }, [refreshLocalCharts]);
 
-    const handleSkConnect = useCallback(() => {
+    // ── Scan handler ──
+    const handleScan = useCallback(() => {
         triggerHaptic('medium');
-        // AvNav default port is 8080 (not 3000 — that's Signal K's default).
-        AvNavService.configure(skHost, parseInt(skPort, 10) || 8080, 'avnav');
-        AvNavService.start();
-    }, [skHost, skPort]);
+        setConnectAllDone(false);
+        BoatNetworkService.scan();
+    }, []);
 
-    const handleSkDisconnect = useCallback(() => {
+    // ── Connect All handler ──
+    const handleConnectAll = useCallback(() => {
+        triggerHaptic('medium');
+        if (!piHost) return;
+
+        // 1. Apply to all downstream services via localStorage
+        BoatNetworkService.applyToServices({
+            nmea: true,
+            avnav: true,
+            piCache: true,
+            onSaveSettings: (partial) => {
+                // Persist pi-cache settings to localStorage for PiCacheService
+                if (partial.piCacheEnabled !== undefined)
+                    localStorage.setItem('thalassa_pi_cache_enabled', String(partial.piCacheEnabled));
+                if (partial.piCacheHost !== undefined)
+                    localStorage.setItem('thalassa_pi_cache_host', String(partial.piCacheHost));
+                if (partial.piCachePort !== undefined)
+                    localStorage.setItem('thalassa_pi_cache_port', String(partial.piCachePort));
+                if (partial.piCachePrefetch !== undefined)
+                    localStorage.setItem('thalassa_pi_cache_prefetch', String(partial.piCachePrefetch));
+            },
+        });
+
+        // 2. Start AvNav chart service if chart-capable service found
+        if (chartService) {
+            AvNavService.configure(piHost, chartPort, chartServerType);
+            AvNavService.start();
+        }
+
+        // 3. Start NMEA listener if signalk-nmea found
+        if (hasNmea || hasSignalK) {
+            const nmeaPort = network.services.find((s) => s.name === 'signalk-nmea')?.port || 10110;
+            NmeaListenerService.configure(piHost, nmeaPort);
+            NmeaStore.start();
+            NmeaListenerService.start();
+        }
+
+        // 4. Configure Pi Cache if found
+        if (hasPiCache) {
+            piCache.configure({ enabled: true, host: piHost, port: 3001 });
+        }
+
+        setConnectAllDone(true);
+    }, [piHost, chartService, chartPort, chartServerType, hasNmea, hasSignalK, hasPiCache, network.services]);
+
+    // ── Disconnect handler ──
+    const handleDisconnect = useCallback(() => {
         triggerHaptic('medium');
         AvNavService.stop();
+        setConnectAllDone(false);
     }, []);
 
-    const skConnected = skStatus === 'connected';
-    const skConnecting = skStatus === 'connecting';
-    const isScanning = scanStatus === 'scanning';
-
-    const handleScanNetwork = useCallback(() => {
+    // ── SSH provisioning handler ──
+    const handleInstallCache = useCallback(async () => {
         triggerHaptic('medium');
-        AvNavDiscoveryService.scan();
-    }, []);
+        if (!piHost) return;
 
-    const handleSelectServer = useCallback((server: DiscoveredServer) => {
-        triggerHaptic('light');
-        setSkHost(server.host);
-        setSkPort(String(server.port));
-        AvNavDiscoveryService.stop();
-    }, []);
+        setProvisionProgress({ phase: 'connecting', message: 'Starting...' });
 
-    const handleStopScan = useCallback(() => {
-        triggerHaptic('light');
-        AvNavDiscoveryService.stop();
-    }, []);
+        const loc = LocationStore.getState();
+        const result = await PiProvisionService.provision(
+            piHost,
+            DEFAULT_USERNAME,
+            sshPassword,
+            setProvisionProgress,
+            SUPABASE_URL && SUPABASE_KEY
+                ? { url: SUPABASE_URL, key: SUPABASE_KEY, lat: loc.lat, lon: loc.lon }
+                : undefined,
+        );
+
+        if (result.success) {
+            // Re-scan to pick up the newly installed pi-cache service
+            BoatNetworkService.scan(piHost);
+        }
+    }, [piHost, sshPassword]);
 
     // ── Chart Locker Handlers ──
 
@@ -279,19 +368,12 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
         setUploadProgress(null);
 
         if (!skConnected) {
-            // No AvNav connection — save to phone for later upload
             await ChartLockerService.pickAndSaveToPhone(setUploadProgress);
             refreshLocalCharts();
         } else {
-            // Connected — pick and upload directly
-            await ChartLockerService.pickAndUpload(
-                skHost,
-                parseInt(skPort, 10) || 8080,
-                deleteAfterUpload,
-                setUploadProgress,
-            );
+            await ChartLockerService.pickAndUpload(chartHost, chartPort, deleteAfterUpload, setUploadProgress);
         }
-    }, [skHost, skPort, deleteAfterUpload, skConnected, refreshLocalCharts]);
+    }, [chartHost, chartPort, deleteAfterUpload, skConnected, refreshLocalCharts]);
 
     const handleDownloadChart = useCallback(
         async (pkg: ChartPackage) => {
@@ -300,22 +382,20 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
             setUploadProgress(null);
 
             if (!skConnected) {
-                // No AvNav connection — save to phone only
                 await ChartLockerService.downloadToPhoneOnly(pkg, setUploadProgress);
                 refreshLocalCharts();
             } else {
-                // Full flow: download + upload to AvNav
                 await ChartLockerService.downloadChart(
                     pkg,
                     downloadMode,
-                    skHost,
-                    parseInt(skPort, 10) || 8080,
+                    chartHost,
+                    chartPort,
                     deleteAfterUpload,
                     setUploadProgress,
                 );
             }
         },
-        [downloadMode, skHost, skPort, deleteAfterUpload, skConnected, refreshLocalCharts],
+        [downloadMode, chartHost, chartPort, deleteAfterUpload, skConnected, refreshLocalCharts],
     );
 
     const handleUploadLocal = useCallback(
@@ -326,14 +406,14 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
 
             await ChartLockerService.uploadLocalChart(
                 fileName,
-                skHost,
-                parseInt(skPort, 10) || 8080,
+                chartHost,
+                chartPort,
                 deleteAfterUpload,
                 setUploadProgress,
             );
             refreshLocalCharts();
         },
-        [skHost, skPort, deleteAfterUpload, refreshLocalCharts],
+        [chartHost, chartPort, deleteAfterUpload, refreshLocalCharts],
     );
 
     const handleDeleteLocal = useCallback(
@@ -363,196 +443,278 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
         uploadProgress.phase !== 'done' &&
         uploadProgress.phase !== 'error';
 
+    const provisionPhase = provisionProgress?.phase || 'idle';
+    const provisionBusy = provisionPhase !== 'idle' && provisionPhase !== 'done' && provisionPhase !== 'error';
+
     return (
         <div className="w-full h-full flex flex-col bg-slate-950 slide-up-enter">
-            <PageHeader title="AvNav Charts" onBack={onBack} />
+            <PageHeader title="Boat Network" subtitle="Ship's Office" onBack={onBack} />
 
             <div className="flex-1 overflow-y-auto px-4 pb-32">
-                {/* ═══ CONNECTION STATUS HERO ═══ */}
+                {/* ═══ BOAT NETWORK HERO ═══ */}
                 <div
                     className={`shrink-0 mb-3 p-4 rounded-2xl border transition-all ${
-                        skConnected ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-white/[0.03] border-white/[0.06]'
+                        piHost && network.services.length > 0
+                            ? 'bg-emerald-500/10 border-emerald-500/20'
+                            : 'bg-white/[0.03] border-white/[0.06]'
                     }`}
                 >
                     {/* Header */}
-                    <button onClick={() => setSkExpanded(!skExpanded)} className="w-full flex items-center gap-3">
-                        <span className="text-lg">⚓</span>
-                        <div className="flex-1 text-left">
-                            <p className="text-sm font-bold text-white">AvNav — Nautical Charts</p>
+                    <div className="flex items-center gap-3">
+                        <span className="text-lg">{'\u2693'}</span>
+                        <div className="flex-1">
+                            <p className="text-sm font-bold text-white">Boat Network</p>
                             <p className="text-[11px] text-gray-400">
-                                {skConnected
-                                    ? `Connected · API ${skApiVersion || 'v1'} · ${skCharts.length} chart(s)`
-                                    : 'Connect to your AvNav server for chart overlays'}
+                                {piHost && network.services.length > 0
+                                    ? `Pi, charts, instruments & weather cache`
+                                    : 'Pi, charts, instruments & weather cache'}
                             </p>
                         </div>
-                        {skConnected && (
+                        {piHost && network.services.length > 0 && (
                             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
                         )}
-                        <svg
-                            className={`w-4 h-4 text-gray-500 transition-transform ${skExpanded ? 'rotate-180' : ''}`}
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                        >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-                        </svg>
-                    </button>
+                    </div>
 
-                    {/* Expandable content */}
-                    {skExpanded && (
-                        <div className="mt-4 space-y-3">
-                            {/* Error display */}
-                            {skLastError && !skConnected && (
-                                <div className="px-3 py-2 rounded-xl bg-red-500/10 border border-red-500/20">
-                                    <p className="text-[11px] text-red-400">{skLastError}</p>
-                                </div>
-                            )}
-
-                            {/* Network Scan */}
-                            {!skConnected && (
-                                <div className="space-y-2">
-                                    <div className="flex items-center gap-2">
-                                        <button
-                                            onClick={isScanning ? handleStopScan : handleScanNetwork}
-                                            className={`flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
-                                                isScanning
-                                                    ? 'bg-amber-500/15 border border-amber-500/30 text-amber-400'
-                                                    : 'bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500/25'
-                                            }`}
-                                        >
-                                            {isScanning ? (
-                                                <div className="flex items-center justify-center gap-2">
-                                                    <div className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-                                                    Scanning…
-                                                </div>
-                                            ) : (
-                                                '📡 Scan Network'
-                                            )}
-                                        </button>
-                                    </div>
-
-                                    {/* Found servers */}
-                                    {foundServers.length > 0 && (
-                                        <div className="space-y-1">
-                                            {foundServers.map((server, i) => (
-                                                <button
-                                                    key={i}
-                                                    onClick={() => handleSelectServer(server)}
-                                                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition-all active:scale-95"
-                                                >
-                                                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                                                    <span className="text-xs font-bold text-emerald-300 flex-1 text-left">
-                                                        {server.name || server.host}
-                                                    </span>
-                                                    <span className="text-[11px] text-emerald-400/60 font-mono">
-                                                        {server.host}:{server.port}
-                                                    </span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-
-                                    {isScanning && foundServers.length === 0 && (
-                                        <p className="text-[11px] text-gray-500 text-center py-1">
-                                            Scanning local network for AvNav servers…
-                                        </p>
-                                    )}
-
-                                    {!isScanning && scanStatus === 'idle' && foundServers.length === 0 && (
-                                        <p className="text-[11px] text-gray-500 text-center py-1">
-                                            No AvNav servers found. Enter the address manually below.
-                                        </p>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* Host/Port fields */}
-                            <div className="flex gap-2">
-                                <div className="flex-1">
-                                    <FormField
-                                        label="Host"
-                                        value={skHost}
-                                        onChange={setSkHost}
-                                        placeholder="192.168.x.x"
-                                        disabled={skConnected}
-                                    />
-                                </div>
-                                <div className="w-24">
-                                    <FormField
-                                        label="Port"
-                                        value={skPort}
-                                        onChange={setSkPort}
-                                        placeholder="8080"
-                                        disabled={skConnected}
-                                    />
-                                </div>
+                    <div className="mt-4 space-y-3">
+                        {/* ── Pi host display ── */}
+                        {piHost && network.services.length > 0 && (
+                            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                                <span className="text-xs font-bold text-emerald-300 flex-1">{piHost}</span>
+                                <span className="text-[11px] text-emerald-400/60 font-mono">
+                                    {network.services.length} service{network.services.length !== 1 ? 's' : ''}
+                                </span>
                             </div>
+                        )}
 
-                            {/* Connect / Disconnect */}
+                        {/* ── Service badges ── */}
+                        {piHost && network.services.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                                {network.services.map((svc) => {
+                                    const badge = SERVICE_BADGES[svc.name];
+                                    if (!badge) return null;
+                                    return (
+                                        <span
+                                            key={svc.name}
+                                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border ${badge.color}`}
+                                        >
+                                            {badge.label}
+                                        </span>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        {/* ── Error / not found ── */}
+                        {network.error && !network.scanning && (
+                            <div className="px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                                <p className="text-[11px] text-amber-400">{network.error}</p>
+                            </div>
+                        )}
+
+                        {/* ── Scan button ── */}
+                        {(!piHost || network.services.length === 0) && (
+                            <button
+                                onClick={handleScan}
+                                disabled={network.scanning}
+                                className={`w-full py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
+                                    network.scanning
+                                        ? 'bg-amber-500/15 border border-amber-500/30 text-amber-400'
+                                        : 'bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500/25'
+                                }`}
+                            >
+                                {network.scanning ? (
+                                    <div className="flex items-center justify-center gap-2">
+                                        <div className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                                        Scanning...
+                                    </div>
+                                ) : (
+                                    '\u{1F4E1} Find My Pi'
+                                )}
+                            </button>
+                        )}
+
+                        {/* ── Scan again (when Pi found) ── */}
+                        {piHost && network.services.length > 0 && (
                             <div className="flex gap-2">
-                                {!skConnected && !skConnecting && (
+                                {/* Connect All */}
+                                {!connectAllDone && !skConnected && (
                                     <button
-                                        onClick={handleSkConnect}
+                                        onClick={handleConnectAll}
                                         className="flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 transition-all active:scale-95"
                                     >
-                                        Connect
+                                        Connect All
                                     </button>
                                 )}
-                                {skConnecting && (
+
+                                {connectAllDone && !skConnected && skConnecting && (
                                     <button
-                                        onClick={handleSkDisconnect}
+                                        onClick={handleDisconnect}
                                         className="flex-1 py-2 rounded-xl text-xs font-black uppercase tracking-widest bg-amber-500/15 border border-amber-500/30 text-amber-400 transition-all active:scale-95"
                                     >
                                         <div className="flex items-center justify-center gap-2">
                                             <div className="w-3.5 h-3.5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-                                            Connecting…
+                                            Connecting...
                                         </div>
                                     </button>
                                 )}
-                                {(skConnected || skConnecting) && (
+
+                                {(skConnected || (connectAllDone && !skConnecting)) && (
                                     <button
-                                        onClick={handleSkDisconnect}
+                                        onClick={handleDisconnect}
                                         className="px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 transition-all active:scale-95"
                                     >
                                         Disconnect
                                     </button>
                                 )}
+
+                                {/* Scan Again */}
+                                <button
+                                    onClick={handleScan}
+                                    disabled={network.scanning}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all active:scale-95 ${
+                                        network.scanning
+                                            ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
+                                            : 'bg-white/[0.04] border border-white/[0.08] text-gray-400 hover:bg-white/[0.08]'
+                                    }`}
+                                >
+                                    {network.scanning ? (
+                                        <div className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                        'Scan Again'
+                                    )}
+                                </button>
                             </div>
+                        )}
 
-                            {/* Chart list */}
-                            {skConnected && skCharts.length > 0 && (
-                                <div className="space-y-1">
-                                    <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">
-                                        Charts Available
-                                    </p>
-                                    {skCharts.map((chart) => (
-                                        <div
-                                            key={chart.id}
-                                            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.04]"
-                                        >
-                                            <span className="text-sm">🗺️</span>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-xs font-bold text-white truncate">{chart.name}</p>
-                                                <p className="text-[11px] text-gray-500">
-                                                    z{chart.minZoom}–{chart.maxZoom} · {chart.format}
-                                                </p>
-                                            </div>
-                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-
-                            {skConnected && skCharts.length === 0 && (
-                                <p className="text-[11px] text-gray-500 text-center py-2">
-                                    No charts found — use the{' '}
-                                    <span className="text-sky-400 font-bold">Chart Locker</span> below to install
-                                    charts.
+                        {/* ── Chart list when connected ── */}
+                        {skConnected && skCharts.length > 0 && (
+                            <div className="space-y-1">
+                                <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">
+                                    Charts Available
                                 </p>
-                            )}
-                        </div>
-                    )}
+                                {skCharts.map((chart) => (
+                                    <div
+                                        key={chart.id}
+                                        className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.03] border border-white/[0.04]"
+                                    >
+                                        <span className="text-sm">{'\u{1F5FA}\uFE0F'}</span>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs font-bold text-white truncate">{chart.name}</p>
+                                            <p className="text-[11px] text-gray-500">
+                                                z{chart.minZoom}
+                                                {'\u2013'}
+                                                {chart.maxZoom} · {chart.format}
+                                            </p>
+                                        </div>
+                                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+
+                        {skConnected && skCharts.length === 0 && (
+                            <p className="text-[11px] text-gray-500 text-center py-2">
+                                No charts found {'\u2014'} use the{' '}
+                                <span className="text-sky-400 font-bold">Chart Locker</span> below to install charts.
+                            </p>
+                        )}
+
+                        {/* ── Install Weather Cache (when Pi found but pi-cache NOT) ── */}
+                        {piHost && network.services.length > 0 && !hasPiCache && (
+                            <div className="mt-2 p-3 rounded-xl bg-amber-500/5 border border-amber-500/10 space-y-2.5">
+                                <button
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        setProvisionExpanded(!provisionExpanded);
+                                    }}
+                                    className="w-full flex items-center gap-2"
+                                >
+                                    <span className="text-sm">{'\u{1F4E6}'}</span>
+                                    <div className="flex-1 text-left">
+                                        <p className="text-xs font-bold text-amber-300">Install Weather Cache</p>
+                                        <p className="text-[11px] text-gray-500">
+                                            Pi found, but no weather cache service detected
+                                        </p>
+                                    </div>
+                                    <svg
+                                        className={`w-3.5 h-3.5 text-gray-500 transition-transform ${provisionExpanded ? 'rotate-180' : ''}`}
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                                        />
+                                    </svg>
+                                </button>
+
+                                {provisionExpanded && (
+                                    <div className="space-y-2.5">
+                                        <p className="text-[11px] text-gray-400 leading-relaxed">
+                                            Thalassa can SSH into your Pi and install the weather cache service
+                                            automatically. Default user:{' '}
+                                            <span className="text-white font-mono">{DEFAULT_USERNAME}</span>
+                                        </p>
+
+                                        {/* Password field */}
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="password"
+                                                value={sshPassword}
+                                                onChange={(e) => setSshPassword(e.target.value)}
+                                                placeholder="Pi password"
+                                                className="flex-1 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/30"
+                                            />
+                                            <button
+                                                onClick={handleInstallCache}
+                                                disabled={!sshPassword || provisionBusy}
+                                                className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
+                                                    !sshPassword || provisionBusy
+                                                        ? 'bg-white/[0.03] text-gray-600 cursor-not-allowed'
+                                                        : 'bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25'
+                                                }`}
+                                            >
+                                                {provisionBusy ? (
+                                                    <div className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                                                ) : (
+                                                    'Install'
+                                                )}
+                                            </button>
+                                        </div>
+
+                                        {/* Provision progress */}
+                                        {provisionProgress && provisionPhase !== 'idle' && (
+                                            <div className="space-y-1.5 px-1">
+                                                {(() => {
+                                                    const pd = PHASE_DISPLAY[provisionPhase] || PHASE_DISPLAY.idle;
+                                                    return (
+                                                        <div className="flex items-center gap-2">
+                                                            {pd.icon && <span className="text-sm">{pd.icon}</span>}
+                                                            <span className={`text-[11px] font-bold ${pd.color}`}>
+                                                                {provisionProgress.message}
+                                                            </span>
+                                                            {provisionBusy && (
+                                                                <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin ml-auto" />
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
+                                                {provisionProgress.output && (
+                                                    <pre className="text-[10px] text-gray-600 font-mono max-h-24 overflow-y-auto bg-black/30 rounded-lg p-2 mt-1">
+                                                        {provisionProgress.output.slice(-500)}
+                                                    </pre>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 {/* ═══ CHART LOCKER ═══ */}
@@ -565,7 +727,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                         }}
                         className="w-full flex items-center gap-3"
                     >
-                        <span className="text-lg">📦</span>
+                        <span className="text-lg">{'\u{1F4E6}'}</span>
                         <div className="flex-1 text-left">
                             <p className="text-sm font-bold text-white">Chart Locker</p>
                             <p className="text-[11px] text-gray-400">Free charts, o-charts & community charts</p>
@@ -620,12 +782,12 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                     {isBusy ? (
                                         <span className="flex items-center justify-center gap-2">
                                             <span className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-                                            Working…
+                                            Working...
                                         </span>
                                     ) : skConnected ? (
-                                        '📂 Select & Upload to AvNav'
+                                        '\u{1F4C2} Select & Upload to AvNav'
                                     ) : (
-                                        '📂 Select & Save to Phone'
+                                        '\u{1F4C2} Select & Save to Phone'
                                     )}
                                 </button>
                             </div>
@@ -643,7 +805,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                     </div>
                                     <p className="text-[11px] text-gray-500 leading-relaxed">
                                         {skConnected
-                                            ? 'Tap ⬆ to upload saved charts to your AvNav server.'
+                                            ? 'Tap \u2B06 to upload saved charts to your AvNav server.'
                                             : 'Connect to AvNav to upload these charts to your Pi.'}
                                     </p>
                                     {localCharts.map((chart) => {
@@ -664,7 +826,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                                 key={chart.name}
                                                 className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]"
                                             >
-                                                <span className="text-sm shrink-0">📱</span>
+                                                <span className="text-sm shrink-0">{'\u{1F4F1}'}</span>
                                                 <div className="flex-1 min-w-0">
                                                     <p className="text-xs font-bold text-white truncate">
                                                         {chart.name}
@@ -695,9 +857,9 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                                             {localBusy ? (
                                                                 <div className="w-3 h-3 border-2 border-emerald-400 border-t-transparent rounded-full animate-spin" />
                                                             ) : isLocalActive && uploadProgress?.phase === 'done' ? (
-                                                                '✓'
+                                                                '\u2713'
                                                             ) : (
-                                                                '⬆'
+                                                                '\u2B06'
                                                             )}
                                                         </button>
                                                     )}
@@ -710,7 +872,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                                                 : 'bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20'
                                                         }`}
                                                     >
-                                                        🗑
+                                                        {'\u{1F5D1}'}
                                                     </button>
                                                 </div>
                                             </div>
@@ -804,7 +966,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                                 : 'bg-white/[0.03] border border-white/[0.06] text-gray-500'
                                         }`}
                                     >
-                                        📱 Via Phone
+                                        {'\u{1F4F1}'} Via Phone
                                     </button>
                                     <button
                                         onClick={() => {
@@ -817,7 +979,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                                 : 'bg-white/[0.03] border border-white/[0.06] text-gray-500'
                                         }`}
                                     >
-                                        🖥 Pi Direct
+                                        {'\u{1F5A5}'} Pi Direct
                                     </button>
                                 </div>
                                 <p className="text-[11px] text-gray-500 leading-relaxed px-0.5">
@@ -878,7 +1040,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                             {/* ── Community Charts Credit ── */}
                             <div className="px-3 py-2.5 rounded-xl bg-sky-500/5 border border-sky-500/10">
                                 <p className="text-[11px] font-bold text-sky-400 mb-1">
-                                    ⛵ Community Charts — South Pacific
+                                    {'\u26F5'} Community Charts {'\u2014'} South Pacific
                                 </p>
                                 <p className="text-[11px] text-gray-400 leading-relaxed">
                                     Fiji, Tonga, Vanuatu, French Polynesia and more — satellite + Navionics overlays
@@ -888,7 +1050,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                 </p>
                                 <p className="text-[11px] text-gray-500 mt-1">
                                     Downloads are automated — Thalassa resolves the links, downloads the zip, and
-                                    uploads to your AvNav Pi. One tap. ☕
+                                    uploads to your AvNav Pi. One tap. {'\u2615'}
                                 </p>
                             </div>
                         </div>
@@ -900,7 +1062,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                     onClick={() => setShowSetupGuide(true)}
                     className="mb-3 w-full flex items-center gap-3 p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-all active:scale-[0.98]"
                 >
-                    <span className="text-xl">📋</span>
+                    <span className="text-xl">{'\u{1F4CB}'}</span>
                     <div className="flex-1 text-left">
                         <span className="text-xs font-bold text-white">Setup Guide</span>
                         <span className="block text-[11px] text-gray-500">How to install AvNav on a Raspberry Pi</span>
@@ -941,20 +1103,20 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                             </h4>
                             <ul className="space-y-1.5 text-[12px]">
                                 <li className="flex items-start gap-2">
-                                    <span className="text-sky-400 mt-0.5">•</span>
+                                    <span className="text-sky-400 mt-0.5">{'\u2022'}</span>
                                     <span>
                                         A <span className="text-white font-bold">Raspberry Pi 4</span> (or 3B+) with
                                         power supply
                                     </span>
                                 </li>
                                 <li className="flex items-start gap-2">
-                                    <span className="text-sky-400 mt-0.5">•</span>
+                                    <span className="text-sky-400 mt-0.5">{'\u2022'}</span>
                                     <span>
                                         A <span className="text-white font-bold">64 GB microSD card</span> (or larger)
                                     </span>
                                 </li>
                                 <li className="flex items-start gap-2">
-                                    <span className="text-sky-400 mt-0.5">•</span>
+                                    <span className="text-sky-400 mt-0.5">{'\u2022'}</span>
                                     <span>A computer to flash the SD card (Windows, Mac, or Linux)</span>
                                 </li>
                             </ul>
@@ -1043,9 +1205,8 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                         <p className="text-white font-bold text-[12px]">Connect from Thalassa</p>
                                         <p className="text-[11px] text-gray-400 mt-0.5">
                                             Make sure your phone is on the same Wi-Fi, then tap{' '}
-                                            <span className="text-sky-400 font-bold">Scan Network</span> above — or
-                                            enter the Pi&apos;s IP address and port{' '}
-                                            <span className="text-white font-bold">8080</span> manually.
+                                            <span className="text-sky-400 font-bold">Find My Pi</span> above — Thalassa
+                                            will discover the Pi and all its services automatically.
                                         </p>
                                     </div>
                                 </div>
