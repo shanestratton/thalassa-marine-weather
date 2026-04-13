@@ -954,6 +954,17 @@ export function useWeatherLayers(
                     const m = mapRef.current;
                     if (!m) return;
 
+                    // Insert rain layers ABOVE the satellite base layer but BELOW labels.
+                    // Previously used 'route-line-layer' as beforeId, which put rain BELOW
+                    // the tiles-satellite layer (85% opacity) — completely hiding the radar.
+                    // Fix: use the first symbol layer (same anchor as satellite) so rain
+                    // stacks directly above satellite in the visual z-order.
+                    const rainBeforeId = (() => {
+                        const layers = m.getStyle()?.layers ?? [];
+                        const firstSymbol = layers.find((l) => l.type === 'symbol');
+                        return firstSymbol?.id;
+                    })();
+
                     // Pre-create ALL radar layers (hidden) — same instant approach as forecast
                     const radarFrames = unified.filter((f) => f.type === 'radar');
                     for (let i = 0; i < radarFrames.length; i++) {
@@ -978,7 +989,7 @@ export function useWeatherLayers(
                                     'raster-fade-duration': 0,
                                 },
                             },
-                            m.getLayer('route-line-layer') ? 'route-line-layer' : undefined,
+                            rainBeforeId,
                         );
                     }
                     log.info(`Pre-created ${radarFrames.length} radar layers`);
@@ -1014,7 +1025,7 @@ export function useWeatherLayers(
                                     'raster-color-range': [0, 1],
                                 },
                             },
-                            m.getLayer('route-line-layer') ? 'route-line-layer' : undefined,
+                            rainBeforeId,
                         );
                     }
                     log.info(`Pre-created ${forecastFrames.length} Rainbow.ai forecast layers`);
