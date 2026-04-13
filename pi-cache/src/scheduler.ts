@@ -78,11 +78,13 @@ async function runPrefetch(cache: Cache, proxyConfig: ProxyConfig, pf: PrefetchC
         track('tides', () => prefetchTides(cache, proxyConfig, pf)),
     ]);
 
-    // Batch 2: Satellite + GRIB + synoptic
+    // Batch 2: Satellite + GRIB (wind + waves + pressure) + synoptic
     await Promise.allSettled([
         track('satellite-ir', () => prefetchSatelliteTiles(cache, pf, 'ir')),
         track('satellite-vis', () => prefetchSatelliteTiles(cache, pf, 'visible')),
         track('grib-wind', () => prefetchGrib(cache, proxyConfig, pf, 'wind')),
+        track('grib-waves', () => prefetchGrib(cache, proxyConfig, pf, 'waves')),
+        track('grib-pressure', () => prefetchGrib(cache, proxyConfig, pf, 'pressure')),
         track('synoptic', () => prefetchSynoptic(cache, proxyConfig, pf)),
     ]);
 
@@ -169,17 +171,26 @@ async function prefetchSatelliteTiles(cache: Cache, pf: PrefetchConfig, band: 'i
 
 async function prefetchGrib(
     cache: Cache,
-    config: ProxyConfig,
+    _config: ProxyConfig,
     pf: PrefetchConfig,
-    type: 'wind' | 'pressure',
+    type: 'wind' | 'pressure' | 'waves',
 ): Promise<void> {
     const key = `grib:${type}:${pf.lat}:${pf.lon}`;
     if (cache.hasFresh(key)) return;
 
-    // Open-Meteo has a free GRIB-like endpoint
-    const params = `latitude=${pf.lat}&longitude=${pf.lon}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl&wind_speed_unit=kn&forecast_days=5`;
-    const url = `https://api.open-meteo.com/v1/forecast?${params}`;
+    let params: string;
+    if (type === 'wind') {
+        params = `latitude=${pf.lat}&longitude=${pf.lon}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn&forecast_days=5`;
+    } else if (type === 'waves') {
+        params = `latitude=${pf.lat}&longitude=${pf.lon}&hourly=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period&forecast_days=5`;
+        const url = `https://marine-api.open-meteo.com/v1/marine?${params}`;
+        await cachedJsonFetch(cache, { cacheKey: key, url, ttlMs: TTL.GRIB, source: 'open-meteo-marine' });
+        return;
+    } else {
+        params = `latitude=${pf.lat}&longitude=${pf.lon}&hourly=pressure_msl,surface_pressure&forecast_days=5`;
+    }
 
+    const url = `https://api.open-meteo.com/v1/forecast?${params}`;
     await cachedJsonFetch(cache, { cacheKey: key, url, ttlMs: TTL.GRIB, source: 'open-meteo-grib' });
 }
 

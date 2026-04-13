@@ -11,6 +11,7 @@
  */
 
 import { getOpenMeteoKey } from './keys';
+import { piCache } from '../PiCacheService';
 
 const WIND_FIELD_HOURS = 48;
 const MAX_SPEED = 60.0; // m/s — clamp range for texture encoding
@@ -90,9 +91,11 @@ export async function fetchWindGrid(
         // Use commercial API (required — no free fallback for App Store compliance)
         const omKey = getOpenMeteoKey();
         if (!omKey) return null;
-        const url = `https://customer-api.open-meteo.com/v1/forecast?latitude=${multiLats}&longitude=${multiLons}&hourly=wind_speed_10m,wind_direction_10m&forecast_hours=${WIND_FIELD_HOURS}&timezone=auto&apikey=${omKey}`;
+        const directUrl = `https://customer-api.open-meteo.com/v1/forecast?latitude=${multiLats}&longitude=${multiLons}&hourly=wind_speed_10m,wind_direction_10m&forecast_hours=${WIND_FIELD_HOURS}&timezone=auto&apikey=${omKey}`;
 
-        const response = await fetch(url);
+        // Route through Pi Cache when available (6h TTL matches GFS model runs)
+        const fetchUrl = piCache.passthroughUrl(directUrl, 6 * 60 * 60 * 1000, 'wind-field') || directUrl;
+        const response = await fetch(fetchUrl);
         if (!response.ok) return null;
 
         const data = await response.json();

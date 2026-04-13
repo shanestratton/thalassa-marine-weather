@@ -14,6 +14,7 @@ import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitive
 import { LockIcon } from '../Icons';
 import { piCache, type PiCacheStatus } from '../../services/PiCacheService';
 import { canAccess } from '../../services/SubscriptionService';
+import { LocationStore } from '../../stores/LocationStore';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
@@ -57,11 +58,15 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                     setStatus(result);
                     if (result.reachable && result.discoveredVia) {
                         onSave({ piCacheEnabled: true, piCacheHost: result.discoveredVia });
-                        // Auto-push Supabase creds so the Pi can pre-fetch
+                        // Auto-push Supabase creds + current location so Pi can pre-fetch
                         if (SUPABASE_URL && SUPABASE_KEY) {
+                            const loc = LocationStore.getState();
                             piCache.pushConfig({
                                 supabaseUrl: SUPABASE_URL,
                                 supabaseAnonKey: SUPABASE_KEY,
+                                prefetchLat: loc.lat,
+                                prefetchLon: loc.lon,
+                                prefetchRadius: 5,
                             });
                         }
                     }
@@ -81,9 +86,13 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
             if (result.reachable && result.discoveredVia) {
                 onSave({ piCacheHost: result.discoveredVia });
                 if (SUPABASE_URL && SUPABASE_KEY) {
+                    const loc = LocationStore.getState();
                     piCache.pushConfig({
                         supabaseUrl: SUPABASE_URL,
                         supabaseAnonKey: SUPABASE_KEY,
+                        prefetchLat: loc.lat,
+                        prefetchLon: loc.lon,
+                        prefetchRadius: 5,
                     });
                 }
             }

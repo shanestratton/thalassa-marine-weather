@@ -1,10 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { RadioTowerIcon } from '../Icons';
 import { Countdown } from './Countdown';
 import { useEnvironment } from '../../context/ThemeContext';
 import { MetricSource } from '../../types';
 import { useWeather } from '../../context/WeatherContext';
+import { piCache, type PiFetchStats } from '../../services/PiCacheService';
 
 interface StatusBadgesProps {
     isLandlocked: boolean;
@@ -39,6 +40,15 @@ interface StatusBadgesProps {
     modelUsed?: string;
     generatedAt?: string;
     coordinates?: { lat: number; lon: number };
+}
+
+/** Format cache age as human-readable relative time */
+function formatCacheAge(timestamp: number): string {
+    const ageMs = Date.now() - timestamp;
+    if (ageMs < 60_000) return 'just now';
+    if (ageMs < 3_600_000) return `${Math.round(ageMs / 60_000)}m ago`;
+    if (ageMs < 86_400_000) return `${Math.round(ageMs / 3_600_000)}h ago`;
+    return `${Math.round(ageMs / 86_400_000)}d ago`;
 }
 
 // Source display config — abbreviation, color, label
@@ -105,6 +115,18 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         const { refreshData, loading, backgroundUpdating } = useWeather();
         const isSyncing = loading || backgroundUpdating;
         const badgeTextSize = env === 'onshore' ? 'text-[11px]' : 'text-xs';
+
+        // Pi Cache fetch stats — poll on mount and after syncs
+        const [piFetchStats, setPiFetchStats] = useState<PiFetchStats | null>(null);
+        useEffect(() => {
+            if (!piCache.isAvailable()) {
+                setPiFetchStats(null);
+                return;
+            }
+            setPiFetchStats(piCache.getFetchStats());
+            // Re-check after each sync completes
+        }, [isSyncing]);
+        const piIsServing = piFetchStats?.lastSource === 'pi-cache' || piFetchStats?.lastSource === 'pi-stale';
 
         const shortenSourceName = (name: string): string => {
             name = name.replace(/Brisbane/i, 'Bris');
@@ -250,6 +272,12 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                             {/* Telemetry string */}
                             <span className="text-[11px] font-mono tracking-wider text-slate-400 uppercase truncate">
                                 <span className="text-emerald-400/70 font-bold mr-1">AI BLEND:</span>
+                                {piIsServing && (
+                                    <>
+                                        <span className="text-emerald-400 font-bold">Pi</span>
+                                        <span className="text-slate-400 mx-0.5">&bull;</span>
+                                    </>
+                                )}
                                 {beaconName && (
                                     <>
                                         <span className="text-slate-400">{shortenSourceName(beaconName)}</span>
@@ -561,6 +589,24 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                                         className={`font-bold uppercase text-sm ${locationType === 'coastal' ? 'text-emerald-400' : locationType === 'offshore' ? 'text-sky-400' : 'text-amber-400'}`}
                                                     >
                                                         {locationType}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            {piIsServing && piFetchStats && (
+                                                <div className="flex justify-between">
+                                                    <span className="text-slate-400">Data via</span>
+                                                    <span className="text-emerald-400 font-bold">
+                                                        Pi Cache
+                                                        {piFetchStats.lastSource === 'pi-stale' && (
+                                                            <span className="text-amber-400 font-normal ml-1">
+                                                                (stale)
+                                                            </span>
+                                                        )}
+                                                        {piFetchStats.lastPiServedAt > 0 && (
+                                                            <span className="text-slate-500 font-normal ml-1">
+                                                                {formatCacheAge(piFetchStats.lastPiServedAt)}
+                                                            </span>
+                                                        )}
                                                     </span>
                                                 </div>
                                             )}
