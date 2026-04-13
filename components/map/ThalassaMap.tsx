@@ -6,6 +6,7 @@ import Map, { ViewStateChangeEvent, NavigationControl, MapRef } from 'react-map-
 import type { StyleSpecification } from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { WindParticleLayer } from './WindParticleLayer';
+import { piCache } from '../../services/PiCacheService';
 import { WindStore } from '../../stores/WindStore';
 import { LocationStore } from '../../stores/LocationStore';
 import type { LocationState } from '../../stores/LocationStore';
@@ -258,6 +259,18 @@ const ThalassaMap: React.FC<ThalassaMapProps> = ({
             minZoom={2}
             style={{ width: '100%', height: '100%' }}
             attributionControl={false}
+            transformRequest={(url: string, resourceType?: string) => {
+                if (
+                    resourceType === 'Tile' &&
+                    piCache.isAvailable() &&
+                    url.startsWith('http') &&
+                    !url.includes('api.mapbox.com')
+                ) {
+                    const piUrl = piCache.passthroughTileUrl(url);
+                    if (piUrl) return { url: piUrl };
+                }
+                return { url };
+            }}
         >
             <NavigationControl position="top-right" />
         </Map>
