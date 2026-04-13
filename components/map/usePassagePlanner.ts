@@ -34,6 +34,7 @@ import { DEFAULT_CRUISING_POLAR } from '../../services/defaultPolar';
 import { SmartPolarStore } from '../../services/SmartPolarStore';
 
 import { WindStore } from '../../stores/WindStore';
+import { PassageStore, type PassageLeg } from '../../stores/PassageStore';
 import { WindDataController } from '../../services/weather/WindDataController';
 import { triggerHaptic } from '../../utils/system';
 import { Preferences } from '@capacitor/preferences';
@@ -49,6 +50,80 @@ export interface PassageState {
     routeAnalysis: RouteAnalysis | null;
     settingPoint: 'departure' | 'arrival' | null;
     showPassage: boolean;
+}
+
+/** Push computed route data to the global PassageStore for the Nav Station page */
+function pushToPassageStore(
+    isoResult: IsochroneResult,
+    wps: TurnWaypoint[],
+    dep: { lat: number; lon: number; name: string },
+    arr: { lat: number; lon: number; name: string },
+    analysis: RouteAnalysis,
+    depTime: string,
+    speedKts: number,
+) {
+    const routeMaxWindKt = analysis.maxWindSpeed ?? 0;
+    const routeMaxWaveM = analysis.maxWaveHeight ?? 0;
+
+    // Build legs from consecutive turn waypoints
+    const legs: PassageLeg[] = [];
+    for (let i = 0; i < wps.length - 1; i++) {
+        const a = wps[i];
+        const b = wps[i + 1];
+        const legMaxWind = Math.max(a.tws, b.tws);
+        // Estimate wave height proportional to wind strength relative to route max
+        const windRatio = routeMaxWindKt > 0 ? legMaxWind / routeMaxWindKt : 0;
+        const legMaxWave = Math.round(routeMaxWaveM * Math.min(1, windRatio * 1.2) * 10) / 10;
+
+        legs.push({
+            from: a.id === 'DEP' ? dep.name : a.id,
+            to: b.id === 'ARR' ? arr.name : b.id,
+            bearing: b.bearing,
+            distanceNM: Math.round((b.distanceNM - a.distanceNM) * 10) / 10,
+            durationHours: Math.round((b.timeHours - a.timeHours) * 10) / 10,
+            avgWindKt: Math.round((a.tws + b.tws) / 2),
+            maxWindKt: Math.round(legMaxWind),
+            avgWaveM: Math.round(legMaxWave * 0.7 * 10) / 10,
+            maxWaveM: legMaxWave,
+            difficulty: 'easy', // Auto-computed by setFromRoute
+            difficultyReason: '',
+        });
+    }
+
+    PassageStore.setFromRoute({
+        routeName: `${dep.name} \u2192 ${arr.name}`,
+        departPort: dep.name,
+        destPort: arr.name,
+        departLat: dep.lat,
+        departLon: dep.lon,
+        arriveLat: arr.lat,
+        arriveLon: arr.lon,
+        routeCoordinates: isoResult.routeCoordinates,
+        turnWaypoints: wps.map((wp) => ({
+            id: wp.id,
+            name: wp.id === 'DEP' ? dep.name : wp.id === 'ARR' ? arr.name : `Turn ${wp.id.replace('WP', '')}`,
+            lat: wp.lat,
+            lon: wp.lon,
+            bearing: wp.bearing,
+            distanceNM: wp.distanceNM,
+            timeHours: wp.timeHours,
+            eta: wp.eta,
+            tws: wp.tws,
+            twa: wp.twa,
+        })),
+        legs,
+        totalDistanceNM: isoResult.totalDistanceNM,
+        totalDurationHours: isoResult.totalDurationHours,
+        departureTime: depTime,
+        arrivalTime: isoResult.arrivalTime,
+        maxWindKt: analysis.maxWindSpeed,
+        maxWaveM: analysis.maxWaveHeight,
+        avgSpeedKts: analysis.averageSpeed || speedKts,
+    });
+
+    log.info(
+        `[PassageStore] Pushed route: ${dep.name} \u2192 ${arr.name}, ${isoResult.totalDistanceNM}NM, ${wps.length} waypoints, ${legs.length} legs`,
+    );
 }
 
 export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>, mapReady: boolean) {
@@ -717,6 +792,18 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         updatedResult2.totalDistance = cached.totalDistanceNM;
                         updatedResult2.estimatedDuration = cached.totalDurationHours;
                         setRouteAnalysis(updatedResult2);
+
+                        // Push pre-computed route to global PassageStore for Nav Station
+                        pushToPassageStore(
+                            cached,
+                            wps,
+                            departure,
+                            arrival,
+                            updatedResult2,
+                            departureTime || new Date().toISOString(),
+                            speed,
+                        );
+
                         try {
                             window.dispatchEvent(
                                 new CustomEvent('thalassa:isochrone-complete', { detail: { success: true } }),
@@ -1013,6 +1100,17 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     updatedResult.totalDistance = isoResult.totalDistanceNM;
                     updatedResult.estimatedDuration = isoResult.totalDurationHours;
                     setRouteAnalysis(updatedResult);
+
+                    // Push isochrone route to global PassageStore for Nav Station
+                    pushToPassageStore(
+                        isoResult,
+                        wps,
+                        departure,
+                        arrival,
+                        updatedResult,
+                        departureTime || new Date().toISOString(),
+                        speed,
+                    );
 
                     // ── Render Decision Fan (isochrone wavefront rings) ──
                     if (isoResult.isochrones.length > 0) {
@@ -1437,6 +1535,20 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             updatedResult.totalDistance = isoResult.totalDistanceNM;
                             updatedResult.estimatedDuration = isoResult.totalDurationHours;
                             setRouteAnalysis(updatedResult);
+
+                            // Push stitched multi-leg route to global PassageStore for Nav Station
+                            const multiDepTime = departureTime || new Date().toISOString();
+                            const multiWps = detectTurnWaypoints(isoResult.route, multiDepTime);
+                            turnWaypointsRef.current = multiWps;
+                            pushToPassageStore(
+                                isoResult,
+                                multiWps,
+                                departure,
+                                arrival,
+                                updatedResult,
+                                multiDepTime,
+                                speed,
+                            );
                         }
                         try {
                             window.dispatchEvent(
@@ -1522,6 +1634,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         isoResultRef.current = null;
         turnWaypointsRef.current = [];
         computeGenRef.current++; // Invalidate any running computation
+        PassageStore.clear();
 
         const map = mapRef.current;
         if (!map) return;
