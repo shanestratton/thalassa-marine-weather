@@ -17,6 +17,7 @@ import { GpsService as _GpsService } from '../../services/GpsService';
 import { createPinMarker } from '../../utils/createMarkerEl';
 import { AvNavService, encryptOchartsUrl } from '../../services/AvNavService';
 import { MBTilesService } from '../../services/MBTilesService';
+import { piCache } from '../../services/PiCacheService';
 
 interface UseMapInitOptions {
     containerRef: MutableRefObject<HTMLDivElement | null>;
@@ -226,6 +227,23 @@ export function useMapInit(opts: UseMapInitOptions) {
                         }
                     }
                 }
+
+                // ── Pi Cache tile passthrough ──
+                // Route all remote raster tile fetches through the boat's Pi.
+                // Skips local tiles (MBTiles, AvNav, data URIs, blobs) and Mapbox
+                // vector tiles (which are style-bundled and handled by Mapbox GL).
+                if (
+                    resourceType === 'Tile' &&
+                    piCache.isAvailable() &&
+                    url.startsWith('http') &&
+                    !url.includes('mbtiles.local/') &&
+                    !url.includes('192.168') &&
+                    !url.includes('api.mapbox.com')
+                ) {
+                    const piUrl = piCache.passthroughTileUrl(url);
+                    if (piUrl) return { url: piUrl };
+                }
+
                 return { url };
             },
         });

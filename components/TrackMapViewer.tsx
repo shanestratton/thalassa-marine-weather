@@ -20,6 +20,7 @@ const _log = createLogger('TrackMapViewer');
 import { ShipLogEntry } from '../types';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { piCache } from '../services/PiCacheService';
 
 interface TrackMapViewerProps {
     isOpen: boolean;
@@ -134,19 +135,24 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             fadeAnimation: true,
         }).setView([-27.5, 153.1], 6); // Default view — fitBounds overrides when track loads
 
-        // Dark nautical tile layer (base)
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        // Dark nautical tile layer (base) — route through Pi Cache when available
+        L.tileLayer(piCache.leafletTileTemplate('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'), {
             maxZoom: 19,
         }).addTo(map);
 
         // EMODnet Bathymetry overlay
-        L.tileLayer('https://tiles.emodnet-bathymetry.eu/2020/baselayer/web_mercator/{z}/{x}/{y}.png', {
-            maxZoom: 12,
-            opacity: 0.35,
-        }).addTo(map);
+        L.tileLayer(
+            piCache.leafletTileTemplate(
+                'https://tiles.emodnet-bathymetry.eu/2020/baselayer/web_mercator/{z}/{x}/{y}.png',
+            ),
+            {
+                maxZoom: 12,
+                opacity: 0.35,
+            },
+        ).addTo(map);
 
         // OpenSeaMap seamark overlay
-        L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+        L.tileLayer(piCache.leafletTileTemplate('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'), {
             maxZoom: 18,
             opacity: 0.85,
         }).addTo(map);

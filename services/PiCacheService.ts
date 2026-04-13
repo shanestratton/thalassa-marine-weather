@@ -339,6 +339,26 @@ class PiCacheServiceImpl {
         return `${this.baseUrl}/api/passthrough-tile?${params.toString()}`;
     }
 
+    // ── Leaflet Tile Template ──
+
+    /**
+     * Create a Leaflet-compatible tile URL template that routes through the Pi.
+     *
+     * Works because Leaflet replaces {z}/{x}/{y}/{s}/{r} everywhere in the string,
+     * including inside query parameter values. The Pi receives the concrete URL
+     * after Leaflet fills in the placeholders.
+     *
+     * Only safe for "clean" tile URL templates (no `?query=params` in the original).
+     * For URLs with query strings, use Mapbox GL's transformRequest + passthroughTileUrl().
+     *
+     * @param originalTemplate — Leaflet tile URL template, e.g. 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'
+     * @param ttlMs — Cache TTL in milliseconds (default: 30 min)
+     */
+    leafletTileTemplate(originalTemplate: string, ttlMs = 1_800_000): string {
+        if (!this.isAvailable()) return originalTemplate;
+        return `${this.baseUrl}/api/passthrough-tile?url=${originalTemplate}&ttl=${ttlMs}&ct=image/png`;
+    }
+
     // ── Maintenance ──
 
     /** Purge expired entries on the Pi. */

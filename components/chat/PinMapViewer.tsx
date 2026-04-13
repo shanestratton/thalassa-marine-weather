@@ -9,6 +9,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { createGradientPinMarker } from '../../utils/createMarkerEl';
 import { exportPinAsGPX } from './chatUtils';
+import { piCache } from '../../services/PiCacheService';
 
 interface PinMapViewerProps {
     lat: number;
@@ -38,6 +39,19 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
             attributionControl: false,
             logoPosition: 'bottom-left',
             dragRotate: false,
+            // Route raster tiles through Pi Cache when available (offline support)
+            transformRequest: (url: string, resourceType?: string) => {
+                if (
+                    resourceType === 'Tile' &&
+                    piCache.isAvailable() &&
+                    url.startsWith('http') &&
+                    !url.includes('api.mapbox.com')
+                ) {
+                    const piUrl = piCache.passthroughTileUrl(url);
+                    if (piUrl) return { url: piUrl };
+                }
+                return { url };
+            },
         });
 
         map.touchZoomRotate.disableRotation();

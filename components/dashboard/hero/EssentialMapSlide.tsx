@@ -10,6 +10,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { UnitPreferences } from '../../../types';
 import { convertSpeed, degreesToCardinal } from '../../../utils';
+import { piCache } from '../../../services/PiCacheService';
 
 interface EssentialMapSlideProps {
     slideIdx: number;
@@ -273,9 +274,10 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
                                             {/* Preload nearby frames for smooth scrubbing */}
                                             {(Math.abs(idx - activeFrame) <= 3 || idx === activeFrame) &&
                                                 tileGrid.map((t) => {
-                                                    const src = isForecst
+                                                    const directSrc = isForecst
                                                         ? `${supabaseUrl}/functions/v1/proxy-rainbow?action=tile&snapshot=${frame.snapshot}&forecast=${frame.forecastSecs}&z=${zoom}&x=${t.tx}&y=${t.ty}&color=6`
                                                         : `https://tilecache.rainviewer.com${frame.path}/${tileSize}/${zoom}/${t.tx}/${t.ty}/7/1_1.png`;
+                                                    const src = piCache.passthroughTileUrl(directSrc) || directSrc;
                                                     return (
                                                         <img
                                                             key={`${frameKey}-${t.key}`}
