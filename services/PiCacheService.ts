@@ -58,6 +58,7 @@ export interface PiFetchStats {
 // ── Discovery candidates ──
 // Ordered by likelihood — skip the rest as soon as one works.
 const DISCOVERY_HOSTS = [
+    'openplotter.local', // OpenPlotter default hostname
     'raspberrypi.local', // Default Pi mDNS hostname
     'thalassa.local', // If they renamed it
     'pi.local', // Common shortname
