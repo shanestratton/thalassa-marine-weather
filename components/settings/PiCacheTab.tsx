@@ -24,6 +24,8 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
     const [purging, setPurging] = useState(false);
     const [purgeResult, setPurgeResult] = useState<string | null>(null);
     const [showAdvanced, setShowAdvanced] = useState(false);
+    const [testResult, setTestResult] = useState<{ ok: boolean; ms: number; source: string } | null>(null);
+    const [testing, setTesting] = useState(false);
 
     const isSkipper = canAccess(settings.subscriptionTier, 'piCache');
     const isEnabled = settings.piCacheEnabled ?? false;
@@ -89,6 +91,28 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
             setDiscovering(false);
         }
     }, [onSave]);
+
+    const handleTest = useCallback(async () => {
+        setTesting(true);
+        setTestResult(null);
+        try {
+            const start = Date.now();
+            const result = await piCache.fetch<Record<string, unknown>>(
+                '/api/weather/current',
+                { lat: '-36.84', lon: '174.76' },
+                async () => ({ test: 'direct-fallback' }),
+            );
+            setTestResult({
+                ok: result.source !== 'direct',
+                ms: Date.now() - start,
+                source: result.source,
+            });
+        } catch {
+            setTestResult({ ok: false, ms: 0, source: 'error' });
+        } finally {
+            setTesting(false);
+        }
+    }, []);
 
     const handlePurge = useCallback(async () => {
         setPurging(true);
@@ -174,15 +198,37 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                                 <span>Looking for your Pi on the network...</span>
                             </div>
                         ) : status?.reachable ? (
-                            <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-                                <div className="flex items-center gap-2 text-xs">
-                                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50 animate-pulse" />
-                                    <span className="text-emerald-300 font-bold">Connected</span>
-                                    <span className="text-gray-400 font-mono ml-1">{status.discoveredVia || host}</span>
-                                    {status.latencyMs > 0 && (
-                                        <span className="text-gray-500 font-mono ml-auto">{status.latencyMs}ms</span>
-                                    )}
+                            <div className="space-y-2">
+                                <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                                    <div className="flex items-center gap-2 text-xs">
+                                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50 animate-pulse" />
+                                        <span className="text-emerald-300 font-bold">Connected</span>
+                                        <span className="text-gray-400 font-mono ml-1">
+                                            {status.discoveredVia || host}
+                                        </span>
+                                        {status.latencyMs > 0 && (
+                                            <span className="text-gray-500 font-mono ml-auto">
+                                                {status.latencyMs}ms
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
+                                <button
+                                    onClick={handleTest}
+                                    disabled={testing}
+                                    className="w-full py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[11px] font-bold uppercase tracking-wider hover:bg-emerald-500/20 active:scale-[0.98] transition-all disabled:opacity-50"
+                                >
+                                    {testing ? 'Testing...' : 'Test Data Fetch'}
+                                </button>
+                                {testResult && (
+                                    <div
+                                        className={`p-2 rounded-lg text-[11px] text-center font-mono ${testResult.ok ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-300'}`}
+                                    >
+                                        {testResult.ok
+                                            ? `Weather fetched from Pi in ${testResult.ms}ms (${testResult.source})`
+                                            : `Fell back to direct API (${testResult.ms}ms) — Pi may need Supabase config`}
+                                    </div>
+                                )}
                             </div>
                         ) : (
                             <div className="space-y-3">
@@ -294,15 +340,24 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                     <div className="text-xs text-gray-400 space-y-3 leading-relaxed">
                         <div className="flex gap-3 items-start">
                             <span className="text-emerald-400 font-bold text-sm shrink-0">1</span>
-                            <p>Get the Thalassa Cache running on your Raspberry Pi (one-time setup)</p>
+                            <div>
+                                <p>Open a terminal on your Raspberry Pi and run:</p>
+                                <div className="mt-2 p-3 rounded-lg bg-black/40 border border-white/10 font-mono text-[11px] text-emerald-300 break-all select-all">
+                                    bash &lt;(curl -sSL
+                                    https://raw.githubusercontent.com/shanestratton/thalassa-marine-weather/master/pi-cache/install.sh)
+                                </div>
+                                <p className="text-gray-500 text-[10px] mt-1">
+                                    One command. Takes about 2 minutes. Runs automatically on boot after that.
+                                </p>
+                            </div>
                         </div>
                         <div className="flex gap-3 items-start">
                             <span className="text-emerald-400 font-bold text-sm shrink-0">2</span>
-                            <p>Connect your phone to the same WiFi as the Pi</p>
+                            <p>Make sure your phone is on the same WiFi as the Pi</p>
                         </div>
                         <div className="flex gap-3 items-start">
                             <span className="text-emerald-400 font-bold text-sm shrink-0">3</span>
-                            <p>Flip the toggle above — we find it and set it up automatically</p>
+                            <p>Flip the toggle above — we find the Pi and set everything up automatically</p>
                         </div>
                         <p className="text-gray-500 text-[11px] pt-1">
                             All weather, tides, and charts load from the Pi instantly. No internet needed once cached.
