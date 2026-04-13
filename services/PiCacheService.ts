@@ -1,21 +1,14 @@
 /**
- * PiCacheService — Discovers and routes requests through the boat's Pi Cache server.
+ * PiCacheService — Auto-discovers and routes requests through the boat's Pi Cache.
  *
- * When enabled in settings, this service intercepts all external API calls and
- * routes them through the local Raspberry Pi cache instead of directly to
- * Supabase Edge Functions or external APIs. This gives:
+ * The skipper runs `install.sh` on their Pi and that's it. This service:
  *
- *   1. Instant responses from locally cached data (no internet latency)
- *   2. Stale-while-revalidate when the Pi has cached but expired data
- *   3. Automatic fallback to direct API calls if the Pi is unreachable
+ *   1. Auto-discovers the Pi on the local network (tries common hostnames)
+ *   2. Routes weather/tide/GRIB/satellite requests through the Pi cache
+ *   3. Falls back to direct API calls transparently if the Pi is unreachable
+ *   4. Periodically health-checks to track Pi availability
  *
- * Discovery: The service pings the Pi at the configured host:port on startup
- * and periodically checks if it's still alive.
- *
- * Usage:
- *   - Import { piCache } from this module
- *   - Call piCache.fetch('/api/weather/current', { lat, lon }) instead of direct fetch
- *   - The service handles routing, fallback, and caching headers
+ * Skipper-only feature (requires 'owner' subscription tier).
  */
 
 import { CapacitorHttp } from '@capacitor/core';
@@ -32,6 +25,8 @@ export interface PiCacheStatus {
     reachable: boolean;
     lastCheck: number;
     latencyMs: number;
+    piIp?: string;
+    discoveredVia?: string;
     cacheStats?: {
         kvEntries: number;
         tileEntries: number;
@@ -41,18 +36,30 @@ export interface PiCacheStatus {
     };
 }
 
-interface FetchResult<T = unknown> {
+export interface FetchResult<T = unknown> {
     data: T;
     source: 'pi-cache' | 'pi-stale' | 'direct';
     latencyMs: number;
 }
 
+// ── Discovery candidates ──
+// Ordered by likelihood — skip the rest as soon as one works.
+const DISCOVERY_HOSTS = [
+    'raspberrypi.local', // Default Pi mDNS hostname
+    'thalassa.local', // If they renamed it
+    'pi.local', // Common shortname
+    'thalassa-cache.local', // If they used our suggested hostname
+];
+
 // ── Singleton ──
 
 class PiCacheServiceImpl {
-    private config: PiCacheConfig = { enabled: false, host: 'raspberrypi.local', port: 3001 };
+    private config: PiCacheConfig = { enabled: false, host: '', port: 3001 };
     private status: PiCacheStatus = { reachable: false, lastCheck: 0, latencyMs: 0 };
     private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+    private discoveryListeners: Array<(status: PiCacheStatus) => void> = [];
+
+    // ── Configuration ──
 
     /** Update config from UserSettings. Called when settings change. */
     configure(config: Partial<PiCacheConfig>): void {
@@ -67,29 +74,102 @@ class PiCacheServiceImpl {
         }
     }
 
-    /** Get the current status of the Pi Cache connection. */
+    /** Get the current Pi Cache status. */
     getStatus(): PiCacheStatus {
         return { ...this.status };
     }
 
-    /** Check if the Pi Cache is enabled and reachable. */
+    /** Is the Pi Cache enabled AND reachable right now? */
     isAvailable(): boolean {
         return this.config.enabled && this.status.reachable;
     }
 
     /** Base URL for the Pi Cache server. */
-    private get baseUrl(): string {
+    get baseUrl(): string {
         return `http://${this.config.host}:${this.config.port}`;
+    }
+
+    // ── Auto-Discovery ──
+
+    /**
+     * Scan for a Pi Cache server on the local network.
+     * Tries common hostnames, returns the first one that responds.
+     * Called automatically when enabled with no host configured.
+     */
+    async discover(): Promise<PiCacheStatus> {
+        const candidates = [...DISCOVERY_HOSTS];
+
+        // If the user already set a host, try that first
+        if (this.config.host && !candidates.includes(this.config.host)) {
+            candidates.unshift(this.config.host);
+        }
+
+        for (const host of candidates) {
+            const url = `http://${host}:${this.config.port}/health`;
+            const start = Date.now();
+
+            try {
+                let ok = false;
+                try {
+                    const res = await CapacitorHttp.get({
+                        url,
+                        connectTimeout: 2000,
+                        readTimeout: 2000,
+                    });
+                    ok = res.data?.status === 'ok' && res.data?.service === 'thalassa-pi-cache';
+                } catch {
+                    const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
+                    const data = await res.json();
+                    ok = data?.status === 'ok' && data?.service === 'thalassa-pi-cache';
+                }
+
+                if (ok) {
+                    this.config.host = host;
+                    this.status = {
+                        reachable: true,
+                        lastCheck: Date.now(),
+                        latencyMs: Date.now() - start,
+                        discoveredVia: host,
+                    };
+
+                    // Now get full status with cache stats
+                    await this.checkHealth();
+                    this.notifyListeners();
+                    return this.status;
+                }
+            } catch {
+                // This host didn't respond — try next
+            }
+        }
+
+        // Nothing found
+        this.status = { reachable: false, lastCheck: Date.now(), latencyMs: 0 };
+        return this.status;
+    }
+
+    /**
+     * Register a callback for when Pi is discovered/lost.
+     * Used by the settings UI to update status in real-time.
+     */
+    onStatusChange(listener: (status: PiCacheStatus) => void): () => void {
+        this.discoveryListeners.push(listener);
+        return () => {
+            this.discoveryListeners = this.discoveryListeners.filter((l) => l !== listener);
+        };
+    }
+
+    private notifyListeners(): void {
+        const s = this.getStatus();
+        this.discoveryListeners.forEach((l) => l(s));
     }
 
     // ── Health Check ──
 
     private async checkHealth(): Promise<boolean> {
-        if (!this.config.enabled) return false;
+        if (!this.config.enabled || !this.config.host) return false;
 
         const start = Date.now();
         try {
-            // Try CapacitorHttp first (native), then fetch (web/dev)
             let data: { status: string; cache?: PiCacheStatus['cacheStats'] };
             try {
                 const res = await CapacitorHttp.get({
@@ -105,26 +185,45 @@ class PiCacheServiceImpl {
                 data = await res.json();
             }
 
+            const wasReachable = this.status.reachable;
             this.status = {
+                ...this.status,
                 reachable: data?.status === 'ok',
                 lastCheck: Date.now(),
                 latencyMs: Date.now() - start,
                 cacheStats: data?.cache as PiCacheStatus['cacheStats'],
             };
+
+            // Notify if status changed
+            if (wasReachable !== this.status.reachable) {
+                this.notifyListeners();
+            }
             return this.status.reachable;
         } catch {
+            const wasReachable = this.status.reachable;
             this.status = {
+                ...this.status,
                 reachable: false,
                 lastCheck: Date.now(),
                 latencyMs: Date.now() - start,
             };
+            if (wasReachable) this.notifyListeners();
             return false;
         }
     }
 
     private startHealthChecks(): void {
-        this.checkHealth(); // Immediate check
-        this.healthCheckInterval = setInterval(() => this.checkHealth(), 30_000); // Every 30s
+        // If no host configured, run discovery first
+        if (!this.config.host) {
+            this.discover().then(() => {
+                if (this.status.reachable) {
+                    this.healthCheckInterval = setInterval(() => this.checkHealth(), 30_000);
+                }
+            });
+        } else {
+            this.checkHealth();
+            this.healthCheckInterval = setInterval(() => this.checkHealth(), 30_000);
+        }
     }
 
     private stopHealthChecks(): void {
@@ -137,39 +236,35 @@ class PiCacheServiceImpl {
     // ── Data Fetching ──
 
     /**
-     * Fetch JSON data through the Pi Cache.
-     * Falls back to the provided directFetch function if the Pi is unreachable.
+     * Fetch JSON through the Pi Cache, with transparent fallback.
      *
-     * @param piPath — Pi cache API path, e.g., '/api/weather/current'
-     * @param params — Query parameters
-     * @param directFetch — Fallback function to call the API directly
+     * @param piPath  — Pi endpoint path, e.g., '/api/weather/current'
+     * @param params  — Query parameters
+     * @param directFetch — Fallback: call the API directly if Pi is down
      */
     async fetch<T = unknown>(
         piPath: string,
         params: Record<string, string | number>,
         directFetch: () => Promise<T>,
     ): Promise<FetchResult<T>> {
-        // If Pi Cache is disabled or unreachable, go direct
         if (!this.isAvailable()) {
             const start = Date.now();
             const data = await directFetch();
             return { data, source: 'direct', latencyMs: Date.now() - start };
         }
 
-        // Build Pi Cache URL
         const qs = new URLSearchParams();
         for (const [k, v] of Object.entries(params)) {
             qs.set(k, String(v));
         }
         const url = `${this.baseUrl}${piPath}?${qs.toString()}`;
-
         const start = Date.now();
+
         try {
             let responseData: T;
             let cacheHeader = '';
 
             try {
-                // Try CapacitorHttp (native)
                 const res = await CapacitorHttp.get({
                     url,
                     connectTimeout: 5000,
@@ -178,7 +273,6 @@ class PiCacheServiceImpl {
                 responseData = res.data as T;
                 cacheHeader = res.headers?.['x-cache'] || res.headers?.['X-Cache'] || '';
             } catch {
-                // Fallback to browser fetch
                 const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
                 if (!res.ok) throw new Error(`Pi Cache ${res.status}`);
                 responseData = (await res.json()) as T;
@@ -188,39 +282,68 @@ class PiCacheServiceImpl {
             const source = cacheHeader === 'STALE' ? 'pi-stale' : 'pi-cache';
             return { data: responseData, source, latencyMs: Date.now() - start };
         } catch {
-            // Pi failed — fall back to direct API
-            console.warn(`⚡ Pi Cache failed for ${piPath}, falling back to direct API`);
+            // Pi hiccup — fall back silently
             const data = await directFetch();
             return { data, source: 'direct', latencyMs: Date.now() - start };
         }
     }
 
-    /**
-     * Fetch a tile URL through the Pi Cache.
-     * Returns the proxied tile URL, or the original URL if Pi is unavailable.
-     *
-     * Used by map tile layers to redirect tile requests through the Pi.
-     */
-    getTileUrl(piPath: string, originalUrl: string): string {
-        if (!this.isAvailable()) return originalUrl;
-        return `${this.baseUrl}${piPath}`;
-    }
+    // ── Tile URL Routing ──
 
     /**
-     * Build a tile URL template for Mapbox GL sources.
-     * e.g., piCache.tileUrlTemplate('/api/tiles/openseamap/{z}/{x}/{y}', originalTemplate)
+     * Swap a tile URL template to route through the Pi.
+     * Returns the original template if Pi is unavailable.
+     *
+     * @example
+     *   piCache.tileUrl('/api/tiles/openseamap/{z}/{x}/{y}',
+     *                   'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png')
      */
-    tileUrlTemplate(piTemplate: string, originalTemplate: string): string {
+    tileUrl(piTemplate: string, originalTemplate: string): string {
         if (!this.isAvailable()) return originalTemplate;
         return `${this.baseUrl}${piTemplate}`;
     }
 
+    // ── Passthrough Proxy (the magic one) ──
+
     /**
-     * Trigger a manual cache purge on the Pi.
+     * Route any URL through the Pi Cache's generic passthrough.
+     * Returns a Pi-proxied URL, or null if Pi is unavailable.
+     *
+     * The Pi fetches the URL, caches the response in SQLite, and returns it.
+     * Next time, the response comes straight from the Pi's disk — zero internet.
+     *
+     * @param originalUrl — The full URL the app would normally fetch
+     * @param ttlMs — Cache TTL in milliseconds (default: 15 min)
+     * @param source — Label for debugging (e.g., 'open-meteo')
      */
+    passthroughUrl(originalUrl: string, ttlMs = 900_000, source = 'passthrough'): string | null {
+        if (!this.isAvailable()) return null;
+        const params = new URLSearchParams({
+            url: originalUrl,
+            ttl: String(ttlMs),
+            source,
+        });
+        return `${this.baseUrl}/api/passthrough?${params.toString()}`;
+    }
+
+    /**
+     * Route a tile URL through the Pi Cache's tile passthrough.
+     */
+    passthroughTileUrl(originalUrl: string, ttlMs = 1_800_000): string | null {
+        if (!this.isAvailable()) return null;
+        const params = new URLSearchParams({
+            url: originalUrl,
+            ttl: String(ttlMs),
+            ct: 'image/png',
+        });
+        return `${this.baseUrl}/api/passthrough-tile?${params.toString()}`;
+    }
+
+    // ── Maintenance ──
+
+    /** Purge expired entries on the Pi. */
     async purgeCache(): Promise<{ kvDeleted: number; tileDeleted: number } | null> {
         if (!this.isAvailable()) return null;
-
         try {
             let data: { purged: { kvDeleted: number; tileDeleted: number } };
             try {
@@ -238,10 +361,13 @@ class PiCacheServiceImpl {
 
     /** Force a health check right now. */
     async ping(): Promise<PiCacheStatus> {
+        if (!this.config.host) {
+            return this.discover();
+        }
         await this.checkHealth();
         return this.getStatus();
     }
 }
 
-/** Singleton Pi Cache service instance. */
+/** Singleton — import this everywhere. */
 export const piCache = new PiCacheServiceImpl();

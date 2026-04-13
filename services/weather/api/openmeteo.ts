@@ -5,6 +5,7 @@ import { getOpenMeteoKey } from '../keys';
 import { generateDescription } from '../transformers';
 import { calculateFeelsLike, calculateDistance } from '../../../utils/math';
 import { degreesToCardinal } from '../../../utils/format';
+import { piCache } from '../../PiCacheService';
 
 import { generateTacticalAdvice, generateSafetyAlerts } from '../../../utils/advisory';
 import { fetchRealTides } from './tides';
@@ -177,8 +178,10 @@ export const fetchOpenMeteo = async (
 
     if (isCommercial) params.append('apikey', apiKey!);
 
-    // Fetch Weather using Native HTTP to avoid silent failures/CORS
-    const res = await CapacitorHttp.get({ url: `${baseUrl}?${params.toString()}` });
+    // Fetch Weather — route through Pi Cache if available, else direct
+    const directUrl = `${baseUrl}?${params.toString()}`;
+    const fetchUrl = piCache.passthroughUrl(directUrl, 15 * 60 * 1000, 'open-meteo') || directUrl;
+    const res = await CapacitorHttp.get({ url: fetchUrl });
 
     if (!res || res.status !== 200) {
         throw new Error(`OpenMeteo HTTP ${res?.status || 'no response'}`);
