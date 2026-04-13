@@ -12,6 +12,7 @@
  */
 
 import { CapacitorHttp } from '@capacitor/core';
+import { LocationStore } from '../stores/LocationStore';
 
 // ── Types ──
 
@@ -42,6 +43,18 @@ export interface FetchResult<T = unknown> {
     latencyMs: number;
 }
 
+/** Reactive fetch stats — tracks how data is being served. */
+export interface PiFetchStats {
+    /** Last source used for a weather/data fetch */
+    lastSource: 'pi-cache' | 'pi-stale' | 'direct' | null;
+    /** Timestamp of last Pi-served fetch */
+    lastPiServedAt: number;
+    /** Cumulative: requests served from Pi this session */
+    piHits: number;
+    /** Cumulative: requests that fell back to direct this session */
+    directHits: number;
+}
+
 // ── Discovery candidates ──
 // Ordered by likelihood — skip the rest as soon as one works.
 const DISCOVERY_HOSTS = [
@@ -58,6 +71,20 @@ class PiCacheServiceImpl {
     private status: PiCacheStatus = { reachable: false, lastCheck: 0, latencyMs: 0 };
     private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
     private discoveryListeners: Array<(status: PiCacheStatus) => void> = [];
+    private locationUnsub: (() => void) | null = null;
+
+    // ── Fetch Stats ──
+    private _fetchStats: PiFetchStats = {
+        lastSource: null,
+        lastPiServedAt: 0,
+        piHits: 0,
+        directHits: 0,
+    };
+
+    // ── Location Push (debounced) ──
+    private lastPushedLat = 0;
+    private lastPushedLon = 0;
+    private lastPushTime = 0;
 
     // ── Configuration ──
 
@@ -87,6 +114,52 @@ class PiCacheServiceImpl {
     /** Base URL for the Pi Cache server. */
     get baseUrl(): string {
         return `http://${this.config.host}:${this.config.port}`;
+    }
+
+    /** Get fetch stats — used by UI to show Pi Cache source indicator. */
+    getFetchStats(): PiFetchStats {
+        return { ...this._fetchStats };
+    }
+
+    /** Record a fetch result for stats tracking. */
+    private recordFetch(source: 'pi-cache' | 'pi-stale' | 'direct'): void {
+        this._fetchStats.lastSource = source;
+        if (source !== 'direct') {
+            this._fetchStats.lastPiServedAt = Date.now();
+            this._fetchStats.piHits++;
+        } else {
+            this._fetchStats.directHits++;
+        }
+    }
+
+    // ── Location Push ──
+
+    /**
+     * Push the skipper's current location to the Pi for pre-fetch targeting.
+     * Debounced: only pushes if location moved >0.05° (~5km) OR >15min since last push.
+     * Called automatically by the app when the LocationStore updates.
+     */
+    updateLocation(lat: number, lon: number): void {
+        if (!this.isAvailable()) return;
+
+        const dist = Math.abs(lat - this.lastPushedLat) + Math.abs(lon - this.lastPushedLon);
+        const elapsed = Date.now() - this.lastPushTime;
+
+        // Skip if location hasn't moved much and we pushed recently
+        if (dist < 0.05 && elapsed < 15 * 60 * 1000) return;
+
+        this.lastPushedLat = lat;
+        this.lastPushedLon = lon;
+        this.lastPushTime = Date.now();
+
+        // Fire and forget — location push is best-effort
+        this.pushConfig({
+            supabaseUrl: '',
+            supabaseAnonKey: '',
+            prefetchLat: lat,
+            prefetchLon: lon,
+            prefetchRadius: 5,
+        }).catch(() => {});
     }
 
     // ── Auto-Discovery ──
@@ -224,12 +297,23 @@ class PiCacheServiceImpl {
             this.checkHealth();
             this.healthCheckInterval = setInterval(() => this.checkHealth(), 30_000);
         }
+
+        // Subscribe to location changes — push to Pi as the boat moves
+        if (!this.locationUnsub) {
+            this.locationUnsub = LocationStore.subscribe((loc) => {
+                this.updateLocation(loc.lat, loc.lon);
+            });
+        }
     }
 
     private stopHealthChecks(): void {
         if (this.healthCheckInterval) {
             clearInterval(this.healthCheckInterval);
             this.healthCheckInterval = null;
+        }
+        if (this.locationUnsub) {
+            this.locationUnsub();
+            this.locationUnsub = null;
         }
     }
 
@@ -250,6 +334,7 @@ class PiCacheServiceImpl {
         if (!this.isAvailable()) {
             const start = Date.now();
             const data = await directFetch();
+            this.recordFetch('direct');
             return { data, source: 'direct', latencyMs: Date.now() - start };
         }
 
@@ -280,10 +365,12 @@ class PiCacheServiceImpl {
             }
 
             const source = cacheHeader === 'STALE' ? 'pi-stale' : 'pi-cache';
+            this.recordFetch(source);
             return { data: responseData, source, latencyMs: Date.now() - start };
         } catch {
             // Pi hiccup — fall back silently
             const data = await directFetch();
+            this.recordFetch('direct');
             return { data, source: 'direct', latencyMs: Date.now() - start };
         }
     }

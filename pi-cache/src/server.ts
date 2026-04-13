@@ -65,36 +65,32 @@ app.get('/status', (_req, res) => {
 app.post('/api/configure', (req, res) => {
     const { supabaseUrl, supabaseAnonKey, prefetchLat, prefetchLon, prefetchRadius } = req.body || {};
 
-    const envLines: string[] = [
-        '# Thalassa Pi Cache — configured by the Thalassa app',
-        `PORT=${PORT}`,
-        `CACHE_DIR=${CACHE_DIR}`,
-    ];
+    // Update in-memory values if provided (empty strings = keep existing)
+    if (supabaseUrl) SUPABASE_URL = supabaseUrl;
+    if (supabaseAnonKey) SUPABASE_ANON_KEY = supabaseAnonKey;
 
-    // Update Supabase config if provided
-    if (supabaseUrl) {
-        SUPABASE_URL = supabaseUrl;
-        envLines.push(`SUPABASE_URL=${supabaseUrl}`);
-    }
-    if (supabaseAnonKey) {
-        SUPABASE_ANON_KEY = supabaseAnonKey;
-        envLines.push(`SUPABASE_ANON_KEY=${supabaseAnonKey}`);
-    }
-
-    // Update pre-fetch location if provided
     if (prefetchLat !== undefined && prefetchLon !== undefined) {
         process.env.PREFETCH_LAT = String(prefetchLat);
         process.env.PREFETCH_LON = String(prefetchLon);
         process.env.PREFETCH_RADIUS = String(prefetchRadius || 5);
         process.env.PREFETCH_INTERVAL = process.env.PREFETCH_INTERVAL || '15';
+    }
 
-        envLines.push(`PREFETCH_LAT=${prefetchLat}`);
-        envLines.push(`PREFETCH_LON=${prefetchLon}`);
-        envLines.push(`PREFETCH_RADIUS=${prefetchRadius || 5}`);
+    // Write .env with ALL current values (not just what was sent this request)
+    const envLines: string[] = [
+        '# Thalassa Pi Cache — configured by the Thalassa app',
+        `PORT=${PORT}`,
+        `CACHE_DIR=${CACHE_DIR}`,
+    ];
+    if (SUPABASE_URL) envLines.push(`SUPABASE_URL=${SUPABASE_URL}`);
+    if (SUPABASE_ANON_KEY) envLines.push(`SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}`);
+    if (process.env.PREFETCH_LAT) {
+        envLines.push(`PREFETCH_LAT=${process.env.PREFETCH_LAT}`);
+        envLines.push(`PREFETCH_LON=${process.env.PREFETCH_LON}`);
+        envLines.push(`PREFETCH_RADIUS=${process.env.PREFETCH_RADIUS || 5}`);
         envLines.push(`PREFETCH_INTERVAL=${process.env.PREFETCH_INTERVAL || 15}`);
     }
 
-    // Write .env so config persists across restarts
     try {
         const envPath = path.join(process.cwd(), '.env');
         fs.writeFileSync(envPath, envLines.join('\n') + '\n');
@@ -102,12 +98,14 @@ app.post('/api/configure', (req, res) => {
         console.warn('Could not write .env:', (err as Error).message);
     }
 
-    // Restart pre-fetch scheduler with new config
+    // Restart pre-fetch scheduler with updated config
     stopScheduler();
     const proxyConfig = { supabaseUrl: SUPABASE_URL, supabaseAnonKey: SUPABASE_ANON_KEY };
     startScheduler(cache, proxyConfig);
 
-    console.log('📱 Configuration updated by Thalassa app');
+    console.log(
+        `📱 Configuration updated by Thalassa app${prefetchLat !== undefined ? ` (location: ${prefetchLat}, ${prefetchLon})` : ''}`,
+    );
     res.json({ status: 'ok', message: 'Configuration updated' });
 });
 
