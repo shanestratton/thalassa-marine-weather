@@ -478,6 +478,16 @@ const App: React.FC = () => {
                                 />
                             </Suspense>
                         </ErrorBoundary>
+                        {/* System status ℹ button — floating on map view */}
+                        <div
+                            className="absolute z-[601] pointer-events-auto"
+                            style={{
+                                top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
+                                right: '12px',
+                            }}
+                        >
+                            <SystemStatusButton currentView={currentView} onNavigateAnchor={() => setPage('compass')} />
+                        </div>
                         {/* Back chevron — middle-left of screen */}
                         <div className="absolute z-[601] px-3" style={{ top: '50%', transform: 'translateY(-50%)' }}>
                             <button
