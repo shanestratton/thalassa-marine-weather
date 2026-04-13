@@ -2,6 +2,7 @@ import { CapacitorHttp } from '@capacitor/core';
 import { createLogger } from '../../../utils/createLogger';
 import { getWorldTidesKey } from '../keys';
 import { WorldTidesResponse } from '../../../types';
+import { piCache } from '../../PiCacheService';
 const log = createLogger('Tides');
 
 /**
@@ -184,6 +185,20 @@ export const fetchWorldTides = async (
     lon: number,
     days: number = 14,
 ): Promise<WorldTidesResponse | null> => {
+    // 0. Try Pi Cache first (instant from local SQLite)
+    if (piCache.isAvailable()) {
+        try {
+            const result = await piCache.fetch<WorldTidesResponse>(
+                '/api/tides/predictions',
+                { lat, lon, days },
+                async () => null as unknown as WorldTidesResponse,
+            );
+            if (result.source !== 'direct' && result.data) return result.data;
+        } catch {
+            // Pi failed — fall through
+        }
+    }
+
     // 1. Try Supabase Edge proxy first (key stays server-side)
     const proxyResult = await fetchViaProxy(lat, lon, days);
     if (proxyResult) return proxyResult;

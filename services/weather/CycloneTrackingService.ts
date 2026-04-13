@@ -16,6 +16,7 @@
 // ── Types ──────────────────────────────────────────────────
 
 import { createLogger } from '../../utils/createLogger';
+import { piCache } from '../PiCacheService';
 import type { WindGrid } from './windField';
 
 const log = createLogger('CycloneTrackingService');
@@ -154,7 +155,9 @@ function parseIBTrACStracks(csv: string): Map<string, CyclonePosition[]> {
 
 async function fetchATCF(): Promise<ATCFStorm[]> {
     log.info('[CYCLONE] Fetching real-time ATCF data...');
-    const response = await fetch(ATCF_URL);
+    // Route through Pi Cache if available (passthrough caches the response)
+    const piUrl = piCache.passthroughUrl(ATCF_URL, 10 * 60 * 1000, 'knackwx-atcf');
+    const response = await fetch(piUrl || ATCF_URL);
     if (!response.ok) {
         log.error(`[CYCLONE] ATCF fetch failed: HTTP ${response.status}`);
         return [];

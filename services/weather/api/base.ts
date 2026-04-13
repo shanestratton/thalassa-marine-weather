@@ -1,4 +1,5 @@
 import { CapacitorHttp } from '@capacitor/core';
+import { piCache } from '../../PiCacheService';
 
 // ── StormGlass API Client ─────────────────────────────────────
 // Routes ALL requests through the Supabase Edge Function proxy
@@ -28,6 +29,22 @@ export const fetchSG = async <T>(
     const stringParams: Record<string, string> = {};
     for (const [k, v] of Object.entries(params)) {
         stringParams[k] = String(v);
+    }
+
+    // ── Pi Cache shortcut: route through local Pi if available ──
+    if (piCache.isAvailable()) {
+        try {
+            const result = await piCache.fetch<T>(
+                '/api/weather/stormglass',
+                { lat: stringParams.lat || '', lon: stringParams.lng || '' },
+                async () => {
+                    throw new Error('fallback'); // Force fallback below
+                },
+            );
+            if (result.source !== 'direct') return result.data;
+        } catch {
+            // Pi failed — fall through to normal Supabase path
+        }
     }
 
     const body = JSON.stringify({

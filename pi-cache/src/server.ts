@@ -67,6 +67,63 @@ app.post('/cache/purge', (_req, res) => {
     res.json({ purged: result });
 });
 
+// ── Generic Passthrough Proxy ──
+// The app sends any URL here and the Pi caches the response.
+// This is the magic one — zero config, works for every API.
+
+import { cachedJsonFetch, cachedTileFetch } from './proxy.js';
+
+app.get('/api/passthrough', async (req, res) => {
+    try {
+        const url = req.query.url as string;
+        const ttl = parseInt((req.query.ttl as string) || '900000', 10); // default 15min
+        const source = (req.query.source as string) || 'passthrough';
+
+        if (!url) return res.status(400).json({ error: 'url parameter required' });
+
+        // Use the full URL as the cache key (simple and unique)
+        const key = `passthrough:${url}`;
+
+        const result = await cachedJsonFetch(cache, {
+            cacheKey: key,
+            url,
+            ttlMs: ttl,
+            source,
+        });
+
+        res.set('X-Cache', result.fromCache ? (result.stale ? 'STALE' : 'HIT') : 'MISS');
+        res.json(result.data);
+    } catch (err) {
+        res.status(502).json({ error: 'Passthrough failed', message: (err as Error).message });
+    }
+});
+
+// Same but for binary tile data
+app.get('/api/passthrough-tile', async (req, res) => {
+    try {
+        const url = req.query.url as string;
+        const ttl = parseInt((req.query.ttl as string) || '1800000', 10); // default 30min
+        const contentType = (req.query.ct as string) || 'image/png';
+
+        if (!url) return res.status(400).json({ error: 'url parameter required' });
+
+        const key = `passthrough-tile:${url}`;
+
+        const result = await cachedTileFetch(cache, {
+            cacheKey: key,
+            url,
+            contentType,
+            ttlMs: ttl,
+        });
+
+        res.set('Content-Type', result.contentType);
+        res.set('X-Cache', result.fromCache ? (result.stale ? 'STALE' : 'HIT') : 'MISS');
+        res.send(result.data);
+    } catch (err) {
+        res.status(502).json({ error: 'Tile passthrough failed', message: (err as Error).message });
+    }
+});
+
 // ── API Routes ──
 
 const proxyConfig = { supabaseUrl: SUPABASE_URL, supabaseAnonKey: SUPABASE_ANON_KEY };

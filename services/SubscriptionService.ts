@@ -78,7 +78,8 @@ export type Feature =
     | 'communityShare' // Share own tracks
     | 'aiAdvice' // Captain's AI advice
     | 'anchorWatch' // Anchor watch alarm
-    | 'polars'; // Polar diagrams & smart polars
+    | 'polars' // Polar diagrams & smart polars
+    | 'piCache'; // Raspberry Pi local cache server
 
 /**
  * Minimum tier required for each feature.
@@ -105,6 +106,7 @@ const FEATURE_GATES: Record<Feature, SubscriptionTier> = {
     aiAdvice: 'crew',
     anchorWatch: 'crew',
     polars: 'owner',
+    piCache: 'owner',
 };
 
 // ── Tier Ranking ──────────────────────────────────────────────
