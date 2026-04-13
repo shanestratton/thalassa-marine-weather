@@ -26,15 +26,17 @@ const NEARSHORE_THRESHOLD_KM = 1.852; // < 1nm from shore
 const COASTAL_THRESHOLD_KM = 9.26; // < 5nm from shore
 
 // Adaptive logging intervals (zone-based — fallback when no speed data)
-export const NEARSHORE_INTERVAL_MS = 15 * 1000; // 15 seconds (< 1nm from shore / on land)
-export const COASTAL_INTERVAL_MS = 10 * 1000; // 10 seconds (1-5nm from shore)
-export const OFFSHORE_INTERVAL_MS = 30 * 1000; // 30 seconds (> 5nm offshore)
+export const NEARSHORE_INTERVAL_MS = 30 * 1000; // 30 seconds (< 1nm from shore / on land)
+export const COASTAL_INTERVAL_MS = 60 * 1000; // 60 seconds (1-5nm from shore)
+export const OFFSHORE_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes (> 5nm offshore)
 
 // Speed-adaptive logging intervals (primary — based on SOG)
-export const STATIONARY_INTERVAL_MS = 60 * 1000; // 60 seconds (< 1 kt)
-export const SLOW_INTERVAL_MS = 15 * 1000; // 15 seconds (1-6 kts)
-export const MEDIUM_INTERVAL_MS = 5 * 1000; // 5 seconds (6-60 kts)
-export const FAST_INTERVAL_MS = 15 * 1000; // 15 seconds (60+ kts)
+// Tuned for sailing yachts: captures enough detail for track replay
+// without filling storage on long passages.
+export const STATIONARY_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes (< 1 kt — anchored/moored)
+export const SLOW_INTERVAL_MS = 60 * 1000; // 60 seconds (1-6 kts — sailing)
+export const MEDIUM_INTERVAL_MS = 30 * 1000; // 30 seconds (6-20 kts — motoring/fast sail)
+export const FAST_INTERVAL_MS = 30 * 1000; // 30 seconds (20+ kts — planing/fast vessel)
 
 export type SpeedTier = 'stationary' | 'slow' | 'medium' | 'fast';
 
@@ -344,11 +346,11 @@ export function getIntervalForZone(zone: LoggingZone): number {
 export function getZoneLabel(zone: LoggingZone): string {
     switch (zone) {
         case 'nearshore':
-            return '< 1nm (15s intervals)';
+            return '< 1nm (30s intervals)';
         case 'coastal':
-            return '1-5nm (10s intervals)';
+            return '1-5nm (60s intervals)';
         case 'offshore':
-            return '> 5nm (30s intervals)';
+            return '> 5nm (2min intervals)';
     }
 }
 
@@ -362,11 +364,11 @@ const MS_TO_KNOTS = 1.94384;
  * This is the PRIMARY interval selection method — zone-based is the fallback
  * used only when no GPS speed is available yet (cold start).
  *
- * Speed tiers:
- *   < 1 kt  → 60s  (anchored / stationary — just confirm position)
- *   1–6 kts → 15s  (sailing, dinghy, walking — good coastal detail)
- *   6–60 kts → 5s  (motoring, driving — captures turns at speed, 5s flush preserves corners)
- *   60+ kts → 15s  (aircraft — 500kts covers ~2nm every 15s, RDP catches turns)
+ * Speed tiers (tuned for sailing yachts):
+ *   < 1 kt   → 5 min  (anchored / moored — just confirm position periodically)
+ *   1–6 kts  → 60s    (sailing / manoeuvring — good coastal detail)
+ *   6–20 kts → 30s    (motoring / fast sailing — captures turns & course changes)
+ *   20+ kts  → 30s    (fast vessel / planing — same rate, RDP catches turns)
  *
  * @param sogMs Speed over ground in m/s (from GPS hardware)
  * @returns Flush interval in milliseconds
@@ -376,7 +378,7 @@ export function getIntervalForSpeed(sogMs: number): { interval: number; tier: Sp
 
     if (sogKts < 1) return { interval: STATIONARY_INTERVAL_MS, tier: 'stationary' };
     if (sogKts < 6) return { interval: SLOW_INTERVAL_MS, tier: 'slow' };
-    if (sogKts < 60) return { interval: MEDIUM_INTERVAL_MS, tier: 'medium' };
+    if (sogKts < 20) return { interval: MEDIUM_INTERVAL_MS, tier: 'medium' };
     return { interval: FAST_INTERVAL_MS, tier: 'fast' };
 }
 
@@ -386,12 +388,12 @@ export function getIntervalForSpeed(sogMs: number): { interval: number; tier: Sp
 export function getSpeedTierLabel(tier: SpeedTier): string {
     switch (tier) {
         case 'stationary':
-            return 'Stationary (60s intervals)';
+            return 'Anchored (5min intervals)';
         case 'slow':
-            return 'Slow (15s intervals)';
+            return 'Sailing (60s intervals)';
         case 'medium':
-            return 'Cruising (5s intervals)';
+            return 'Cruising (30s intervals)';
         case 'fast':
-            return 'Fast (15s intervals)';
+            return 'Fast (30s intervals)';
     }
 }

@@ -82,12 +82,21 @@ import { isSatelliteMode } from './shiplog/EntrySave';
 const GPS_STALE_LIMIT_MS = 60_000; // 60 seconds
 
 // --- CONSTANTS ---
-const TRACKING_INTERVAL_MS = 30 * 1000; // 30 seconds (fallback / offshore default)
-const RAPID_INTERVAL_MS = 5 * 1000; // 5 seconds for marina/shore navigation (manual override)
+const TRACKING_INTERVAL_MS = 60 * 1000; // 60 seconds (fallback / offshore default)
+const RAPID_INTERVAL_MS = 10 * 1000; // 10 seconds for marina/shore navigation (manual override)
 const STATIONARY_THRESHOLD_NM = 0.05; // Less than 0.05nm movement = anchored
 
-const DEDUP_THRESHOLD_NM = 0.00054; // ~1 meter — discard auto entry if vessel hasn't moved
+const DEDUP_THRESHOLD_NM = 0.005; // ~10 meters — discard auto entry if vessel hasn't moved
 const VOYAGE_STALE_THRESHOLD_MS = 6 * 60 * 60 * 1000; // 6 hours — start new voyage instead of resuming
+
+// --- SPEED SANITY ---
+// Hard cap: 25 knots is generous for any sailing yacht (most top out at 8-12).
+// GPS spikes routinely report 20-30kn jumps; this catches them.
+const MAX_PLAUSIBLE_SPEED_KTS = 25;
+
+// Acceleration gate: reject if speed jumps more than this between consecutive fixes.
+// Even a fast cat going from 0 to hull speed takes tens of seconds, not one GPS fix.
+const MAX_ACCELERATION_KTS = 8; // Max knot increase per fix interval
 
 // --- STORAGE KEYS ---
 const TRACKING_STATE_KEY = 'ship_log_tracking_state';
@@ -118,6 +127,8 @@ interface StoredPosition {
     longitude: number;
     timestamp: string;
     cumulativeDistanceNM: number;
+    /** Last recorded speed — used for acceleration-based spike filtering */
+    speedKts?: number;
 }
 
 // Helper functions, DB mapping, weather snapshot, and zone detection
@@ -623,8 +634,11 @@ class ShipLogServiceClass {
             }
 
             // ACCURACY GATE: Drop fixes with >100m horizontal accuracy
+            // GPS SPEED GATE: Drop fixes where raw GPS speed exceeds yacht max.
+            // This catches hardware-level GPS glitches before they enter the buffer.
+            const gpsSpeedKts = (pos.speed ?? 0) * 1.94384; // m/s → kts
             if (this.trackingState.isTracking && !this.trackingState.isPaused) {
-                if (pos.accuracy <= 100) {
+                if (pos.accuracy <= 100 && gpsSpeedKts <= MAX_PLAUSIBLE_SPEED_KTS) {
                     this.trackBuffer.push(pos);
                 }
             }
@@ -1265,13 +1279,35 @@ class ShipLogServiceClass {
                 const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
                 speedKts = timeDiffHours > 0 ? distanceNM / timeDiffHours : 0;
 
-                // SPEED SANITY: Final safety net — clamp at 600 kn.
-                // Cold-start GPS teleports are handled by the 5-second warm-up filter
-                // in wireGpsSubscriptions, so this cap only catches truly absurd values.
-                // 600 kn covers all legitimate use cases (planes, fast vessels).
-                if (speedKts > 600) speedKts = 0;
-                // Ignore speed when previous position was the 0,0 placeholder from captureImmediateEntry
-                if (lastPos.latitude === 0 && lastPos.longitude === 0) speedKts = 0;
+                // SPEED SANITY: Multi-layer GPS spike filtering.
+                //
+                // Layer 1: Hard cap — 25kn is generous for any sailing yacht.
+                // GPS cold-start teleports and multi-path reflections routinely produce
+                // 20-30kn phantom speeds. Anything above the cap is zeroed.
+                //
+                // Layer 2: Acceleration gate — reject implausible speed jumps.
+                // Even under full sail, a yacht doesn't accelerate 8+ kts between
+                // consecutive fixes. This catches GPS "teleport" fixes that the
+                // warm-up filter missed (e.g., second stale fix at 2s mark).
+                //
+                // Layer 3: Ignore speed when previous position was the 0,0 placeholder
+                // from captureImmediateEntry (no real previous fix to compare against).
+                if (lastPos.latitude === 0 && lastPos.longitude === 0) {
+                    speedKts = 0;
+                } else if (speedKts > MAX_PLAUSIBLE_SPEED_KTS) {
+                    log.warn(`Speed spike rejected: ${speedKts.toFixed(1)}kn > ${MAX_PLAUSIBLE_SPEED_KTS}kn cap`);
+                    speedKts = 0;
+                    distanceNM = 0; // Don't add phantom distance either
+                } else if (lastPos.speedKts !== undefined && lastPos.speedKts >= 0) {
+                    const accel = speedKts - lastPos.speedKts;
+                    if (accel > MAX_ACCELERATION_KTS) {
+                        log.warn(
+                            `Acceleration spike rejected: +${accel.toFixed(1)}kn jump (${lastPos.speedKts.toFixed(1)} → ${speedKts.toFixed(1)})`,
+                        );
+                        speedKts = 0;
+                        distanceNM = 0;
+                    }
+                }
 
                 cumulativeDistanceNM = lastPos.cumulativeDistanceNM + distanceNM;
 
@@ -1361,6 +1397,7 @@ class ShipLogServiceClass {
                                     longitude,
                                     timestamp,
                                     cumulativeDistanceNM,
+                                    speedKts,
                                 });
 
                                 return fromDbFormat(data);
@@ -1390,6 +1427,7 @@ class ShipLogServiceClass {
                 longitude,
                 timestamp,
                 cumulativeDistanceNM,
+                speedKts,
             });
 
             // Track when this entry was created for background resume catch-up
