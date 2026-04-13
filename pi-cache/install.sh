@@ -2,164 +2,98 @@
 # ═══════════════════════════════════════════════════════════════
 # Thalassa Pi Cache — One-Command Install
 #
-# Run this on your Raspberry Pi:
-#   curl -sSL https://raw.githubusercontent.com/shanestratton/thalassa-marine-weather/master/pi-cache/install.sh | bash
+# Just run this on your Raspberry Pi. No questions. No config.
 #
-# Or if you've already cloned the repo:
-#   cd pi-cache && bash install.sh
+#   bash install.sh
 #
-# What this does:
-#   1. Installs Node.js 20 if needed
-#   2. Installs dependencies
-#   3. Asks for your Supabase credentials (optional)
-#   4. Asks for your cruising area (optional)
-#   5. Creates a systemd service so it starts on boot
-#   6. Starts the cache server
-#
-# That's it. Your phone will find it automatically.
+# The Thalassa app on your phone will do the rest.
 # ═══════════════════════════════════════════════════════════════
 
 set -e
 
-BOLD='\033[1m'
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
 YELLOW='\033[0;33m'
 RED='\033[0;31m'
-NC='\033[0m' # No color
+BOLD='\033[1m'
+NC='\033[0m'
 
 echo ""
-echo -e "${CYAN}${BOLD}  🌊  Thalassa Pi Cache Installer${NC}"
-echo -e "${CYAN}  ═══════════════════════════════════${NC}"
+echo -e "${CYAN}${BOLD}  🌊  Thalassa Pi Cache${NC}"
+echo -e "${CYAN}  ═════════════════════${NC}"
 echo ""
 
-# ── Check we're on a Pi (or at least Linux) ──
+# ── Check for Linux ──
 
 if [[ "$(uname)" != "Linux" ]]; then
-    echo -e "${YELLOW}⚠️  This script is designed for Raspberry Pi (Linux).${NC}"
-    echo -e "   Running on $(uname). Proceeding anyway...\n"
+    echo -e "${YELLOW}⚠️  This is meant for a Raspberry Pi.${NC}"
+    echo -e "   Running on $(uname) — proceeding anyway.\n"
 fi
 
-# ── Find our install directory ──
+# ── Find install directory ──
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" 2>/dev/null || echo ".")" && pwd)"
 if [[ -f "$SCRIPT_DIR/package.json" ]]; then
     INSTALL_DIR="$SCRIPT_DIR"
 else
     INSTALL_DIR="/opt/thalassa-pi-cache"
-    echo -e "${CYAN}Installing to ${INSTALL_DIR}${NC}"
-
-    # If running from curl | bash, clone or download
     if [[ ! -d "$INSTALL_DIR" ]]; then
         sudo mkdir -p "$INSTALL_DIR"
         sudo chown "$USER:$USER" "$INSTALL_DIR"
-
         if command -v git &>/dev/null; then
-            echo "Cloning pi-cache from GitHub..."
+            echo -e "  Downloading..."
             git clone --depth 1 --filter=blob:none --sparse \
-                https://github.com/shanestratton/thalassa-marine-weather.git /tmp/thalassa-clone
-            cd /tmp/thalassa-clone
-            git sparse-checkout set pi-cache
+                https://github.com/shanestratton/thalassa-marine-weather.git /tmp/thalassa-clone 2>/dev/null
+            cd /tmp/thalassa-clone && git sparse-checkout set pi-cache 2>/dev/null
             cp -r pi-cache/* "$INSTALL_DIR/"
             rm -rf /tmp/thalassa-clone
         else
-            echo -e "${RED}❌ git not found. Install git first: sudo apt install git${NC}"
+            echo -e "${RED}  Need git: sudo apt install git${NC}"
             exit 1
         fi
     fi
 fi
 
 cd "$INSTALL_DIR"
-echo -e "${GREEN}✓${NC} Working directory: $INSTALL_DIR\n"
 
-# ── Check / Install Node.js ──
+# ── Install Node.js if missing ──
 
 if ! command -v node &>/dev/null; then
-    echo -e "${CYAN}📦 Node.js not found. Installing Node.js 20...${NC}"
-    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-    sudo apt-get install -y nodejs
-    echo -e "${GREEN}✓${NC} Node.js $(node -v) installed\n"
-else
-    NODE_VERSION=$(node -v)
-    echo -e "${GREEN}✓${NC} Node.js $NODE_VERSION found"
-
-    # Check minimum version (need 18+)
-    MAJOR=$(echo "$NODE_VERSION" | sed 's/v//' | cut -d. -f1)
-    if (( MAJOR < 18 )); then
-        echo -e "${YELLOW}⚠️  Node.js 18+ recommended. You have $NODE_VERSION${NC}"
-    fi
-    echo ""
+    echo -e "  Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash - >/dev/null 2>&1
+    sudo apt-get install -y nodejs >/dev/null 2>&1
 fi
+echo -e "  ${GREEN}✓${NC} Node.js $(node -v)"
 
-# ── Install npm dependencies ──
+# ── Install & build ──
 
-echo -e "${CYAN}📦 Installing dependencies...${NC}"
-npm install --production 2>&1 | tail -3
-echo -e "${GREEN}✓${NC} Dependencies installed\n"
+echo -e "  Installing dependencies..."
+npm install --production >/dev/null 2>&1
+echo -e "  ${GREEN}✓${NC} Dependencies installed"
 
-# ── Build TypeScript ──
+echo -e "  Building..."
+npm run build >/dev/null 2>&1
+echo -e "  ${GREEN}✓${NC} Built"
 
-echo -e "${CYAN}🔨 Building...${NC}"
-npm run build 2>&1 | tail -3
-echo -e "${GREEN}✓${NC} Built successfully\n"
-
-# ── Create .env if it doesn't exist ──
+# ── Create minimal .env (no secrets — the app pushes config later) ──
 
 if [[ ! -f ".env" ]]; then
-    echo -e "${CYAN}${BOLD}⚙️  Quick Setup${NC}"
-    echo -e "   (Press Enter to skip any question)\n"
-
-    # Supabase
-    echo -e "${BOLD}Your Supabase project URL:${NC}"
-    echo -e "   (Find this at supabase.com → your project → Settings → API)"
-    read -r -p "   URL: " SUPA_URL
-    echo ""
-
-    echo -e "${BOLD}Your Supabase anon key:${NC}"
-    read -r -p "   Key: " SUPA_KEY
-    echo ""
-
-    # Pre-fetch location
-    echo -e "${BOLD}Where do you normally sail?${NC}"
-    echo -e "   Enter latitude and longitude for pre-fetch"
-    echo -e "   (e.g., Auckland: -36.84, 174.76)"
-    read -r -p "   Latitude:  " PF_LAT
-    read -r -p "   Longitude: " PF_LON
-    echo ""
-
-    # Defaults
-    SUPA_URL="${SUPA_URL:-https://YOUR_PROJECT.supabase.co}"
-    SUPA_KEY="${SUPA_KEY:-your-anon-key-here}"
-    PF_LAT="${PF_LAT:--36.84}"
-    PF_LON="${PF_LON:-174.76}"
-
-    cat > .env <<ENVEOF
-# Thalassa Pi Cache — generated by install.sh
+    cat > .env <<'ENVEOF'
+# Thalassa Pi Cache — auto-generated
+# The Thalassa app on your phone will configure this.
+# You don't need to edit anything here.
 PORT=3001
-SUPABASE_URL=$SUPA_URL
-SUPABASE_ANON_KEY=$SUPA_KEY
 CACHE_DIR=./cache
-PREFETCH_INTERVAL=15
-PREFETCH_LAT=$PF_LAT
-PREFETCH_LON=$PF_LON
-PREFETCH_RADIUS=5
 ENVEOF
-
-    echo -e "${GREEN}✓${NC} Created .env\n"
-else
-    echo -e "${GREEN}✓${NC} .env already exists (keeping your config)\n"
 fi
 
 # ── Create systemd service ──
-
-echo -e "${CYAN}🔧 Setting up systemd service...${NC}"
 
 SERVICE_FILE="/etc/systemd/system/thalassa-cache.service"
 
 sudo tee "$SERVICE_FILE" > /dev/null <<SVCEOF
 [Unit]
-Description=Thalassa Pi Cache — Local weather/tide/GRIB proxy
-Documentation=https://github.com/shanestratton/thalassa-marine-weather
+Description=Thalassa Pi Cache
 After=network.target
 Wants=network-online.target
 
@@ -171,12 +105,8 @@ ExecStart=/usr/bin/node dist/server.js
 Restart=always
 RestartSec=10
 Environment=NODE_ENV=production
-
-# Performance — let it use decent resources
 Nice=-5
 LimitNOFILE=65535
-
-# Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=thalassa-cache
@@ -185,47 +115,27 @@ SyslogIdentifier=thalassa-cache
 WantedBy=multi-user.target
 SVCEOF
 
-sudo systemctl daemon-reload
-sudo systemctl enable thalassa-cache
-echo -e "${GREEN}✓${NC} systemd service created and enabled\n"
+sudo systemctl daemon-reload >/dev/null 2>&1
+sudo systemctl enable thalassa-cache >/dev/null 2>&1
+sudo systemctl start thalassa-cache >/dev/null 2>&1
 
-# ── Start the service ──
-
-echo -e "${CYAN}🚀 Starting Thalassa Pi Cache...${NC}"
-sudo systemctl start thalassa-cache
 sleep 2
 
-if sudo systemctl is-active --quiet thalassa-cache; then
-    echo -e "${GREEN}✓${NC} Service is running!\n"
-else
-    echo -e "${RED}❌ Service failed to start. Check logs:${NC}"
-    echo -e "   sudo journalctl -u thalassa-cache -f\n"
-    exit 1
-fi
-
-# ── Get the Pi's IP address ──
+# ── Done ──
 
 PI_IP=$(hostname -I | awk '{print $1}')
-PI_HOSTNAME=$(hostname)
 
-echo ""
-echo -e "${GREEN}${BOLD}  ═══════════════════════════════════════════════${NC}"
-echo -e "${GREEN}${BOLD}  🌊  Thalassa Pi Cache is ready!${NC}"
-echo -e "${GREEN}${BOLD}  ═══════════════════════════════════════════════${NC}"
-echo ""
-echo -e "  Your Pi Cache is running at:"
-echo -e "    ${CYAN}${BOLD}http://${PI_IP}:3001${NC}"
-echo -e "    ${CYAN}http://${PI_HOSTNAME}.local:3001${NC}"
-echo ""
-echo -e "  ${BOLD}On your phone:${NC}"
-echo -e "    Open Thalassa → Settings → Pi Cache"
-echo -e "    It should find the Pi automatically!"
-echo ""
-echo -e "  ${BOLD}Useful commands:${NC}"
-echo -e "    Check status:  ${CYAN}sudo systemctl status thalassa-cache${NC}"
-echo -e "    View logs:     ${CYAN}sudo journalctl -u thalassa-cache -f${NC}"
-echo -e "    Restart:       ${CYAN}sudo systemctl restart thalassa-cache${NC}"
-echo -e "    Stop:          ${CYAN}sudo systemctl stop thalassa-cache${NC}"
-echo ""
-echo -e "  Fair winds! 🚢"
-echo ""
+if sudo systemctl is-active --quiet thalassa-cache; then
+    echo ""
+    echo -e "${GREEN}${BOLD}  ✓ Done!${NC}"
+    echo ""
+    echo -e "  Now open Thalassa on your phone"
+    echo -e "  Go to ${BOLD}Settings → Pi Cache${NC}"
+    echo -e "  Flip the toggle — it'll find this Pi automatically."
+    echo ""
+    echo -e "  ${CYAN}http://${PI_IP}:3001${NC}"
+    echo ""
+else
+    echo -e "\n${RED}  Something went wrong. Run: sudo journalctl -u thalassa-cache -f${NC}\n"
+    exit 1
+fi

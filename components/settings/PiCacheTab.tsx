@@ -15,6 +15,9 @@ import { LockIcon } from '../Icons';
 import { piCache, type PiCacheStatus } from '../../services/PiCacheService';
 import { canAccess } from '../../services/SubscriptionService';
 
+const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+
 export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const [status, setStatus] = useState<PiCacheStatus | null>(null);
     const [discovering, setDiscovering] = useState(false);
@@ -50,9 +53,15 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                 try {
                     const result = await piCache.discover();
                     setStatus(result);
-                    // If discovered, save the host so it persists
                     if (result.reachable && result.discoveredVia) {
                         onSave({ piCacheEnabled: true, piCacheHost: result.discoveredVia });
+                        // Auto-push Supabase creds so the Pi can pre-fetch
+                        if (SUPABASE_URL && SUPABASE_KEY) {
+                            piCache.pushConfig({
+                                supabaseUrl: SUPABASE_URL,
+                                supabaseAnonKey: SUPABASE_KEY,
+                            });
+                        }
                     }
                 } finally {
                     setDiscovering(false);
@@ -69,6 +78,12 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
             setStatus(result);
             if (result.reachable && result.discoveredVia) {
                 onSave({ piCacheHost: result.discoveredVia });
+                if (SUPABASE_URL && SUPABASE_KEY) {
+                    piCache.pushConfig({
+                        supabaseUrl: SUPABASE_URL,
+                        supabaseAnonKey: SUPABASE_KEY,
+                    });
+                }
             }
         } finally {
             setDiscovering(false);
@@ -275,15 +290,23 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
             {/* Setup instructions — only when off */}
             {!isEnabled && (
                 <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 mt-2">
-                    <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider mb-3">Getting Started</h4>
+                    <h4 className="text-xs font-bold text-gray-300 uppercase tracking-wider mb-3">How It Works</h4>
                     <div className="text-xs text-gray-400 space-y-3 leading-relaxed">
-                        <p>On your Raspberry Pi, run:</p>
-                        <div className="p-3 rounded-xl bg-black/40 border border-white/10 font-mono text-sky-400/80 text-[11px] select-all">
-                            curl -sSL
-                            https://raw.githubusercontent.com/shanestratton/thalassa-marine-weather/master/pi-cache/install.sh
-                            | bash
+                        <div className="flex gap-3 items-start">
+                            <span className="text-emerald-400 font-bold text-sm shrink-0">1</span>
+                            <p>Get the Thalassa Cache running on your Raspberry Pi (one-time setup)</p>
                         </div>
-                        <p>Then flip the toggle above. We&apos;ll find your Pi automatically.</p>
+                        <div className="flex gap-3 items-start">
+                            <span className="text-emerald-400 font-bold text-sm shrink-0">2</span>
+                            <p>Connect your phone to the same WiFi as the Pi</p>
+                        </div>
+                        <div className="flex gap-3 items-start">
+                            <span className="text-emerald-400 font-bold text-sm shrink-0">3</span>
+                            <p>Flip the toggle above — we find it and set it up automatically</p>
+                        </div>
+                        <p className="text-gray-500 text-[11px] pt-1">
+                            All weather, tides, and charts load from the Pi instantly. No internet needed once cached.
+                        </p>
                     </div>
                 </div>
             )}
