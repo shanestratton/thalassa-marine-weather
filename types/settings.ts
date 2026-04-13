@@ -68,4 +68,14 @@ export interface UserSettings {
     polarData?: PolarData;
     polarBoatModel?: string;
     polarSource_type?: 'database' | 'file_import' | 'manual';
+
+    // ── Pi Cache ──
+    /** Enable routing data requests through a local Raspberry Pi cache server */
+    piCacheEnabled?: boolean;
+    /** Pi Cache server hostname or IP (e.g., 'raspberrypi.local' or '192.168.1.50') */
+    piCacheHost?: string;
+    /** Pi Cache server port (default: 3001) */
+    piCachePort?: number;
+    /** Pre-fetch weather data on the Pi (requires internet connection on the Pi) */
+    piCachePrefetch?: boolean;
 }

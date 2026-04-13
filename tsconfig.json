@@ -22,5 +22,5 @@
         "noEmit": true
     },
     "include": ["./**/*"],
-    "exclude": ["supabase/**/*"]
+    "exclude": ["supabase/**/*", "pi-cache/**/*"]
 }
