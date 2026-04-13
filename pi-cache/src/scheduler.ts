@@ -71,11 +71,12 @@ async function runPrefetch(cache: Cache, proxyConfig: ProxyConfig, pf: PrefetchC
     console.log(`\n🔄 Pre-fetch starting for ${pf.lat}, ${pf.lon} (r=${pf.radius}°)...`);
 
     // Run fetches in parallel batches to avoid hammering the network
-    // Batch 1: Core weather + tides
+    // Batch 1: Core weather + tides + rain radar
     await Promise.allSettled([
         track('weather-current', () => prefetchWeather(cache, proxyConfig, pf, 'current')),
         track('weather-forecast', () => prefetchWeather(cache, proxyConfig, pf, 'forecast')),
         track('tides', () => prefetchTides(cache, proxyConfig, pf)),
+        track('rain-radar', () => prefetchRainRadar(cache, pf)),
     ]);
 
     // Batch 2: Satellite + GRIB (wind + waves + pressure) + synoptic
@@ -192,6 +193,66 @@ async function prefetchGrib(
 
     const url = `https://api.open-meteo.com/v1/forecast?${params}`;
     await cachedJsonFetch(cache, { cacheKey: key, url, ttlMs: TTL.GRIB, source: 'open-meteo-grib' });
+}
+
+/**
+ * Pre-fetch RainViewer radar tiles for the boat's area.
+ *
+ * 1. Fetch the RainViewer weather-maps API (frame index, ~1KB)
+ * 2. For each recent radar frame, download tiles at z=5 covering the boat
+ *
+ * Only caches the 3 most recent past frames + nowcast (not the full history)
+ * to keep storage bounded. Tiles update every 10 minutes.
+ */
+async function prefetchRainRadar(cache: Cache, pf: PrefetchConfig): Promise<void> {
+    // 1. Cache the weather-maps API response (app fetches this to get frame paths)
+    const apiKey = 'rainviewer:weather-maps';
+    const apiUrl = 'https://api.rainviewer.com/public/weather-maps.json';
+
+    const result = await cachedJsonFetch(cache, {
+        cacheKey: apiKey,
+        url: apiUrl,
+        ttlMs: TTL.WEATHER_CURRENT, // 15 min — radar updates frequently
+        source: 'rainviewer',
+    });
+
+    // 2. Download radar tiles for the boat's area (zoom 5 = synoptic overview)
+    const radar = result?.data as { radar?: { past?: { path: string }[]; nowcast?: { path: string }[] } } | null;
+    const past = radar?.radar?.past ?? [];
+    const nowcast = radar?.radar?.nowcast ?? [];
+
+    // Only cache recent frames (last 3 past + all nowcast) — not the full 2-hour history
+    const recentPast = past.slice(-3);
+    const frames = [...recentPast, ...nowcast];
+
+    if (frames.length === 0) return;
+
+    const z = 5;
+    const { minTileX, maxTileX, minTileY, maxTileY } = latLonToTileRange(pf.lat, pf.lon, pf.radius, z);
+
+    let tileCount = 0;
+    for (const frame of frames) {
+        for (let x = minTileX; x <= maxTileX; x++) {
+            for (let y = minTileY; y <= maxTileY; y++) {
+                const key = `tile:rainviewer:${z}/${x}/${y}:${frame.path}`;
+                if (cache.hasFreshTile(key)) continue;
+
+                const url = `https://tilecache.rainviewer.com${frame.path}/256/${z}/${y}/${x}/4/1_1.png`;
+                try {
+                    await cachedTileFetch(cache, {
+                        cacheKey: key,
+                        url,
+                        contentType: 'image/png',
+                        ttlMs: TTL.WEATHER_CURRENT,
+                    });
+                    tileCount++;
+                } catch {
+                    // Individual tile failures are fine — just skip
+                }
+            }
+        }
+    }
+    if (tileCount > 0) console.log(`   🌧️ Cached ${tileCount} rain radar tiles`);
 }
 
 async function prefetchSynoptic(cache: Cache, config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
