@@ -367,6 +367,42 @@ class PiCacheServiceImpl {
         await this.checkHealth();
         return this.getStatus();
     }
+
+    // ── App → Pi Configuration Push ──
+
+    /**
+     * Push Supabase credentials and pre-fetch location to the Pi.
+     * Called once after discovery so the Pi can run pre-fetch jobs.
+     * The skipper never sees or types these — the app sends them automatically.
+     */
+    async pushConfig(config: {
+        supabaseUrl: string;
+        supabaseAnonKey: string;
+        prefetchLat?: number;
+        prefetchLon?: number;
+        prefetchRadius?: number;
+    }): Promise<boolean> {
+        if (!this.isAvailable()) return false;
+
+        try {
+            try {
+                await CapacitorHttp.post({
+                    url: `${this.baseUrl}/api/configure`,
+                    headers: { 'Content-Type': 'application/json' },
+                    data: JSON.stringify(config),
+                });
+            } catch {
+                await fetch(`${this.baseUrl}/api/configure`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config),
+                });
+            }
+            return true;
+        } catch {
+            return false;
+        }
+    }
 }
 
 /** Singleton — import this everywhere. */
