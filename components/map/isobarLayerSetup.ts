@@ -17,6 +17,8 @@ export const ISOBAR_LAYER_IDS = [
     'isobar-lines',
     'isobar-labels',
     'isobar-center-labels',
+    'wind-barb-layer',
+    'circulation-arrow-layer',
     'movement-track-lines',
     'movement-track-labels',
     'pressure-heatmap-layer',
