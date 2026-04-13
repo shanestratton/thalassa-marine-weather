@@ -10,7 +10,7 @@
  * When 0 active: hidden
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ShipLogService } from '../services/ShipLogService';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
@@ -20,6 +20,8 @@ import { NmeaStore } from '../services/NmeaStore';
 import { GpsPrecision } from '../services/shiplog/GpsPrecisionTracker';
 import { useFollowRoute } from '../context/FollowRouteContext';
 import { GpsService } from '../services/GpsService';
+import { piCache, type PiCacheStatus } from '../services/PiCacheService';
+import { toast } from './Toast';
 
 // ── Types ──
 
@@ -54,6 +56,17 @@ interface SystemState {
         destination: string;
         routeChanged: boolean;
         isRefreshing: boolean;
+    };
+    piCache: {
+        active: boolean;
+        reachable: boolean;
+        host: string;
+        latencyMs: number;
+        cacheStats?: {
+            kvEntries: number;
+            tileEntries: number;
+            dbSizeMB: number;
+        };
     };
 }
 
@@ -90,6 +103,7 @@ const SystemStatusModal: React.FC<{
         state.nmea.active,
         state.extGps.active,
         state.followRoute.active,
+        state.piCache.active,
     ].filter(Boolean).length;
 
     return createPortal(
@@ -288,6 +302,34 @@ const SystemStatusModal: React.FC<{
                                 : undefined
                         }
                     />
+
+                    {/* ── Pi Cache (Offline Data) ── */}
+                    <SystemRow
+                        icon={
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0h.375a2.625 2.625 0 010 5.25H3.375a2.625 2.625 0 010-5.25H3.75"
+                                />
+                            </svg>
+                        }
+                        label="Pi Cache"
+                        active={state.piCache.active}
+                        detail={
+                            state.piCache.active
+                                ? `${state.piCache.host} · ${state.piCache.latencyMs}ms${state.piCache.cacheStats ? ` · ${state.piCache.cacheStats.kvEntries} weather + ${state.piCache.cacheStats.tileEntries} tiles cached` : ''}`
+                                : 'Not connected'
+                        }
+                        dotColor={state.piCache.active ? 'bg-emerald-400' : 'bg-slate-600'}
+                        pulse={state.piCache.active}
+                    />
                 </div>
             </div>
         </div>,
@@ -393,6 +435,36 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
         refreshRoute,
     } = useFollowRoute();
 
+    // ── Pi Cache state ──
+    const [piStatus, setPiStatus] = useState<PiCacheStatus | null>(null);
+    const piWasReachableRef = useRef(false);
+
+    useEffect(() => {
+        // Subscribe to Pi Cache status changes (connect/disconnect events)
+        const unsub = piCache.onStatusChange((status) => {
+            setPiStatus(status);
+
+            // Toast on connect/disconnect transitions
+            if (status.reachable && !piWasReachableRef.current) {
+                toast.success(
+                    `Pi Cache connected — ${status.discoveredVia || 'local'}${status.latencyMs ? ` · ${status.latencyMs}ms` : ''}`,
+                );
+            } else if (!status.reachable && piWasReachableRef.current) {
+                toast.info('Pi Cache disconnected — using internet');
+            }
+            piWasReachableRef.current = status.reachable;
+        });
+
+        // Seed initial state
+        const initial = piCache.getStatus();
+        if (initial.reachable) {
+            setPiStatus(initial);
+            piWasReachableRef.current = true;
+        }
+
+        return unsub;
+    }, []);
+
     // ── Passive GPS accuracy feed ──
     useEffect(() => {
         const unsub = GpsService.watchPosition((pos) => {
@@ -489,6 +561,19 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
                 routeChanged: routeChanged || false,
                 isRefreshing: routeRefreshing || false,
             },
+            piCache: {
+                active: !!piStatus?.reachable,
+                reachable: !!piStatus?.reachable,
+                host: piStatus?.discoveredVia || '',
+                latencyMs: piStatus?.latencyMs || 0,
+                cacheStats: piStatus?.cacheStats
+                    ? {
+                          kvEntries: piStatus.cacheStats.kvEntries,
+                          tileEntries: piStatus.cacheStats.tileEntries,
+                          dbSizeMB: piStatus.cacheStats.dbSizeMB,
+                      }
+                    : undefined,
+            },
         }),
         [
             gpsTracking,
@@ -506,6 +591,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
             voyagePlan,
             routeChanged,
             routeRefreshing,
+            piStatus,
         ],
     );
 
@@ -516,6 +602,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
         systemState.nmea.active,
         systemState.extGps.active,
         systemState.followRoute.active,
+        systemState.piCache.active,
     ].filter(Boolean).length;
 
     // Don't show if nothing is active
