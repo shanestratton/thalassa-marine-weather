@@ -16,11 +16,12 @@ import { SHIP_LOGS_TABLE } from './helpers';
 const log = createLogger('OfflineQueue');
 
 const OFFLINE_QUEUE_KEY = 'ship_log_offline_queue';
-const MAX_OFFLINE_QUEUE = 500;
+const MAX_OFFLINE_QUEUE = 50_000;
 
 /**
  * Queue entry for offline sync.
- * Caps queue at MAX_OFFLINE_QUEUE entries to prevent unbounded storage growth.
+ * Caps queue at 50,000 entries — enough for weeks of offshore tracking
+ * at 30-60s intervals without hitting the limit.
  */
 export async function queueOfflineEntry(entry: Partial<ShipLogEntry>): Promise<void> {
     try {
