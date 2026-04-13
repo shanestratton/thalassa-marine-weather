@@ -8,6 +8,7 @@
  * Default port: 3001
  */
 
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import { Cache } from './cache.js';
