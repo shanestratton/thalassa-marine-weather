@@ -14,7 +14,7 @@
  *   6. Enable Pi Cache in app settings
  */
 
-import { Capacitor, registerPlugin } from '@capacitor/core';
+import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
 import { piCache } from './PiCacheService';
 
@@ -228,7 +228,7 @@ class PiProvisionServiceClass {
                 // ── Phase 3: Install ──
                 onProgress({
                     phase: 'installing',
-                    message: 'Installing Thalassa Cache — sit tight, about 60 seconds...',
+                    message: 'Installing Thalassa Cache — this takes 3-5 min on a Pi, hang tight...',
                 });
                 log.info('Running install script...');
 
@@ -264,23 +264,38 @@ class PiProvisionServiceClass {
             const cacheUrl = `http://${host}:${PI_CACHE_PORT}/health`;
             let healthy = false;
 
-            // Retry a few times — the service might need a moment to start
-            for (let attempt = 0; attempt < 6; attempt++) {
+            // Retry a few times — the service might need a moment to start.
+            // Use CapacitorHttp on native for reliable timeout enforcement
+            // (bare fetch + AbortSignal.timeout can hang on iOS WKWebView).
+            const isNative = Capacitor.isNativePlatform();
+            for (let attempt = 0; attempt < 8; attempt++) {
                 try {
-                    const resp = await fetch(cacheUrl, {
-                        signal: AbortSignal.timeout(5000),
-                    });
-                    if (resp.ok) {
-                        healthy = true;
-                        break;
+                    if (isNative) {
+                        const resp = await CapacitorHttp.get({
+                            url: cacheUrl,
+                            connectTimeout: 3000,
+                            readTimeout: 3000,
+                        });
+                        if (resp.status === 200) {
+                            healthy = true;
+                            break;
+                        }
+                    } else {
+                        const resp = await fetch(cacheUrl, {
+                            signal: AbortSignal.timeout(3000),
+                        });
+                        if (resp.ok) {
+                            healthy = true;
+                            break;
+                        }
                     }
                 } catch {
                     // Not ready yet — wait and retry
                 }
-                await new Promise((r) => setTimeout(r, 3000));
+                await new Promise((r) => setTimeout(r, 2000));
                 onProgress({
                     phase: 'verifying',
-                    message: `Waiting for service to start (attempt ${attempt + 2}/6)...`,
+                    message: `Waiting for service to start (attempt ${attempt + 2}/8)...`,
                 });
             }
 
