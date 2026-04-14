@@ -1,6 +1,7 @@
 const CACHE_NAME = 'thalassa-v2-core';
 const TILE_CACHE = 'thalassa-v2-tiles';
 const DATA_CACHE = 'thalassa-v2-data';
+const LAN_TILE_CACHE = 'thalassa-v2-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
 
@@ -14,7 +15,7 @@ self.addEventListener('activate', (event) => {
         caches.keys().then((keys) =>
             Promise.all(
                 keys.map((key) => {
-                    if (![CACHE_NAME, TILE_CACHE, DATA_CACHE].includes(key)) {
+                    if (![CACHE_NAME, TILE_CACHE, DATA_CACHE, LAN_TILE_CACHE].includes(key)) {
                         return caches.delete(key);
                     }
                 }),
@@ -32,6 +33,55 @@ self.addEventListener('fetch', (event) => {
     // Without this, the stale SW cache serves old module files, blocking hot reload.
     if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
         return; // Don't call event.respondWith — browser fetches normally
+    }
+
+    // 0. LAN CHART TILES — Cache-first for AvNav/Pi chart tiles over local network.
+    // These are o-charts, NOAA MBTiles, etc. served by AvNav on the Pi.
+    // Cache-first gives instant rendering; stale-while-revalidate keeps tiles fresh.
+    // Matches: 192.168.x.x, 10.x.x.x, 172.16-31.x.x, *.local hostnames.
+    const isLanTile =
+        (url.hostname.match(/^(192\.168\.|10\.|172\.(1[6-9]|2\d|3[01])\.)/) ||
+            url.hostname.endsWith('.local') ||
+            url.hostname === 'openplotter.local') &&
+        url.pathname.match(/\/\d+\/\d+\/\d+/); // Tile URL pattern: /{z}/{x}/{y}
+
+    if (isLanTile) {
+        event.respondWith(
+            caches.open(LAN_TILE_CACHE).then((cache) => {
+                return cache.match(event.request).then((cachedResponse) => {
+                    // Stale-while-revalidate: return cache immediately, refresh in background
+                    const fetchPromise = fetch(event.request)
+                        .then((networkResponse) => {
+                            if (networkResponse.ok) {
+                                cache.put(event.request, networkResponse.clone());
+                            }
+                            return networkResponse;
+                        })
+                        .catch(() => cachedResponse || new Response('', { status: 404 }));
+
+                    // If cached, return instantly (huge speed win for chart panning)
+                    if (cachedResponse) {
+                        return cachedResponse;
+                    }
+                    // No cache — wait for network
+                    return fetchPromise;
+                });
+            }),
+        );
+        // Prune LAN tile cache every ~100 requests (max 2000 tiles ≈ 50–100 MB)
+        if (Math.random() < 0.01) {
+            caches.open(LAN_TILE_CACHE).then((cache) => {
+                cache.keys().then((keys) => {
+                    if (keys.length > 2000) {
+                        const excess = keys.length - 2000;
+                        for (let i = 0; i < excess; i++) {
+                            cache.delete(keys[i]);
+                        }
+                    }
+                });
+            });
+        }
+        return;
     }
 
     // 1. CHART TILES - CACHE FIRST (The Offline "Holy Grail")

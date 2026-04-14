@@ -41,8 +41,8 @@ export interface OpenChart {
 
 type Listener = () => void;
 
-// ── Transparent 1x1 PNG (returned for missing tiles) ──
-const EMPTY_TILE = new Uint8Array([
+// ── Transparent 1x1 PNG (reserved for missing tile fallback) ──
+const _EMPTY_TILE = new Uint8Array([
     0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00,
     0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0a, 0x49,
     0x44, 0x41, 0x54, 0x78, 0x9c, 0x62, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xe5, 0x27, 0xde, 0xfc, 0x00, 0x00, 0x00,
@@ -60,7 +60,12 @@ class MBTilesServiceImpl {
 
     // Blob URL pool — revoke old ones to prevent memory leaks
     private blobUrls: string[] = [];
-    private readonly MAX_BLOB_URLS = 500;
+    private readonly MAX_BLOB_URLS = 1000;
+
+    // Tile data cache — LRU cache of recently accessed tiles to avoid
+    // repeated SQLite queries for the same tile during panning/zooming
+    private tileCache = new Map<string, Uint8Array | null>();
+    private readonly MAX_TILE_CACHE = 500;
 
     // ── Initialisation ──
 
@@ -140,6 +145,10 @@ class MBTilesServiceImpl {
             db.close();
             this.databases.delete(fileName);
             this.chartInfo.delete(fileName);
+            // Evict tile cache entries for this chart
+            for (const key of this.tileCache.keys()) {
+                if (key.startsWith(`${fileName}/`)) this.tileCache.delete(key);
+            }
             log.info(`Closed: ${fileName}`);
             this.notify();
         }
@@ -153,6 +162,7 @@ class MBTilesServiceImpl {
         }
         this.databases.clear();
         this.chartInfo.clear();
+        this.tileCache.clear();
         this.notify();
     }
 
@@ -170,6 +180,13 @@ class MBTilesServiceImpl {
         const db = this.databases.get(fileName);
         if (!db) return null;
 
+        // LRU tile cache — avoids re-querying SQLite for tiles Mapbox re-requests
+        // during pan/zoom animations (same tile gets requested multiple times)
+        const cacheKey = `${fileName}/${z}/${x}/${y}`;
+        if (this.tileCache.has(cacheKey)) {
+            return this.tileCache.get(cacheKey)!;
+        }
+
         // MBTiles uses TMS tiling scheme — y-axis is flipped vs XYZ (Slippy Map)
         const tmsY = (1 << z) - 1 - y;
 
@@ -179,14 +196,22 @@ class MBTilesServiceImpl {
             );
             stmt.bind([z, x, tmsY]);
 
+            let result: Uint8Array | null = null;
             if (stmt.step()) {
                 const row = stmt.get();
-                stmt.free();
-                return row[0] as Uint8Array;
+                result = row[0] as Uint8Array;
+            }
+            stmt.free();
+
+            // Cache the result (including null for missing tiles — avoids repeated lookups)
+            this.tileCache.set(cacheKey, result);
+            if (this.tileCache.size > this.MAX_TILE_CACHE) {
+                // Evict oldest entry (Map preserves insertion order)
+                const firstKey = this.tileCache.keys().next().value;
+                if (firstKey) this.tileCache.delete(firstKey);
             }
 
-            stmt.free();
-            return null;
+            return result;
         } catch {
             return null;
         }
