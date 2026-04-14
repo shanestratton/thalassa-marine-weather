@@ -12,6 +12,7 @@ import { PiProvisionService, DEFAULT_USERNAME, type ProvisionProgress } from '..
 import { NmeaListenerService } from '../../services/NmeaListenerService';
 import { NmeaStore } from '../../services/NmeaStore';
 import { piCache } from '../../services/PiCacheService';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { LocationStore } from '../../stores/LocationStore';
 import {
     ChartLockerService,
@@ -51,10 +52,20 @@ const PHASE_DISPLAY: Record<string, { icon: string; color: string }> = {
 const SERVICE_BADGES: Record<string, { label: string; color: string }> = {
     signalk: { label: 'Signal K :3000', color: 'bg-sky-500/15 border-sky-500/30 text-sky-400' },
     'signalk-nmea': { label: 'NMEA TCP :10110', color: 'bg-purple-500/15 border-purple-500/30 text-purple-400' },
-    avnav: { label: 'AvNav Charts :8080', color: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400' },
-    'avnav-alt': { label: 'AvNav Charts :8082', color: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400' },
     'pi-cache': { label: 'Weather Cache :3001', color: 'bg-amber-500/15 border-amber-500/30 text-amber-400' },
 };
+
+/** Get badge config for a service — handles dynamic avnav-* port names */
+function getServiceBadge(service: { name: string; port: number }): { label: string; color: string } {
+    if (SERVICE_BADGES[service.name]) return SERVICE_BADGES[service.name];
+    if (service.name.startsWith('avnav')) {
+        return {
+            label: `AvNav Charts :${service.port}`,
+            color: 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400',
+        };
+    }
+    return { label: `${service.name} :${service.port}`, color: 'bg-gray-500/15 border-gray-500/30 text-gray-400' };
+}
 
 // ── Chart Locker Sub-Components ──
 
@@ -199,15 +210,24 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
     // ── AvNav chart state (still needed for chart list after connect) ──
     const [skStatus, setSkStatus] = useState<AvNavConnectionStatus>(AvNavService.getStatus());
     const [skCharts, setSkCharts] = useState<AvNavChart[]>(AvNavService.getCharts());
-    const [skApiVersion, setSkApiVersion] = useState<string | null>(AvNavService.getApiVersion());
+    const [_skApiVersion, setSkApiVersion] = useState<string | null>(AvNavService.getApiVersion());
 
     // ── "Connect All" state ──
     const [connectAllDone, setConnectAllDone] = useState(false);
 
-    // ── SSH provisioning state ──
+    // ── Provisioning state ──
+    const [sshUsername, setSshUsername] = useState(DEFAULT_USERNAME);
     const [sshPassword, setSshPassword] = useState('');
     const [provisionProgress, setProvisionProgress] = useState<ProvisionProgress | null>(null);
     const [provisionExpanded, setProvisionExpanded] = useState(false);
+    const [copiedCommand, setCopiedCommand] = useState(false);
+
+    /** Scroll focused input into view when iOS keyboard slides up */
+    const scrollInputIntoView = useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+        const el = e.currentTarget;
+        // Delay lets iOS keyboard finish animating before we scroll
+        setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 350);
+    }, []);
 
     // Chart Locker state
     const [lockerExpanded, setLockerExpanded] = useState(false);
@@ -249,17 +269,24 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
     const skConnected = skStatus === 'connected';
     const skConnecting = skStatus === 'connecting';
     const hasPiCache = network.services.some((s) => s.name === 'pi-cache');
-    const hasAvNav = network.services.some((s) => s.name === 'avnav' || s.name === 'avnav-alt');
+    const _hasAvNav = network.services.some((s) => s.name.startsWith('avnav'));
     const hasSignalK = network.services.some((s) => s.name === 'signalk');
     const hasNmea = network.services.some((s) => s.name === 'signalk-nmea');
 
-    // Derive chart host/port from discovered services
-    const chartService = network.services.find(
-        (s) => s.name === 'avnav' || s.name === 'avnav-alt' || s.name === 'signalk',
-    );
+    // Derive chart host/port from discovered services (any avnav-* service)
+    const avnavService = network.services.find((s) => s.name.startsWith('avnav'));
+    const signalkService = network.services.find((s) => s.name === 'signalk');
+    const chartService = avnavService || signalkService;
     const chartHost = piHost || '';
     const chartPort = chartService?.port || 8080;
-    const chartServerType: 'avnav' | 'signalk' = chartService?.name === 'signalk' ? 'signalk' : 'avnav';
+    // ALWAYS use 'avnav' mode when a Pi is detected — the multi-port scanner
+    // in AvNavService.connect() will find the real AvNav port.
+    // Only use 'signalk' if explicitly an SK-only setup (no Pi host).
+    const chartServerType: 'avnav' | 'signalk' = piHost
+        ? 'avnav'
+        : chartService?.name === 'signalk'
+          ? 'signalk'
+          : 'avnav';
 
     useEffect(() => {
         const unsubSk = AvNavService.onStatusChange((s) => {
@@ -289,13 +316,16 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
         triggerHaptic('medium');
         if (!piHost) return;
 
-        // 1. Apply to all downstream services via localStorage
+        // 1. Apply to all downstream services via settings store + localStorage
         BoatNetworkService.applyToServices({
             nmea: true,
             avnav: true,
             piCache: true,
             onSaveSettings: (partial) => {
-                // Persist pi-cache settings to localStorage for PiCacheService
+                // Persist to Zustand settings store (survives app restart via Capacitor Preferences)
+                useSettingsStore.getState().updateSettings(partial as Record<string, unknown>);
+
+                // Also write to localStorage as a fallback for boot()
                 if (partial.piCacheEnabled !== undefined)
                     localStorage.setItem('thalassa_pi_cache_enabled', String(partial.piCacheEnabled));
                 if (partial.piCacheHost !== undefined)
@@ -307,11 +337,11 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
             },
         });
 
-        // 2. Start AvNav chart service if chart-capable service found
-        if (chartService) {
-            AvNavService.configure(piHost, chartPort, chartServerType);
-            AvNavService.start();
-        }
+        // 2. Start AvNav chart service — stop first to force reconnect
+        //    (autoStart may have already started with stale Signal K config)
+        AvNavService.stop();
+        AvNavService.configure(piHost, chartPort, chartServerType);
+        AvNavService.start();
 
         // 3. Start NMEA listener if signalk-nmea found
         if (hasNmea || hasSignalK) {
@@ -327,7 +357,8 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
         }
 
         setConnectAllDone(true);
-    }, [piHost, chartService, chartPort, chartServerType, hasNmea, hasSignalK, hasPiCache, network.services]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [piHost, chartPort, chartServerType, hasNmea, hasSignalK, hasPiCache, network.services]);
 
     // ── Disconnect handler ──
     const handleDisconnect = useCallback(() => {
@@ -336,17 +367,27 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
         setConnectAllDone(false);
     }, []);
 
+    const sshAvailable = PiProvisionService.isAvailable;
+
     // ── SSH provisioning handler ──
     const handleInstallCache = useCallback(async () => {
         triggerHaptic('medium');
         if (!piHost) return;
 
-        setProvisionProgress({ phase: 'connecting', message: 'Starting...' });
+        if (!sshAvailable) {
+            setProvisionProgress({
+                phase: 'error',
+                message: 'SSH requires the native iOS app. Use the manual command above.',
+            });
+            return;
+        }
+
+        setProvisionProgress({ phase: 'connecting', message: 'Connecting via SSH...' });
 
         const loc = LocationStore.getState();
         const result = await PiProvisionService.provision(
             piHost,
-            DEFAULT_USERNAME,
+            sshUsername,
             sshPassword,
             setProvisionProgress,
             SUPABASE_URL && SUPABASE_KEY
@@ -355,10 +396,9 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
         );
 
         if (result.success) {
-            // Re-scan to pick up the newly installed pi-cache service
             BoatNetworkService.scan(piHost);
         }
-    }, [piHost, sshPassword]);
+    }, [piHost, sshUsername, sshPassword, sshAvailable]);
 
     // ── Chart Locker Handlers ──
 
@@ -491,8 +531,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                         {piHost && network.services.length > 0 && (
                             <div className="flex flex-wrap gap-1.5">
                                 {network.services.map((svc) => {
-                                    const badge = SERVICE_BADGES[svc.name];
-                                    if (!badge) return null;
+                                    const badge = getServiceBadge(svc);
                                     return (
                                         <span
                                             key={svc.name}
@@ -620,6 +659,8 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                             </p>
                         )}
 
+                        {/* Debug probe removed — o-charts discovery working */}
+
                         {/* ── Install Weather Cache (when Pi found but pi-cache NOT) ── */}
                         {piHost && network.services.length > 0 && !hasPiCache && (
                             <div className="mt-2 p-3 rounded-xl bg-amber-500/5 border border-amber-500/10 space-y-2.5">
@@ -653,38 +694,55 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                 </button>
 
                                 {provisionExpanded && (
-                                    <div className="space-y-2.5">
-                                        <p className="text-[11px] text-gray-400 leading-relaxed">
-                                            Thalassa can SSH into your Pi and install the weather cache service
-                                            automatically. Default user:{' '}
-                                            <span className="text-white font-mono">{DEFAULT_USERNAME}</span>
-                                        </p>
-
-                                        {/* Password field */}
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="password"
-                                                value={sshPassword}
-                                                onChange={(e) => setSshPassword(e.target.value)}
-                                                placeholder="Pi password"
-                                                className="flex-1 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/30"
-                                            />
-                                            <button
-                                                onClick={handleInstallCache}
-                                                disabled={!sshPassword || provisionBusy}
-                                                className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
-                                                    !sshPassword || provisionBusy
-                                                        ? 'bg-white/[0.03] text-gray-600 cursor-not-allowed'
-                                                        : 'bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25'
-                                                }`}
-                                            >
-                                                {provisionBusy ? (
-                                                    <div className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-                                                ) : (
-                                                    'Install'
-                                                )}
-                                            </button>
-                                        </div>
+                                    <div className="space-y-3">
+                                        {/* ── Option 1: Auto-install via SSH (native app) ── */}
+                                        {sshAvailable && (
+                                            <div className="space-y-2">
+                                                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-400/60">
+                                                    Auto Install via SSH
+                                                </p>
+                                                <p className="text-[11px] text-gray-400 leading-relaxed">
+                                                    Thalassa will SSH into your Pi and install the weather cache
+                                                    automatically.
+                                                </p>
+                                                <div className="flex gap-2">
+                                                    <input
+                                                        type="text"
+                                                        value={sshUsername}
+                                                        onChange={(e) => setSshUsername(e.target.value)}
+                                                        onFocus={scrollInputIntoView}
+                                                        placeholder="Username"
+                                                        className="w-24 shrink-0 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/30 font-mono"
+                                                    />
+                                                    <input
+                                                        type="password"
+                                                        value={sshPassword}
+                                                        onChange={(e) => setSshPassword(e.target.value)}
+                                                        onFocus={scrollInputIntoView}
+                                                        placeholder="Password"
+                                                        className="flex-1 px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-xs text-white placeholder-gray-600 focus:outline-none focus:border-amber-500/30"
+                                                    />
+                                                </div>
+                                                <button
+                                                    onClick={handleInstallCache}
+                                                    disabled={!sshUsername || !sshPassword || provisionBusy}
+                                                    className={`w-full py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
+                                                        !sshUsername || !sshPassword || provisionBusy
+                                                            ? 'bg-white/[0.03] text-gray-600 cursor-not-allowed'
+                                                            : 'bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25'
+                                                    }`}
+                                                >
+                                                    {provisionBusy ? (
+                                                        <div className="flex items-center justify-center gap-2">
+                                                            <div className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                                                            Installing...
+                                                        </div>
+                                                    ) : (
+                                                        'Install on Pi'
+                                                    )}
+                                                </button>
+                                            </div>
+                                        )}
 
                                         {/* Provision progress */}
                                         {provisionProgress && provisionPhase !== 'idle' && (
@@ -710,6 +768,40 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                                 )}
                                             </div>
                                         )}
+
+                                        {/* ── Option 2: Manual command ── */}
+                                        <div className="space-y-1.5">
+                                            <p className="text-[10px] font-bold uppercase tracking-widest text-white/30">
+                                                {sshAvailable ? 'Or install manually' : 'Manual Install'}
+                                            </p>
+                                            <pre
+                                                className="text-[10px] text-amber-300/70 font-mono bg-black/40 rounded-lg p-2.5 overflow-x-auto select-all cursor-pointer active:bg-black/60 transition-colors"
+                                                onClick={(e) => {
+                                                    const cmd =
+                                                        'curl -fsSL https://raw.githubusercontent.com/shanestratton/thalassa-marine-weather/master/pi-cache/install.sh | sudo bash';
+                                                    if (navigator.clipboard) {
+                                                        navigator.clipboard.writeText(cmd);
+                                                        triggerHaptic('light');
+                                                        setCopiedCommand(true);
+                                                        setTimeout(() => setCopiedCommand(false), 2000);
+                                                    } else {
+                                                        const range = document.createRange();
+                                                        range.selectNodeContents(e.currentTarget);
+                                                        window.getSelection()?.removeAllRanges();
+                                                        window.getSelection()?.addRange(range);
+                                                    }
+                                                }}
+                                            >
+                                                {`curl -fsSL https://raw.githubusercontent.com/shanestratton/thalassa-marine-weather/master/pi-cache/install.sh | sudo bash`}
+                                            </pre>
+                                            <p className="text-[10px] text-gray-500">
+                                                {copiedCommand ? (
+                                                    <span className="text-emerald-400 font-bold">Copied!</span>
+                                                ) : (
+                                                    'Tap to copy. Paste into a terminal on your Pi.'
+                                                )}
+                                            </p>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -1062,10 +1154,12 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                     onClick={() => setShowSetupGuide(true)}
                     className="mb-3 w-full flex items-center gap-3 p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-all active:scale-[0.98]"
                 >
-                    <span className="text-xl">{'\u{1F4CB}'}</span>
+                    <span className="text-xl">{'\u{1F9ED}'}</span>
                     <div className="flex-1 text-left">
                         <span className="text-xs font-bold text-white">Setup Guide</span>
-                        <span className="block text-[11px] text-gray-500">How to install AvNav on a Raspberry Pi</span>
+                        <span className="block text-[11px] text-gray-500">
+                            How to set up OpenPlotter on a Raspberry Pi
+                        </span>
                     </div>
                     <svg
                         className="w-4 h-4 text-white/30"
@@ -1079,21 +1173,63 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                 </button>
 
                 {/* ═══ SETUP GUIDE MODAL ═══ */}
-                <ModalSheet isOpen={showSetupGuide} onClose={handleCloseGuide} title="AvNav Setup Guide">
+                <ModalSheet isOpen={showSetupGuide} onClose={handleCloseGuide} title="OpenPlotter Setup Guide">
                     <div className="space-y-5 text-[13px] text-gray-300 leading-relaxed -mt-1">
-                        {/* What is AvNav */}
+                        {/* What is OpenPlotter */}
                         <div>
                             <p className="text-white/80">
-                                <span className="text-sky-400 font-bold">AvNav</span> is free, open-source chart server
-                                software that runs on a <span className="text-white font-bold">Raspberry Pi</span>{' '}
-                                aboard your vessel. It serves nautical charts to Thalassa over Wi-Fi — including{' '}
-                                <span className="text-emerald-400 font-bold">free NOAA/LINZ charts</span> and{' '}
-                                <span className="text-amber-400 font-bold">paid o-charts</span>.
+                                <span className="text-sky-400 font-bold">OpenPlotter</span> is a free, open-source
+                                marine platform for <span className="text-white font-bold">Raspberry Pi</span>. It turns
+                                a small Pi aboard your vessel into a full navigation server — charts, instrument data,
+                                weather caching, and more — all over Wi-Fi.
                             </p>
                             <p className="text-[11px] text-gray-500 mt-1.5">
-                                Without AvNav running, chart overlays, the Chart Locker, and network scan features on
-                                this page will not work.
+                                Thalassa auto-discovers your OpenPlotter Pi and connects to all its services with one
+                                tap.
                             </p>
+                        </div>
+
+                        {/* What it gives you */}
+                        <div>
+                            <h4 className="text-xs font-black uppercase tracking-widest text-white/60 mb-2">
+                                What You Get
+                            </h4>
+                            <div className="space-y-2 text-[12px]">
+                                <div className="flex items-start gap-2.5 p-2 rounded-xl bg-white/[0.03]">
+                                    <span className="text-lg mt-0.5">{'\u{1F5FA}'}</span>
+                                    <div>
+                                        <span className="text-white font-bold">Nautical Charts</span>
+                                        <span className="text-gray-400">
+                                            {' '}
+                                            — AvNav serves free NOAA/LINZ charts and paid{' '}
+                                        </span>
+                                        <span className="text-amber-400 font-bold">o-charts</span>
+                                        <span className="text-gray-400"> as map overlays in Thalassa</span>
+                                    </div>
+                                </div>
+                                <div className="flex items-start gap-2.5 p-2 rounded-xl bg-white/[0.03]">
+                                    <span className="text-lg mt-0.5">{'\u{1F9ED}'}</span>
+                                    <div>
+                                        <span className="text-white font-bold">Signal K</span>
+                                        <span className="text-gray-400">
+                                            {' '}
+                                            — Reads your NMEA instruments (wind, depth, speed, GPS) and streams data to
+                                            Thalassa in real time
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="flex items-start gap-2.5 p-2 rounded-xl bg-white/[0.03]">
+                                    <span className="text-lg mt-0.5">{'\u{26C5}'}</span>
+                                    <div>
+                                        <span className="text-white font-bold">Weather Cache</span>
+                                        <span className="text-gray-400">
+                                            {' '}
+                                            — Thalassa installs its own weather proxy on the Pi so forecasts, GRIB data,
+                                            and tiles load instantly on the boat network
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         {/* What you need */}
@@ -1105,19 +1241,24 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                 <li className="flex items-start gap-2">
                                     <span className="text-sky-400 mt-0.5">{'\u2022'}</span>
                                     <span>
-                                        A <span className="text-white font-bold">Raspberry Pi 4</span> (or 3B+) with
+                                        A <span className="text-white font-bold">Raspberry Pi 4</span> (or Pi 5) with
                                         power supply
                                     </span>
                                 </li>
                                 <li className="flex items-start gap-2">
                                     <span className="text-sky-400 mt-0.5">{'\u2022'}</span>
                                     <span>
-                                        A <span className="text-white font-bold">64 GB microSD card</span> (or larger)
+                                        A <span className="text-white font-bold">32 GB+ microSD card</span> (64 GB
+                                        recommended for charts)
                                     </span>
                                 </li>
                                 <li className="flex items-start gap-2">
                                     <span className="text-sky-400 mt-0.5">{'\u2022'}</span>
-                                    <span>A computer to flash the SD card (Windows, Mac, or Linux)</span>
+                                    <span>A computer to flash the SD card</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                    <span className="text-sky-400 mt-0.5">{'\u2022'}</span>
+                                    <span>A Wi-Fi network aboard (the Pi can create its own hotspot if needed)</span>
                                 </li>
                             </ul>
                         </div>
@@ -1134,13 +1275,17 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                         1
                                     </span>
                                     <div>
-                                        <p className="text-white font-bold text-[12px]">Download the AvNav image</p>
+                                        <p className="text-white font-bold text-[12px]">
+                                            Download the OpenPlotter image
+                                        </p>
                                         <p className="text-[11px] text-gray-400 mt-0.5">
-                                            Get the latest <span className="text-white">AvNav Touch</span> image from{' '}
-                                            <span className="text-sky-400 font-bold">avnav.de/en/install.html</span>
+                                            Get the latest image from{' '}
+                                            <span className="text-sky-400 font-bold">openplotter.de</span>
                                         </p>
                                         <p className="text-[11px] text-gray-500 mt-0.5">
-                                            This is a complete Raspberry Pi OS with AvNav pre-installed.
+                                            Choose the <span className="text-white">Headless</span> edition for a
+                                            dedicated server, or <span className="text-white">Desktop</span> if you want
+                                            a screen on the Pi too.
                                         </p>
                                     </div>
                                 </div>
@@ -1155,28 +1300,11 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                             Flash the image to your SD card
                                         </p>
                                         <p className="text-[11px] text-gray-400 mt-0.5">
-                                            Use one of these free tools to write the image:
+                                            Use <span className="text-emerald-400 font-bold">Raspberry Pi Imager</span>{' '}
+                                            (Windows, Mac, or Linux). In the imager settings, set your Wi-Fi
+                                            credentials, enable SSH, and set a hostname (e.g.{' '}
+                                            <span className="text-white font-mono">openplotter</span>).
                                         </p>
-                                        <div className="mt-1.5 space-y-1">
-                                            <div className="flex items-center gap-2 text-[11px]">
-                                                <span className="w-14 text-right text-gray-500 font-bold">Windows</span>
-                                                <span className="text-emerald-400 font-bold">Raspberry Pi Imager</span>
-                                                <span className="text-gray-600">or</span>
-                                                <span className="text-emerald-400 font-bold">balenaEtcher</span>
-                                            </div>
-                                            <div className="flex items-center gap-2 text-[11px]">
-                                                <span className="w-14 text-right text-gray-500 font-bold">Mac</span>
-                                                <span className="text-emerald-400 font-bold">Raspberry Pi Imager</span>
-                                                <span className="text-gray-600">or</span>
-                                                <span className="text-emerald-400 font-bold">balenaEtcher</span>
-                                            </div>
-                                            <div className="flex items-center gap-2 text-[11px]">
-                                                <span className="w-14 text-right text-gray-500 font-bold">Linux</span>
-                                                <span className="text-emerald-400 font-bold">Raspberry Pi Imager</span>
-                                                <span className="text-gray-600">or</span>
-                                                <code className="text-emerald-400 font-bold text-[10px]">dd</code>
-                                            </div>
-                                        </div>
                                     </div>
                                 </div>
 
@@ -1186,12 +1314,10 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                         3
                                     </span>
                                     <div>
-                                        <p className="text-white font-bold text-[12px]">
-                                            Boot the Pi and connect to Wi-Fi
-                                        </p>
+                                        <p className="text-white font-bold text-[12px]">Boot the Pi</p>
                                         <p className="text-[11px] text-gray-400 mt-0.5">
-                                            Insert the SD card, power on the Pi, and connect it to your boat&apos;s
-                                            Wi-Fi network. AvNav starts automatically on boot.
+                                            Insert the SD card and power on. First boot takes a few minutes while
+                                            OpenPlotter configures itself. Signal K and AvNav start automatically.
                                         </p>
                                     </div>
                                 </div>
@@ -1202,11 +1328,11 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                         4
                                     </span>
                                     <div>
-                                        <p className="text-white font-bold text-[12px]">Connect from Thalassa</p>
+                                        <p className="text-white font-bold text-[12px]">Find it from Thalassa</p>
                                         <p className="text-[11px] text-gray-400 mt-0.5">
                                             Make sure your phone is on the same Wi-Fi, then tap{' '}
-                                            <span className="text-sky-400 font-bold">Find My Pi</span> above — Thalassa
-                                            will discover the Pi and all its services automatically.
+                                            <span className="text-sky-400 font-bold">Find My Pi</span> above. Thalassa
+                                            discovers the Pi and all running services automatically.
                                         </p>
                                     </div>
                                 </div>
@@ -1217,16 +1343,62 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                         5
                                     </span>
                                     <div>
-                                        <p className="text-white font-bold text-[12px]">Add your charts</p>
+                                        <p className="text-white font-bold text-[12px]">Connect All</p>
                                         <p className="text-[11px] text-gray-400 mt-0.5">
-                                            Use the <span className="text-sky-400 font-bold">Chart Locker</span> to
-                                            download free NOAA or LINZ charts, upload your own, or install{' '}
-                                            <span className="text-amber-400 font-bold">o-charts</span> (paid) for
-                                            premium coverage. Charts appear as map overlays in Thalassa.
+                                            Tap <span className="text-emerald-400 font-bold">Connect All</span> to
+                                            configure charts, instruments, and weather in one go. Thalassa wires
+                                            everything up for you.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Step 6 */}
+                                <div className="flex gap-3">
+                                    <span className="shrink-0 w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 text-xs font-black flex items-center justify-center">
+                                        6
+                                    </span>
+                                    <div>
+                                        <p className="text-white font-bold text-[12px]">
+                                            Install Weather Cache (optional)
+                                        </p>
+                                        <p className="text-[11px] text-gray-400 mt-0.5">
+                                            If no weather cache is detected, Thalassa offers to install it via SSH.
+                                            Enter the Pi&apos;s password and tap{' '}
+                                            <span className="text-sky-400 font-bold">Provision</span> — forecasts, GRIB
+                                            files, and map tiles will be cached locally on the Pi for instant loading.
                                         </p>
                                     </div>
                                 </div>
                             </div>
+                        </div>
+
+                        {/* Tips */}
+                        <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                            <h4 className="text-xs font-black uppercase tracking-widest text-white/60 mb-2">Tips</h4>
+                            <ul className="space-y-1.5 text-[11px] text-gray-400">
+                                <li className="flex items-start gap-2">
+                                    <span className="text-amber-400 mt-0.5">{'\u{1F4A1}'}</span>
+                                    <span>
+                                        Connect NMEA instruments to the Pi via USB or serial — Signal K will parse the
+                                        data and Thalassa reads it in real time.
+                                    </span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                    <span className="text-amber-400 mt-0.5">{'\u{1F4A1}'}</span>
+                                    <span>
+                                        Use the <span className="text-white font-bold">Chart Locker</span> below to
+                                        download free NOAA or LINZ charts straight to the Pi.
+                                    </span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                    <span className="text-amber-400 mt-0.5">{'\u{1F4A1}'}</span>
+                                    <span>
+                                        The default SSH login is <span className="text-white font-mono">pi</span> /{' '}
+                                        <span className="text-white font-mono">raspberry</span> — change it after first
+                                        login!
+                                    </span>
+                                </li>
+                            </ul>
                         </div>
 
                         {/* Divider */}

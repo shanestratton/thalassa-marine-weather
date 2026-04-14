@@ -16,7 +16,7 @@
  *   3. Common boat network subnets (/24 scan) as last resort
  */
 
-import { CapacitorHttp } from '@capacitor/core';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('BoatNetwork');
@@ -80,14 +80,47 @@ const SERVICES: ServiceProbe[] = [
     {
         name: 'avnav',
         port: 8080,
-        path: '/viewer/avnav_navi.php',
-        validate: (_data: unknown, status: number) => status >= 200 && status < 400,
+        path: '/api/list?type=chart',
+        validate: (data: unknown, status: number) => {
+            if (status < 200 || status >= 400) return false;
+            // Reject HTML error pages (Express "Cannot GET" etc.)
+            const text = typeof data === 'string' ? data : JSON.stringify(data ?? '');
+            if (text.includes('<!DOCTYPE') || text.includes('Cannot GET')) return false;
+            return true;
+        },
     },
     {
         name: 'avnav-alt',
         port: 8082,
-        path: '/viewer/avnav_navi.php',
-        validate: (_data: unknown, status: number) => status >= 200 && status < 400,
+        path: '/api/list?type=chart',
+        validate: (data: unknown, status: number) => {
+            if (status < 200 || status >= 400) return false;
+            const text = typeof data === 'string' ? data : JSON.stringify(data ?? '');
+            if (text.includes('<!DOCTYPE') || text.includes('Cannot GET')) return false;
+            return true;
+        },
+    },
+    {
+        name: 'avnav-8081',
+        port: 8081,
+        path: '/api/list?type=chart',
+        validate: (data: unknown, status: number) => {
+            if (status < 200 || status >= 400) return false;
+            const text = typeof data === 'string' ? data : JSON.stringify(data ?? '');
+            if (text.includes('<!DOCTYPE') || text.includes('Cannot GET')) return false;
+            return true;
+        },
+    },
+    {
+        name: 'avnav-8083',
+        port: 8083,
+        path: '/api/list?type=chart',
+        validate: (data: unknown, status: number) => {
+            if (status < 200 || status >= 400) return false;
+            const text = typeof data === 'string' ? data : JSON.stringify(data ?? '');
+            if (text.includes('<!DOCTYPE') || text.includes('Cannot GET')) return false;
+            return true;
+        },
     },
 ];
 
@@ -104,62 +137,94 @@ const MDNS_HOSTS = [
 ];
 
 const STORAGE_KEY = 'thalassa_boat_network';
+const SERVICES_STORAGE_KEY = 'thalassa_boat_network_services';
 const PROBE_TIMEOUT_MS = 3000;
 
 // ── Persistence ────────────────────────────────────────────────
 
-function saveToStorage(host: string | null) {
+function saveToStorage(host: string | null, services?: DiscoveredService[]) {
     try {
         if (host) {
             localStorage.setItem(STORAGE_KEY, host);
         } else {
             localStorage.removeItem(STORAGE_KEY);
         }
+        if (services && services.length > 0) {
+            localStorage.setItem(SERVICES_STORAGE_KEY, JSON.stringify(services));
+        } else if (!host) {
+            localStorage.removeItem(SERVICES_STORAGE_KEY);
+        }
     } catch {
         /* ignore */
     }
 }
 
-function loadFromStorage(): string | null {
+function loadFromStorage(): { host: string | null; services: DiscoveredService[] } {
     try {
-        return localStorage.getItem(STORAGE_KEY);
+        const host = localStorage.getItem(STORAGE_KEY);
+        if (!host) return { host: null, services: [] };
+        const raw = localStorage.getItem(SERVICES_STORAGE_KEY);
+        const services: DiscoveredService[] = raw ? JSON.parse(raw) : [];
+        return { host, services };
     } catch {
-        return null;
+        return { host: null, services: [] };
     }
 }
 
 // ── Probe Helper ───────────────────────────────────────────────
+
+/** Hard timeout wrapper — ensures no probe hangs longer than the limit */
+function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> {
+    return Promise.race([promise, new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms))]);
+}
+
+const isNative = Capacitor.isNativePlatform();
 
 async function probeService(host: string, service: ServiceProbe): Promise<{ found: boolean; latencyMs: number }> {
     // TCP-only services (no HTTP path) — try a quick HTTP probe on the port
     const path = service.path || '/';
     const url = `http://${host}:${service.port}${path}`;
     const start = Date.now();
+    const fail = { found: false, latencyMs: 0 };
 
-    try {
-        const res = await CapacitorHttp.get({
-            url,
-            connectTimeout: PROBE_TIMEOUT_MS,
-            readTimeout: PROBE_TIMEOUT_MS,
-        });
-        const ok = service.validate(res.data, res.status);
-        return { found: ok, latencyMs: Date.now() - start };
-    } catch {
-        // CapacitorHttp failed — try fetch as fallback (for browser dev)
-        try {
-            const res = await fetch(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
-            let data: unknown = null;
-            try {
-                data = await res.json();
-            } catch {
-                /* non-JSON response is fine for some services */
+    // Hard outer timeout — nothing escapes this
+    return withTimeout(
+        (async () => {
+            // On native, CapacitorHttp bypasses CORS and enforces timeouts.
+            // On web, CapacitorHttp wraps fetch but doesn't enforce timeouts,
+            // so we use fetch + AbortSignal directly.
+            if (isNative) {
+                try {
+                    const res = await CapacitorHttp.get({
+                        url,
+                        connectTimeout: PROBE_TIMEOUT_MS,
+                        readTimeout: PROBE_TIMEOUT_MS,
+                    });
+                    const ok = service.validate(res.data, res.status);
+                    return { found: ok, latencyMs: Date.now() - start };
+                } catch {
+                    return { found: false, latencyMs: Date.now() - start };
+                }
+            } else {
+                // Web: use fetch with AbortSignal for reliable timeout
+                try {
+                    const res = await fetch(url, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+                    let data: unknown = null;
+                    try {
+                        data = await res.json();
+                    } catch {
+                        /* non-JSON response is fine for some services */
+                    }
+                    const ok = service.validate(data, res.status);
+                    return { found: ok, latencyMs: Date.now() - start };
+                } catch {
+                    return { found: false, latencyMs: Date.now() - start };
+                }
             }
-            const ok = service.validate(data, res.status);
-            return { found: ok, latencyMs: Date.now() - start };
-        } catch {
-            return { found: false, latencyMs: Date.now() - start };
-        }
-    }
+        })(),
+        PROBE_TIMEOUT_MS + 500, // hard ceiling: probe timeout + 500ms grace
+        fail,
+    );
 }
 
 /** Quick check: can we reach this host on ANY known service port? */
@@ -182,13 +247,16 @@ async function probeHost(host: string): Promise<DiscoveredService[]> {
 // ── Singleton ──────────────────────────────────────────────────
 
 class BoatNetworkServiceClass {
-    private state: BoatNetworkState = {
-        piHost: loadFromStorage(),
-        services: [],
-        scanning: false,
-        lastScan: 0,
-        error: null,
-    };
+    private state: BoatNetworkState = (() => {
+        const { host, services } = loadFromStorage();
+        return {
+            piHost: host,
+            services,
+            scanning: false,
+            lastScan: 0,
+            error: null,
+        };
+    })();
     private listeners = new Set<Listener>();
 
     // ── Public API ──
@@ -231,36 +299,52 @@ class BoatNetworkServiceClass {
             // Build candidate list: preferred → saved → mDNS hostnames
             const candidates: string[] = [];
             if (preferredHost) candidates.push(preferredHost);
-            const saved = loadFromStorage();
+            const { host: saved } = loadFromStorage();
             if (saved && !candidates.includes(saved)) candidates.push(saved);
             for (const h of MDNS_HOSTS) {
                 if (!candidates.includes(h)) candidates.push(h);
             }
 
-            // Phase 1: Probe candidates in parallel batches of 4
-            for (let i = 0; i < candidates.length; i += 4) {
-                const batch = candidates.slice(i, i + 4);
-                const results = await Promise.allSettled(batch.map((h) => probeHost(h)));
+            // Probe ALL candidates in parallel — first host with services wins.
+            // Uses a race: each probeHost resolves; the first with results
+            // resolves the outer promise. A hard ceiling prevents infinite hangs.
+            const found = await withTimeout(
+                new Promise<{ host: string; services: DiscoveredService[] } | null>((resolve) => {
+                    let settled = 0;
+                    const total = candidates.length;
 
-                for (let j = 0; j < results.length; j++) {
-                    const r = results[j];
-                    if (r.status === 'fulfilled' && r.value.length > 0) {
-                        const host = batch[j];
-                        log.info(`Found Pi at ${host}: ${r.value.map((s) => `${s.name}(:${s.port})`).join(', ')}`);
-                        saveToStorage(host);
-                        this.setState({
-                            piHost: host,
-                            services: r.value,
-                            scanning: false,
-                            lastScan: Date.now(),
+                    candidates.forEach((host) => {
+                        probeHost(host).then((services) => {
+                            // First host with any service wins — resolve immediately
+                            if (services.length > 0) {
+                                resolve({ host, services });
+                            }
+                            settled++;
+                            if (settled >= total) {
+                                resolve(null); // all done, nothing found
+                            }
                         });
-                        return host;
-                    }
-                }
+                    });
+                }),
+                PROBE_TIMEOUT_MS + 2000, // hard ceiling: probe timeout + 2s grace
+                null,
+            );
+
+            if (found) {
+                log.info(`Found Pi at ${found.host}: ${found.services.map((s) => `${s.name}(:${s.port})`).join(', ')}`);
+                saveToStorage(found.host, found.services);
+                this.setState({
+                    piHost: found.host,
+                    services: found.services,
+                    scanning: false,
+                    lastScan: Date.now(),
+                });
+                return found.host;
             }
 
             // Not found
             log.info('No Pi found on network');
+            saveToStorage(null);
             this.setState({
                 piHost: null,
                 services: [],
@@ -282,15 +366,18 @@ class BoatNetworkServiceClass {
      * Falls back to full scan if the saved host is unreachable.
      */
     async quickProbe(): Promise<string | null> {
-        const saved = this.state.piHost || loadFromStorage();
+        const saved = this.state.piHost || loadFromStorage().host;
         if (!saved) return this.scan();
 
         log.info(`Quick probe: ${saved}`);
+        this.setState({ scanning: true, error: null });
         const services = await probeHost(saved);
         if (services.length > 0) {
+            saveToStorage(saved, services);
             this.setState({
                 piHost: saved,
                 services,
+                scanning: false,
                 lastScan: Date.now(),
                 error: null,
             });
@@ -299,6 +386,7 @@ class BoatNetworkServiceClass {
 
         // Saved host unreachable — try full scan
         log.info('Saved host unreachable, falling back to full scan');
+        this.setState({ scanning: false });
         return this.scan();
     }
 
@@ -336,18 +424,17 @@ class BoatNetworkServiceClass {
         }
 
         // ── AvNav / Signal K Charts ──
+        // Always save as 'avnav' type — the multi-port scanner in
+        // AvNavService.connect() will find the actual AvNav port.
+        // This ensures autoStart() on next boot uses the AvNav code path
+        // which discovers charts from all common ports.
         if (options.avnav !== false) {
-            const avnav = services.find((s) => s.name === 'avnav');
-            const avnavAlt = services.find((s) => s.name === 'avnav-alt');
-            const signalk = services.find((s) => s.name === 'signalk');
-            const chartService = avnav || avnavAlt || signalk;
-            if (chartService) {
-                const serverType = chartService.name === 'signalk' ? 'signalk' : 'avnav';
-                localStorage.setItem('avnav_chart_host', host);
-                localStorage.setItem('avnav_chart_port', String(chartService.port));
-                localStorage.setItem('avnav_server_type', serverType);
-                log.info(`Charts configured: ${host}:${chartService.port} (${serverType})`);
-            }
+            const avnavService = services.find((s) => s.name.startsWith('avnav'));
+            const chartPort = avnavService?.port || 8080;
+            localStorage.setItem('avnav_chart_host', host);
+            localStorage.setItem('avnav_chart_port', String(chartPort));
+            localStorage.setItem('avnav_server_type', 'avnav');
+            log.info(`Charts configured: ${host}:${chartPort} (avnav, port-scan on connect)`);
         }
 
         // ── Pi Cache ──
@@ -387,10 +474,33 @@ export const BoatNetworkService = new BoatNetworkServiceClass();
 
 // ── React Hook ─────────────────────────────────────────────────
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 export function useBoatNetwork(): BoatNetworkState {
     const [s, setS] = useState(BoatNetworkService.getState());
+    const probed = useRef(false);
+
     useEffect(() => BoatNetworkService.subscribe(setS), []);
+
+    // Auto-probe saved host on mount when services are stale or empty.
+    // This handles: app restart (singleton re-created from localStorage cache),
+    // and page navigation back to Boat Network after being away.
+    useEffect(() => {
+        if (probed.current) return;
+        const state = BoatNetworkService.getState();
+        if (!state.piHost || state.scanning) return;
+
+        const staleMs = 60_000; // consider services stale after 60s
+        const isStale = state.lastScan === 0 || Date.now() - state.lastScan > staleMs;
+
+        if (state.services.length === 0 || isStale) {
+            probed.current = true;
+            log.info(
+                `Auto-probing saved Pi host on mount (${state.services.length === 0 ? 'no cached services' : 'stale'})`,
+            );
+            BoatNetworkService.quickProbe();
+        }
+    }, []);
+
     return s;
 }
