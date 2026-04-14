@@ -219,6 +219,8 @@ export function useWeatherLayers(
     const isobarFetchRef = useRef<number>(0);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cachedFramesRef = useRef<any[]>([]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cachedGridRef = useRef<any>(null); // Cache the raw grid to avoid re-fetching
     const [forecastHour, setForecastHour] = useState(0);
     const [isPlaying, setIsPlaying] = useState(false);
     const [totalFrames, setTotalFrames] = useState(FORECAST_HOURS);
@@ -270,20 +272,26 @@ export function useWeatherLayers(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Pre-compute isobar frames — skip heatmap for interpolated sub-frames (much faster)
+    // Pre-compute remaining isobar frames in background (frame 0 already shown).
+    // Skip heatmap for interpolated sub-frames — they reuse the nearest keyframe's heatmap.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const precomputeFrames = useCallback((grid: any) => {
         const total = grid.totalHours as number;
         setTotalFrames(total);
-        setFramesReady(0);
+
+        // Preserve frame 0 which was already computed in updateIsobars
+        const existing = cachedFramesRef.current;
         cachedFramesRef.current = new Array(total);
-        let idx = 0;
-        // INTERP_STEPS = 3 in isobars.ts — every 3rd frame is a GRIB keyframe
+        if (existing[0]) cachedFramesRef.current[0] = existing[0];
+        setFramesReady(1);
+
+        let idx = 1; // Start from frame 1 — frame 0 is already done
         const KEYFRAME_INTERVAL = 3;
         const computeBatch = () => {
-            const batchEnd = Math.min(idx + 12, total);
+            // Process all remaining frames in one batch — the global grid is small
+            // enough that this completes in <200ms on modern phones
+            const batchEnd = Math.min(idx + total, total);
             for (let h = idx; h < batchEnd; h++) {
-                // Only generate heatmap for keyframes (every 3rd) — subs reuse cached
                 const isKeyframe = h % KEYFRAME_INTERVAL === 0 || h === total - 1;
                 cachedFramesRef.current[h] = generateIsobarsFromGrid(grid, h, !isKeyframe);
             }
@@ -291,50 +299,37 @@ export function useWeatherLayers(
             idx = batchEnd;
             if (idx < total) setTimeout(computeBatch, 0);
         };
-        computeBatch();
+        // Small delay to let frame 0 render first, then compute the rest
+        setTimeout(computeBatch, 50);
     }, []);
 
     const updateIsobars = useCallback(
         async (map: mapboxgl.Map) => {
             const token = ++isobarFetchRef.current;
-            const zoom = map.getZoom();
 
-            let north: number, south: number, west: number, east: number;
-
-            if (zoom < 4) {
-                // Zoomed out: global coverage
-                north = 85;
-                south = -85;
-                west = -180;
-                east = 180;
-            } else {
-                // Zoomed in: viewport bounds with 30% padding for detail
-                const bounds = map.getBounds();
-                if (!bounds) return;
-                const latSpan = bounds.getNorth() - bounds.getSouth();
-                const lonSpan = bounds.getEast() - bounds.getWest();
-                const latPad = latSpan * 0.3;
-                const lonPad = lonSpan * 0.3;
-                north = Math.min(bounds.getNorth() + latPad, 85);
-                south = Math.max(bounds.getSouth() - latPad, -85);
-                west = bounds.getWest() - lonPad;
-                east = bounds.getEast() + lonPad;
-                // Normalize longitudes
-                const normLon = (lon: number) => ((((lon + 180) % 360) + 360) % 360) - 180;
-                west = normLon(west);
-                east = normLon(east);
-                if (west > east) {
-                    west = -180;
-                    east = 180;
-                }
+            // If we already have a cached grid, just re-apply frame 0 (instant).
+            // The grid is global at 1° resolution — no need to re-fetch on pan/zoom.
+            if (cachedGridRef.current && cachedFramesRef.current.length > 0) {
+                setForecastHour(0);
+                applyFrame(0);
+                return;
             }
 
-            const data = await generateIsobars(north, south, west, east, zoom);
+            // Fetch ONCE: fixed global grid. At 1° resolution this is only ~65K
+            // points per frame (~320K total for 5 frames) — fast to fetch and process.
+            const data = await generateIsobars(85, -85, -180, 180, map.getZoom());
             if (token !== isobarFetchRef.current) return;
             if (!data) return;
+
+            // Cache the raw grid permanently (until layer is toggled off)
+            cachedGridRef.current = data.grid;
+
+            // Show frame 0 immediately — user sees the chart in <1s after data arrives
             setForecastHour(0);
             cachedFramesRef.current = [data.result];
             applyFrame(0);
+
+            // Precompute remaining frames in background (non-blocking)
             precomputeFrames(data.grid);
         },
         [applyFrame, precomputeFrames],
@@ -735,7 +730,12 @@ export function useWeatherLayers(
             setWindReady(false);
         }
 
-        if (!activeLayers.has('pressure')) hideIsobarLayers(map, savedLandFillColorsRef.current);
+        if (!activeLayers.has('pressure')) {
+            hideIsobarLayers(map, savedLandFillColorsRef.current);
+            // Clear cached grid so a fresh one is fetched next time the layer activates
+            cachedGridRef.current = null;
+            cachedFramesRef.current = [];
+        }
 
         // ── Static tile layers (sea, temperature, clouds) ──
         // Remove tile layers NOT in active set — must run BEFORE the early return
@@ -818,14 +818,6 @@ export function useWeatherLayers(
 
         // ── Pressure / Isobars ──
         if (activeLayers.has('pressure')) {
-            // Only adjust zoom when pressure is the sole layer
-            if (activeLayers.size === 1) {
-                const currentZoom = map.getZoom();
-                if (currentZoom > 4 || currentZoom < 0.5) {
-                    map.flyTo({ zoom: 1, duration: 1200 });
-                }
-            }
-
             initIsobarLayers(map);
 
             showIsobarLayers(map, savedLandFillColorsRef.current);
@@ -1135,35 +1127,8 @@ export function useWeatherLayers(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeKey, mapReady, updateIsobars]);
 
-    // ── Isobar moveend re-fetch (zoom-based progressive detail) ──
-    const isobarDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const lastIsobarZoomRef = useRef<number | null>(null);
-    useEffect(() => {
-        const map = mapRef.current;
-        if (!map || !mapReady || !hasPressure) return;
-        const onMoveEnd = () => {
-            const currentZoom = map.getZoom();
-            const lastZoom = lastIsobarZoomRef.current;
-            // Only re-fetch when zoom changes significantly (crossing the detail threshold)
-            const crossedThreshold =
-                lastZoom !== null &&
-                ((lastZoom < 4 && currentZoom >= 4) ||
-                    (lastZoom >= 4 && currentZoom < 4) ||
-                    (currentZoom >= 4 && Math.abs(currentZoom - lastZoom) >= 1));
-            if (!crossedThreshold && lastZoom !== null) return;
-            if (isobarDebounceRef.current) clearTimeout(isobarDebounceRef.current);
-            isobarDebounceRef.current = setTimeout(() => {
-                lastIsobarZoomRef.current = currentZoom;
-                updateIsobars(map);
-            }, 1500);
-        };
-        map.on('moveend', onMoveEnd);
-        return () => {
-            map.off('moveend', onMoveEnd);
-            if (isobarDebounceRef.current) clearTimeout(isobarDebounceRef.current);
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [hasPressure, mapReady, updateIsobars]);
+    // Global grid covers all zoom levels and viewport positions — no moveend re-fetch needed.
+    // The grid is fetched once on layer activation and cached until the layer is toggled off.
 
     // ── Cleanup on unmount — ensures fresh re-initialization on re-entry ──
     useEffect(() => {

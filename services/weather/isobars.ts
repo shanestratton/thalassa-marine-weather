@@ -945,8 +945,9 @@ function generatePressureHeatmap(
 
     ctx.putImageData(imgData, 0, 0);
 
-    // Upscale with bilinear smoothing for silky gradients (4× resolution)
-    const SCALE = 4;
+    // Upscale 2× with bilinear smoothing (down from 4× — halves encoding time).
+    // Mapbox GL's own raster resampling further smooths on the GPU, so 2× is plenty.
+    const SCALE = 2;
     const smooth = document.createElement('canvas');
     smooth.width = cols * SCALE;
     smooth.height = rows * SCALE;
@@ -964,7 +965,8 @@ function generatePressureHeatmap(
     const north = lats[rows - 1];
 
     return {
-        dataUrl: (sCtx ? smooth : canvas).toDataURL('image/jpeg', 0.85),
+        // JPEG at 0.7 quality — fast encoding, good enough for a gradient heatmap
+        dataUrl: (sCtx ? smooth : canvas).toDataURL('image/jpeg', 0.7),
         bounds: [west, south, east, north],
     };
 }
