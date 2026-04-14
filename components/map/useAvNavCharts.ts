@@ -149,19 +149,19 @@ export function useAvNavCharts(
         const mapWithFlag = map as mapboxgl.Map & { __chartErrorListening?: boolean };
         if (addedLayersRef.current.size > 0 && !mapWithFlag.__chartErrorListening) {
             mapWithFlag.__chartErrorListening = true;
-            map.on(
-                'error',
-                (
-                    e: mapboxgl.ErrorEvent & { error?: { message?: string; url?: string }; source?: { url?: string } },
-                ) => {
-                    // Extract actual error info from Mapbox's cyclic event object
-                    const msg = e?.error?.message || e?.message || 'unknown';
-                    const url = e?.error?.url || e?.source?.url || '';
-                    if (url.includes(SK_SOURCE_PREFIX) || url.includes('192.168')) {
-                        chartLog(`MAP ERROR: ${msg} | url=${url}`);
-                    }
-                },
-            );
+            map.on('error', (e: mapboxgl.ErrorEvent) => {
+                // Extract actual error info from Mapbox's cyclic event object
+                const evt = e as mapboxgl.ErrorEvent & {
+                    error?: { message?: string; url?: string };
+                    source?: { url?: string };
+                    message?: string;
+                };
+                const msg = evt?.error?.message || evt?.message || 'unknown';
+                const url = evt?.error?.url || evt?.source?.url || '';
+                if (url.includes(SK_SOURCE_PREFIX) || url.includes('192.168')) {
+                    chartLog(`MAP ERROR: ${msg} | url=${url}`);
+                }
+            });
         }
     }, [mapRef, mapReady, availableCharts, enabledChartIds, opacity]);
 
