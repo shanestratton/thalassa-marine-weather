@@ -80,46 +80,48 @@ const SERVICES: ServiceProbe[] = [
     {
         name: 'avnav',
         port: 8080,
-        path: '/api/list?type=chart',
+        // AvNav's PHP handler — this is the endpoint that works on OpenPlotter.
+        // The /api/list endpoint is from newer AvNav; most installs use the PHP one.
+        path: '/viewer/avnav_navi.php?request=list&type=chart',
         validate: (data: unknown, status: number) => {
             if (status < 200 || status >= 400) return false;
-            // Reject HTML error pages (Express "Cannot GET" etc.)
             const text = typeof data === 'string' ? data : JSON.stringify(data ?? '');
             if (text.includes('<!DOCTYPE') || text.includes('Cannot GET')) return false;
-            return true;
+            // Must contain chart items or at least valid JSON structure
+            return text.includes('items') || text.includes('charts') || text.startsWith('{') || text.startsWith('[');
         },
     },
     {
         name: 'avnav-alt',
         port: 8082,
-        path: '/api/list?type=chart',
+        path: '/viewer/avnav_navi.php?request=list&type=chart',
         validate: (data: unknown, status: number) => {
             if (status < 200 || status >= 400) return false;
             const text = typeof data === 'string' ? data : JSON.stringify(data ?? '');
             if (text.includes('<!DOCTYPE') || text.includes('Cannot GET')) return false;
-            return true;
+            return text.includes('items') || text.includes('charts') || text.startsWith('{') || text.startsWith('[');
         },
     },
     {
         name: 'avnav-8081',
         port: 8081,
-        path: '/api/list?type=chart',
+        path: '/viewer/avnav_navi.php?request=list&type=chart',
         validate: (data: unknown, status: number) => {
             if (status < 200 || status >= 400) return false;
             const text = typeof data === 'string' ? data : JSON.stringify(data ?? '');
             if (text.includes('<!DOCTYPE') || text.includes('Cannot GET')) return false;
-            return true;
+            return text.includes('items') || text.includes('charts') || text.startsWith('{') || text.startsWith('[');
         },
     },
     {
         name: 'avnav-8083',
         port: 8083,
-        path: '/api/list?type=chart',
+        path: '/viewer/avnav_navi.php?request=list&type=chart',
         validate: (data: unknown, status: number) => {
             if (status < 200 || status >= 400) return false;
             const text = typeof data === 'string' ? data : JSON.stringify(data ?? '');
             if (text.includes('<!DOCTYPE') || text.includes('Cannot GET')) return false;
-            return true;
+            return text.includes('items') || text.includes('charts') || text.startsWith('{') || text.startsWith('[');
         },
     },
 ];
