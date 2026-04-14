@@ -571,9 +571,9 @@ export function useWeatherLayers(
             map.setMaxBounds(undefined!); // Mapbox runtime API accepts undefined to clear bounds
         }
 
-        // Fly to user only on FIRST layer activation (not every toggle)
+        // Fly to Aus+NZ overview on FIRST layer activation (not every toggle)
         if (layerCount > 0 && prevLayerCountRef.current === 0) {
-            map.flyTo({ center: [location.lon, location.lat], zoom: 5, duration: 800 });
+            map.flyTo({ center: [145, -28], zoom: ausNzMin, duration: 800 });
         }
         prevLayerCountRef.current = layerCount;
         // eslint-disable-next-line react-hooks/exhaustive-deps

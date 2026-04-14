@@ -168,20 +168,42 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         mapboxgl.accessToken = mapboxToken;
 
-        // ── Always centre on the user's real location ──
-        // `location` comes from LocationStore (GPS / last-known / map pin).
-        // Even if a `center` prop is passed (e.g. pin-view), the main MapHub
-        // should always start on the user so they see their own position.
-        const startCenter: [number, number] = [location.lon, location.lat];
+        // ── Aus + NZ bounding box ──
+        const AUS_NZ_WEST = 110;
+        const AUS_NZ_EAST = 180;
+        const AUS_NZ_NORTH = -8;
+        const AUS_NZ_SOUTH = -48;
+        const AUS_NZ_CENTER: [number, number] = [(AUS_NZ_WEST + AUS_NZ_EAST) / 2, (AUS_NZ_NORTH + AUS_NZ_SOUTH) / 2]; // [145, -28]
+
+        // Analytical minZoom — computed BEFORE map creation so we can use
+        // it as the initial zoom level (both countries visible from frame 1).
+        const ausNzFitZoom = (() => {
+            if (embedded || !containerRef.current) return initialZoom;
+            const cw = containerRef.current.clientWidth;
+            const ch = containerRef.current.clientHeight;
+            const lngSpan = AUS_NZ_EAST - AUS_NZ_WEST; // 70°
+            const zoomForWidth = Math.log2((cw * 360) / (lngSpan * 256));
+            const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+            const mercSpan = Math.abs(mercY(AUS_NZ_NORTH) - mercY(AUS_NZ_SOUTH));
+            const spanPxAtZ0 = mercSpan * (256 / (2 * Math.PI));
+            const zoomForHeight = Math.log2(ch / spanPxAtZ0);
+            return Math.max(zoomForWidth, zoomForHeight, 0.5);
+        })();
+
+        // ── Default view: entire Aus + NZ region ──
+        // Centre on the midpoint of the bounding box so both countries are
+        // visible on first load. Embedded maps use the passed center/zoom.
+        const startCenter: [number, number] = embedded ? [location.lon, location.lat] : AUS_NZ_CENTER;
+        const startZoom = embedded ? initialZoom : ausNzFitZoom;
 
         const map = new mapboxgl.Map({
             container: containerRef.current,
             style: mapStyle,
             center: startCenter,
-            zoom: initialZoom,
+            zoom: startZoom,
             attributionControl: false,
             maxZoom: 18,
-            minZoom: embedded ? initialZoom : 1,
+            minZoom: embedded ? initialZoom : ausNzFitZoom,
             renderWorldCopies: true,
             projection: 'mercator' as mapboxgl.MapboxOptions['projection'],
             interactive: true,
@@ -264,37 +286,12 @@ export function useMapInit(opts: UseMapInitOptions) {
             containerRef.current.style.backgroundColor = '#191a1a';
         }
 
-        // Set minZoom so the max zoom-out shows Australia + NZ filling the
-        // screen — user can pan anywhere but can't zoom out to see the whole world.
-        // Bounds: ~110°E (west of Aus) to ~180°E (east of NZ), ~-8°S to ~-48°S.
-        const AUS_NZ_WEST = 110;
-        const AUS_NZ_EAST = 180;
-        const AUS_NZ_NORTH = -8;
-        const AUS_NZ_SOUTH = -48;
-
-        // Analytical minZoom — computed IMMEDIATELY at map creation so it's
-        // available before any weather/chart layer hooks run (eliminates race
-        // condition where hooks read __ausNzMinZoom before idle fires).
-        const analyticalMinZoom = (() => {
-            if (embedded || !containerRef.current) return 0.5;
-            const cw = containerRef.current.clientWidth;
-            const ch = containerRef.current.clientHeight;
-            const lngSpan = AUS_NZ_EAST - AUS_NZ_WEST; // 70°
-            const zoomForWidth = Math.log2((cw * 360) / (lngSpan * 256));
-            // Mercator Y projection for height
-            const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
-            const mercSpan = Math.abs(mercY(AUS_NZ_NORTH) - mercY(AUS_NZ_SOUTH));
-            const spanPxAtZ0 = mercSpan * (256 / (2 * Math.PI));
-            const zoomForHeight = Math.log2(ch / spanPxAtZ0);
-            return Math.max(zoomForWidth, zoomForHeight, 0.5);
-        })();
-
-        map.setMinZoom(analyticalMinZoom);
+        // Store Aus+NZ zoom on map instance so other hooks can read it
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (map as any).__ausNzMinZoom = analyticalMinZoom;
+        (map as any).__ausNzMinZoom = ausNzFitZoom;
 
-        // Refine using map.project() once rendered (more accurate for the
-        // actual viewport/projection state).
+        // Refine minZoom using map.project() once rendered (more accurate
+        // for the actual viewport/projection state).
         const calcFillMinZoom = () => {
             if (embedded || !containerRef.current) return;
             const cw = containerRef.current.clientWidth;
@@ -319,10 +316,10 @@ export function useMapInit(opts: UseMapInitOptions) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (map as any).__ausNzMinZoom = target;
 
-            // If current zoom is wider than the Aus+NZ limit, snap in to the
-            // limit and re-centre on the user's location (no animation on boot).
+            // If current zoom is wider than the Aus+NZ limit, snap to the
+            // exact fit centered on the Aus+NZ midpoint (no animation on boot).
             if (map.getZoom() < target) {
-                map.jumpTo({ center: startCenter, zoom: target });
+                map.jumpTo({ center: AUS_NZ_CENTER, zoom: target });
             }
         };
         map.once('idle', calcFillMinZoom);
