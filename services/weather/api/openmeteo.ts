@@ -333,16 +333,11 @@ export const fetchOpenMeteo = async (
         condition: getWmo(dailyArr.weather_code[i]),
         precipitation: dailyArr.precipitation_sum[i],
         uvIndex: dailyArr.uv_index_max[i],
-        sunrise: new Date(dailyArr.sunrise[i]).toLocaleTimeString('en-GB', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-        }),
-        sunset: new Date(dailyArr.sunset[i]).toLocaleTimeString('en-GB', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-        }),
+        // OpenMeteo returns ISO strings already in the location's timezone
+        // (e.g. "2026-04-15T05:58") — extract HH:MM directly to avoid
+        // Date parsing which silently converts through the device timezone.
+        sunrise: dailyArr.sunrise[i]?.split('T')[1]?.slice(0, 5) || '06:00',
+        sunset: dailyArr.sunset[i]?.split('T')[1]?.slice(0, 5) || '18:00',
         pressure: 1013, // Daily pressure avg not easily available
         cloudCover: 50,
         isEstimated: false,
