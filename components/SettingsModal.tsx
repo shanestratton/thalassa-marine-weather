@@ -3,16 +3,7 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('SettingsModal');
 import { UserSettings } from '../types';
-import {
-    BellIcon,
-    ArrowRightIcon,
-    BoatIcon,
-    StarIcon,
-    GearIcon,
-    ServerIcon,
-    MapPinIcon,
-    RadioTowerIcon,
-} from './Icons';
+import { BellIcon, ArrowRightIcon, BoatIcon, StarIcon, GearIcon, ServerIcon, MapPinIcon } from './Icons';
 import { reverseGeocode } from '../services/weatherService';
 import { useThalassa } from '../context/ThalassaContext';
 import { GpsService } from '../services/GpsService';
@@ -23,8 +14,6 @@ import { VesselTab } from './settings/VesselTab';
 import { GeneralTab } from './settings/GeneralTab';
 import { AccountTab } from './settings/AccountTab';
 import { LocationsTab } from './settings/LocationsTab';
-import { PiCacheTab } from './settings/PiCacheTab';
-
 import { ConfirmDialog } from './ui/ConfirmDialog';
 
 interface SettingsViewProps {
@@ -203,7 +192,7 @@ const MetricInput = ({
     );
 };
 
-type SettingsTab = 'general' | 'account' | 'vessel' | 'alerts' | 'scenery' | 'locations' | 'layout' | 'picache';
+type SettingsTab = 'general' | 'account' | 'vessel' | 'alerts' | 'scenery' | 'locations' | 'layout';
 
 const MENU_ITEMS: {
     id: SettingsTab;
@@ -261,14 +250,6 @@ const MENU_ITEMS: {
         icon: (c) => <StarIcon className={c} />,
         iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10',
         iconHoverBg: 'group-hover:bg-sky-500/25',
-    },
-    {
-        id: 'picache' as SettingsTab,
-        label: 'Pi Cache',
-        description: 'Local data server on your Pi',
-        icon: (c) => <RadioTowerIcon className={c} />,
-        iconBg: 'bg-emerald-500/15 text-emerald-400 shadow-emerald-500/10',
-        iconHoverBg: 'group-hover:bg-emerald-500/25',
     },
 ];
 
@@ -366,12 +347,6 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                             onClick={() => setActiveTab('scenery')}
                             icon={<StarIcon className="w-5 h-5" />}
                             label="AESTHETICS"
-                        />
-                        <NavButton
-                            active={activeTab === 'picache'}
-                            onClick={() => setActiveTab('picache')}
-                            icon={<RadioTowerIcon className="w-5 h-5" />}
-                            label="PI CACHE"
                         />
                     </div>
 
@@ -501,8 +476,6 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         {activeTab === 'alerts' && <AlertsTab settings={settings} onSave={onSave} />}
 
                         {activeTab === 'scenery' && <AestheticsTab settings={settings} onSave={onSave} />}
-
-                        {activeTab === 'picache' && <PiCacheTab settings={settings} onSave={onSave} />}
                     </div>
                 </div>
 

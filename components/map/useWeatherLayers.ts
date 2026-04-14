@@ -549,19 +549,24 @@ export function useWeatherLayers(
         const hasPressureLayer = activeLayers.has('pressure');
         const layerCount = activeLayers.size;
 
+        // Respect the Aus+NZ minZoom floor computed by useMapInit — never
+        // allow zooming out wider than Australia+NZ regardless of active layer.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ausNzMin: number = (map as any).__ausNzMinZoom ?? 3;
+
         if (hasPressureLayer) {
-            // Pressure/synoptic — lock zoom to synoptic range (~3-7)
-            map.setMinZoom(3);
+            // Pressure/synoptic — lock zoom to synoptic range, but not wider than Aus+NZ
+            map.setMinZoom(Math.max(ausNzMin, 3));
             map.setMaxZoom(7);
             map.setMaxBounds(undefined!); // Mapbox runtime API accepts undefined to clear bounds
         } else if (hasWind) {
             // Wind active — constrain min zoom only (overlay handles its own visibility at high zoom)
-            map.setMinZoom(1);
+            map.setMinZoom(ausNzMin);
             map.setMaxZoom(18);
             map.setMaxBounds(undefined!); // Mapbox runtime API accepts undefined to clear bounds
         } else {
-            // No weather layers — full freedom
-            map.setMinZoom(1);
+            // No weather layers — Aus+NZ floor still applies
+            map.setMinZoom(ausNzMin);
             map.setMaxZoom(20);
             map.setMaxBounds(undefined!); // Mapbox runtime API accepts undefined to clear bounds
         }

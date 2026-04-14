@@ -435,31 +435,18 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
         refreshRoute,
     } = useFollowRoute();
 
-    // ── Pi Cache state ──
+    // ── Pi Cache state (silent — no toasts, it's a background service) ──
     const [piStatus, setPiStatus] = useState<PiCacheStatus | null>(null);
-    const piWasReachableRef = useRef(false);
 
     useEffect(() => {
-        // Subscribe to Pi Cache status changes (connect/disconnect events)
         const unsub = piCache.onStatusChange((status) => {
             setPiStatus(status);
-
-            // Toast on connect/disconnect transitions
-            if (status.reachable && !piWasReachableRef.current) {
-                toast.success(
-                    `Pi Cache connected — ${status.discoveredVia || 'local'}${status.latencyMs ? ` · ${status.latencyMs}ms` : ''}`,
-                );
-            } else if (!status.reachable && piWasReachableRef.current) {
-                toast.info('Pi Cache disconnected — using internet');
-            }
-            piWasReachableRef.current = status.reachable;
         });
 
         // Seed initial state
         const initial = piCache.getStatus();
         if (initial.reachable) {
             setPiStatus(initial);
-            piWasReachableRef.current = true;
         }
 
         return unsub;
