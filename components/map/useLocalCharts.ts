@@ -120,7 +120,8 @@ export function useLocalCharts(
                             source: sourceId,
                             paint: {
                                 'raster-opacity': opacity,
-                                'raster-fade-duration': 300,
+                                'raster-fade-duration': 0,
+                                'raster-resampling': 'nearest',
                             },
                         },
                         beforeLayer,

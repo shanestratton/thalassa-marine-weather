@@ -75,7 +75,8 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
                             source: sourceId,
                             paint: {
                                 'raster-opacity': src.opacity,
-                                'raster-fade-duration': 300,
+                                'raster-fade-duration': 0,
+                                'raster-resampling': 'nearest',
                             },
                         },
                         beforeLayer,
