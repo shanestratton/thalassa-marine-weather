@@ -272,6 +272,29 @@ export function useMapInit(opts: UseMapInitOptions) {
         const AUS_NZ_NORTH = -8;
         const AUS_NZ_SOUTH = -48;
 
+        // Analytical minZoom — computed IMMEDIATELY at map creation so it's
+        // available before any weather/chart layer hooks run (eliminates race
+        // condition where hooks read __ausNzMinZoom before idle fires).
+        const analyticalMinZoom = (() => {
+            if (embedded || !containerRef.current) return 0.5;
+            const cw = containerRef.current.clientWidth;
+            const ch = containerRef.current.clientHeight;
+            const lngSpan = AUS_NZ_EAST - AUS_NZ_WEST; // 70°
+            const zoomForWidth = Math.log2((cw * 360) / (lngSpan * 256));
+            // Mercator Y projection for height
+            const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+            const mercSpan = Math.abs(mercY(AUS_NZ_NORTH) - mercY(AUS_NZ_SOUTH));
+            const spanPxAtZ0 = mercSpan * (256 / (2 * Math.PI));
+            const zoomForHeight = Math.log2(ch / spanPxAtZ0);
+            return Math.max(zoomForWidth, zoomForHeight, 0.5);
+        })();
+
+        map.setMinZoom(analyticalMinZoom);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (map as any).__ausNzMinZoom = analyticalMinZoom;
+
+        // Refine using map.project() once rendered (more accurate for the
+        // actual viewport/projection state).
         const calcFillMinZoom = () => {
             if (embedded || !containerRef.current) return;
             const cw = containerRef.current.clientWidth;
@@ -293,6 +316,8 @@ export function useMapInit(opts: UseMapInitOptions) {
             const target = Math.max(zoomForWidth, zoomForHeight, 0.5);
 
             map.setMinZoom(target);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (map as any).__ausNzMinZoom = target;
 
             // If current zoom is wider than the Aus+NZ limit, snap in to the
             // limit and re-centre on the user's location (no animation on boot).
