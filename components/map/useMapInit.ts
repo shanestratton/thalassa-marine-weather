@@ -293,6 +293,11 @@ export function useMapInit(opts: UseMapInitOptions) {
             const target = Math.max(zoomForWidth, zoomForHeight, 0.5);
 
             map.setMinZoom(target);
+            // Store on the map instance so other hooks (useWeatherLayers) can
+            // read it without prop-drilling — the Aus+NZ floor must survive
+            // weather-layer zoom overrides.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            (map as any).__ausNzMinZoom = target;
 
             // If current zoom is wider than the Aus+NZ limit, snap in to the
             // limit and re-centre on the user's location (no animation on boot).
