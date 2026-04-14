@@ -185,7 +185,7 @@ export function useMapInit(opts: UseMapInitOptions) {
             dragRotate: true,
             pitch: 0,
             maxPitch: 60,
-            maxTileCacheSize: 200,
+            maxTileCacheSize: 500,
             // Tile request interceptor — handles two cases:
             // 1. Local MBTiles: mbtiles.local URLs → blob URLs from sql.js (synchronous)
             // 2. ocharts DRM: encrypted URLs for AvNav DRM tile requests
@@ -213,7 +213,13 @@ export function useMapInit(opts: UseMapInitOptions) {
                 }
 
                 // ── ocharts DRM ──
-                if (resourceType === 'Tile' && url.includes('192.168')) {
+                // Match any private/local network tile (192.168.*, 10.*, 172.16-31.*, .local)
+                const isLocalTile =
+                    url.includes('192.168.') ||
+                    url.match(/\/\/10\.\d/) ||
+                    url.match(/\/\/172\.(1[6-9]|2\d|3[01])\./) ||
+                    url.includes('.local');
+                if (resourceType === 'Tile' && isLocalTile) {
                     const charts = AvNavService.getCharts();
                     for (const chart of charts) {
                         if (chart.isDrm && chart.tilesUrl) {
@@ -237,7 +243,7 @@ export function useMapInit(opts: UseMapInitOptions) {
                     piCache.isAvailable() &&
                     url.startsWith('http') &&
                     !url.includes('mbtiles.local/') &&
-                    !url.includes('192.168') &&
+                    !isLocalTile &&
                     !url.includes('api.mapbox.com')
                 ) {
                     const piUrl = piCache.passthroughTileUrl(url);

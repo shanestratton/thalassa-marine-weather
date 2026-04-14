@@ -121,7 +121,6 @@ function bootstrapOchartsDrm(tokenUrl: string): void {
             });
 
             try {
-                // eslint-disable-next-line no-eval
                 (0, eval)(scriptText);
             } catch (evalErr) {
                 await nativeLogAsync(`DRM: eval error: ${(evalErr as Error)?.message || evalErr}`);
@@ -444,6 +443,8 @@ class AvNavServiceClass {
     private serverType: 'signalk' | 'avnav' | null = null; // Auto-detected server type
     private charts: AvNavChart[] = [];
     private enabled = false;
+    /** Monotonic counter — incremented on stop() to invalidate in-flight connect() calls */
+    private _connGen = 0;
 
     private reconnectAttempts = 0;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -541,6 +542,7 @@ class AvNavServiceClass {
     }
 
     stop() {
+        this._connGen++; // Invalidate any in-flight connect() calls
         this.enabled = false;
         this.charts = [];
         this.apiVersion = null;
@@ -593,6 +595,7 @@ class AvNavServiceClass {
 
     private async connect() {
         if (!this.enabled) return;
+        const gen = this._connGen; // Capture generation — if stop() is called, gen becomes stale
         this.setStatus('connecting');
 
         const directUrl = `http://${this.host}:${this.port}`;
@@ -606,23 +609,79 @@ class AvNavServiceClass {
                 const hostsToTry = [this.host];
                 if (this.wanHost && this.wanHost !== this.host) hostsToTry.push(this.wanHost);
 
+                // Try the configured port first, then common AvNav ports.
+                const portsToProbe = [this.port];
+                for (const p of [8080, 8082, 8081, 8083, 8084, 8085]) {
+                    if (!portsToProbe.includes(p)) portsToProbe.push(p);
+                }
+
                 for (const tryHost of hostsToTry) {
-                    const tryUrl = `http://${tryHost}:${this.port}`;
-                    nativeLog(`Trying ${tryHost === this.host ? 'LAN' : 'WAN'}: ${tryUrl}`);
-                    const reachable = await this.probeAvNavWithImage(tryUrl);
+                    if (gen !== this._connGen) {
+                        nativeLog('connect(): superseded (probe loop)');
+                        return;
+                    }
+
+                    let reachable = false;
+                    for (const port of portsToProbe) {
+                        const tryUrl = `http://${tryHost}:${port}`;
+                        nativeLog(`Trying ${tryHost === this.host ? 'LAN' : 'WAN'} port ${port}: ${tryUrl}`);
+                        if (await this.probeAvNavWithImage(tryUrl)) {
+                            reachable = true;
+                            nativeLog(`Host reachable at ${tryUrl}`);
+                            break;
+                        }
+                        if (gen !== this._connGen) {
+                            nativeLog('connect(): superseded (port probe)');
+                            return;
+                        }
+                    }
+
+                    // Fallback: basic HTTP check on well-known ports
+                    if (!reachable) {
+                        for (const port of [3000, 3001, 80]) {
+                            try {
+                                const res = await CapacitorHttp.get({
+                                    url: `http://${tryHost}:${port}/`,
+                                    connectTimeout: 3000,
+                                    readTimeout: 3000,
+                                });
+                                if (res.status >= 200 && res.status < 500) {
+                                    reachable = true;
+                                    nativeLog(`Host reachable via port ${port} (fallback)`);
+                                    break;
+                                }
+                            } catch {
+                                /* continue */
+                            }
+                            if (gen !== this._connGen) {
+                                nativeLog('connect(): superseded (fallback probe)');
+                                return;
+                            }
+                        }
+                    }
+
                     if (reachable) {
+                        if (gen !== this._connGen) {
+                            nativeLog('connect(): superseded (pre-fetch)');
+                            return;
+                        }
                         this.activeHost = tryHost;
-                        nativeLog(`Connected to AvNav at ${tryUrl} (${tryHost === this.host ? 'LAN' : 'WAN'})`);
+                        nativeLog(`Connected to host ${tryHost} (${tryHost === this.host ? 'LAN' : 'WAN'})`);
                         this.reconnectAttempts = 0;
                         this.setStatus('connected');
-                        await this.tryFetchAvNavCharts(tryUrl);
+                        await this.tryFetchAvNavCharts(`http://${tryHost}:${this.port}`);
+                        if (gen !== this._connGen) {
+                            nativeLog('connect(): superseded (post-fetch)');
+                            return;
+                        }
                         this.startHealthCheck();
                         this.startChartRefresh();
                         return;
                     }
                 }
 
-                // Neither LAN nor WAN responded — report error and schedule retry
+                // Neither LAN nor WAN responded
+                if (gen !== this._connGen) return;
                 const triedHosts = hostsToTry.join(', ');
                 nativeLog(`No probe response from any host (${triedHosts}), scheduling reconnect`);
                 this.lastError = `Unreachable: ${triedHosts}`;
@@ -634,13 +693,16 @@ class AvNavServiceClass {
             // ── Auto-detect: try AvNav image probe first ──
             nativeLog(`Probing for AvNav at ${directUrl}...`);
             const isAvNav = await this.probeAvNavWithImage(directUrl);
+            if (gen !== this._connGen) {
+                nativeLog('connect(): superseded (auto-detect)');
+                return;
+            }
             nativeLog(`AvNav probe result: ${isAvNav}`);
             if (isAvNav) {
                 nativeLog(`Connected to AvNav at ${directUrl}`);
                 this.reconnectAttempts = 0;
                 this.setStatus('connected');
 
-                // Create a default chart entry — AvNav always serves tiles at /tiles/
                 this.charts = [
                     {
                         id: 'avnav-default',
@@ -656,7 +718,6 @@ class AvNavServiceClass {
                 this.emitCharts();
                 nativeLog('AvNav: created default chart tile source');
 
-                // Try to discover individual chart sets via fetch (best-effort)
                 this.tryFetchAvNavCharts(directUrl);
 
                 this.startHealthCheck();
@@ -667,6 +728,10 @@ class AvNavServiceClass {
             // ── Try SignalK (fetch-based — works in Capacitor, may fail in browser dev) ──
             const baseUrl = this.getBaseUrl();
             this.apiVersion = await this.detectApiVersion(baseUrl);
+            if (gen !== this._connGen) {
+                nativeLog('connect(): superseded (SK detect)');
+                return;
+            }
 
             if (!this.apiVersion) {
                 throw new Error('No Signal K or AvNav server detected');
@@ -677,13 +742,19 @@ class AvNavServiceClass {
             this.reconnectAttempts = 0;
             this.setStatus('connected');
 
-            // Fetch charts immediately
             await this.fetchCharts();
+            if (gen !== this._connGen) {
+                nativeLog('connect(): superseded (SK charts)');
+                return;
+            }
 
-            // Start health check + chart refresh
             this.startHealthCheck();
             this.startChartRefresh();
         } catch (e: unknown) {
+            if (gen !== this._connGen) {
+                nativeLog('connect(): superseded (catch)');
+                return;
+            }
             const msg = (e as Error)?.message || String(e);
             console.error('[AvNav] Connection failed:', msg);
             nativeLog(`Connection failed: ${msg}`);
@@ -700,6 +771,7 @@ class AvNavServiceClass {
     private async probeAvNavWithImage(baseUrl: string): Promise<boolean> {
         const endpoints = [
             `${baseUrl}/api/status`,
+            `${baseUrl}/viewer/avnav_navi.php?request=list&type=chart`, // query-param version works on some setups
             `${baseUrl}/viewer/avnav_navi.php`,
             `${baseUrl}/api/list?type=chart`,
         ];
@@ -710,7 +782,11 @@ class AvNavServiceClass {
                     connectTimeout: 5000,
                     readTimeout: 5000,
                 });
-                if (res.status >= 200 && res.status < 400) return true;
+                if (res.status < 200 || res.status >= 400) continue;
+                // Reject HTML error pages (Express "Cannot GET" etc.)
+                const text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data ?? '');
+                if (text.includes('<!DOCTYPE') || text.includes('Cannot GET')) continue;
+                return true;
             } catch {
                 /* try next */
             }
@@ -724,14 +800,20 @@ class AvNavServiceClass {
      * chart lists at different URLs.
      * Routes through CapacitorHttp to bypass CORS.
      */
-    private async tryFetchAvNavCharts(directUrl: string) {
-        const apiBase = IS_DEV ? `/__chart-proxy/${this.host}/${this.port}` : directUrl;
-
+    /**
+     * Try to fetch charts from a single AvNav base URL.
+     * Returns discovered charts (may be empty).
+     */
+    private async tryFetchChartsFromBase(apiBase: string): Promise<AvNavChart[]> {
         const endpoints = [
-            `${apiBase}/viewer/avnav_navi.php?request=listdir&type=chart`,
+            `${apiBase}/viewer/avnav_navi.php?request=list&type=chart`,
             `${apiBase}/api/list?type=chart`,
+            `${apiBase}/viewer/avnav_navi.php?request=listdir&type=chart`,
             `${apiBase}/api/charts`,
         ];
+
+        const charts: AvNavChart[] = [];
+        const seenIds = new Set<string>();
 
         for (const chartListUrl of endpoints) {
             await nativeLogAsync(`Trying: ${chartListUrl}`);
@@ -745,7 +827,13 @@ class AvNavServiceClass {
                 if (res.status < 200 || res.status >= 300) continue;
 
                 const text = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
-                await nativeLogAsync(`Body (first 300): ${text.substring(0, 300)}`);
+                // Skip HTML error pages (Express "Cannot GET" etc.)
+                if (text.trimStart().startsWith('<!DOCTYPE') || text.trimStart().startsWith('<html')) {
+                    await nativeLogAsync('Response is HTML (not JSON), skipping...');
+                    continue;
+                }
+
+                await nativeLogAsync(`Body (first 500): ${text.substring(0, 500)}`);
 
                 let data: unknown;
                 try {
@@ -759,34 +847,12 @@ class AvNavServiceClass {
                 await nativeLogAsync(
                     `Parsed ${discovered.length} chart(s): ${discovered.map((c) => `${c.name}[drm=${!!c.isDrm}]`).join(', ')}`,
                 );
-                if (discovered.length > 0) {
-                    // Log each chart's tile URL for debugging
-                    for (const c of discovered) {
-                        await nativeLogAsync(`TILE URL [${c.name}]: ${c.tilesUrl}`);
-                    }
-                    this.charts = discovered;
-                    this.emitCharts();
-                    await nativeLogAsync(`SUCCESS: discovered ${discovered.length} chart set(s)`);
 
-                    // Test-fetch a single tile to verify accessibility
-                    for (const c of discovered) {
-                        const testUrl = c.tilesUrl.replace('{z}', '10').replace('{x}', '900').replace('{y}', '596');
-                        try {
-                            const tileRes = await CapacitorHttp.get({
-                                url: testUrl,
-                                connectTimeout: 5000,
-                                readTimeout: 5000,
-                                responseType: 'blob',
-                            });
-                            await nativeLogAsync(
-                                `TEST TILE [${c.name}]: ${testUrl} → status=${tileRes.status}, content-type=${tileRes.headers?.['content-type']}`,
-                            );
-                        } catch (te) {
-                            await nativeLogAsync(`TEST TILE FAIL [${c.name}]: ${testUrl} → ${(te as Error)?.message}`);
-                        }
+                for (const c of discovered) {
+                    if (!seenIds.has(c.id)) {
+                        seenIds.add(c.id);
+                        charts.push(c);
                     }
-
-                    return;
                 }
             } catch (e) {
                 const msg = (e as Error)?.message || String(e);
@@ -794,13 +860,94 @@ class AvNavServiceClass {
             }
         }
 
-        // Fallback: create a generic tile source
-        const tileBaseUrl = IS_DEV ? `/__chart-proxy/${this.host}/${this.port}` : directUrl;
+        return charts;
+    }
+
+    /**
+     * Discover charts from AvNav.
+     * Scans the configured port first, then tries common alternative AvNav
+     * ports (8080, 8082, 8081, 8083, 8084, 8085) if no charts found.
+     * This handles OpenPlotter setups where AvNav may run on a non-standard port.
+     */
+    private async tryFetchAvNavCharts(directUrl: string) {
+        // Extract host from the configured URL
+        const hostName = this.activeHost || this.host;
+        let configuredPort = this.port;
+        try {
+            const parsed = new URL(directUrl);
+            configuredPort = parseInt(parsed.port, 10) || configuredPort;
+        } catch {
+            /* use default */
+        }
+
+        // Ports to scan: configured first, then common AvNav ports
+        const portsToTry = [configuredPort];
+        for (const p of [8080, 8082, 8081, 8083, 8084, 8085]) {
+            if (!portsToTry.includes(p)) portsToTry.push(p);
+        }
+
+        let allCharts: AvNavChart[] = [];
+        let foundPort = configuredPort;
+
+        for (const port of portsToTry) {
+            const apiBase = IS_DEV ? `/__chart-proxy/${hostName}/${port}` : `http://${hostName}:${port}`;
+
+            await nativeLogAsync(`=== Scanning port ${port} for charts ===`);
+            const discovered = await this.tryFetchChartsFromBase(apiBase);
+
+            if (discovered.length > 0) {
+                allCharts = discovered;
+                foundPort = port;
+                await nativeLogAsync(`✅ Found ${discovered.length} chart(s) on port ${port}`);
+                break; // Stop scanning further ports
+            }
+
+            await nativeLogAsync(`No charts on port ${port}, trying next...`);
+        }
+
+        if (allCharts.length > 0) {
+            // Update port if charts were found on a different port
+            if (foundPort !== configuredPort) {
+                await nativeLogAsync(`Chart service found on alt port ${foundPort} (was ${configuredPort})`);
+                this.port = foundPort;
+                localStorage.setItem('avnav_chart_port', String(foundPort));
+            }
+
+            for (const c of allCharts) {
+                await nativeLogAsync(`TILE URL [${c.name}]: ${c.tilesUrl} (drm=${!!c.isDrm})`);
+            }
+            this.charts = allCharts;
+            this.emitCharts();
+            await nativeLogAsync(`SUCCESS: discovered ${allCharts.length} chart set(s) on port ${foundPort}`);
+
+            // Test-fetch a single tile from each chart to verify accessibility
+            for (const c of allCharts) {
+                const testUrl = c.tilesUrl.replace('{z}', '10').replace('{x}', '900').replace('{y}', '596');
+                try {
+                    const tileRes = await CapacitorHttp.get({
+                        url: testUrl,
+                        connectTimeout: 5000,
+                        readTimeout: 5000,
+                        responseType: 'blob',
+                    });
+                    await nativeLogAsync(
+                        `TEST TILE [${c.name}]: ${testUrl} → status=${tileRes.status}, content-type=${tileRes.headers?.['content-type']}`,
+                    );
+                } catch (te) {
+                    await nativeLogAsync(`TEST TILE FAIL [${c.name}]: ${testUrl} → ${(te as Error)?.message}`);
+                }
+            }
+
+            return;
+        }
+
+        // Fallback: create a generic tile source on the configured port
+        const tileBaseUrl = IS_DEV ? `/__chart-proxy/${hostName}/${configuredPort}` : directUrl;
         this.charts = [
             {
                 id: 'avnav-default',
                 name: 'AvNav Charts',
-                description: `Charts from ${this.host}:${this.port}`,
+                description: `Charts from ${hostName}:${configuredPort}`,
                 tilesUrl: `${tileBaseUrl}/tiles/{z}/{x}/{y}.png`,
                 format: 'png',
                 minZoom: 1,
@@ -809,7 +956,7 @@ class AvNavServiceClass {
             },
         ];
         this.emitCharts();
-        await nativeLogAsync(`FALLBACK: using generic tile source: ${tileBaseUrl}/tiles/{z}/{x}/{y}.png`);
+        await nativeLogAsync(`FALLBACK: no charts found on any port, using generic tile source`);
     }
 
     /**
@@ -861,31 +1008,66 @@ class AvNavServiceClass {
     }
 
     /**
-     * Fetch available charts from an AvNav server.
-     * AvNav serves tiles at: /tiles/{chartName}/{z}/{x}/{y}.png
+     * Fetch available charts from an AvNav server (periodic refresh).
+     * Uses the same multi-port scanning as initial discovery.
      */
     private async fetchAvNavCharts() {
-        const baseUrl = this.getBaseUrl();
+        const hostName = this.activeHost || this.host;
 
-        try {
-            const res = await fetch(`${baseUrl}/api/list?type=chart`, {
-                signal: AbortSignal.timeout(10_000),
-            });
+        // Ports to scan: current port first, then common AvNav ports
+        const portsToTry = [this.port];
+        for (const p of [8080, 8082, 8081, 8083, 8084, 8085]) {
+            if (!portsToTry.includes(p)) portsToTry.push(p);
+        }
 
-            if (!res.ok) {
-                log.info('AvNav: no charts available');
-                this.charts = [];
+        for (const port of portsToTry) {
+            const baseUrl = `http://${hostName}:${port}`;
+            const endpoints = [
+                `${baseUrl}/viewer/avnav_navi.php?request=list&type=chart`,
+                `${baseUrl}/api/list?type=chart`,
+            ];
+
+            const allCharts: AvNavChart[] = [];
+            const seenIds = new Set<string>();
+
+            for (const url of endpoints) {
+                try {
+                    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+                    if (!res.ok) continue;
+                    const text = await res.text();
+                    // Skip HTML error pages
+                    if (text.trimStart().startsWith('<!DOCTYPE') || text.trimStart().startsWith('<html')) continue;
+                    const data = JSON.parse(text);
+                    const discovered = this.parseAvNavCharts(data);
+                    for (const c of discovered) {
+                        if (!seenIds.has(c.id)) {
+                            seenIds.add(c.id);
+                            allCharts.push(c);
+                        }
+                    }
+                } catch {
+                    /* endpoint not available — try next */
+                }
+            }
+
+            if (allCharts.length > 0) {
+                // Update port if found on a different one
+                if (port !== this.port) {
+                    log.info(`Charts found on port ${port} (was ${this.port})`);
+                    this.port = port;
+                    localStorage.setItem('avnav_chart_port', String(port));
+                }
+                this.charts = allCharts;
+                log.info(`AvNav: discovered ${this.charts.length} chart(s) on port ${port}`);
                 this.emitCharts();
                 return;
             }
-
-            const data = await res.json();
-            this.charts = this.parseAvNavCharts(data);
-            log.info(`AvNav: discovered ${this.charts.length} chart(s)`);
-            this.emitCharts();
-        } catch (e) {
-            log.warn('AvNav: failed to fetch charts:', e);
         }
+
+        // No charts found on any port
+        this.charts = [];
+        log.info('AvNav: no charts discovered on any port');
+        this.emitCharts();
     }
 
     /**
@@ -898,15 +1080,30 @@ class AvNavServiceClass {
         const charts: AvNavChart[] = [];
         const items = Array.isArray(data) ? data : data?.items || data?.data || [];
 
+        // The ocharts provider runs locally on the Pi and returns URLs with
+        // "localhost" or "127.0.0.1". From the phone these are unreachable —
+        // rewrite them to the actual Pi host we connected to.
+        const piHost = this.activeHost || this.host;
+        const rewriteLocal = (u: string): string => u.replace(/\/\/(localhost|127\.0\.0\.1)(:\d+)/g, `//${piHost}$2`);
+
         for (const item of items) {
             if (!item || typeof item !== 'object') continue;
 
             const name = String(item.name || item.chartKey || 'Unknown');
-            const chartUrl: string = item.url || '';
+            const chartKey = String(item.chartKey || '');
+            const chartUrl: string = rewriteLocal(item.url || '');
             const hasToken = !!item.tokenUrl; // ocharts DRM-protected chart
 
             // Skip online-only chart definitions (e.g. osm-online.xml)
             if (name.includes('online') || chartUrl.startsWith('http://osm')) continue;
+
+            // Skip system mapproxy charts — these are remote tile proxies
+            // (mp-rws, mp-shom, mp-bsh, etc.) served by the mapproxy plugin.
+            // They're slow over cellular and Thalassa already has its own base maps.
+            if (chartKey.startsWith('system-mapproxy@')) continue;
+
+            // Skip other system/internal charts that aren't user-uploaded or o-charts
+            if (chartKey.startsWith('int@')) continue;
 
             let tilesUrl = '';
 
@@ -920,7 +1117,7 @@ class AvNavServiceClass {
                 }
 
                 // Native: bootstrap the DRM provider with the direct ocharts URL
-                const tokenUrl = String(item.tokenUrl);
+                const tokenUrl = rewriteLocal(String(item.tokenUrl));
                 bootstrapOchartsDrm(tokenUrl);
                 tilesUrl = chartUrl;
             } else if (chartUrl.startsWith('http://') || chartUrl.startsWith('https://')) {

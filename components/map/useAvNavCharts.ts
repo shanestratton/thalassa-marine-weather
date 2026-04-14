@@ -106,7 +106,8 @@ export function useAvNavCharts(
                             source: sourceId,
                             paint: {
                                 'raster-opacity': opacity,
-                                'raster-fade-duration': 300,
+                                'raster-fade-duration': 0,
+                                'raster-resampling': 'nearest',
                             },
                         },
                         beforeLayer,
@@ -145,16 +146,22 @@ export function useAvNavCharts(
         }
 
         // One-time error listener for debugging
-        if (addedLayersRef.current.size > 0 && !(map as any).__chartErrorListening) {
-            (map as any).__chartErrorListening = true;
-            map.on('error', (e: any) => {
-                // Extract actual error info from Mapbox's cyclic event object
-                const msg = e?.error?.message || e?.message || 'unknown';
-                const url = e?.error?.url || e?.source?.url || '';
-                if (url.includes(SK_SOURCE_PREFIX) || url.includes('192.168')) {
-                    chartLog(`MAP ERROR: ${msg} | url=${url}`);
-                }
-            });
+        const mapWithFlag = map as mapboxgl.Map & { __chartErrorListening?: boolean };
+        if (addedLayersRef.current.size > 0 && !mapWithFlag.__chartErrorListening) {
+            mapWithFlag.__chartErrorListening = true;
+            map.on(
+                'error',
+                (
+                    e: mapboxgl.ErrorEvent & { error?: { message?: string; url?: string }; source?: { url?: string } },
+                ) => {
+                    // Extract actual error info from Mapbox's cyclic event object
+                    const msg = e?.error?.message || e?.message || 'unknown';
+                    const url = e?.error?.url || e?.source?.url || '';
+                    if (url.includes(SK_SOURCE_PREFIX) || url.includes('192.168')) {
+                        chartLog(`MAP ERROR: ${msg} | url=${url}`);
+                    }
+                },
+            );
         }
     }, [mapRef, mapReady, availableCharts, enabledChartIds, opacity]);
 
