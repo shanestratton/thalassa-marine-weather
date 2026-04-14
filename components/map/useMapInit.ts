@@ -168,11 +168,16 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         mapboxgl.accessToken = mapboxToken;
 
-        // ── Windy-style: world fills screen, no duplicates, free panning ──
+        // ── Always centre on the user's real location ──
+        // `location` comes from LocationStore (GPS / last-known / map pin).
+        // Even if a `center` prop is passed (e.g. pin-view), the main MapHub
+        // should always start on the user so they see their own position.
+        const startCenter: [number, number] = [location.lon, location.lat];
+
         const map = new mapboxgl.Map({
             container: containerRef.current,
             style: mapStyle,
-            center: center ? [center.lon, center.lat] : [location.lon, location.lat],
+            center: startCenter,
             zoom: initialZoom,
             attributionControl: false,
             maxZoom: 18,
@@ -285,9 +290,15 @@ export function useMapInit(opts: UseMapInitOptions) {
             // Use the more restrictive dimension (whichever needs more zoom to fit)
             const zoomForWidth = z + Math.log2(cw / spanW);
             const zoomForHeight = z + Math.log2(ch / spanH);
-            const target = Math.max(zoomForWidth, zoomForHeight);
+            const target = Math.max(zoomForWidth, zoomForHeight, 0.5);
 
-            map.setMinZoom(Math.max(target, 0.5));
+            map.setMinZoom(target);
+
+            // If current zoom is wider than the Aus+NZ limit, snap in to the
+            // limit and re-centre on the user's location (no animation on boot).
+            if (map.getZoom() < target) {
+                map.jumpTo({ center: startCenter, zoom: target });
+            }
         };
         map.once('idle', calcFillMinZoom);
 
@@ -1046,12 +1057,13 @@ export function useMapInit(opts: UseMapInitOptions) {
 
         mapRef.current = map;
 
-        // Recenter listener
+        // Recenter listener — always centres on user's location, zoom never wider than Aus+NZ
         const handleRecenter = (e: Event) => {
             const detail = (e as CustomEvent).detail;
-            const lat = detail?.lat ?? center?.lat ?? location.lat;
-            const lon = detail?.lon ?? center?.lon ?? location.lon;
-            const zoom = detail?.zoom ?? initialZoom;
+            const lat = detail?.lat ?? location.lat;
+            const lon = detail?.lon ?? location.lon;
+            const minZ = map.getMinZoom();
+            const zoom = Math.max(detail?.zoom ?? initialZoom, minZ);
             map.flyTo({ center: [lon, lat], zoom, duration: 800 });
         };
         window.addEventListener('map-recenter', handleRecenter);
