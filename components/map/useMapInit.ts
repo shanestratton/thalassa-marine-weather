@@ -259,14 +259,34 @@ export function useMapInit(opts: UseMapInitOptions) {
             containerRef.current.style.backgroundColor = '#191a1a';
         }
 
-        // Measure actual world width via map.project(), set minZoom so
-        // one world copy fills the container. No tile-size guessing.
+        // Set minZoom so the max zoom-out shows Australia + NZ filling the
+        // screen — user can pan anywhere but can't zoom out to see the whole world.
+        // Bounds: ~110°E (west of Aus) to ~180°E (east of NZ), ~-8°S to ~-48°S.
+        const AUS_NZ_WEST = 110;
+        const AUS_NZ_EAST = 180;
+        const AUS_NZ_NORTH = -8;
+        const AUS_NZ_SOUTH = -48;
+
         const calcFillMinZoom = () => {
             if (embedded || !containerRef.current) return;
             const cw = containerRef.current.clientWidth;
+            const ch = containerRef.current.clientHeight;
             const z = map.getZoom();
-            const worldPx = map.project([180, 0]).x - map.project([-180, 0]).x;
-            const target = z + Math.log2(cw / worldPx);
+
+            // Measure how many pixels Aus+NZ spans at the current zoom
+            const leftPx = map.project([AUS_NZ_WEST, (AUS_NZ_NORTH + AUS_NZ_SOUTH) / 2]).x;
+            const rightPx = map.project([AUS_NZ_EAST, (AUS_NZ_NORTH + AUS_NZ_SOUTH) / 2]).x;
+            const topPx = map.project([(AUS_NZ_WEST + AUS_NZ_EAST) / 2, AUS_NZ_NORTH]).y;
+            const bottomPx = map.project([(AUS_NZ_WEST + AUS_NZ_EAST) / 2, AUS_NZ_SOUTH]).y;
+
+            const spanW = Math.abs(rightPx - leftPx);
+            const spanH = Math.abs(bottomPx - topPx);
+
+            // Use the more restrictive dimension (whichever needs more zoom to fit)
+            const zoomForWidth = z + Math.log2(cw / spanW);
+            const zoomForHeight = z + Math.log2(ch / spanH);
+            const target = Math.max(zoomForWidth, zoomForHeight);
+
             map.setMinZoom(Math.max(target, 0.5));
         };
         map.once('idle', calcFillMinZoom);
