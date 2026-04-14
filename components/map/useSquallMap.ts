@@ -1,15 +1,15 @@
 /**
  * useSquallMap — Global IR Squall Detection Map
  *
- * Uses NOAA nowCOAST GMGSI longwave IR (~12μm) global composite to
+ * Uses SSEC RealEarth globalir-avn Dvorak-enhanced IR composite to
  * highlight deep convection and squall threats.
  *
  *  Satellite coverage: Global composite (GOES + Himawari + Meteosat)
  *  Resolution: ~4km, hourly updates
- *  Tile source: NOAA nowCOAST ArcGIS (tiles rendered on-the-fly with
- *               exact EPSG:3857 bounds — perfect Web Mercator alignment)
+ *  Tile source: SSEC RealEarth (pre-enhanced Dvorak BD colour curve)
+ *  Zoom clamped ≤ 6 for best tile alignment.
  *
- *  Data source: NOAA GMGSI via Supabase edge proxy
+ *  Data source: SSEC via Supabase edge proxy
  *  Radar overlay: RainViewer (actual precipitation intensity)
  */
 
@@ -29,15 +29,15 @@ const BORDER_LAYER = 'squall-borders-layer';
 const RADAR_SOURCE = 'squall-radar-source';
 const RADAR_LAYER = 'squall-radar-layer';
 
-// ── NOAA nowCOAST GMGSI global IR composite via Supabase edge function proxy ──
-// Switched from SSEC RealEarth (globalir-avn) to GMGSI because nowCOAST
-// generates tiles on-the-fly with explicit EPSG:3857 bounding boxes,
-// guaranteeing perfect Web Mercator tile alignment. Max zoom 8.
+// ── SSEC RealEarth globalir-avn via Supabase edge function proxy ──
+// Uses SSEC Dvorak-enhanced IR composite (reliable, pre-coloured tiles).
+// SSEC/nowCOAST was tested but returns 502 — NOAA service unreliable.
+// Tiles clamped to zoom ≤ 6 where alignment is good.
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 
 /** Build the edge function proxy tile URL with cache-bust */
 function buildTileUrl(cacheBust: number): string {
-    return `${SUPABASE_URL}/functions/v1/satellite-tile?sat=gmgsi&x={x}&y={y}&z={z}&_cb=${cacheBust}`;
+    return `${SUPABASE_URL}/functions/v1/satellite-tile?sat=ssec-ir&x={x}&y={y}&z={z}&_cb=${cacheBust}`;
 }
 
 /**
@@ -184,7 +184,7 @@ export function useSquallMap(
             addSquallHUD(map);
             fetchDataTimestamp(latestTileTime, map);
             isSetUp.current = true;
-            log.info('🌩️ Squall map activated — NOAA GMGSI IR + RainViewer radar (clamped z≤6)');
+            log.info('🌩️ Squall map activated — SSEC IR IR + RainViewer radar (clamped z≤6)');
         }
 
         // ── Live data age ticker (updates every 60s) ──
@@ -578,7 +578,7 @@ function addSquallHUD(map: mapboxgl.Map): void {
     const source = document.createElement('div');
     source.style.cssText =
         'font-size: 8px; color: rgba(255,255,255,0.25); margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 5px;';
-    source.textContent = 'IR: NOAA GMGSI Composite · Radar: RainViewer';
+    source.textContent = 'IR: SSEC Dvorak Enhanced · Radar: RainViewer';
     body.appendChild(source);
 
     // Data Age warning — prominent, tactical
@@ -649,9 +649,9 @@ function cleanupSquallLayers(map: mapboxgl.Map): void {
 async function fetchDataTimestamp(ref: React.MutableRefObject<Date | null>, map: mapboxgl.Map): Promise<void> {
     try {
         // Fetch a sample tile via proxy to get date headers
-        const resp = await fetch(`${SUPABASE_URL}/functions/v1/satellite-tile?sat=gmgsi&x=0&y=0&z=1`);
+        const resp = await fetch(`${SUPABASE_URL}/functions/v1/satellite-tile?sat=ssec-ir&x=0&y=0&z=1`);
         if (!resp.ok) {
-            log.warn(`GMGSI tile fetch failed: ${resp.status}`);
+            log.warn(`SSEC tile fetch failed: ${resp.status}`);
             return;
         }
         // Check X-Satellite-Date header from proxy, or Last-Modified
@@ -659,22 +659,22 @@ async function fetchDataTimestamp(ref: React.MutableRefObject<Date | null>, map:
         const lastMod = resp.headers.get('Last-Modified');
         if (satDate) {
             ref.current = new Date(satDate);
-            log.info(`📡 GMGSI IR tile date: ${satDate}`);
+            log.info(`📡 SSEC IR tile date: ${satDate}`);
             updateDataAge(map, ref.current);
             return;
         }
         if (lastMod) {
             ref.current = new Date(lastMod);
-            log.info(`📡 GMGSI IR tile timestamp: ${lastMod}`);
+            log.info(`📡 SSEC IR tile timestamp: ${lastMod}`);
             updateDataAge(map, ref.current);
             return;
         }
         // Fallback: use current time minus 30 min as estimate
         ref.current = new Date(Date.now() - 30 * 60 * 1000);
         updateDataAge(map, ref.current);
-        log.info('📡 GMGSI timestamp fallback: estimated ~30 min old');
+        log.info('📡 SSEC timestamp fallback: estimated ~30 min old');
     } catch (err) {
-        log.warn('Failed to fetch GMGSI timestamp:', err);
+        log.warn('Failed to fetch SSEC timestamp:', err);
     }
 }
 
