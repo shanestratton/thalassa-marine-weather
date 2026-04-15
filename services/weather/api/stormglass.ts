@@ -9,6 +9,7 @@ import { determineLocationType } from '../locationType';
 import { mergeWeatherData } from './dataSourceMerger';
 import { findAndFetchNearestBeacon } from './beaconService';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
+import { useSettingsStore } from '../../../stores/settingsStore';
 
 import { createLogger } from '../../../utils/createLogger';
 
@@ -75,6 +76,9 @@ export const fetchStormGlassWeather = async (
     const atmosphericParams =
         'windSpeed,gust,windDirection,airTemperature,dewPointTemperature,pressure,cloudCover,visibility,precipitation,humidity';
 
+    // Use the user's preferred offshore model from settings (default: 'sg')
+    const offshoreSource = useSettingsStore.getState().settings.offshoreModel || 'sg';
+
     const weatherParams = {
         lat,
         lng: lon,
@@ -84,7 +88,7 @@ export const fetchStormGlassWeather = async (
                 : marineParams, // Marine-only for coastal/inland
         start,
         end,
-        source: 'sg',
+        source: offshoreSource,
     };
 
     const fetchHybridContext = async () => {

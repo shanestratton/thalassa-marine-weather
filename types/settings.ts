@@ -3,7 +3,7 @@
  */
 
 import type { DisplayMode, DashboardMode, ScreenOrientationType, UnitPreferences } from './units';
-import type { NotificationPreferences, WeatherModel } from './weather';
+import type { NotificationPreferences, WeatherModel, OffshoreModel } from './weather';
 import type { VesselProfile, VesselDimensionUnits } from './vessel';
 import type { PolarData } from './navigation';
 
@@ -44,6 +44,8 @@ export interface UserSettings {
     timeDisplay: 'location' | 'device';
     displayMode: DisplayMode;
     preferredModel: WeatherModel;
+    /** Stormglass source model for offshore (> 20 nm) fetches. Default: 'sg'. */
+    offshoreModel?: OffshoreModel;
     mapboxToken?: string;
     aiPersona?: number;
     heroWidgets?: string[];

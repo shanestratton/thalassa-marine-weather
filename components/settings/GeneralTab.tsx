@@ -5,7 +5,7 @@
 import React from 'react';
 import { Section, Row, type SettingsTabProps } from './SettingsPrimitives';
 import { CompassIcon, ArrowRightIcon, TrashIcon } from '../Icons';
-import type { LengthUnit } from '../../types';
+import type { LengthUnit, OffshoreModel } from '../../types';
 
 interface GeneralTabProps extends SettingsTabProps {
     onLocationSelect: (location: string) => void;
@@ -149,6 +149,84 @@ export const GeneralTab: React.FC<GeneralTabProps> = ({ settings, onSave, onDete
                     </div>
                 </div>
             </Section>
+            {/* Offshore model — Skipper only */}
+            {settings.subscriptionTier === 'owner' && (
+                <Section title="Offshore Weather Model">
+                    <div className="p-4">
+                        <p className="text-xs text-gray-400 mb-4 leading-relaxed">
+                            NWP model used by Stormglass when your vessel is beyond 20 nm offshore.
+                        </p>
+                        <div className="space-y-2">
+                            {(
+                                [
+                                    {
+                                        value: 'sg',
+                                        label: 'Stormglass AI',
+                                        tag: 'Recommended',
+                                        desc: 'AI-blended ensemble — best overall accuracy',
+                                    },
+                                    {
+                                        value: 'ecmwf',
+                                        label: 'ECMWF',
+                                        tag: 'European',
+                                        desc: '9 km global, professional-grade',
+                                    },
+                                    {
+                                        value: 'gfs',
+                                        label: 'GFS / NOAA',
+                                        tag: 'American',
+                                        desc: '25 km global, updates every 6 hours',
+                                    },
+                                    {
+                                        value: 'icon',
+                                        label: 'ICON',
+                                        tag: undefined,
+                                        desc: '13 km global hi-res (DWD)',
+                                    },
+                                ] as { value: OffshoreModel; label: string; tag?: string; desc: string }[]
+                            ).map((opt) => {
+                                const isActive = (settings.offshoreModel || 'sg') === opt.value;
+                                return (
+                                    <button
+                                        key={opt.value}
+                                        aria-label={`Select ${opt.label}`}
+                                        onClick={() => onSave({ offshoreModel: opt.value })}
+                                        className={`w-full text-left p-3 rounded-xl border transition-all duration-200 flex items-center gap-3 ${
+                                            isActive
+                                                ? 'bg-sky-500/10 border-sky-500/30'
+                                                : 'bg-white/[0.02] border-white/5 hover:bg-white/[0.05]'
+                                        }`}
+                                    >
+                                        <div
+                                            className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                                                isActive ? 'border-sky-500' : 'border-white/20'
+                                            }`}
+                                        >
+                                            {isActive && <div className="w-2 h-2 rounded-full bg-sky-400" />}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex items-center gap-2">
+                                                <span
+                                                    className={`text-sm font-bold ${isActive ? 'text-white' : 'text-gray-300'}`}
+                                                >
+                                                    {opt.label}
+                                                </span>
+                                                {opt.tag && (
+                                                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-500">
+                                                        {opt.tag}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <p className="text-xs text-gray-500 mt-0.5">{opt.desc}</p>
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </Section>
+            )}
+
             <Section title="Legal">
                 <div className="p-4">
                     <button
