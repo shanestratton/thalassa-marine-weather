@@ -745,7 +745,7 @@ export function useWeatherLayers(
         // ── Static tile layers (sea, temperature, clouds) ──
         // Remove tile layers NOT in active set — must run BEFORE the early return
         // below, otherwise toggling off the last layer skips cleanup.
-        const TILE_LAYERS: WeatherLayer[] = ['sea', 'temperature', 'clouds'];
+        const TILE_LAYERS: WeatherLayer[] = ['sea', 'temperature', 'clouds', 'waves', 'currents'];
         for (const tl of TILE_LAYERS) {
             const tileId = `tiles-${tl}`;
             if (!activeLayers.has(tl)) {
