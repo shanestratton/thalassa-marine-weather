@@ -23,8 +23,6 @@ const log = createLogger('SquallMap');
 // ── Layer/Source IDs ──
 const SQUALL_SOURCE = 'squall-ir-source';
 const SQUALL_LAYER = 'squall-ir-layer';
-const BORDER_SOURCE = 'squall-borders';
-const BORDER_LAYER = 'squall-borders-layer';
 const RADAR_SOURCE = 'squall-radar-source';
 const RADAR_LAYER = 'squall-radar-layer';
 const SQUALL_HUD_ID = 'squall-map-hud';
@@ -195,7 +193,6 @@ export function useSquallMap(
 
             addSquallLayer(map);
             addRadarLayer(map);
-            addBorderLayer(map);
             addSquallHUD(map);
             fetchDataTimestamp(latestTileTime, map);
             isSetUp.current = true;
@@ -390,12 +387,8 @@ async function addRadarLayer(map: mapboxgl.Map): Promise<void> {
             maxzoom: 6,
         });
 
-        // Insert above IR but below borders
-        const insertBefore = map.getLayer(BORDER_LAYER)
-            ? BORDER_LAYER
-            : map.getLayer('route-line-layer')
-              ? 'route-line-layer'
-              : undefined;
+        // Insert above IR but below nav layers
+        const insertBefore = map.getLayer('route-line-layer') ? 'route-line-layer' : undefined;
 
         map.addLayer(
             {
@@ -431,80 +424,6 @@ async function refreshRadarLayer(map: mapboxgl.Map): Promise<void> {
     }
 }
 
-function addBorderLayer(map: mapboxgl.Map): void {
-    if (map.getSource(BORDER_SOURCE)) return;
-
-    fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json')
-        .then((r) => r.json())
-        .then((topology) => {
-            if (map.getSource(BORDER_SOURCE)) return;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const topo = topology as any;
-            const { scale, translate } = topo.transform;
-            const arcs: number[][][] = topo.arcs.map((arc: number[][]) => {
-                let x = 0,
-                    y = 0;
-                return arc.map(([dx, dy]: number[]) => {
-                    x += dx;
-                    y += dy;
-                    return [x * scale[0] + translate[0], y * scale[1] + translate[1]];
-                });
-            });
-
-            const resolveRing = (indices: number[]): number[][] => {
-                const coords: number[][] = [];
-                for (const idx of indices) {
-                    const arc = idx >= 0 ? arcs[idx] : arcs[~idx].slice().reverse();
-                    coords.push(...(coords.length > 0 ? arc.slice(1) : arc));
-                }
-                return coords;
-            };
-
-            const obj = topo.objects.countries;
-            const features: GeoJSON.Feature[] = [];
-            for (const geom of obj.geometries) {
-                if (geom.type === 'Polygon') {
-                    features.push({
-                        type: 'Feature',
-                        properties: {},
-                        geometry: { type: 'Polygon', coordinates: geom.arcs.map(resolveRing) },
-                    });
-                } else if (geom.type === 'MultiPolygon') {
-                    features.push({
-                        type: 'Feature',
-                        properties: {},
-                        geometry: {
-                            type: 'MultiPolygon',
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            coordinates: geom.arcs.map((polygon: any) => polygon.map(resolveRing)),
-                        },
-                    });
-                }
-            }
-
-            map.addSource(BORDER_SOURCE, {
-                type: 'geojson',
-                data: { type: 'FeatureCollection', features },
-            });
-            map.addLayer({
-                id: BORDER_LAYER,
-                type: 'line',
-                source: BORDER_SOURCE,
-                paint: {
-                    'line-color': '#ffffff',
-                    'line-width': 0.8,
-                    'line-opacity': 0.35,
-                },
-                layout: {
-                    'line-join': 'round',
-                    'line-cap': 'round',
-                },
-            });
-            log.info('🗺️ Added country borders for squall map');
-        })
-        .catch((err) => log.warn('Failed to load squall map borders:', err));
-}
-
 function refreshSquallSource(map: mapboxgl.Map): void {
     try {
         const src = map.getSource(SQUALL_SOURCE) as mapboxgl.RasterTileSource | undefined;
@@ -526,9 +445,6 @@ function cleanupSquallLayers(map: mapboxgl.Map): void {
         // IR layer
         if (map.getLayer(SQUALL_LAYER)) map.removeLayer(SQUALL_LAYER);
         if (map.getSource(SQUALL_SOURCE)) map.removeSource(SQUALL_SOURCE);
-        // Borders
-        if (map.getLayer(BORDER_LAYER)) map.removeLayer(BORDER_LAYER);
-        if (map.getSource(BORDER_SOURCE)) map.removeSource(BORDER_SOURCE);
         // HUD
         const hud = map.getContainer().querySelector(`#${SQUALL_HUD_ID}`);
         if (hud) hud.remove();
