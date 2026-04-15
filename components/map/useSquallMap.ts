@@ -164,12 +164,14 @@ export function useSquallMap(
             map.setMinZoom(minInt);
             map.setMaxZoom(SQUALL_MAX_ZOOM);
 
-            // Integer zoom + fly to user location at AU+NZ default width
-            const targetZoom = Math.max(minInt, Math.min(Math.round(map.getZoom()), SQUALL_MAX_ZOOM));
+            // Always start at AU+NZ default zoom (integer) centred on user.
+            // This matches the app's approved default view — full width of
+            // Australia + NZ visible, user location centred if available.
+            const targetZoom = minInt; // AU+NZ fit zoom, rounded to integer
             if (userLat && userLon && isFinite(userLat) && isFinite(userLon)) {
                 map.flyTo({ center: [userLon, userLat], zoom: targetZoom, duration: 800 });
-            } else if (Math.abs(map.getZoom() - targetZoom) > 0.05) {
-                map.easeTo({ zoom: targetZoom, duration: 300 });
+            } else {
+                map.easeTo({ center: [145, -28], zoom: targetZoom, duration: 400 });
             }
 
             // Snap zoom to integers so tiles render at native resolution

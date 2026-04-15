@@ -478,12 +478,12 @@ const App: React.FC = () => {
                                 />
                             </Suspense>
                         </ErrorBoundary>
-                        {/* System status ℹ button — floating on map view */}
+                        {/* System status ℹ button — floating on map view, aligned with layer FAB row (top-14 = 56px) */}
                         <div
                             className="absolute z-[601] pointer-events-auto"
                             style={{
-                                top: 'calc(env(safe-area-inset-top, 0px) + 12px)',
-                                right: '12px',
+                                top: '56px',
+                                right: '16px',
                             }}
                         >
                             <SystemStatusButton currentView={currentView} onNavigateAnchor={() => setPage('compass')} />
