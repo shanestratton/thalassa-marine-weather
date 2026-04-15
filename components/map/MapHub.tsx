@@ -448,7 +448,13 @@ export const MapHub: React.FC<MapHubProps> = ({
         departure: passage.departure,
         arrival: passage.arrival,
         setMapReady,
-        setActiveLayer: (layer: string) => weather.setActiveLayer(layer as import('./mapConstants').WeatherLayer),
+        setActiveLayer: (layer: string) => {
+            if (layer !== 'none') {
+                setSquallVisible(false);
+                setCycloneVisible(false);
+            }
+            weather.setActiveLayer(layer as import('./mapConstants').WeatherLayer);
+        },
         setDeparture: passage.setDeparture,
         setArrival: passage.setArrival,
         setSettingPoint: passage.setSettingPoint,
@@ -737,12 +743,34 @@ export const MapHub: React.FC<MapHubProps> = ({
                         toggleLayer={weather.toggleLayer}
                         setShowLayerMenu={weather.setShowLayerMenu}
                         aisVisible={aisVisible}
-                        onToggleAis={() => setAisVisible((v) => !v)}
+                        onToggleAis={() => {
+                            setAisVisible((v) => {
+                                if (!v) {
+                                    setSquallVisible(false);
+                                    setCycloneVisible(false);
+                                }
+                                return !v;
+                            });
+                        }}
                         chokepointVisible={chokepointVisible}
-                        onToggleChokepoint={() => setChokepointVisible((v) => !v)}
+                        onToggleChokepoint={() => {
+                            setChokepointVisible((v) => {
+                                if (!v) {
+                                    setSquallVisible(false);
+                                    setCycloneVisible(false);
+                                }
+                                return !v;
+                            });
+                        }}
                         weatherInspectMode={weatherInspectMode}
                         onToggleWeatherInspect={() => {
-                            setWeatherInspectMode((v) => !v);
+                            setWeatherInspectMode((v) => {
+                                if (!v) {
+                                    setSquallVisible(false);
+                                    setCycloneVisible(false);
+                                }
+                                return !v;
+                            });
                             weather.setShowLayerMenu(false);
                         }}
                         cycloneVisible={cycloneVisible}
@@ -781,7 +809,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                             }
                         }}
                         vesselTrackingVisible={vesselTrackingVisible}
-                        onToggleVesselTracking={() => setVesselTrackingVisible((v) => !v)}
+                        onToggleVesselTracking={() => {
+                            setVesselTrackingVisible((v) => {
+                                if (!v) {
+                                    setSquallVisible(false);
+                                    setCycloneVisible(false);
+                                }
+                                return !v;
+                            });
+                        }}
                         onLocateVessel={flyToVessel}
                         skCharts={skCharts.availableCharts}
                         skChartIds={skChartIds}
@@ -798,13 +834,29 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onSkChartOpacityChange={setSkChartOpacity}
                         onFlyToChart={skCharts.flyToChart}
                         seamarkVisible={seamarkVisible}
-                        onToggleSeamark={() => setSeamarkVisible((v) => !v)}
+                        onToggleSeamark={() => {
+                            setSeamarkVisible((v) => {
+                                if (!v) {
+                                    setSquallVisible(false);
+                                    setCycloneVisible(false);
+                                }
+                                return !v;
+                            });
+                        }}
                         seamarkFeatureCount={seamark.featureCount}
                         seamarkLoading={seamark.loading}
                         chartsActive={chartsActive}
                         seamarkMode={seamarkMode}
                         tideStationsVisible={tideStationsVisible}
-                        onToggleTideStations={() => setTideStationsVisible((v) => !v)}
+                        onToggleTideStations={() => {
+                            setTideStationsVisible((v) => {
+                                if (!v) {
+                                    setSquallVisible(false);
+                                    setCycloneVisible(false);
+                                }
+                                return !v;
+                            });
+                        }}
                         tideStationCount={tideStations.stationCount}
                         tideStationLoading={tideStations.loading}
                         chartCatalogSources={chartCatalog.sources}
