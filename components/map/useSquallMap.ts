@@ -1,15 +1,12 @@
 /**
  * useSquallMap — Global IR Squall Detection Map
  *
- * IR satellite: NASA GIBS Himawari-9 Band 13 Clean Infrared (WMTS)
- *   — direct fetch, CORS enabled, no proxy needed
- *   — coverage: Western Pacific / Australia / NZ
- *   — max zoom: 6 (GoogleMapsCompatible_Level6)
+ * Xweather combined overlay: satellite-infrared-color + radar-global
+ *   — single tile request, CORS enabled, no proxy
+ *   — global coverage, all zoom levels
+ *   — auto-refreshes every 10 minutes
  *
- * Radar overlay: RainViewer (actual precipitation intensity)
- *   — XYZ tiles from CDN
- *
- * Zoom: integer-only 3–6 for crisp native tiles
+ * Zoom: integer-only 3–8 for crisp tiles
  */
 
 import { useEffect, useRef } from 'react';
@@ -20,42 +17,25 @@ import type { ActiveCyclone } from '../../services/weather/CycloneTrackingServic
 const log = createLogger('SquallMap');
 
 // ── Layer/Source IDs ──
-const IR_SOURCE = 'squall-ir-source';
-const IR_LAYER = 'squall-ir-layer';
-const RADAR_SOURCE = 'squall-radar-source';
-const RADAR_LAYER = 'squall-radar-layer';
+const XWEATHER_SOURCE = 'squall-xweather-source';
+const XWEATHER_LAYER = 'squall-xweather-layer';
 const SQUALL_HUD_ID = 'squall-map-hud';
 
-// GIBS max zoom for Himawari tiles
-const SQUALL_MAX_ZOOM = 6;
+// Xweather combined layer codes
+const XWEATHER_LAYERS = 'satellite-infrared-color,radar-global';
+const SQUALL_MAX_ZOOM = 8;
 
-/** RainViewer API — returns radar frame paths */
-const RAINVIEWER_API = 'https://api.rainviewer.com/public/weather-maps.json';
+// ── Xweather credentials from env ──
+const XW_ID = import.meta.env.VITE_XWEATHER_CLIENT_ID ?? '';
+const XW_SECRET = import.meta.env.VITE_XWEATHER_CLIENT_SECRET ?? '';
 
 /**
- * Build NASA GIBS WMTS tile URL for Mapbox GL {z}/{x}/{y} substitution.
- *
- * GIBS serves WMTS tiles at: /wmts/epsg3857/best/wmts.cgi?...
- * The TileMatrixSet is GoogleMapsCompatible_Level6 (standard Web Mercator).
- * Mapbox replaces {z}, {x}, {y} with tile coords automatically.
+ * Build Xweather tile URL template.
+ * Format: https://maps.api.xweather.com/{id}_{secret}/{layers}/{z}/{x}/{y}/current.png
+ * The API 302-redirects to timestamped tiles; browser fetch follows automatically.
  */
-function buildGibsTileUrl(dateStr: string): string {
-    const base = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/wmts.cgi';
-    // Mapbox GL will substitute {z}, {x}, {y} at request time
-    return (
-        `${base}?Service=WMTS&Request=GetTile&Version=1.0.0` +
-        `&Layer=Himawari_AHI_Band13_Clean_Infrared` +
-        `&Style=default` +
-        `&TileMatrixSet=GoogleMapsCompatible_Level6` +
-        `&TileMatrix={z}&TileRow={y}&TileCol={x}` +
-        `&Format=image/png` +
-        `&Time=${dateStr}`
-    );
-}
-
-/** Today's date in YYYY-MM-DD for GIBS Time parameter */
-function todayDateStr(): string {
-    return new Date().toISOString().split('T')[0];
+function buildXweatherTileUrl(): string {
+    return `https://maps.api.xweather.com/${XW_ID}_${XW_SECRET}` + `/${XWEATHER_LAYERS}/{z}/{x}/{y}/current.png`;
 }
 
 // ── Hook ──
@@ -100,6 +80,12 @@ export function useSquallMap(
             return;
         }
 
+        // ── Guard: need credentials ──
+        if (!XW_ID || !XW_SECRET) {
+            log.warn('Xweather credentials missing — squall map disabled');
+            return;
+        }
+
         // ── Setup ──
         if (!isSetUp.current) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -128,23 +114,16 @@ export function useSquallMap(
             map.on('zoomend', onZoomEnd);
             zoomSnapRef.current = onZoomEnd;
 
-            // Add satellite IR + radar
-            addIRLayer(map);
-            addRadarLayer(map);
+            // Single combined Xweather tile layer
+            addXweatherLayer(map);
             addSquallHUD(map);
             isSetUp.current = true;
-            log.info('🌩️ Squall map activated — GIBS Himawari IR + RainViewer radar');
+            log.info('⛈️ Squall map activated — Xweather satellite-IR + radar');
         }
 
-        // Auto-refresh every 10 minutes
+        // Auto-refresh every 10 minutes (forces new "current" tiles)
         if (!refreshTimer.current) {
-            refreshTimer.current = setInterval(
-                () => {
-                    refreshIRLayer(map);
-                    refreshRadarLayer(map);
-                },
-                10 * 60 * 1000,
-            );
+            refreshTimer.current = setInterval(() => refreshXweatherLayer(map), 10 * 60 * 1000);
         }
 
         return () => {
@@ -185,19 +164,19 @@ export function useSquallMap(
     }, [visible, mapReady, allCyclones?.length]);
 }
 
-// ── NASA GIBS IR Layer ──
+// ── Xweather Combined Layer ──
 
-function addIRLayer(map: mapboxgl.Map): void {
+function addXweatherLayer(map: mapboxgl.Map): void {
     try {
-        if (map.getLayer(IR_LAYER)) map.removeLayer(IR_LAYER);
-        if (map.getSource(IR_SOURCE)) map.removeSource(IR_SOURCE);
+        if (map.getLayer(XWEATHER_LAYER)) map.removeLayer(XWEATHER_LAYER);
+        if (map.getSource(XWEATHER_SOURCE)) map.removeSource(XWEATHER_SOURCE);
     } catch {
         /* ignore */
     }
 
-    map.addSource(IR_SOURCE, {
+    map.addSource(XWEATHER_SOURCE, {
         type: 'raster',
-        tiles: [buildGibsTileUrl(todayDateStr())],
+        tiles: [buildXweatherTileUrl()],
         tileSize: 256,
         maxzoom: SQUALL_MAX_ZOOM,
     });
@@ -205,94 +184,31 @@ function addIRLayer(map: mapboxgl.Map): void {
     const insertBefore = map.getLayer('route-line-layer') ? 'route-line-layer' : undefined;
     map.addLayer(
         {
-            id: IR_LAYER,
+            id: XWEATHER_LAYER,
             type: 'raster',
-            source: IR_SOURCE,
+            source: XWEATHER_SOURCE,
             paint: {
                 'raster-opacity': 0.85,
                 'raster-fade-duration': 0,
-                'raster-resampling': 'nearest',
             },
         },
         insertBefore,
     );
-    log.info(`📡 GIBS Himawari IR added (date: ${todayDateStr()})`);
+    log.info('📡 Xweather satellite-IR + radar tiles added');
+    updateHudAge(map, 0); // Xweather "current" is always near-realtime
 }
 
-function refreshIRLayer(map: mapboxgl.Map): void {
+function refreshXweatherLayer(map: mapboxgl.Map): void {
     try {
-        const src = map.getSource(IR_SOURCE) as mapboxgl.RasterTileSource | undefined;
+        const src = map.getSource(XWEATHER_SOURCE) as mapboxgl.RasterTileSource | undefined;
         if (src) {
-            src.setTiles([buildGibsTileUrl(todayDateStr())]);
-            log.info('🔄 GIBS IR refreshed');
+            // Re-set the same URL template — browser busts cache via 302 redirect to new timestamp
+            src.setTiles([buildXweatherTileUrl()]);
+            updateHudAge(map, 0);
+            log.info('🔄 Xweather tiles refreshed');
         }
     } catch (err) {
-        log.warn('Failed to refresh GIBS IR:', err);
-    }
-}
-
-// ── RainViewer Radar Layer ──
-
-async function addRadarLayer(map: mapboxgl.Map): Promise<void> {
-    try {
-        const data = await fetch(RAINVIEWER_API).then((r) => r.json());
-        const past: { path: string; time: number }[] = data?.radar?.past ?? [];
-        if (past.length === 0) {
-            log.warn('No RainViewer radar frames available');
-            return;
-        }
-        const latest = past[past.length - 1];
-        const tileUrl = `https://tilecache.rainviewer.com${latest.path}/256/{z}/{x}/{y}/4/1_1.png`;
-
-        if (map.getLayer(RADAR_LAYER)) map.removeLayer(RADAR_LAYER);
-        if (map.getSource(RADAR_SOURCE)) map.removeSource(RADAR_SOURCE);
-
-        map.addSource(RADAR_SOURCE, {
-            type: 'raster',
-            tiles: [tileUrl],
-            tileSize: 256,
-            maxzoom: SQUALL_MAX_ZOOM,
-        });
-
-        const insertBefore = map.getLayer('route-line-layer') ? 'route-line-layer' : undefined;
-        map.addLayer(
-            {
-                id: RADAR_LAYER,
-                type: 'raster',
-                source: RADAR_SOURCE,
-                paint: {
-                    'raster-opacity': 0.65,
-                    'raster-fade-duration': 0,
-                    'raster-resampling': 'nearest',
-                },
-            },
-            insertBefore,
-        );
-
-        const radarAge = Math.round((Date.now() / 1000 - latest.time) / 60);
-        log.info(`🌧️ RainViewer radar added (${radarAge} min old)`);
-        updateHudAge(map, radarAge);
-    } catch (err) {
-        log.warn('Failed to add RainViewer radar:', err);
-    }
-}
-
-async function refreshRadarLayer(map: mapboxgl.Map): Promise<void> {
-    try {
-        const data = await fetch(RAINVIEWER_API).then((r) => r.json());
-        const past: { path: string; time: number }[] = data?.radar?.past ?? [];
-        if (past.length === 0) return;
-        const latest = past[past.length - 1];
-        const tileUrl = `https://tilecache.rainviewer.com${latest.path}/256/{z}/{x}/{y}/4/1_1.png`;
-        const src = map.getSource(RADAR_SOURCE) as mapboxgl.RasterTileSource | undefined;
-        if (src) {
-            src.setTiles([tileUrl]);
-            const radarAge = Math.round((Date.now() / 1000 - latest.time) / 60);
-            updateHudAge(map, radarAge);
-            log.info(`🔄 Radar refreshed (${radarAge} min old)`);
-        }
-    } catch (err) {
-        log.warn('Failed to refresh radar:', err);
+        log.warn('Failed to refresh Xweather tiles:', err);
     }
 }
 
@@ -300,10 +216,8 @@ async function refreshRadarLayer(map: mapboxgl.Map): Promise<void> {
 
 function cleanupLayers(map: mapboxgl.Map): void {
     try {
-        if (map.getLayer(RADAR_LAYER)) map.removeLayer(RADAR_LAYER);
-        if (map.getSource(RADAR_SOURCE)) map.removeSource(RADAR_SOURCE);
-        if (map.getLayer(IR_LAYER)) map.removeLayer(IR_LAYER);
-        if (map.getSource(IR_SOURCE)) map.removeSource(IR_SOURCE);
+        if (map.getLayer(XWEATHER_LAYER)) map.removeLayer(XWEATHER_LAYER);
+        if (map.getSource(XWEATHER_SOURCE)) map.removeSource(XWEATHER_SOURCE);
         const hud = map.getContainer().querySelector(`#${SQUALL_HUD_ID}`);
         if (hud) hud.remove();
     } catch (err) {
@@ -346,7 +260,7 @@ function addSquallHUD(map: mapboxgl.Map): void {
     const ageText = document.createElement('span');
     ageText.id = 'squall-age-text';
     ageText.style.cssText = 'font-size: 10px; font-weight: 700; color: #22c55e; letter-spacing: 0.3px;';
-    ageText.textContent = '—';
+    ageText.textContent = 'LIVE';
     hud.appendChild(ageText);
 
     map.getContainer().appendChild(hud);
@@ -356,19 +270,18 @@ function updateHudAge(map: mapboxgl.Map, ageMin: number): void {
     const el = map.getContainer().querySelector('#squall-age-text') as HTMLElement | null;
     if (!el) return;
 
-    let ageStr: string;
-    if (ageMin < 1) ageStr = '< 1m';
-    else if (ageMin < 60) ageStr = `${ageMin}m`;
-    else {
+    if (ageMin <= 5) {
+        el.textContent = 'LIVE';
+        el.style.color = '#22c55e';
+    } else if (ageMin < 60) {
+        el.textContent = `${ageMin}m`;
+        el.style.color = ageMin <= 30 ? '#22c55e' : '#FFA500';
+    } else {
         const h = Math.floor(ageMin / 60);
         const m = ageMin % 60;
-        ageStr = m > 0 ? `${h}h ${m}m` : `${h}h`;
+        el.textContent = m > 0 ? `${h}h ${m}m` : `${h}h`;
+        el.style.color = '#ef4444';
     }
-    el.textContent = ageStr;
-
-    if (ageMin <= 30) el.style.color = '#22c55e';
-    else if (ageMin <= 60) el.style.color = '#FFA500';
-    else el.style.color = '#ef4444';
 }
 
 // ── Cyclone spinner ──
