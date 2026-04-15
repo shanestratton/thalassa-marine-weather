@@ -796,7 +796,10 @@ function drawForecastDots(
     projected: { px: mapboxgl.Point; point: CyclonePosition }[],
     zoom: number,
 ) {
-    const showLabels = zoom >= 7;
+    // Show compact time labels at z6+ (one zoom in from the default z5 view)
+    // Full labels (wind/pressure pills) at z7+
+    const showTimeLabels = zoom >= 6;
+    const showFullLabels = zoom >= 7;
 
     for (let i = 0; i < projected.length; i++) {
         const { px, point } = projected[i];
@@ -837,14 +840,43 @@ function drawForecastDots(
             svg.appendChild(catText);
         }
 
-        if (!showLabels || !point.time) continue;
+        if (!point.time) continue;
 
-        // Format forecast time
+        // Format forecast time in device local timezone
         const d = new Date(point.time);
         const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const h = d.getUTCHours();
-        const hourStr = h >= 12 ? `${h === 12 ? 12 : h - 12} PM` : `${h === 0 ? 12 : h} AM`;
-        const timeLabel = `${dayNames[d.getUTCDay()]} ${hourStr}`;
+        const localH = d.getHours();
+        const localM = d.getMinutes();
+        const ampm = localH >= 12 ? 'PM' : 'AM';
+        const h12 = localH === 0 ? 12 : localH > 12 ? localH - 12 : localH;
+        const minStr = localM > 0 ? `:${String(localM).padStart(2, '0')}` : '';
+        // Detect timezone abbreviation (e.g. AEST, EST, PST)
+        const tzAbbr = d.toLocaleTimeString('en-AU', { timeZoneName: 'short' }).split(' ').pop() || '';
+
+        // ── Compact time label at z6 (just "Cat · 3:15 PM AEST" beside the dot) ──
+        if (showTimeLabels && !showFullLabels) {
+            const catPrefix = cat >= 1 ? `${cat}. ` : '';
+            const compactLabel = `${catPrefix}${h12}${minStr} ${ampm}`;
+            const labelRight = i % 2 === 0;
+            const xOff = labelRight ? 12 : -12;
+
+            const txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            txt.setAttribute('x', String(px.x + xOff));
+            txt.setAttribute('y', String(px.y + 3));
+            txt.setAttribute('fill', 'rgba(255,255,255,0.85)');
+            txt.setAttribute('font-size', '9');
+            txt.setAttribute('font-weight', '700');
+            txt.setAttribute('font-family', 'system-ui, -apple-system, sans-serif');
+            txt.setAttribute('text-anchor', labelRight ? 'start' : 'end');
+            txt.textContent = compactLabel;
+            svg.appendChild(txt);
+            continue;
+        }
+
+        if (!showFullLabels) continue;
+
+        // Full label format for z7+
+        const timeLabel = `${dayNames[d.getDay()]} ${h12}${minStr} ${ampm} ${tzAbbr}`;
 
         const windStr = point.windKts ? `${point.windKts}kt` : '';
         const presStr = point.pressureMb ? `${point.pressureMb}hPa` : '';
@@ -867,8 +899,8 @@ function drawForecastDots(
         connector.setAttribute('stroke-dasharray', '2,2');
         g.appendChild(connector);
 
-        // Background
-        const pillW = 88;
+        // Background (wider to fit timezone abbreviation)
+        const pillW = 110;
         const pillH = 30;
         const rx = px.x + xOff + (labelRight ? 0 : -pillW);
         const ry = px.y - pillH / 2;
@@ -1435,27 +1467,8 @@ export function useCycloneLayer(
                 markersRef.current.push(marker);
             }
 
-            // ── HUD badge for focused storm ──
-            if (!focusedStorm) return;
-
-            // Create fixed-position HUD container in top-left of map
-            const hud = document.createElement('div');
-            hud.id = HUD_CONTAINER_ID;
-            hud.style.cssText = `
-                position: absolute;
-                top: 56px;
-                left: 16px;
-                z-index: 600;
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-                pointer-events: none;
-            `;
-
-            const badge = createStormBadge(focusedStorm);
-            hud.appendChild(badge);
-
-            map.getContainer().appendChild(hud);
+            // HUD badge removed — the storm marker + forecast track provide
+            // all the info the user needs. Less clutter on the chart.
         };
 
         let lastZoomInt = Math.round(map.getZoom());
@@ -1721,27 +1734,6 @@ export function useCycloneLayer(
         stormCenterRef.current = newCenter;
         selfMoveRef.current = true;
         map.flyTo({ center: newCenter, zoom: Math.min(map.getZoom(), CYCLONE_MAX_ZOOM), duration: 1200 });
-
-        const HUD_CONTAINER_ID = 'cyclone-hud-badges';
-        const old = map.getContainer().querySelector(`#${HUD_CONTAINER_ID}`);
-        if (old) old.remove();
-
-        const hud = document.createElement('div');
-        hud.id = HUD_CONTAINER_ID;
-        hud.style.cssText = `
-            position: absolute;
-            top: 56px;
-            left: 16px;
-            z-index: 600;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-            pointer-events: none;
-        `;
-
-        const badge = createStormBadgeStatic(selectedStorm);
-        hud.appendChild(badge);
-        map.getContainer().appendChild(hud);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedStorm?.sid, visible, mapReady]);
 }
