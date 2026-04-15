@@ -11,6 +11,7 @@ import { QuickTipsStep } from './onboarding/QuickTipsStep';
 import { HomePortStep } from './onboarding/HomePortStep';
 import { RoleSelectionStep } from './onboarding/RoleSelectionStep';
 import { DisplayPrefsStep } from './onboarding/DisplayPrefsStep';
+import { OffshoreModelStep } from './onboarding/OffshoreModelStep';
 import {
     UserSettings,
     VesselProfile,
@@ -22,6 +23,7 @@ import {
     VolumeUnit,
     WeatherModel,
     PolarData,
+    OffshoreModel,
 } from '../types';
 import type { SubscriptionTier } from '../types/settings';
 import { ArrowRightIcon } from './Icons';
@@ -108,6 +110,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     const [prefLength, setPrefLength] = useState<LengthUnit>(defaults.length);
     const [prefWaveHeight, setPrefWaveHeight] = useState<LengthUnit>('m'); // Default to Meters per user request
     const [preferredModel, _setPreferredModel] = useState<WeatherModel>('best_match');
+    const [offshoreModel, setOffshoreModel] = useState<OffshoreModel>('sg');
 
     // Display preferences
     const [prefAlwaysOn, setPrefAlwaysOn] = useState(false);
@@ -165,9 +168,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                 });
         }
 
-        // Conditional step routing: non-Skippers skip vessel details (step 5)
+        // Conditional step routing: non-Skippers skip vessel details (5) + offshore model (6)
         if (step === 4 && subscriptionTier !== 'owner') {
-            setStep(6); // Jump to unit preferences
+            setStep(7); // Jump to unit preferences
             return;
         }
 
@@ -175,8 +178,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     };
 
     const handleBack = () => {
-        // If going back from step 6 and non-Skipper, jump to step 4 (skip vessel details)
-        if (step === 6 && subscriptionTier !== 'owner') {
+        // If going back from step 7 and non-Skipper, jump to step 4 (skip vessel + offshore model)
+        if (step === 7 && subscriptionTier !== 'owner') {
             setStep(4);
             return;
         }
@@ -442,6 +445,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                 volume: volUnit,
             },
             preferredModel: preferredModel,
+            offshoreModel: offshoreModel,
             savedLocations: [homePort],
             alwaysOn: prefAlwaysOn,
             screenOrientation: prefOrientation,
@@ -575,7 +579,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                     />
                 )}
 
+                {/* STEP 6: OFFSHORE MODEL (Skipper only) */}
                 {step === 6 && (
+                    <OffshoreModelStep selected={offshoreModel} onChange={setOffshoreModel} onNext={handleNext} />
+                )}
+
+                {step === 7 && (
                     <UnitPreferencesStep
                         prefSpeed={prefSpeed}
                         onSpeedChange={setPrefSpeed}
@@ -591,8 +600,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                     />
                 )}
 
-                {/* STEP 7: DISPLAY PREFERENCES */}
-                {step === 7 && (
+                {/* STEP 8: DISPLAY PREFERENCES */}
+                {step === 8 && (
                     <DisplayPrefsStep
                         prefAlwaysOn={prefAlwaysOn}
                         onAlwaysOnChange={setPrefAlwaysOn}
@@ -604,7 +613,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
 
                 {/* Progress Dots */}
                 <div className="flex justify-center gap-2 mt-8">
-                    {[1, 2, 3, 4, 5, 6, 7].map((i) => (
+                    {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
                         <div
                             key={i}
                             className={`w-2 h-2 rounded-full transition-all ${step >= i ? 'bg-sky-500 w-4' : 'bg-gray-700'}`}

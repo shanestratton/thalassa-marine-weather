@@ -11,6 +11,19 @@ export type WeatherModel =
     | 'icon_seamless'
     | 'bom_access_global'
     | 'gfs_global';
+
+/**
+ * Stormglass offshore model source parameter.
+ * Controls which NWP model backs the Stormglass API when the vessel
+ * crosses the 20 nm offshore boundary.
+ *
+ *  - `sg`   — Stormglass AI (blended ensemble, recommended)
+ *  - `ecmwf` — ECMWF IFS (European standard, 9 km global)
+ *  - `gfs`   — GFS / NOAA (American standard, 25 km global)
+ *  - `icon`  — DWD ICON (German global hi-res, 13 km)
+ */
+export type OffshoreModel = 'sg' | 'ecmwf' | 'gfs' | 'icon';
+
 export type WeatherConditionKey = 'rain' | 'storm' | 'fog' | 'cloudy' | 'night' | 'sunny' | 'default';
 
 export interface GridPoint {

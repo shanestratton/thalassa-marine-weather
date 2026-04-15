@@ -43,6 +43,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     timeDisplay: 'location',
     displayMode: 'dark',
     preferredModel: 'best_match',
+    offshoreModel: 'sg',
     aiPersona: 50,
     heroWidgets: ['wind', 'wave', 'pressure'],
     detailsWidgets: ['score', 'pressure', 'humidity', 'precip', 'cloud', 'visibility', 'chill', 'swell'],
