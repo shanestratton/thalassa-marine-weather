@@ -52,6 +52,7 @@ import { useChartCatalog } from './useChartCatalog';
 import { useLocalCharts } from './useLocalCharts';
 import { useSeamarkLayer } from './useSeamarkLayer';
 import { useTideStationLayer } from './useTideStationLayer';
+import { useLightningLayer } from './useLightningLayer';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import { type ActiveCyclone, fetchActiveCyclones } from '../../services/weather/CycloneTrackingService';
 import { AisLegend } from './AisLegend';
@@ -263,6 +264,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [vesselTrackingVisible, setVesselTrackingVisible] = useState(true); // On by default
     const [seamarkVisible, setSeamarkVisible] = useState(false);
     const [tideStationsVisible, setTideStationsVisible] = useState(false);
+    const [lightningVisible, setLightningVisible] = useState(false);
     const [skChartIds, setSkChartIds] = useState<Set<string>>(new Set());
     const [skChartOpacity, setSkChartOpacity] = useState(0.7);
     const [localChartIds, setLocalChartIds] = useState<Set<string>>(new Set());
@@ -620,6 +622,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Tide Station Markers ──
     const tideStations = useTideStationLayer(mapRef, mapReady, tideStationsVisible);
 
+    // ── Lightning Strikes (Xweather GLD360) ──
+    useLightningLayer(mapRef, mapReady, lightningVisible);
+
     // ── Hide OpenSeaMap raster overlay when o-charts provide native icons ──
     // The openseamap-overlay (PNG tiles) is baked into the map style and shows
     // its own seamark icons. When o-charts are active they render their own
@@ -741,6 +746,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                         center={center}
                         mapRef={mapRef}
                         toggleLayer={weather.toggleLayer}
+                        onSelectBaseWeather={(layer) => {
+                            if (layer === 'none') {
+                                weather.setActiveLayer('none');
+                            } else {
+                                // Radio select: dismiss satellite overlays, set single base weather
+                                setSquallVisible(false);
+                                setCycloneVisible(false);
+                                weather.setActiveLayer(layer as import('./mapConstants').WeatherLayer);
+                            }
+                        }}
                         setShowLayerMenu={weather.setShowLayerMenu}
                         aisVisible={aisVisible}
                         onToggleAis={() => {
@@ -807,6 +822,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 setWeatherInspectMode(false);
                                 weather.setActiveLayer('none');
                             }
+                        }}
+                        lightningVisible={lightningVisible}
+                        onToggleLightning={() => {
+                            setLightningVisible((v) => !v);
                         }}
                         vesselTrackingVisible={vesselTrackingVisible}
                         onToggleVesselTracking={() => {

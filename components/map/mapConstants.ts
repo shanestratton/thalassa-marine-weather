@@ -35,7 +35,9 @@ export type WeatherLayer =
     | 'pressure'
     | 'sea'
     | 'satellite'
-    | 'velocity';
+    | 'velocity'
+    | 'waves'
+    | 'currents';
 
 // ── Tile sources ──
 function getOwmKey(): string {
@@ -46,6 +48,18 @@ function getOwmKey(): string {
         /* SSR / non-Vite context */
     }
     return '';
+}
+
+function getXweatherCreds(): { id: string; secret: string } | null {
+    try {
+        const env = import.meta.env;
+        const id = env?.VITE_XWEATHER_CLIENT_ID;
+        const secret = env?.VITE_XWEATHER_CLIENT_SECRET;
+        if (id && secret) return { id, secret };
+    } catch {
+        /* SSR / non-Vite context */
+    }
+    return null;
 }
 
 export const STATIC_TILES: Record<string, string> = {
@@ -60,6 +74,16 @@ export function getTileUrl(layer: string): string | undefined {
     if (!owmKey) return undefined;
     if (layer === 'temperature') return `https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${owmKey}`;
     if (layer === 'clouds') return `https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmKey}`;
+
+    // Xweather maritime tile layers
+    const xw = getXweatherCreds();
+    if (xw) {
+        if (layer === 'waves')
+            return `https://maps.api.xweather.com/${xw.id}_${xw.secret}/wave-heights/{z}/{x}/{y}/current.png`;
+        if (layer === 'currents')
+            return `https://maps.api.xweather.com/${xw.id}_${xw.secret}/ocean-currents/{z}/{x}/{y}/current.png`;
+    }
+
     return undefined;
 }
 
