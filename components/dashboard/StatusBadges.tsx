@@ -105,8 +105,8 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         fallbackInland,
         stationId: _stationId,
         locationType,
-        beaconName,
-        buoyName,
+        beaconName: _beaconName,
+        buoyName: _buoyName,
         sources,
         activeData,
         isLive = true,
@@ -133,26 +133,6 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             // Re-check after each sync completes
         }, [isSyncing]);
         const piIsServing = piFetchStats?.lastSource === 'pi-cache' || piFetchStats?.lastSource === 'pi-stale';
-
-        const shortenSourceName = (name: string): string => {
-            name = name.replace(/Brisbane/i, 'Bris');
-            name = name.replace(/Moreton Bay/i, 'MB');
-            name = name.replace(/Central/i, 'Ctr');
-            name = name.replace(/Inner/i, 'In');
-            name = name.replace(/Outer/i, 'Out');
-            name = name.replace(/Beacon/i, 'Bcn');
-            name = name.replace(/Point/i, 'Pt');
-            name = name.replace(/ Bay/i, 'B');
-            name = name.replace(/North/i, 'N');
-            name = name.replace(/South/i, 'S');
-            name = name.replace(/East/i, 'E');
-            name = name.replace(/West/i, 'W');
-            name = name.replace(/BUOY/i, 'BY');
-            if (name.length > 12) {
-                name = name.substring(0, 10) + '..';
-            }
-            return name;
-        };
 
         // Derive unique active sources from the sources map
         const activeSources = useMemo(() => {
@@ -259,9 +239,11 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             <>
                 <div className="px-0 shrink-0 relative z-20">
                     <div className="flex items-center justify-between gap-2 w-full mb-0">
-                        {/* Coastal / Offshore Badge */}
-                        <div
-                            className={`px-2 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${statusBadgeColor} bg-black/40 min-w-[78px] text-center transition-all duration-500 flex items-center justify-center gap-1.5`}
+                        {/* Coastal / Offshore Badge — tap to see data sources */}
+                        <button
+                            onClick={() => setShowInfoModal(true)}
+                            aria-label="View data sources"
+                            className={`px-2 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${statusBadgeColor} bg-black/40 min-w-[78px] text-center transition-all duration-500 flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.95]`}
                         >
                             {statusBadgePulse && (
                                 <span className="relative flex w-1.5 h-1.5 shrink-0">
@@ -270,55 +252,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                 </span>
                             )}
                             {statusBadgeLabel}
-                        </div>
-
-                        {/* AI Blend Telemetry — read-only HUD status (tap for details) */}
-                        <div
-                            onClick={() => setShowInfoModal(true)}
-                            role="status"
-                            aria-label="AI data blend status"
-                            className="flex-1 min-w-0 flex items-center justify-center gap-1.5 overflow-hidden cursor-pointer px-1"
-                        >
-                            {/* Pulsing live dot */}
-                            <span className="relative shrink-0 flex items-center justify-center w-2 h-2">
-                                <span className="absolute inset-0 rounded-full bg-emerald-400/40 animate-ping" />
-                                <span className="relative w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_4px_rgba(94,234,212,0.6)]" />
-                            </span>
-                            {/* Telemetry string */}
-                            <span className="text-[11px] font-mono tracking-wider text-slate-400 uppercase truncate">
-                                <span className="text-emerald-400/70 font-bold mr-1">AI BLEND:</span>
-                                {piIsServing && (
-                                    <>
-                                        <span className="text-emerald-400 font-bold">Pi</span>
-                                        <span className="text-slate-400 mx-0.5">&bull;</span>
-                                    </>
-                                )}
-                                {beaconName && (
-                                    <>
-                                        <span className="text-slate-400">{shortenSourceName(beaconName)}</span>
-                                        <span className="text-slate-400 mx-0.5">•</span>
-                                    </>
-                                )}
-                                {buoyName && (
-                                    <>
-                                        <span className="text-slate-400">{shortenSourceName(buoyName)}</span>
-                                        <span className="text-slate-400 mx-0.5">•</span>
-                                    </>
-                                )}
-                                {activeSources
-                                    .filter((s) => s.source !== 'buoy' && s.source !== 'beacon')
-                                    .map((s, i, arr) => {
-                                        const cfg = SOURCE_CONFIG[s.source];
-                                        if (!cfg) return null;
-                                        return (
-                                            <span key={s.source}>
-                                                <span className="text-slate-400">{cfg.abbr}</span>
-                                                {i < arr.length - 1 && <span className="text-slate-400 mx-0.5">•</span>}
-                                            </span>
-                                        );
-                                    })}
-                            </span>
-                        </div>
+                        </button>
 
                         {/* Timer Badge — tappable to force refresh, shows live sync state */}
                         <button

@@ -811,27 +811,6 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         coordinates={data.coordinates}
                                     />
                                 </div>
-
-                                {/* Offshore geofence test toggle — dev/QA only */}
-                                {userSettings.subscriptionTier === 'owner' && (
-                                    <button
-                                        onClick={() => {
-                                            offshore.testToggle();
-                                            triggerHaptic('light');
-                                        }}
-                                        className={`mt-1.5 w-full py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-widest transition-all active:scale-[0.97] ${
-                                            offshore.isTestMode
-                                                ? 'bg-amber-500/20 border-amber-500/30 text-amber-300'
-                                                : 'bg-white/[0.03] border-white/[0.06] text-gray-500'
-                                        }`}
-                                    >
-                                        {offshore.isTestMode
-                                            ? offshore.isOffshore
-                                                ? '⚡ Test: Offshore — tap to go coastal'
-                                                : '⚡ Test: Coastal — tap to release'
-                                            : '🧪 Simulate Offshore Boundary'}
-                                    </button>
-                                )}
                             </div>
                         </div>
                     )}

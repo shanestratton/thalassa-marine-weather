@@ -3,9 +3,50 @@
  * shown for 5 s when the vessel crosses the 20 nm offshore boundary.
  *
  * Renders via a portal so it sits above everything (z-[9998]).
+ * Plays a submarine sonar ping via Web Audio API to get the punter's attention.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+
+// ── Submarine sonar ping via Web Audio API ──
+// Short ~300ms sine sweep with exponential decay — unmistakable sonar "ping"
+function playSubmarinePing() {
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const now = ctx.currentTime;
+
+        // Primary ping — 1200 Hz sine with fast decay
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(1200, now);
+        osc.frequency.exponentialRampToValueAtTime(800, now + 0.3);
+        gain.gain.setValueAtTime(0.35, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.6);
+
+        // Echo ping — delayed 180ms, quieter, slightly higher
+        const osc2 = ctx.createOscillator();
+        const gain2 = ctx.createGain();
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(1400, now + 0.18);
+        osc2.frequency.exponentialRampToValueAtTime(900, now + 0.45);
+        gain2.gain.setValueAtTime(0, now);
+        gain2.gain.setValueAtTime(0.15, now + 0.18);
+        gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.7);
+        osc2.connect(gain2).connect(ctx.destination);
+        osc2.start(now + 0.18);
+        osc2.stop(now + 0.7);
+
+        // Clean up AudioContext after sounds finish
+        setTimeout(() => ctx.close().catch(() => {}), 1000);
+    } catch {
+        /* Web Audio not available — silent fallback */
+    }
+}
 
 interface Props {
     visible: boolean;
@@ -16,14 +57,21 @@ export const OffshoreBoundaryToast: React.FC<Props> = React.memo(({ visible, mod
     // Mount / animate lifecycle: mount → slide in → hold → slide out → unmount
     const [mounted, setMounted] = useState(false);
     const [show, setShow] = useState(false);
+    const hasPlayedRef = useRef(false);
 
     useEffect(() => {
         if (visible) {
             setMounted(true);
             // Trigger enter animation on next frame
             requestAnimationFrame(() => requestAnimationFrame(() => setShow(true)));
+            // Play submarine ping once per toast appearance
+            if (!hasPlayedRef.current) {
+                hasPlayedRef.current = true;
+                playSubmarinePing();
+            }
         } else {
             setShow(false);
+            hasPlayedRef.current = false;
             // Unmount after exit animation completes (500 ms)
             const timer = setTimeout(() => setMounted(false), 500);
             return () => clearTimeout(timer);
