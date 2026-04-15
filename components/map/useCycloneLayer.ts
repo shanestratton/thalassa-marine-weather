@@ -1294,6 +1294,7 @@ export function useCycloneLayer(
 
             // Release center lock + restore zoom limits
             stormCenterRef.current = null;
+            map.setMinZoom(0);
             if (prevMaxZoomRef.current !== null) {
                 map.setMaxZoom(prevMaxZoomRef.current);
                 prevMaxZoomRef.current = null;
@@ -1346,14 +1347,22 @@ export function useCycloneLayer(
 
         injectCycloneCSS();
 
-        // ── Storm Center Lock ──
-        // The cyclone view is for inspecting a specific system. The storm
-        // stays pinned to the center — panning snaps back, zoom is capped
-        // so the satellite IR tiles stay crisp. Switch layers to pan freely.
+        // ── Zoom to AU+NZ fit on activation ──
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ausNzMin: number = (map as any).__ausNzMinZoom ?? 3;
+        const fitZoom = Math.round(ausNzMin);
+
         prevMaxZoomRef.current = map.getMaxZoom();
+        map.setMinZoom(fitZoom);
         map.setMaxZoom(CYCLONE_MAX_ZOOM);
-        if (map.getZoom() > CYCLONE_MAX_ZOOM) {
-            map.easeTo({ zoom: CYCLONE_MAX_ZOOM, duration: 300 });
+
+        // Start at AU+NZ fit zoom centred on user
+        const uLat = userLatRef.current;
+        const uLon = userLonRef.current;
+        if (isFinite(uLat) && isFinite(uLon) && (uLat !== 0 || uLon !== 0)) {
+            map.flyTo({ center: [uLon, uLat], zoom: fitZoom, duration: 800 });
+        } else {
+            map.easeTo({ center: [145, -28], zoom: fitZoom, duration: 400 });
         }
 
         const onMoveEnd = () => {
@@ -1646,9 +1655,11 @@ export function useCycloneLayer(
                         log.info(
                             `[CYCLONE] ✈️ Flying to ${focusTarget.name} at ${flyLat.toFixed(1)}, ${flyLon.toFixed(1)} (center-locked)`,
                         );
+                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                        const czFit: number = (map as any).__ausNzMinZoom ?? 3;
                         map.flyTo({
                             center: [flyLon, flyLat],
-                            zoom: 5,
+                            zoom: Math.round(czFit),
                             duration: 2000,
                             essential: true,
                         });
@@ -1701,6 +1712,7 @@ export function useCycloneLayer(
             map.off('moveend', onMoveEnd);
             // Release center lock + restore zoom
             stormCenterRef.current = null;
+            map.setMinZoom(0);
             if (prevMaxZoomRef.current !== null) {
                 map.setMaxZoom(prevMaxZoomRef.current);
                 prevMaxZoomRef.current = null;
