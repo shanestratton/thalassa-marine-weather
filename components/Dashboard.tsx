@@ -10,7 +10,9 @@ import { triggerHaptic } from '../utils/system';
 import { HeroSection } from './dashboard/Hero';
 import { CompactHeaderRow } from './dashboard/CompactHeaderRow';
 import { StatusBadges } from './dashboard/StatusBadges';
+import { OffshoreBoundaryToast } from './dashboard/OffshoreBoundaryToast';
 import { getMoonPhase } from './dashboard/WeatherHelpers';
+import { useOffshoreStatus } from '../hooks/useOffshoreStatus';
 
 const LogPage = lazyRetry(() => import('../pages/LogPage').then((m) => ({ default: m.LogPage })), 'LogPage_Dash');
 import { HeroHeader } from './dashboard/HeroHeader';
@@ -66,7 +68,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // Settings
     const { settings: userSettings, updateSettings } = useSettings();
     const isInland = data?.locationType === 'inland' || isLandlocked;
-    const isOffshore = data?.locationType === 'offshore';
+    const offshore = useOffshoreStatus(data?.locationType);
+    const isOffshore = offshore.isOffshore;
     const isExpanded =
         isInland || isOffshore ? (isOffshore ? true : false) : userSettings.dashboardMode !== 'essential';
 
@@ -564,6 +567,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
     return (
         <DashboardWidgetContext.Provider value={contextValue as DashboardWidgetContextType}>
+            {/* ── OFFSHORE BOUNDARY TOAST ── */}
+            <OffshoreBoundaryToast visible={offshore.justCrossed} modelName={offshore.offshoreModel} />
+
             <div className="h-[100dvh] w-full flex flex-col overflow-hidden relative bg-black">
                 {' '}
                 {/* Flex Root */}
@@ -795,6 +801,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         locationType={data.locationType}
                                         beaconName={beaconName}
                                         buoyName={buoyName}
+                                        isOffshore={offshore.isOffshore}
+                                        offshoreModelLabel={offshore.offshoreModel}
                                         sources={widgetSources}
                                         activeData={safeActive}
                                         isLive={activeDay === 0 && activeHour === 0}
@@ -803,6 +811,27 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         coordinates={data.coordinates}
                                     />
                                 </div>
+
+                                {/* Offshore geofence test toggle — dev/QA only */}
+                                {userSettings.subscriptionTier === 'owner' && (
+                                    <button
+                                        onClick={() => {
+                                            offshore.testToggle();
+                                            triggerHaptic('light');
+                                        }}
+                                        className={`mt-1.5 w-full py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-widest transition-all active:scale-[0.97] ${
+                                            offshore.isTestMode
+                                                ? 'bg-amber-500/20 border-amber-500/30 text-amber-300'
+                                                : 'bg-white/[0.03] border-white/[0.06] text-gray-500'
+                                        }`}
+                                    >
+                                        {offshore.isTestMode
+                                            ? offshore.isOffshore
+                                                ? '⚡ Test: Offshore — tap to go coastal'
+                                                : '⚡ Test: Coastal — tap to release'
+                                            : '🧪 Simulate Offshore Boundary'}
+                                    </button>
+                                )}
                             </div>
                         </div>
                     )}

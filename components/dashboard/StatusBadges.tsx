@@ -17,6 +17,10 @@ interface StatusBadgesProps {
     locationType?: 'coastal' | 'offshore' | 'inland';
     beaconName?: string;
     buoyName?: string;
+    /** When offshore, show the user's selected model in the badge */
+    offshoreModelLabel?: string;
+    /** Pulsing indicator when offshore */
+    isOffshore?: boolean;
     // Dynamic source data
     sources?: Record<string, MetricSource>;
     // Data source modal props
@@ -109,6 +113,8 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         modelUsed,
         generatedAt,
         coordinates,
+        offshoreModelLabel,
+        isOffshore: isOffshoreProp,
     }) => {
         const [showInfoModal, setShowInfoModal] = useState(false);
         const env = useEnvironment();
@@ -202,17 +208,20 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         }, [sources]);
 
         // BADGES Logic
-        let statusBadgeLabel = 'OFFSHORE';
-        let statusBadgeColor = 'bg-sky-500/20 text-sky-300 border-sky-500/30';
+        const offshore = isOffshoreProp ?? locationType === 'offshore';
+        let statusBadgeLabel: string;
+        let statusBadgeColor: string;
+        let statusBadgePulse = false;
 
-        if (locationType === 'offshore') {
-            statusBadgeLabel = 'OFFSHORE';
+        if (offshore) {
+            statusBadgeLabel = offshoreModelLabel ? `OFFSHORE (${offshoreModelLabel})` : 'OFFSHORE';
             statusBadgeColor = 'bg-sky-500/20 text-sky-300 border-sky-500/30';
+            statusBadgePulse = true;
         } else if (locationType === 'inland' || isLandlocked || fallbackInland) {
             statusBadgeLabel = 'INLAND';
             statusBadgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
         } else {
-            statusBadgeLabel = 'COASTAL';
+            statusBadgeLabel = 'COASTAL (Apple)';
             statusBadgeColor = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
         }
 
@@ -252,8 +261,14 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                     <div className="flex items-center justify-between gap-2 w-full mb-0">
                         {/* Coastal / Offshore Badge */}
                         <div
-                            className={`px-2 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${statusBadgeColor} bg-black/40 min-w-[78px] text-center`}
+                            className={`px-2 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${statusBadgeColor} bg-black/40 min-w-[78px] text-center transition-all duration-500 flex items-center justify-center gap-1.5`}
                         >
+                            {statusBadgePulse && (
+                                <span className="relative flex w-1.5 h-1.5 shrink-0">
+                                    <span className="animate-ping absolute inset-0 rounded-full bg-sky-400 opacity-60" />
+                                    <span className="relative w-1.5 h-1.5 rounded-full bg-sky-400" />
+                                </span>
+                            )}
                             {statusBadgeLabel}
                         </div>
 
