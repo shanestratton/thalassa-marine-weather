@@ -1,8 +1,11 @@
 import React, { useMemo, useState } from 'react';
 import { WindIcon, WaveIcon, GaugeIcon, EyeIcon, SunIcon, CompassIcon, DropletIcon } from '../Icons';
 import { AnimatedRainIcon } from '../ui/AnimatedIcons';
+import { ModelComparisonMatrix } from './ModelComparisonMatrix';
 import { WeatherMetrics, UnitPreferences, HourlyForecast } from '../../types';
+import type { OffshoreModel } from '../../types';
 import { convertTemp, convertSpeed, convertLength, convertDistance } from '../../utils';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 /* ── Micro-animation keyframes for metric icons ── */
 /* ── Micro-animation keyframes moved to index.css ── */
@@ -465,6 +468,10 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     // Compass overlay has been removed, but deleting this useState would crash
     // when switching between wx full/essential modes.
     const [_showCompass] = useState(false);
+
+    // Model comparison matrix — offshore only
+    const [showMatrix, setShowMatrix] = useState(false);
+    const offshoreModelCode = (useSettingsStore((s) => s.settings.offshoreModel) || 'sg') as OffshoreModel;
     return (
         <div
             className="w-full rounded-xl overflow-hidden bg-white/[0.08] border border-white/[0.15] shadow-2xl"
@@ -473,7 +480,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
         >
             {/* TOP ROW: Wind, Dir, Gust, Wave, Per */}
             <div className="w-full grid grid-cols-5 divide-x divide-white/[0.12] h-[80px]">
-                {/* Wind Speed */}
+                {/* Wind Speed — tap to open model comparison when offshore */}
                 <InstrumentCell
                     label="WIND"
                     icon={<WindIcon className="w-3 h-3" />}
@@ -482,6 +489,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     trend={trends?.windSpeed}
                     improving={isWindImproving}
                     tooltip="Sustained wind speed — average over 10 minutes"
+                    onClick={isOffshore ? () => setShowMatrix(true) : undefined}
                 />
 
                 {/* Direction — standard cell, tap for compass overlay */}
@@ -575,6 +583,13 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     }
                 />
             </div>
+
+            {/* Model Comparison Matrix — offshore only */}
+            <ModelComparisonMatrix
+                visible={showMatrix}
+                onClose={() => setShowMatrix(false)}
+                selectedModel={offshoreModelCode}
+            />
         </div>
     );
 };
