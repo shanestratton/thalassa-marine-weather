@@ -27,6 +27,7 @@ const BORDER_SOURCE = 'squall-borders';
 const BORDER_LAYER = 'squall-borders-layer';
 const RADAR_SOURCE = 'squall-radar-source';
 const RADAR_LAYER = 'squall-radar-layer';
+const SQUALL_HUD_ID = 'squall-map-hud';
 
 // ── SSEC RealEarth globalir-avn via Supabase edge function proxy ──
 // Uses SSEC Dvorak-enhanced IR composite (reliable, pre-coloured tiles).
@@ -115,6 +116,8 @@ export function useSquallMap(
     onSelectStorm?: (storm: ActiveCyclone) => void,
 ) {
     const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+    const ageTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+    const latestTileTime = useRef<Date | null>(null);
     const isSetUp = useRef(false);
     const stormMarkersRef = useRef<mapboxgl.Marker[]>([]);
     /** Save previous maxZoom so we can restore when squall deactivates */
@@ -134,9 +137,14 @@ export function useSquallMap(
         if (!visible) {
             cleanupSquallLayers(map);
             isSetUp.current = false;
+            latestTileTime.current = null;
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
+            }
+            if (ageTimer.current) {
+                clearInterval(ageTimer.current);
+                ageTimer.current = null;
             }
             // Remove integer-zoom snap listener
             if (zoomSnapRef.current) {
@@ -188,8 +196,17 @@ export function useSquallMap(
             addSquallLayer(map);
             addRadarLayer(map);
             addBorderLayer(map);
+            addSquallHUD(map);
+            fetchDataTimestamp(latestTileTime, map);
             isSetUp.current = true;
             log.info('🌩️ Squall map activated — integer-zoom tiles + radar');
+        }
+
+        // ── Live data age ticker (updates every 60s) ──
+        if (!ageTimer.current) {
+            ageTimer.current = setInterval(() => {
+                updateDataAge(map, latestTileTime.current);
+            }, 60 * 1000);
         }
 
         // ── Auto-refresh every 10 minutes (pick up new hourly composites) ──
@@ -198,6 +215,7 @@ export function useSquallMap(
                 () => {
                     refreshSquallSource(map);
                     refreshRadarLayer(map);
+                    fetchDataTimestamp(latestTileTime, map);
                 },
                 10 * 60 * 1000,
             );
@@ -207,6 +225,10 @@ export function useSquallMap(
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
+            }
+            if (ageTimer.current) {
+                clearInterval(ageTimer.current);
+                ageTimer.current = null;
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -507,8 +529,103 @@ function cleanupSquallLayers(map: mapboxgl.Map): void {
         // Borders
         if (map.getLayer(BORDER_LAYER)) map.removeLayer(BORDER_LAYER);
         if (map.getSource(BORDER_SOURCE)) map.removeSource(BORDER_SOURCE);
+        // HUD
+        const hud = map.getContainer().querySelector(`#${SQUALL_HUD_ID}`);
+        if (hud) hud.remove();
     } catch (err) {
         log.warn('Squall map cleanup error:', err);
     }
     log.info('🧹 Squall map layers cleaned up');
+}
+
+// ── HUD (title + data age, no legend) ──
+
+function addSquallHUD(map: mapboxgl.Map): void {
+    const old = map.getContainer().querySelector(`#${SQUALL_HUD_ID}`);
+    if (old) old.remove();
+
+    const hud = document.createElement('div');
+    hud.id = SQUALL_HUD_ID;
+    hud.style.cssText = `
+        position: absolute;
+        top: 56px;
+        left: 16px;
+        z-index: 300;
+        background: rgba(10, 12, 20, 0.88);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 12px;
+        padding: 10px 14px;
+        pointer-events: none;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    `;
+
+    // Title
+    const title = document.createElement('div');
+    title.style.cssText =
+        'font-size: 10px; font-weight: 800; color: #fff; letter-spacing: 0.5px; text-transform: uppercase;';
+    title.textContent = '⛈️ Squall Threat';
+    hud.appendChild(title);
+
+    // Data Age — inline, compact
+    const ageText = document.createElement('span');
+    ageText.id = 'squall-age-text';
+    ageText.style.cssText = 'font-size: 10px; font-weight: 700; color: #22c55e; letter-spacing: 0.3px;';
+    ageText.textContent = '—';
+    hud.appendChild(ageText);
+
+    map.getContainer().appendChild(hud);
+}
+
+// ── Data Age Tracking ──
+
+async function fetchDataTimestamp(ref: React.MutableRefObject<Date | null>, map: mapboxgl.Map): Promise<void> {
+    try {
+        const resp = await fetch(`${SUPABASE_URL}/functions/v1/satellite-tile?sat=ssec-ir&x=0&y=0&z=1`);
+        if (!resp.ok) return;
+        const satDate = resp.headers.get('X-Satellite-Date');
+        const lastMod = resp.headers.get('Last-Modified');
+        if (satDate) {
+            ref.current = new Date(satDate);
+        } else if (lastMod) {
+            ref.current = new Date(lastMod);
+        } else {
+            ref.current = new Date(Date.now() - 30 * 60 * 1000);
+        }
+        updateDataAge(map, ref.current);
+    } catch {
+        /* best effort */
+    }
+}
+
+function updateDataAge(map: mapboxgl.Map, tileTime: Date | null): void {
+    const ageEl = map.getContainer().querySelector('#squall-age-text') as HTMLElement | null;
+    if (!ageEl) return;
+    if (!tileTime) {
+        ageEl.textContent = '—';
+        return;
+    }
+
+    const ageMin = Math.round((Date.now() - tileTime.getTime()) / 60000);
+    let ageStr: string;
+    if (ageMin < 1) ageStr = '< 1m';
+    else if (ageMin < 60) ageStr = `${ageMin}m`;
+    else {
+        const h = Math.floor(ageMin / 60);
+        const m = ageMin % 60;
+        ageStr = m > 0 ? `${h}h ${m}m` : `${h}h`;
+    }
+    ageEl.textContent = ageStr;
+
+    // Color by staleness
+    if (ageMin <= 30) {
+        ageEl.style.color = '#22c55e';
+    } else if (ageMin <= 60) {
+        ageEl.style.color = '#FFA500';
+    } else {
+        ageEl.style.color = '#ef4444';
+    }
 }
