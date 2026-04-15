@@ -23,7 +23,6 @@ const log = createLogger('SquallMap');
 // ── Layer/Source IDs ──
 const SQUALL_SOURCE = 'squall-ir-source';
 const SQUALL_LAYER = 'squall-ir-layer';
-const SQUALL_HUD_ID = 'squall-map-hud';
 const BORDER_SOURCE = 'squall-borders';
 const BORDER_LAYER = 'squall-borders-layer';
 const RADAR_SOURCE = 'squall-radar-source';
@@ -104,35 +103,27 @@ const _BD_ENHANCEMENT_RAMP: mapboxgl.Expression = [
     'rgba(255, 255, 255, 0.93)', // White — extreme
 ];
 
-/** Squall threat legend — radar precipitation intensity */
-const THREAT_LEGEND = [
-    { label: 'Cloud Cover', color: 'rgba(200,200,210,0.5)', min: 'IR satellite' },
-    { label: 'Light Rain', color: '#1DB5E5', min: 'Radar' },
-    { label: 'Moderate', color: '#28C83C', min: 'Radar' },
-    { label: 'Heavy Rain', color: '#FFD119', min: 'Radar' },
-    { label: 'Intense', color: '#FF6600', min: 'Radar' },
-    { label: 'Extreme', color: '#FF0000', min: 'Radar' },
-];
-
 // ── Hook ──
 
 export function useSquallMap(
     mapRef: React.MutableRefObject<mapboxgl.Map | null>,
     mapReady: boolean,
     visible: boolean,
+    userLat?: number,
+    userLon?: number,
     allCyclones?: ActiveCyclone[],
     onSelectStorm?: (storm: ActiveCyclone) => void,
 ) {
     const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-    const ageTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-    const latestTileTime = useRef<Date | null>(null);
     const isSetUp = useRef(false);
     const stormMarkersRef = useRef<mapboxgl.Marker[]>([]);
     /** Save previous maxZoom so we can restore when squall deactivates */
     const prevMaxZoomRef = useRef<number | null>(null);
+    /** Zoom-snap listener ref (integer-only zoom for crisp tiles) */
+    const zoomSnapRef = useRef<(() => void) | null>(null);
 
-    // Squall map zoom — clamp to the range where satellite tiles align
-    // correctly. Low zoom (3-6) is best for the coarse IR/radar imagery.
+    // Squall map zoom — integer-only so satellite tiles render at native
+    // resolution with no fractional upscaling artefacts.
     const SQUALL_MAX_ZOOM = 6;
 
     useEffect(() => {
@@ -143,14 +134,14 @@ export function useSquallMap(
         if (!visible) {
             cleanupSquallLayers(map);
             isSetUp.current = false;
-            latestTileTime.current = null;
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
             }
-            if (ageTimer.current) {
-                clearInterval(ageTimer.current);
-                ageTimer.current = null;
+            // Remove integer-zoom snap listener
+            if (zoomSnapRef.current) {
+                map.off('zoomend', zoomSnapRef.current);
+                zoomSnapRef.current = null;
             }
             // Clean up storm markers
             for (const m of stormMarkersRef.current) m.remove();
@@ -166,32 +157,37 @@ export function useSquallMap(
 
         // ── Setup squall IR layer ──
         if (!isSetUp.current) {
-            // Clamp zoom to squall-friendly range and respect Aus+NZ floor
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const ausNzMin: number = (map as any).__ausNzMinZoom ?? 3;
+            const minInt = Math.round(ausNzMin);
             prevMaxZoomRef.current = map.getMaxZoom();
-            map.setMinZoom(ausNzMin);
+            map.setMinZoom(minInt);
             map.setMaxZoom(SQUALL_MAX_ZOOM);
 
-            // If zoomed in too far, pull back to max squall zoom
-            if (map.getZoom() > SQUALL_MAX_ZOOM) {
-                map.easeTo({ zoom: SQUALL_MAX_ZOOM, duration: 400 });
+            // Integer zoom + fly to user location at AU+NZ default width
+            const targetZoom = Math.max(minInt, Math.min(Math.round(map.getZoom()), SQUALL_MAX_ZOOM));
+            if (userLat && userLon && isFinite(userLat) && isFinite(userLon)) {
+                map.flyTo({ center: [userLon, userLat], zoom: targetZoom, duration: 800 });
+            } else if (Math.abs(map.getZoom() - targetZoom) > 0.05) {
+                map.easeTo({ zoom: targetZoom, duration: 300 });
             }
+
+            // Snap zoom to integers so tiles render at native resolution
+            const onZoomEnd = () => {
+                const z = map.getZoom();
+                const snapped = Math.max(minInt, Math.min(Math.round(z), SQUALL_MAX_ZOOM));
+                if (Math.abs(z - snapped) > 0.05) {
+                    map.easeTo({ zoom: snapped, duration: 150 });
+                }
+            };
+            map.on('zoomend', onZoomEnd);
+            zoomSnapRef.current = onZoomEnd;
 
             addSquallLayer(map);
             addRadarLayer(map);
             addBorderLayer(map);
-            addSquallHUD(map);
-            fetchDataTimestamp(latestTileTime, map);
             isSetUp.current = true;
-            log.info('🌩️ Squall map activated — SSEC IR IR + RainViewer radar (clamped z≤6)');
-        }
-
-        // ── Live data age ticker (updates every 60s) ──
-        if (!ageTimer.current) {
-            ageTimer.current = setInterval(() => {
-                updateDataAge(map, latestTileTime.current);
-            }, 60 * 1000);
+            log.info('🌩️ Squall map activated — integer-zoom tiles + radar');
         }
 
         // ── Auto-refresh every 10 minutes (pick up new hourly composites) ──
@@ -200,7 +196,6 @@ export function useSquallMap(
                 () => {
                     refreshSquallSource(map);
                     refreshRadarLayer(map);
-                    fetchDataTimestamp(latestTileTime, map);
                 },
                 10 * 60 * 1000,
             );
@@ -210,10 +205,6 @@ export function useSquallMap(
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
-            }
-            if (ageTimer.current) {
-                clearInterval(ageTimer.current);
-                ageTimer.current = null;
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -490,126 +481,6 @@ function addBorderLayer(map: mapboxgl.Map): void {
         .catch((err) => log.warn('Failed to load squall map borders:', err));
 }
 
-function addSquallHUD(map: mapboxgl.Map): void {
-    // Remove existing
-    const old = map.getContainer().querySelector(`#${SQUALL_HUD_ID}`);
-    if (old) old.remove();
-
-    const hud = document.createElement('div');
-    hud.id = SQUALL_HUD_ID;
-    hud.style.cssText = `
-        position: absolute;
-        top: 56px;
-        left: 16px;
-        z-index: 300;
-        background: rgba(10, 12, 20, 0.88);
-        backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 10px 12px;
-        pointer-events: auto;
-        cursor: pointer;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-    `;
-
-    // Header row — always visible
-    const headerRow = document.createElement('div');
-    headerRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
-
-    // Title
-    const title = document.createElement('div');
-    title.style.cssText =
-        'font-size: 10px; font-weight: 800; color: #fff; letter-spacing: 0.5px; text-transform: uppercase;';
-    title.textContent = '⛈️ Squall Threat';
-    headerRow.appendChild(title);
-
-    // Chevron
-    const chevron = document.createElement('div');
-    chevron.style.cssText = `
-        width:18px;height:18px;display:flex;align-items:center;justify-content:center;
-        flex-shrink:0;transition:transform 0.2s ease;
-        color:rgba(255,255,255,0.4);
-    `;
-    chevron.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>`;
-    headerRow.appendChild(chevron);
-
-    hud.appendChild(headerRow);
-
-    // Collapsible body — hidden by default
-    const body = document.createElement('div');
-    body.style.cssText = 'display:none;margin-top:6px;';
-
-    let expanded = false;
-    hud.addEventListener('click', (e) => {
-        e.stopPropagation();
-        expanded = !expanded;
-        body.style.display = expanded ? 'block' : 'none';
-        chevron.style.transform = expanded ? 'rotate(180deg)' : 'rotate(0deg)';
-    });
-
-    // Legend rows
-    for (const { label, color, min } of THREAT_LEGEND) {
-        const row = document.createElement('div');
-        row.style.cssText = 'display: flex; align-items: center; gap: 6px; margin-bottom: 3px;';
-
-        const swatch = document.createElement('span');
-        swatch.style.cssText = `
-            width: 10px; height: 10px; border-radius: 2px;
-            background: ${color};
-            border: 1px solid rgba(255,255,255,0.15);
-            flex-shrink: 0;
-        `;
-        row.appendChild(swatch);
-
-        const text = document.createElement('span');
-        text.style.cssText = 'font-size: 10px; color: rgba(255,255,255,0.7); font-weight: 600;';
-        text.textContent = `${label}`;
-        row.appendChild(text);
-
-        const temp = document.createElement('span');
-        temp.style.cssText = 'font-size: 9px; color: rgba(255,255,255,0.35); margin-left: auto;';
-        temp.textContent = min;
-        row.appendChild(temp);
-
-        body.appendChild(row);
-    }
-
-    // Data source
-    const source = document.createElement('div');
-    source.style.cssText =
-        'font-size: 8px; color: rgba(255,255,255,0.25); margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 5px;';
-    source.textContent = 'IR: SSEC Dvorak Enhanced · Radar: RainViewer';
-    body.appendChild(source);
-
-    // Data Age warning — prominent, tactical
-    const ageRow = document.createElement('div');
-    ageRow.id = 'squall-data-age';
-    ageRow.style.cssText = `
-        margin-top: 6px;
-        padding: 5px 8px;
-        background: rgba(255, 165, 0, 0.15);
-        border: 1px solid rgba(255, 165, 0, 0.3);
-        border-radius: 6px;
-        display: flex;
-        align-items: center;
-        gap: 5px;
-    `;
-    const ageIcon = document.createElement('span');
-    ageIcon.style.cssText = 'font-size: 12px;';
-    ageIcon.textContent = '⏱️';
-    ageRow.appendChild(ageIcon);
-
-    const ageText = document.createElement('span');
-    ageText.id = 'squall-age-text';
-    ageText.style.cssText = 'font-size: 11px; font-weight: 800; color: #FFA500; letter-spacing: 0.3px;';
-    ageText.textContent = 'Data Age: —';
-    ageRow.appendChild(ageText);
-    body.appendChild(ageRow);
-
-    hud.appendChild(body);
-    map.getContainer().appendChild(hud);
-}
-
 function refreshSquallSource(map: mapboxgl.Map): void {
     try {
         const src = map.getSource(SQUALL_SOURCE) as mapboxgl.RasterTileSource | undefined;
@@ -634,96 +505,8 @@ function cleanupSquallLayers(map: mapboxgl.Map): void {
         // Borders
         if (map.getLayer(BORDER_LAYER)) map.removeLayer(BORDER_LAYER);
         if (map.getSource(BORDER_SOURCE)) map.removeSource(BORDER_SOURCE);
-        // HUD
-        const hud = map.getContainer().querySelector(`#${SQUALL_HUD_ID}`);
-        if (hud) hud.remove();
     } catch (err) {
         log.warn('Squall map cleanup error:', err);
     }
     log.info('🧹 Squall map layers cleaned up');
-}
-
-// ── Data Age Tracking ──
-
-/** Fetch data timestamp from satellite tile proxy */
-async function fetchDataTimestamp(ref: React.MutableRefObject<Date | null>, map: mapboxgl.Map): Promise<void> {
-    try {
-        // Fetch a sample tile via proxy to get date headers
-        const resp = await fetch(`${SUPABASE_URL}/functions/v1/satellite-tile?sat=ssec-ir&x=0&y=0&z=1`);
-        if (!resp.ok) {
-            log.warn(`SSEC tile fetch failed: ${resp.status}`);
-            return;
-        }
-        // Check X-Satellite-Date header from proxy, or Last-Modified
-        const satDate = resp.headers.get('X-Satellite-Date');
-        const lastMod = resp.headers.get('Last-Modified');
-        if (satDate) {
-            ref.current = new Date(satDate);
-            log.info(`📡 SSEC IR tile date: ${satDate}`);
-            updateDataAge(map, ref.current);
-            return;
-        }
-        if (lastMod) {
-            ref.current = new Date(lastMod);
-            log.info(`📡 SSEC IR tile timestamp: ${lastMod}`);
-            updateDataAge(map, ref.current);
-            return;
-        }
-        // Fallback: use current time minus 30 min as estimate
-        ref.current = new Date(Date.now() - 30 * 60 * 1000);
-        updateDataAge(map, ref.current);
-        log.info('📡 SSEC timestamp fallback: estimated ~30 min old');
-    } catch (err) {
-        log.warn('Failed to fetch SSEC timestamp:', err);
-    }
-}
-
-/** Update the data age display in the HUD */
-function updateDataAge(map: mapboxgl.Map, tileTime: Date | null): void {
-    const ageEl = map.getContainer().querySelector('#squall-age-text') as HTMLElement | null;
-    const ageRow = map.getContainer().querySelector('#squall-data-age') as HTMLElement | null;
-    if (!ageEl || !ageRow) return;
-
-    if (!tileTime) {
-        ageEl.textContent = 'Data Age: —';
-        return;
-    }
-
-    const ageMs = Date.now() - tileTime.getTime();
-    const ageMin = Math.round(ageMs / 60000);
-
-    // Format display
-    let ageStr: string;
-    if (ageMin < 1) ageStr = '< 1 min';
-    else if (ageMin < 60) ageStr = `${ageMin} min`;
-    else {
-        const h = Math.floor(ageMin / 60);
-        const m = ageMin % 60;
-        ageStr = m > 0 ? `${h}h ${m}m` : `${h}h`;
-    }
-    ageEl.textContent = `Data Age: ${ageStr}`;
-
-    // Color-code by staleness
-    if (ageMin <= 30) {
-        // Fresh — green
-        ageEl.style.color = '#22c55e';
-        ageRow.style.background = 'rgba(34, 197, 94, 0.12)';
-        ageRow.style.borderColor = 'rgba(34, 197, 94, 0.25)';
-    } else if (ageMin <= 60) {
-        // Aging — amber
-        ageEl.style.color = '#FFA500';
-        ageRow.style.background = 'rgba(255, 165, 0, 0.12)';
-        ageRow.style.borderColor = 'rgba(255, 165, 0, 0.25)';
-    } else if (ageMin <= 120) {
-        // Stale — red
-        ageEl.style.color = '#ef4444';
-        ageRow.style.background = 'rgba(239, 68, 68, 0.15)';
-        ageRow.style.borderColor = 'rgba(239, 68, 68, 0.3)';
-    } else {
-        // Very stale — pulsing red
-        ageEl.style.color = '#dc2626';
-        ageRow.style.background = 'rgba(220, 38, 38, 0.2)';
-        ageRow.style.borderColor = 'rgba(220, 38, 38, 0.4)';
-        ageEl.textContent = `⚠ Data Age: ${ageStr}`;
-    }
 }
