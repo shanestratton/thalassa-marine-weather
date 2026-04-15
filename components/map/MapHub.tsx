@@ -672,7 +672,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setIsPinView(false);
                             setPage(previousView || 'chat');
                         }}
-                        className="absolute top-14 left-4 z-[700] w-12 h-12 bg-slate-900/90 border border-white/[0.12] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-90"
+                        className="absolute top-[56px] left-4 z-[700] w-12 h-12 bg-slate-900/90 border border-white/[0.12] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-90"
                         aria-label="Navigate back from map"
                     >
                         <svg
@@ -839,7 +839,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setShowVesselSearch(true);
                             triggerHaptic('light');
                         }}
-                        className="absolute z-[500] top-14 right-[128px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 text-slate-400"
+                        className="absolute z-[500] top-[56px] right-[128px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 text-slate-400"
                         aria-label="Search vessels"
                     >
                         🔍
@@ -1164,20 +1164,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                             />
                         );
                     })()}
-
-                {/* ═══ SQUALL RAIN LEGEND (when squall active + no weather layers) ═══ */}
-                {!isPinView && !embedded && squallVisible && weather.activeLayers.size === 0 && (
-                    <ThalassaHelixControl
-                        activeLayer="rain"
-                        frameIndex={0}
-                        totalFrames={1}
-                        frameLabel="Live"
-                        sublabel="IR + Radar"
-                        isPlaying={false}
-                        onScrub={() => {}}
-                        onPlayToggle={() => {}}
-                    />
-                )}
             </div>
 
             {/* ═══ TABLET DATA PANEL / CONSENSUS MATRIX (Helm mode, 30% width) ═══ */}

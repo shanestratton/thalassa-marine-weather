@@ -386,7 +386,7 @@ export const LayerFABMenu: React.FC<{
     });
 
     return (
-        <div className={`absolute z-[700] flex flex-col items-end gap-2 top-14 right-[72px]`}>
+        <div className={`absolute z-[700] flex flex-col items-end gap-2 top-[56px] right-[72px]`}>
             <button
                 aria-label="Toggle chart layer menu"
                 onClick={() => {
