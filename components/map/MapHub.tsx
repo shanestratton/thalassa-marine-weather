@@ -672,7 +672,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             setIsPinView(false);
                             setPage(previousView || 'chat');
                         }}
-                        className="absolute top-14 left-4 z-[700] w-10 h-10 bg-slate-900/90 border border-white/[0.12] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-90"
+                        className="absolute top-14 left-4 z-[700] w-12 h-12 bg-slate-900/90 border border-white/[0.12] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-90"
                         aria-label="Navigate back from map"
                     >
                         <svg
@@ -749,10 +749,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onToggleCyclones={() => {
                             const willBeVisible = !cycloneVisible;
                             setCycloneVisible(willBeVisible);
-                            // Mutually exclusive with squall map
-                            if (willBeVisible) setSquallVisible(false);
-                            // Storm view uses Himawari-9 IR satellite — no auto-enable of wind/rain
-                            // Users can manually toggle them via the layer menu if wanted
+                            // Storm layer is a dedicated full-screen view — deselect everything else
+                            if (willBeVisible) {
+                                setSquallVisible(false);
+                                setAisVisible(false);
+                                setChokepointVisible(false);
+                                setSeamarkVisible(false);
+                                setTideStationsVisible(false);
+                                setWeatherInspectMode(false);
+                                weather.setActiveLayer('none');
+                            }
                         }}
                         cycloneStormName={closestStorm?.name ?? null}
                         allCyclones={allCyclones}
@@ -763,8 +769,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onToggleSquall={() => {
                             const willBeVisible = !squallVisible;
                             setSquallVisible(willBeVisible);
-                            // Mutually exclusive with storm layer
-                            if (willBeVisible) setCycloneVisible(false);
+                            // Squall layer is a dedicated full-screen view — deselect everything else
+                            if (willBeVisible) {
+                                setCycloneVisible(false);
+                                setAisVisible(false);
+                                setChokepointVisible(false);
+                                setSeamarkVisible(false);
+                                setTideStationsVisible(false);
+                                setWeatherInspectMode(false);
+                                weather.setActiveLayer('none');
+                            }
                         }}
                         vesselTrackingVisible={vesselTrackingVisible}
                         onToggleVesselTracking={() => setVesselTrackingVisible((v) => !v)}
@@ -1150,6 +1164,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                             />
                         );
                     })()}
+
+                {/* ═══ SQUALL RAIN LEGEND (when squall active + no weather layers) ═══ */}
+                {!isPinView && !embedded && squallVisible && weather.activeLayers.size === 0 && (
+                    <ThalassaHelixControl
+                        activeLayer="rain"
+                        frameIndex={0}
+                        totalFrames={1}
+                        frameLabel="Live"
+                        sublabel="IR + Radar"
+                        isPlaying={false}
+                        onScrub={() => {}}
+                        onPlayToggle={() => {}}
+                    />
+                )}
             </div>
 
             {/* ═══ TABLET DATA PANEL / CONSENSUS MATRIX (Helm mode, 30% width) ═══ */}
