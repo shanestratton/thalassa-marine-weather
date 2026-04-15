@@ -1347,22 +1347,17 @@ export function useCycloneLayer(
 
         injectCycloneCSS();
 
-        // ── Zoom to AU+NZ fit on activation ──
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const ausNzMin: number = (map as any).__ausNzMinZoom ?? 3;
-        const fitZoom = Math.round(ausNzMin);
-
+        // ── Synoptic view: zoom 1, user dead centre ──
         prevMaxZoomRef.current = map.getMaxZoom();
-        map.setMinZoom(fitZoom);
+        map.setMinZoom(1);
         map.setMaxZoom(CYCLONE_MAX_ZOOM);
 
-        // Start at AU+NZ fit zoom centred on user
         const uLat = userLatRef.current;
         const uLon = userLonRef.current;
         if (isFinite(uLat) && isFinite(uLon) && (uLat !== 0 || uLon !== 0)) {
-            map.flyTo({ center: [uLon, uLat], zoom: fitZoom, duration: 800 });
+            map.flyTo({ center: [uLon, uLat], zoom: 1, duration: 800 });
         } else {
-            map.easeTo({ center: [145, -28], zoom: fitZoom, duration: 400 });
+            map.easeTo({ center: [145, -28], zoom: 1, duration: 400 });
         }
 
         const onMoveEnd = () => {
@@ -1655,11 +1650,9 @@ export function useCycloneLayer(
                         log.info(
                             `[CYCLONE] ✈️ Flying to ${focusTarget.name} at ${flyLat.toFixed(1)}, ${flyLon.toFixed(1)} (center-locked)`,
                         );
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const czFit: number = (map as any).__ausNzMinZoom ?? 3;
                         map.flyTo({
                             center: [flyLon, flyLat],
-                            zoom: Math.round(czFit),
+                            zoom: 1,
                             duration: 2000,
                             essential: true,
                         });
