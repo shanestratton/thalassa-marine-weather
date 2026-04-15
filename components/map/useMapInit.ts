@@ -192,10 +192,18 @@ export function useMapInit(opts: UseMapInitOptions) {
             return Math.max(Math.min(zoomForWidth, zoomForHeight), 0.5);
         })();
 
-        // ── Default view: entire Aus + NZ region ──
-        // Centre on the midpoint of the bounding box so both countries are
-        // visible on first load. Embedded maps use the passed center/zoom.
-        const startCenter: [number, number] = embedded ? [location.lon, location.lat] : AUS_NZ_CENTER;
+        // ── Default view: AU+NZ width, centred on user ──
+        // Use the user's current location as the centre so their area is
+        // visible on first load, but keep the AU+NZ fit zoom so the full
+        // width of both countries is still shown. Falls back to the AU+NZ
+        // midpoint if no GPS fix is available yet.
+        const hasUserLocation =
+            !embedded && isFinite(location.lat) && isFinite(location.lon) && (location.lat !== 0 || location.lon !== 0);
+        const startCenter: [number, number] = embedded
+            ? [location.lon, location.lat]
+            : hasUserLocation
+              ? [location.lon, location.lat]
+              : AUS_NZ_CENTER;
         const startZoom = embedded ? initialZoom : ausNzFitZoom;
 
         const map = new mapboxgl.Map({
