@@ -13,6 +13,7 @@ import type { UserSettings } from '../types';
 import { getSystemUnits } from '../utils';
 import { Preferences } from '@capacitor/preferences';
 import { Capacitor } from '@capacitor/core';
+import { piCache } from '../services/PiCacheService';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { supabase } from '../services/supabase';
 import { getErrorMessage } from '../utils/logger';
@@ -207,6 +208,13 @@ async function loadSettings() {
             useSettingsStore.setState({ settings: merged, isPro: tierIsPro(merged.subscriptionTier), loading: false });
             _addDebugLog(`LOADED: [${validHeroWidgets.join(', ')}] from Disk.`);
             manageScreenEffects(merged);
+
+            // Boot Pi Cache from saved settings (no UI dependency)
+            piCache.boot({
+                piCacheEnabled: merged.piCacheEnabled,
+                piCacheHost: merged.piCacheHost,
+                piCachePort: merged.piCachePort,
+            });
         } else {
             useSettingsStore.setState({ loading: false });
             _addDebugLog('INIT: No Settings Found (Starting Defaults)');

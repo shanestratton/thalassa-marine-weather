@@ -87,6 +87,30 @@ class PiCacheServiceImpl {
     private lastPushedLon = 0;
     private lastPushTime = 0;
 
+    // ── Boot ──
+
+    /**
+     * Boot from persisted UserSettings.
+     * Called once on app startup (from settingsStore) so the service auto-enables
+     * without needing the PiCacheTab UI to be mounted.
+     */
+    boot(settings: { piCacheEnabled?: boolean; piCacheHost?: string; piCachePort?: number }): void {
+        const enabled =
+            settings.piCacheEnabled ??
+            (typeof localStorage !== 'undefined' && localStorage.getItem('thalassa_pi_cache_enabled') === 'true');
+        const host =
+            settings.piCacheHost ||
+            (typeof localStorage !== 'undefined' && localStorage.getItem('thalassa_pi_cache_host')) ||
+            '';
+        const port =
+            settings.piCachePort ||
+            parseInt((typeof localStorage !== 'undefined' && localStorage.getItem('thalassa_pi_cache_port')) || '3001');
+
+        if (enabled) {
+            this.configure({ enabled: true, host, port });
+        }
+    }
+
     // ── Configuration ──
 
     /** Update config from UserSettings. Called when settings change. */
