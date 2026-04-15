@@ -14,23 +14,15 @@
 
 import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
-import {
-    fetchActiveCyclones,
-    findClosestCyclone,
-    fetchGfsTrackerPositions,
-    interpolateGfsTracker,
-    type ActiveCyclone,
-    type CyclonePosition,
-    type GfsTrackerPosition,
-} from '../../services/weather/CycloneTrackingService';
+import type { ActiveCyclone, CyclonePosition, GfsTrackerPosition } from '../../services/weather/CycloneTrackingService';
 import { WindStore } from '../../stores/WindStore';
-import {
-    addSatelliteLayer,
-    removeSatelliteLayer,
-    bestProductForBasin,
-} from '../../services/weather/SatelliteImageryService';
 
 import { createLogger } from '../../utils/createLogger';
+
+// ── Lazy-loaded heavy services (split into separate chunks) ──
+// These are only fetched when the cyclone layer is activated.
+const getCycloneService = () => import('../../services/weather/CycloneTrackingService');
+const getSatelliteService = () => import('../../services/weather/SatelliteImageryService');
 
 const log = createLogger('useCycloneLayer');
 
@@ -1290,7 +1282,7 @@ export function useCycloneLayer(
             trackOverlayRef.current = null;
             cyclonesRef.current = [];
             hasFlown.current = false;
-            removeSatelliteLayer(map);
+            getSatelliteService().then(({ removeSatelliteLayer }) => removeSatelliteLayer(map));
 
             // Release center lock + restore zoom limits
             stormCenterRef.current = null;
@@ -1393,8 +1385,13 @@ export function useCycloneLayer(
         let unsubWind: (() => void) | null = null;
         const gfsTrackRef: { current: Map<string, GfsTrackerPosition[]> | null } = { current: null };
 
+        // Cached service modules — populated in loadCyclones(), used by sync helpers
+        let _cs: Awaited<ReturnType<typeof getCycloneService>> | null = null;
+        let _ss: Awaited<ReturnType<typeof getSatelliteService>> | null = null;
+
         // Fetch GFS tracker positions on mount — AWAIT before creating markers
-        const tcvitalsPromise = fetchGfsTrackerPositions()
+        const tcvitalsPromise = getCycloneService()
+            .then(({ fetchGfsTrackerPositions }) => fetchGfsTrackerPositions())
             .then((trackMap) => {
                 gfsTrackRef.current = trackMap;
                 log.info(`[CYCLONE] 🎯 TCVitals loaded: ${trackMap.size} storm(s)`);
@@ -1449,8 +1446,8 @@ export function useCycloneLayer(
                 let eyeLat = cyclone.currentPosition.lat;
                 let eyeLon = cyclone.currentPosition.lon;
 
-                if (gfsTrackRef.current && gfsTrackRef.current.size > 0) {
-                    const gfsPos = interpolateGfsTracker(
+                if (gfsTrackRef.current && gfsTrackRef.current.size > 0 && _cs) {
+                    const gfsPos = _cs.interpolateGfsTracker(
                         gfsTrackRef.current,
                         cyclone.sid,
                         0, // T+0 (current)
@@ -1492,9 +1489,13 @@ export function useCycloneLayer(
         const loadCyclones = async () => {
             // CRITICAL: wait for tcvitals before creating markers
             await tcvitalsPromise;
+
+            // Eagerly load both services — cached for sync access in rebuildMarkers/cleanup
+            [_cs, _ss] = await Promise.all([getCycloneService(), getSatelliteService()]);
+
             log.info('[CYCLONE] 🌀 Fetching active cyclones (for discovery only)...');
             try {
-                const cyclones = await fetchActiveCyclones();
+                const cyclones = await _cs.fetchActiveCyclones();
                 if (cancelled) return;
 
                 log.info(`[CYCLONE] Got ${cyclones.length} active cyclone(s)`);
@@ -1593,7 +1594,7 @@ export function useCycloneLayer(
                 log.info(`[CYCLONE] 🔴 Using ATCF satellite-analyzed positions for ${cyclones.length} storm(s)`);
 
                 // Find & report closest storm — but ONLY update if user hasn't manually selected
-                const closest = findClosestCyclone(cyclones, userLatRef.current, userLonRef.current);
+                const closest = _cs!.findClosestCyclone(cyclones, userLatRef.current, userLonRef.current);
                 if (!skipAutoFlyRef?.current) {
                     // No manual selection — use geo-closest
                     onClosestStormRef.current?.(closest);
@@ -1608,8 +1609,8 @@ export function useCycloneLayer(
                 // Uses RealEarth SSEC/CIMSS XYZ tile API (free, CORS-enabled, no API key)
                 // Auto-selects the best satellite for the storm's basin:
                 //   Global IR composite | GOES-East (Americas) | GOES-West (Pacific) | Meteosat (Europe/Africa/IO)
-                const satProduct = closest ? bestProductForBasin(closest.basin) : 'global-ir';
-                addSatelliteLayer(map, satProduct);
+                const satProduct = closest ? _ss!.bestProductForBasin(closest.basin) : 'global-ir';
+                _ss!.addSatelliteLayer(map, satProduct);
                 log.info(`[CYCLONE] 🛰️ Satellite IR overlay activated: ${satProduct}`);
 
                 // Country borders removed — they were obstructing satellite imagery
@@ -1624,8 +1625,8 @@ export function useCycloneLayer(
                     // Resolve eye position from GFS tracker if available
                     let flyLat = focusTarget.currentPosition.lat;
                     let flyLon = focusTarget.currentPosition.lon;
-                    if (gfsTrackRef.current && gfsTrackRef.current.size > 0) {
-                        const gfsPos = interpolateGfsTracker(
+                    if (gfsTrackRef.current && gfsTrackRef.current.size > 0 && _cs) {
+                        const gfsPos = _cs.interpolateGfsTracker(
                             gfsTrackRef.current,
                             focusTarget.sid,
                             0,
@@ -1713,7 +1714,7 @@ export function useCycloneLayer(
             // Clean up HUD
             const hudEl = map.getContainer().querySelector(`#${HUD_CONTAINER_ID}`);
             if (hudEl) hudEl.remove();
-            removeSatelliteLayer(map);
+            if (_ss) _ss.removeSatelliteLayer(map);
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
