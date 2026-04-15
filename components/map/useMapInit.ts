@@ -175,8 +175,9 @@ export function useMapInit(opts: UseMapInitOptions) {
         const AUS_NZ_SOUTH = -48;
         const AUS_NZ_CENTER: [number, number] = [(AUS_NZ_WEST + AUS_NZ_EAST) / 2, (AUS_NZ_NORTH + AUS_NZ_SOUTH) / 2]; // [145, -28]
 
-        // Analytical minZoom — computed BEFORE map creation so we can use
-        // it as the initial zoom level (both countries visible from frame 1).
+        // Analytical zoom to FIT the entire Aus+NZ box on screen — uses
+        // Math.min so the wider dimension wins (like object-fit: contain).
+        // On a portrait phone width is the constraint (~70° across 393px ≈ z3).
         const ausNzFitZoom = (() => {
             if (embedded || !containerRef.current) return initialZoom;
             const cw = containerRef.current.clientWidth;
@@ -187,7 +188,8 @@ export function useMapInit(opts: UseMapInitOptions) {
             const mercSpan = Math.abs(mercY(AUS_NZ_NORTH) - mercY(AUS_NZ_SOUTH));
             const spanPxAtZ0 = mercSpan * (256 / (2 * Math.PI));
             const zoomForHeight = Math.log2(ch / spanPxAtZ0);
-            return Math.max(zoomForWidth, zoomForHeight, 0.5);
+            // Min = "fit entire box" (contain). The smaller zoom shows more area.
+            return Math.max(Math.min(zoomForWidth, zoomForHeight), 0.5);
         })();
 
         // ── Default view: entire Aus + NZ region ──
@@ -307,10 +309,10 @@ export function useMapInit(opts: UseMapInitOptions) {
             const spanW = Math.abs(rightPx - leftPx);
             const spanH = Math.abs(bottomPx - topPx);
 
-            // Use the more restrictive dimension (whichever needs more zoom to fit)
+            // Min = fit entire box on screen (contain, not cover)
             const zoomForWidth = z + Math.log2(cw / spanW);
             const zoomForHeight = z + Math.log2(ch / spanH);
-            const target = Math.max(zoomForWidth, zoomForHeight, 0.5);
+            const target = Math.max(Math.min(zoomForWidth, zoomForHeight), 0.5);
 
             map.setMinZoom(target);
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
