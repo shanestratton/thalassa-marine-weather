@@ -610,25 +610,25 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
                 {/* Glow ring when multiple systems active or urgent */}
                 {(activeCount > 1 || hasUrgent) && (
                     <span
-                        className={`absolute inset-[-3px] rounded-full animate-ping opacity-30 ${
+                        className={`absolute inset-[-3px] rounded-2xl animate-ping opacity-30 ${
                             hasUrgent ? 'bg-amber-400' : 'bg-sky-400'
                         }`}
                     />
                 )}
-                {/* Main button circle */}
+                {/* Main button — matches layer FAB size (w-12 h-12 rounded-2xl) */}
                 <span
-                    className={`relative w-8 h-8 rounded-full flex items-center justify-center border shadow-lg transition-all ${
+                    className={`relative w-12 h-12 rounded-2xl flex items-center justify-center border shadow-2xl transition-all ${
                         hasUrgent
                             ? 'bg-amber-500/90 border-amber-400/40 shadow-amber-500/30'
                             : 'bg-sky-500/90 border-sky-400/40 shadow-sky-500/30'
                     }`}
                 >
-                    <span className="text-white font-bold text-sm">ℹ</span>
+                    <span className="text-white font-bold text-base">ℹ</span>
                 </span>
 
                 {/* Active count badge */}
                 {activeCount > 1 && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-white text-slate-900 text-[11px] font-black flex items-center justify-center shadow-md">
+                    <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white text-slate-900 text-[11px] font-black flex items-center justify-center shadow-md">
                         {activeCount}
                     </span>
                 )}
