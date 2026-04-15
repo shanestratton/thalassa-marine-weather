@@ -16,9 +16,10 @@
  *   - usePassagePlanner.ts (passage routing, isochrones, GPX export)
  *   - MapHubOverlays.tsx   (presentational overlay components)
  */
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { Suspense, useRef, useState, useEffect, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createLogger } from '../../utils/createLogger';
+import { lazyRetry } from '../../utils/lazyRetry';
 
 const log = createLogger('MapHub');
 import mapboxgl from 'mapbox-gl';
@@ -27,8 +28,7 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { useLocationStore } from '../../stores/LocationStore';
 import { useWeather } from '../../context/WeatherContext';
 import { WindStore } from '../../stores/WindStore';
-import { ConsensusMatrix } from './ConsensusMatrix';
-import { generateConsensusMatrix, type ConsensusMatrixData } from '../../services/ConsensusMatrixEngine';
+import type { ConsensusMatrixData } from '../../services/ConsensusMatrixEngine';
 import { LocationStore } from '../../stores/LocationStore';
 import { useSettings } from '../../context/SettingsContext';
 import { useUI } from '../../context/UIContext';
@@ -54,21 +54,45 @@ import { useSeamarkLayer } from './useSeamarkLayer';
 import { useTideStationLayer } from './useTideStationLayer';
 import { useLightningLayer } from './useLightningLayer';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
-import { type ActiveCyclone, fetchActiveCyclones } from '../../services/weather/CycloneTrackingService';
-import { AisLegend } from './AisLegend';
-import { AisGuardAlert } from './AisGuardAlert';
-import { VesselSearch } from './VesselSearch';
+import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
-import { GhostShip } from './GhostShip';
 import { LayerFABMenu } from './MapHubOverlays';
 import { MapActionFabs } from './MapActionFabs';
 import { ThalassaHelixControl, LegendDock, type HelixLayer } from './ThalassaHelixControl';
-import { RouteLegend } from './RouteLegend';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
-import { PassageDataPanel } from './PassageDataPanel';
-import { WeatherInspectPopup } from './WeatherInspectPopup';
-import { fetchPointWeather, type PointWeatherData } from '../../services/weather/pointWeather';
+import type { PointWeatherData } from '../../services/weather/pointWeather';
+
+// ── Lazy-loaded overlay components (split into separate chunks) ──
+const ConsensusMatrix = lazyRetry(
+    () => import('./ConsensusMatrix').then((m) => ({ default: m.ConsensusMatrix })),
+    'ConsensusMatrix',
+);
+const VesselSearch = lazyRetry(
+    () => import('./VesselSearch').then((m) => ({ default: m.VesselSearch })),
+    'VesselSearch',
+);
+const AisLegend = lazyRetry(() => import('./AisLegend').then((m) => ({ default: m.AisLegend })), 'AisLegend');
+const AisGuardAlert = lazyRetry(
+    () => import('./AisGuardAlert').then((m) => ({ default: m.AisGuardAlert })),
+    'AisGuardAlert',
+);
+const GhostShip = lazyRetry(() => import('./GhostShip').then((m) => ({ default: m.GhostShip })), 'GhostShip');
+const RouteLegend = lazyRetry(() => import('./RouteLegend').then((m) => ({ default: m.RouteLegend })), 'RouteLegend');
+const PassageDataPanel = lazyRetry(
+    () => import('./PassageDataPanel').then((m) => ({ default: m.PassageDataPanel })),
+    'PassageDataPanel',
+);
+// WeatherInspectPopup is rendered imperatively via createRoot — use direct dynamic import
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _WeatherInspectPopup: React.ComponentType<any> | null = null;
+const getWeatherInspectPopup = async () => {
+    if (!_WeatherInspectPopup) {
+        const mod = await import('./WeatherInspectPopup');
+        _WeatherInspectPopup = mod.WeatherInspectPopup;
+    }
+    return _WeatherInspectPopup;
+};
 
 // ── Component ──────────────────────────────────────────────────
 
@@ -279,10 +303,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     const skipAutoFlyRef = useRef(false);
 
     // Fetch all active cyclones for the storm picker menu (runs regardless of layer visibility)
+    // Dynamic import — CycloneTrackingService is large and only needed after map loads
     useEffect(() => {
         let cancelled = false;
         const load = async () => {
             try {
+                const { fetchActiveCyclones } = await import('../../services/weather/CycloneTrackingService');
                 const cyclones = await fetchActiveCyclones();
                 if (!cancelled) setAllCyclones(cyclones);
             } catch (e) {
@@ -373,6 +399,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, [passage.routeAnalysis]);
 
     // Generate consensus data when route completes
+    // Dynamic import — ConsensusMatrixEngine is heavy computation, only needed post-route
     useEffect(() => {
         const isoResult = passage.isoResultRef.current;
         if (!isoResult || !passage.routeAnalysis) {
@@ -384,6 +411,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
         (async () => {
             try {
+                const { generateConsensusMatrix } = await import('../../services/ConsensusMatrixEngine');
                 const data = await generateConsensusMatrix(
                     isoResult,
                     windGrid,
@@ -504,7 +532,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                 setInspectLoading(false);
             };
 
-            root.render(<WeatherInspectPopup data={null} loading={true} onClose={closePopup} />);
+            // Render loading state — component loaded async
+            getWeatherInspectPopup().then((WIP) => {
+                root.render(<WIP data={null} loading={true} onClose={closePopup} />);
+            });
 
             const popup = new mapboxgl.Popup({
                 closeButton: false,
@@ -528,13 +559,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                 setInspectLoading(false);
             });
 
-            // Fetch weather data
-            fetchPointWeather(lat, lon)
+            // Fetch weather data (dynamic import — pointWeather only needed on inspect tap)
+            import('../../services/weather/pointWeather')
+                .then(({ fetchPointWeather }) => fetchPointWeather(lat, lon))
                 .then((data) => {
                     if (!inspectPopupRef.current) return; // popup was closed
                     setInspectData(data);
                     setInspectLoading(false);
-                    root.render(<WeatherInspectPopup data={data} loading={false} onClose={closePopup} />);
+                    getWeatherInspectPopup().then((WIP) => {
+                        root.render(<WIP data={data} loading={false} onClose={closePopup} />);
+                    });
                 })
                 .catch(() => {
                     setInspectLoading(false);
@@ -710,22 +744,24 @@ export const MapHub: React.FC<MapHubProps> = ({
                 )}
 
                 {/* ═══ GHOST SHIP (route interpolation during forecast scrub) ═══ */}
-                {!isPinView && !embedded && passage.showPassage && passage.routeAnalysis && (
-                    <GhostShip
-                        map={mapRef.current}
-                        routeCoords={passage.isoResultRef.current?.routeCoordinates ?? null}
-                        departureTime={passage.departureTime || new Date().toISOString()}
-                        speed={passage.speed}
-                        windHour={weather.windHour}
-                        windForecastHours={weather.windForecastHoursRef.current}
-                        windNowIdx={weather.windNowIdxRef.current}
-                        visible={
-                            (weather.activeLayers.has('wind') || weather.activeLayers.has('velocity')) &&
-                            passage.showPassage &&
-                            !!passage.routeAnalysis
-                        }
-                    />
-                )}
+                <Suspense fallback={null}>
+                    {!isPinView && !embedded && passage.showPassage && passage.routeAnalysis && (
+                        <GhostShip
+                            map={mapRef.current}
+                            routeCoords={passage.isoResultRef.current?.routeCoordinates ?? null}
+                            departureTime={passage.departureTime || new Date().toISOString()}
+                            speed={passage.speed}
+                            windHour={weather.windHour}
+                            windForecastHours={weather.windForecastHoursRef.current}
+                            windNowIdx={weather.windNowIdxRef.current}
+                            visible={
+                                (weather.activeLayers.has('wind') || weather.activeLayers.has('velocity')) &&
+                                passage.showPassage &&
+                                !!passage.routeAnalysis
+                            }
+                        />
+                    )}
+                </Suspense>
 
                 <PassageBanner
                     passage={passage}
@@ -901,70 +937,78 @@ export const MapHub: React.FC<MapHubProps> = ({
                 )}
 
                 {/* ═══ AIS COLOUR LEGEND + GUARD ZONE TOGGLE ═══ */}
-                {!passage.showPassage && !embedded && !isPinView && <AisLegend visible={aisVisible} />}
+                <Suspense fallback={null}>
+                    {!passage.showPassage && !embedded && !isPinView && <AisLegend visible={aisVisible} />}
 
-                {/* ═══ VESSEL SEARCH BUTTON ═══ */}
-                {!passage.showPassage && !embedded && !isPinView && aisVisible && (
-                    <button
-                        onClick={() => {
-                            setShowVesselSearch(true);
-                            triggerHaptic('light');
-                        }}
-                        className="absolute z-[500] top-[56px] right-[128px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 text-slate-400"
-                        aria-label="Search vessels"
-                    >
-                        🔍
-                    </button>
-                )}
+                    {/* ═══ VESSEL SEARCH BUTTON ═══ */}
+                    {!passage.showPassage && !embedded && !isPinView && aisVisible && (
+                        <button
+                            onClick={() => {
+                                setShowVesselSearch(true);
+                                triggerHaptic('light');
+                            }}
+                            className="absolute z-[500] top-[56px] right-[128px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 text-slate-400"
+                            aria-label="Search vessels"
+                        >
+                            🔍
+                        </button>
+                    )}
 
-                {/* ═══ VESSEL SEARCH OVERLAY ═══ */}
-                <VesselSearch
-                    visible={showVesselSearch}
-                    onClose={() => setShowVesselSearch(false)}
-                    onSelect={(lat, lon, mmsi, name) => {
-                        const map = mapRef.current;
-                        if (!map) return;
+                    {/* ═══ VESSEL SEARCH OVERLAY ═══ */}
+                    <Suspense fallback={null}>
+                        <VesselSearch
+                            visible={showVesselSearch}
+                            onClose={() => setShowVesselSearch(false)}
+                            onSelect={(lat, lon, mmsi, name) => {
+                                const map = mapRef.current;
+                                if (!map) return;
 
-                        // Fly to vessel location
-                        map.flyTo({
-                            center: [lon, lat],
-                            zoom: 14,
-                            speed: 1.5,
-                            curve: 1.4,
-                            essential: true,
-                        });
+                                // Fly to vessel location
+                                map.flyTo({
+                                    center: [lon, lat],
+                                    zoom: 14,
+                                    speed: 1.5,
+                                    curve: 1.4,
+                                    essential: true,
+                                });
 
-                        // Add a temporary pulse marker at the vessel
-                        const el = document.createElement('div');
-                        const pulseDiv = document.createElement('div');
-                        pulseDiv.style.cssText =
-                            'width:48px;height:48px;border-radius:50%;background:radial-gradient(circle,rgba(14,165,233,0.3) 0%,transparent 70%);border:2px solid rgba(14,165,233,0.6);animation:pulse 1.5s ease-in-out infinite;display:flex;align-items:center;justify-content:center;font-size:20px;';
-                        pulseDiv.textContent = '🎯';
-                        el.appendChild(pulseDiv);
+                                // Add a temporary pulse marker at the vessel
+                                const el = document.createElement('div');
+                                const pulseDiv = document.createElement('div');
+                                pulseDiv.style.cssText =
+                                    'width:48px;height:48px;border-radius:50%;background:radial-gradient(circle,rgba(14,165,233,0.3) 0%,transparent 70%);border:2px solid rgba(14,165,233,0.6);animation:pulse 1.5s ease-in-out infinite;display:flex;align-items:center;justify-content:center;font-size:20px;';
+                                pulseDiv.textContent = '🎯';
+                                el.appendChild(pulseDiv);
 
-                        const mapboxglLib = window.mapboxgl;
-                        if (mapboxglLib?.Marker) {
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            const marker = new (mapboxglLib as any).Marker({ element: el })
-                                .setLngLat([lon, lat])
-                                .addTo(map);
+                                const mapboxglLib = window.mapboxgl;
+                                if (mapboxglLib?.Marker) {
+                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                    const marker = new (mapboxglLib as any).Marker({ element: el })
+                                        .setLngLat([lon, lat])
+                                        .addTo(map);
 
-                            // Remove after 8 seconds
-                            setTimeout(() => marker.remove(), 8000);
-                        }
+                                    // Remove after 8 seconds
+                                    setTimeout(() => marker.remove(), 8000);
+                                }
 
-                        log.info(`Vessel search: flying to ${name} (${mmsi}) at ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
-                    }}
-                />
+                                log.info(
+                                    `Vessel search: flying to ${name} (${mmsi}) at ${lat.toFixed(4)}, ${lon.toFixed(4)}`,
+                                );
+                            }}
+                        />
+                    </Suspense>
 
-                {/* ═══ AIS GUARD ZONE ALERT TOAST ═══ */}
-                <AisGuardAlert />
+                    {/* ═══ AIS GUARD ZONE ALERT TOAST ═══ */}
+                    <AisGuardAlert />
+                </Suspense>
 
                 {/* ═══ ROUTE LEGEND (during passage mode) ═══ */}
-                <RouteLegend
-                    visible={passage.showPassage && !!passage.routeAnalysis && !isPinView}
-                    embedded={embedded}
-                />
+                <Suspense fallback={null}>
+                    <RouteLegend
+                        visible={passage.showPassage && !!passage.routeAnalysis && !isPinView}
+                        embedded={embedded}
+                    />
+                </Suspense>
 
                 {/* ═══ CONSENSUS MATRIX FAB (during passage mode) ═══ */}
                 {passage.showPassage && passage.routeAnalysis && consensusData && !embedded && !isPinView && (
@@ -1241,36 +1285,38 @@ export const MapHub: React.FC<MapHubProps> = ({
             </div>
 
             {/* ═══ TABLET DATA PANEL / CONSENSUS MATRIX (Helm mode, 30% width) ═══ */}
-            {isHelmSplit && (
-                <div className="flex-[3] h-full">
-                    {showConsensus && consensusData ? (
+            <Suspense fallback={null}>
+                {isHelmSplit && (
+                    <div className="flex-[3] h-full">
+                        {showConsensus && consensusData ? (
+                            <ConsensusMatrix
+                                data={consensusData}
+                                onScrubPosition={handleScrubPosition}
+                                onClose={() => setShowConsensus(false)}
+                            />
+                        ) : (
+                            <PassageDataPanel
+                                routeAnalysis={passage.routeAnalysis}
+                                departure={passage.departure}
+                                arrival={passage.arrival}
+                                turnWaypoints={passage.turnWaypointsRef.current}
+                                departureTime={passage.departureTime}
+                            />
+                        )}
+                    </div>
+                )}
+
+                {/* ═══ CONSENSUS MATRIX — Phone slide-up (Deck mode) ═══ */}
+                {deviceMode === 'deck' && showConsensus && consensusData && !embedded && (
+                    <div className="absolute inset-0 z-[600] animate-in slide-in-from-bottom duration-300">
                         <ConsensusMatrix
                             data={consensusData}
                             onScrubPosition={handleScrubPosition}
                             onClose={() => setShowConsensus(false)}
                         />
-                    ) : (
-                        <PassageDataPanel
-                            routeAnalysis={passage.routeAnalysis}
-                            departure={passage.departure}
-                            arrival={passage.arrival}
-                            turnWaypoints={passage.turnWaypointsRef.current}
-                            departureTime={passage.departureTime}
-                        />
-                    )}
-                </div>
-            )}
-
-            {/* ═══ CONSENSUS MATRIX — Phone slide-up (Deck mode) ═══ */}
-            {deviceMode === 'deck' && showConsensus && consensusData && !embedded && (
-                <div className="absolute inset-0 z-[600] animate-in slide-in-from-bottom duration-300">
-                    <ConsensusMatrix
-                        data={consensusData}
-                        onScrubPosition={handleScrubPosition}
-                        onClose={() => setShowConsensus(false)}
-                    />
-                </div>
-            )}
+                    </div>
+                )}
+            </Suspense>
         </div>
     );
 };
