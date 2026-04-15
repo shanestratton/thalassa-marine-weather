@@ -268,24 +268,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [localChartIds, setLocalChartIds] = useState<Set<string>>(new Set());
     const [localChartOpacity, setLocalChartOpacity] = useState(0.7);
 
-    // Auto-enable newly discovered charts
-    useEffect(() => {
-        const unsub = AvNavService.onChartsChange((charts) => {
-            if (charts.length > 0) {
-                setSkChartIds((prev) => {
-                    const next = new Set(prev);
-                    for (const c of charts) next.add(c.id);
-                    return next;
-                });
-            }
-        });
-        // Also enable any charts already discovered
-        const existing = AvNavService.getCharts();
-        if (existing.length > 0) {
-            setSkChartIds(new Set(existing.map((c) => c.id)));
-        }
-        return unsub;
-    }, []);
+    // Charts start hidden — user enables them via the Charts layer toggle.
+    // AvNavService still discovers available charts in the background so
+    // the layer menu can list them, but nothing renders until toggled on.
 
     const [closestStorm, setClosestStorm] = useState<ActiveCyclone | null>(null);
     const [allCyclones, setAllCyclones] = useState<ActiveCyclone[]>([]);
