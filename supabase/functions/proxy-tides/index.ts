@@ -12,7 +12,10 @@ declare const Deno: {
  * appends the secret key and forwards to WorldTides, returning the response.
  *
  * Request: POST with JSON body:
- *   { lat: number, lon: number, days?: number }
+ *   { lat: number, lon: number, days?: number, stations?: boolean, stationDistance?: number }
+ *
+ * When `stations: true` → returns nearby tide stations (discovery).
+ * Otherwise → returns tide extremes (high/low times + heights).
  *
  * Required Supabase Secret:
  *   WORLDTIDES_API_KEY
@@ -44,19 +47,25 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-        const { lat, lon, days = 14 } = await req.json();
+        const { lat, lon, days = 14, stations, stationDistance = 200 } = await req.json();
 
         if (typeof lat !== 'number' || typeof lon !== 'number') {
             return corsResponse(JSON.stringify({ error: 'lat and lon are required numbers' }), 400);
         }
 
-        // Build WorldTides URL — extremes only (saves credits vs heights)
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        today.setDate(today.getDate() - 1); // Go back 24h for graph interpolation
-        const start = Math.floor(today.getTime() / 1000);
+        let url: string;
 
-        const url = `https://www.worldtides.info/api/v3?extremes&lat=${lat}&lon=${lon}&days=${days}&datum=LAT&stationDistance=100&start=${start}&key=${key}`;
+        if (stations) {
+            // Station discovery — return nearby tide stations within radius
+            url = `https://www.worldtides.info/api/v3?stations&lat=${lat}&lon=${lon}&stationDistance=${stationDistance}&key=${key}`;
+        } else {
+            // Tide extremes — high/low tide times + heights
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            today.setDate(today.getDate() - 1); // Go back 24h for graph interpolation
+            const start = Math.floor(today.getTime() / 1000);
+            url = `https://www.worldtides.info/api/v3?extremes&lat=${lat}&lon=${lon}&days=${days}&datum=LAT&stationDistance=${stationDistance}&start=${start}&key=${key}`;
+        }
 
         const res = await fetch(url);
         const data = await res.json();
