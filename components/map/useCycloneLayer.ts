@@ -1233,6 +1233,15 @@ export function useCycloneLayer(
     const onClosestStormRef = useRef(onClosestStorm);
     const selectedStormRef = useRef(selectedStorm ?? null);
 
+    /** Locked storm center — map snaps back here after any pan */
+    const stormCenterRef = useRef<[number, number] | null>(null); // [lng, lat]
+    /** Previous maxZoom to restore when exiting the layer */
+    const prevMaxZoomRef = useRef<number | null>(null);
+    /** Flag: we initiated this move, don't snap back */
+    const selfMoveRef = useRef(false);
+    /** Max zoom for the cyclone view — satellite IR is ~4 km, blurry past z8 */
+    const CYCLONE_MAX_ZOOM = 8;
+
     userLatRef.current = userLat;
     userLonRef.current = userLon;
     onClosestStormRef.current = onClosestStorm;
@@ -1250,6 +1259,13 @@ export function useCycloneLayer(
             cyclonesRef.current = [];
             hasFlown.current = false;
             removeSatelliteLayer(map);
+
+            // Release center lock + restore zoom limits
+            stormCenterRef.current = null;
+            if (prevMaxZoomRef.current !== null) {
+                map.setMaxZoom(prevMaxZoomRef.current);
+                prevMaxZoomRef.current = null;
+            }
 
             // ── Clean up all GeoJSON layers added by cyclone view ──
             // Country borders
@@ -1297,6 +1313,35 @@ export function useCycloneLayer(
         }
 
         injectCycloneCSS();
+
+        // ── Storm Center Lock ──
+        // The cyclone view is for inspecting a specific system. The storm
+        // stays pinned to the center — panning snaps back, zoom is capped
+        // so the satellite IR tiles stay crisp. Switch layers to pan freely.
+        prevMaxZoomRef.current = map.getMaxZoom();
+        map.setMaxZoom(CYCLONE_MAX_ZOOM);
+        if (map.getZoom() > CYCLONE_MAX_ZOOM) {
+            map.easeTo({ zoom: CYCLONE_MAX_ZOOM, duration: 300 });
+        }
+
+        const onMoveEnd = () => {
+            // Don't snap back if WE initiated the move
+            if (selfMoveRef.current) {
+                selfMoveRef.current = false;
+                return;
+            }
+            const locked = stormCenterRef.current;
+            if (!locked) return;
+            const center = map.getCenter();
+            const dLng = Math.abs(center.lng - locked[0]);
+            const dLat = Math.abs(center.lat - locked[1]);
+            // Threshold: ~0.01° at z5 is sub-pixel. Anything more = user panned.
+            if (dLng > 0.01 || dLat > 0.01) {
+                selfMoveRef.current = true;
+                map.easeTo({ center: locked, duration: 300 });
+            }
+        };
+        map.on('moveend', onMoveEnd);
 
         // ── Create track overlay (SVG neon tube) on first use ──
         const ensureTrackOverlay = () => {
@@ -1555,33 +1600,38 @@ export function useCycloneLayer(
 
                 log.info('[CYCLONE] 🛰️ Activated satellite IR for storm view');
 
-                // Fly to closest storm on first load (unless user manually selected a storm)
-                if (closest && !hasFlown.current) {
+                // Fly to focused storm on first load & lock center
+                const focusTarget = selectedStormRef.current ?? closest;
+                if (focusTarget && !hasFlown.current) {
                     hasFlown.current = true;
-                    // If handleSelectStorm already initiated a flyTo, skip the auto-fly
+                    // Resolve eye position from GFS tracker if available
+                    let flyLat = focusTarget.currentPosition.lat;
+                    let flyLon = focusTarget.currentPosition.lon;
+                    if (gfsTrackRef.current && gfsTrackRef.current.size > 0) {
+                        const gfsPos = interpolateGfsTracker(
+                            gfsTrackRef.current,
+                            focusTarget.sid,
+                            0,
+                            focusTarget.name,
+                            focusTarget.currentPosition.lat,
+                            focusTarget.currentPosition.lon,
+                        );
+                        if (gfsPos) {
+                            flyLat = gfsPos.lat;
+                            flyLon = gfsPos.lon;
+                        }
+                    }
+
+                    // Lock the storm center — moveend handler snaps back to this
+                    stormCenterRef.current = [flyLon, flyLat];
+
                     if (skipAutoFlyRef?.current) {
                         skipAutoFlyRef.current = false;
                         log.info(`[CYCLONE] ✈️ Skipping auto-fly (user selected a storm manually)`);
                     } else {
-                        // Fly to tcvitals position if available
-                        let flyLat = closest.currentPosition.lat;
-                        let flyLon = closest.currentPosition.lon;
-                        if (gfsTrackRef.current && gfsTrackRef.current.size > 0) {
-                            const gfsPos = interpolateGfsTracker(
-                                gfsTrackRef.current,
-                                closest.sid,
-                                0,
-                                closest.name,
-                                closest.currentPosition.lat,
-                                closest.currentPosition.lon,
-                            );
-                            if (gfsPos) {
-                                flyLat = gfsPos.lat;
-                                flyLon = gfsPos.lon;
-                            }
-                        }
+                        selfMoveRef.current = true;
                         log.info(
-                            `[CYCLONE] ✈️ Flying to ${closest.name} at ${flyLat.toFixed(1)}, ${flyLon.toFixed(1)}`,
+                            `[CYCLONE] ✈️ Flying to ${focusTarget.name} at ${flyLat.toFixed(1)}, ${flyLon.toFixed(1)} (center-locked)`,
                         );
                         map.flyTo({
                             center: [flyLon, flyLat],
@@ -1635,6 +1685,13 @@ export function useCycloneLayer(
             unsubWind?.();
             cancelled = true;
             map.off('zoomend', onZoomEnd);
+            map.off('moveend', onMoveEnd);
+            // Release center lock + restore zoom
+            stormCenterRef.current = null;
+            if (prevMaxZoomRef.current !== null) {
+                map.setMaxZoom(prevMaxZoomRef.current);
+                prevMaxZoomRef.current = null;
+            }
             // Clean up HUD
             const hudEl = map.getContainer().querySelector(`#${HUD_CONTAINER_ID}`);
             if (hudEl) hudEl.remove();
@@ -1654,10 +1711,16 @@ export function useCycloneLayer(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visible, mapReady]);
 
-    // ── Rebuild HUD when selected storm changes ──
+    // ── Rebuild HUD + re-lock center when selected storm changes ──
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady || !visible || !selectedStorm) return;
+
+        // Update the center lock to the newly selected storm
+        const newCenter: [number, number] = [selectedStorm.currentPosition.lon, selectedStorm.currentPosition.lat];
+        stormCenterRef.current = newCenter;
+        selfMoveRef.current = true;
+        map.flyTo({ center: newCenter, zoom: Math.min(map.getZoom(), CYCLONE_MAX_ZOOM), duration: 1200 });
 
         const HUD_CONTAINER_ID = 'cyclone-hud-badges';
         const old = map.getContainer().querySelector(`#${HUD_CONTAINER_ID}`);
