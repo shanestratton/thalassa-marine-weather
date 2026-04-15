@@ -343,7 +343,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     );
 
     // ── Rain Squall Map (GMGSI IR with BD Enhancement Curve) ──
-    useSquallMap(mapRef, mapReady, squallVisible, allCyclones, handleSelectStorm);
+    useSquallMap(mapRef, mapReady, squallVisible, location.lat, location.lon, allCyclones, handleSelectStorm);
 
     // ── Cyclone zoom center-lock — keep selected storm dead-center during zoom ──
     useEffect(() => {
