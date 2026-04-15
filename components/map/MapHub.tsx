@@ -930,6 +930,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                     <MapActionFabs
                         onLocateMe={() => {
                             triggerHaptic('medium');
+                            // Exit full-screen overlay layers so user returns to base map
+                            if (squallVisible) setSquallVisible(false);
+                            if (cycloneVisible) setCycloneVisible(false);
                             GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 }).then((pos) => {
                                 if (!pos) return;
                                 const { latitude, longitude } = pos;
