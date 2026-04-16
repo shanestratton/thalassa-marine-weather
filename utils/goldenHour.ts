@@ -1,12 +1,15 @@
 /**
  * goldenHour.ts — Golden-hour calculation utilities.
  *
- * Golden hour is the warm, diffused light period popular with photographers:
- *   Morning: sunrise → sunrise + 30 min
- *   Evening: sunset − 30 min → sunset
+ * Two modes:
+ *   1. String-based (legacy): uses HH:MM sunrise/sunset with ±30min approximation.
+ *   2. Coordinate-based (SunCalc): uses actual solar altitude — accurate at all latitudes.
  *
- * All times are in HH:MM 24-hour format to match the WeatherKit pipeline.
+ * Prefer the coordinate-based functions when lat/lon are available.
  */
+import { getGoldenHourFromCoords, isGoldenHourFromCoords } from './celestial';
+
+export { getGoldenHourFromCoords, isGoldenHourFromCoords };
 
 // ── Helpers ──────────────────────────────────────────────────────
 

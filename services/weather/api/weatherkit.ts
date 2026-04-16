@@ -2,6 +2,7 @@ import { CapacitorHttp } from '@capacitor/core';
 import { createLogger } from '../../../utils/createLogger';
 import { MarineWeatherReport, HourlyForecast, ForecastDay, SourcedWeatherMetrics, MetricSource } from '../../../types';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
+import { getSolarTimes, getMoonData } from '../../../utils/celestial';
 const log = createLogger('WeatherKit');
 
 // ── Types ─────────────────────────────────────────────────────
@@ -418,6 +419,21 @@ export function buildReportFromWeatherKit(
     const obs = wk.observation;
     const today = wk.daily[0];
 
+    // SunCalc: compute sunrise/sunset + moon offline for current day
+    const now = new Date();
+    const solar = getSolarTimes(now, lat, lon);
+    const moon = getMoonData(now, lat, lon);
+
+    // SunCalc: override sunrise/sunset on each forecast day
+    for (const day of wk.daily) {
+        if (day.isoDate || day.date) {
+            const dayDate = new Date((day.isoDate || day.date) + 'T12:00:00');
+            const daySolar = getSolarTimes(dayDate, lat, lon);
+            day.sunrise = daySolar.sunrise;
+            day.sunset = daySolar.sunset;
+        }
+    }
+
     // Source tracking helper
     const wkSource = (val: number | string | null) => ({
         value: val,
@@ -503,12 +519,19 @@ export function buildReportFromWeatherKit(
         dewPoint: obs?.dewPoint ?? null,
         uvIndex: obs?.uvIndex ?? 0,
         precipitation: obs?.precipitationIntensity ?? null,
-        sunrise: today?.sunrise ?? '--:--',
-        sunset: today?.sunset ?? '--:--',
+        sunrise: solar.sunrise,
+        sunset: solar.sunset,
+        dawn: solar.dawn,
+        dusk: solar.dusk,
+        nauticalDawn: solar.nauticalDawn,
+        nauticalDusk: solar.nauticalDusk,
+        moonrise: moon.moonrise,
+        moonset: moon.moonset,
         highTemp: today?.highTemp,
         lowTemp: today?.lowTemp,
-        moonPhase: '',
-        moonIllumination: 0,
+        moonPhase: moon.phaseName,
+        moonIllumination: moon.illumination,
+        moonPhaseValue: moon.phaseRatio,
         day: new Date().toLocaleDateString('en-US', { weekday: 'long' }),
         date: new Date().toLocaleDateString('en-US'),
         isDay: true, // Will be computed by consumer from sunrise/sunset

@@ -6,6 +6,7 @@ import { generateDescription } from '../transformers';
 import { calculateFeelsLike, calculateDistance } from '../../../utils/math';
 import { degreesToCardinal } from '../../../utils/format';
 import { piCache } from '../../PiCacheService';
+import { getSolarTimes, getMoonData } from '../../../utils/celestial';
 
 import { generateTacticalAdvice, generateSafetyAlerts } from '../../../utils/advisory';
 import { fetchRealTides } from './tides';
@@ -300,10 +301,17 @@ export const fetchOpenMeteo = async (
         feelsLike: calculateFeelsLike(cur.temperature_2m, cur.relative_humidity_2m, cur.wind_speed_10m * kFactor * 0.8), // Approx
         isDay: cur.is_day === 1,
         isEstimated: false,
-        sunrise: '', // Filled from daily
+        sunrise: '', // Filled from daily + SunCalc
         sunset: '',
+        dawn: '',
+        dusk: '',
+        nauticalDawn: '',
+        nauticalDusk: '',
         moonPhase: '',
         moonIllumination: 0,
+        moonPhaseValue: 0,
+        moonrise: undefined as string | undefined,
+        moonset: undefined as string | undefined,
         currentSpeed: 0,
         currentDirection: 0,
         highTemp: undefined as number | undefined,
@@ -319,35 +327,39 @@ export const fetchOpenMeteo = async (
 
     // Build Daily
     const dailyArr = wData.daily || {};
-    const dailies = (dailyArr.time || []).map((t: string, i: number) => ({
-        day: new Date(t).toLocaleDateString('en-US', { weekday: 'long' }),
-        date: new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        isoDate: t,
-        highTemp: dailyArr.temperature_2m_max[i],
-        lowTemp: dailyArr.temperature_2m_min[i],
-        windSpeed: parseFloat((dailyArr.wind_speed_10m_max[i] * kFactor).toFixed(1)),
-        windGust: parseFloat((dailyArr.wind_gusts_10m_max[i] * kFactor).toFixed(1)),
-        waveHeight: waveData?.daily?.wave_height_max
-            ? parseFloat((waveData.daily.wave_height_max[i] * 3.28084).toFixed(1))
-            : 0,
-        condition: getWmo(dailyArr.weather_code[i]),
-        precipitation: dailyArr.precipitation_sum[i],
-        uvIndex: dailyArr.uv_index_max[i],
-        // OpenMeteo returns ISO strings already in the location's timezone
-        // (e.g. "2026-04-15T05:58") — extract HH:MM directly to avoid
-        // Date parsing which silently converts through the device timezone.
-        sunrise: dailyArr.sunrise[i]?.split('T')[1]?.slice(0, 5) || '06:00',
-        sunset: dailyArr.sunset[i]?.split('T')[1]?.slice(0, 5) || '18:00',
-        pressure: 1013, // Daily pressure avg not easily available
-        cloudCover: 50,
-        isEstimated: false,
-        humidity: 80,
-        visibility: 10,
-        windDirection: degreesToCardinal(dailyArr.wind_direction_10m_dominant?.[i] ?? 0),
-        windDegree: dailyArr.wind_direction_10m_dominant?.[i] ?? 0,
-        precipLabel: '',
-        precipValue: '',
-    }));
+    const tz = wData.timezone || undefined;
+    const dailies = (dailyArr.time || []).map((t: string, i: number) => {
+        // SunCalc: compute sunrise/sunset mathematically (works offline)
+        const dayDate = new Date(t + 'T12:00:00');
+        const solar = getSolarTimes(dayDate, safeLat, safeLon, tz);
+        return {
+            day: new Date(t).toLocaleDateString('en-US', { weekday: 'long' }),
+            date: new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+            isoDate: t,
+            highTemp: dailyArr.temperature_2m_max[i],
+            lowTemp: dailyArr.temperature_2m_min[i],
+            windSpeed: parseFloat((dailyArr.wind_speed_10m_max[i] * kFactor).toFixed(1)),
+            windGust: parseFloat((dailyArr.wind_gusts_10m_max[i] * kFactor).toFixed(1)),
+            waveHeight: waveData?.daily?.wave_height_max
+                ? parseFloat((waveData.daily.wave_height_max[i] * 3.28084).toFixed(1))
+                : 0,
+            condition: getWmo(dailyArr.weather_code[i]),
+            precipitation: dailyArr.precipitation_sum[i],
+            uvIndex: dailyArr.uv_index_max[i],
+            // SunCalc-computed — no API dependency, works fully offline
+            sunrise: solar.sunrise,
+            sunset: solar.sunset,
+            pressure: 1013, // Daily pressure avg not easily available
+            cloudCover: 50,
+            isEstimated: false,
+            humidity: 80,
+            visibility: 10,
+            windDirection: degreesToCardinal(dailyArr.wind_direction_10m_dominant?.[i] ?? 0),
+            windDegree: dailyArr.wind_direction_10m_dominant?.[i] ?? 0,
+            precipLabel: '',
+            precipValue: '',
+        };
+    });
 
     if (dailies.length > 0) {
         currentMetrics.sunrise = dailies[0].sunrise;
@@ -355,6 +367,21 @@ export const fetchOpenMeteo = async (
         currentMetrics.highTemp = dailies[0].highTemp;
         currentMetrics.lowTemp = dailies[0].lowTemp;
     }
+
+    // SunCalc: compute moon phase + rise/set offline
+    const moonData = getMoonData(now, safeLat, safeLon, tz);
+    currentMetrics.moonPhase = moonData.phaseName;
+    currentMetrics.moonIllumination = moonData.illumination;
+    currentMetrics.moonPhaseValue = moonData.phaseRatio;
+    currentMetrics.moonrise = moonData.moonrise;
+    currentMetrics.moonset = moonData.moonset;
+
+    // SunCalc: compute dawn/dusk for current day
+    const todaySolar = getSolarTimes(now, safeLat, safeLon, tz);
+    currentMetrics.dawn = todaySolar.dawn;
+    currentMetrics.dusk = todaySolar.dusk;
+    currentMetrics.nauticalDawn = todaySolar.nauticalDawn;
+    currentMetrics.nauticalDusk = todaySolar.nauticalDusk;
 
     // Build Hourly (Simplified)
     const hourlyArr = wData.hourly || {};

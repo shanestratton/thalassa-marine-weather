@@ -22,7 +22,7 @@ const LAYER_LABELS = 'tide-station-labels';
 const LAYER_GLOW = 'tide-station-glow';
 const MIN_ZOOM = 6;
 const DEBOUNCE_MS = 60_000; // 60s debounce for API calls
-const SEARCH_RADIUS_KM = 200; // Search within 200km of viewport center
+const SEARCH_RADIUS_KM = 100; // Search within 100km (WorldTides API v3 max)
 
 // ── Types ──
 
