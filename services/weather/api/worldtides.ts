@@ -73,33 +73,60 @@ async function fetchViaProxy(lat: number, lon: number, days: number): Promise<Wo
     const supabaseKey = getSupabaseKey();
 
     if (!supabaseUrl || !supabaseKey) {
-        return null; // No Supabase config → skip proxy
+        log.warn('[proxy] No Supabase config — skipping proxy');
+        return null;
     }
 
+    const url = `${supabaseUrl}/functions/v1/proxy-tides`;
+    const payload = { lat, lon, days };
+
     try {
-        const url = `${supabaseUrl}/functions/v1/proxy-tides`;
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${supabaseKey}`,
-                apikey: supabaseKey,
-            },
-            body: JSON.stringify({ lat, lon, days }),
-        });
+        // Use CapacitorHttp (native networking) — consistent with other Supabase
+        // proxy calls and avoids WKWebView fetch quirks on iOS
+        let status: number;
+        let data: Record<string, unknown>;
 
-        if (res.status !== 200) {
-            const _errorData = await res.json().catch(() => ({}));
+        try {
+            const res = await CapacitorHttp.post({
+                url,
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${supabaseKey}`,
+                    apikey: supabaseKey,
+                },
+                data: payload,
+            });
+            status = res.status;
+            data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+        } catch (_capacitorErr: unknown) {
+            // Fallback: native fetch (web/dev where CapacitorHttp unavailable)
+            const res = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${supabaseKey}`,
+                    apikey: supabaseKey,
+                },
+                body: JSON.stringify(payload),
+            });
+            status = res.status;
+            data = await res.json();
+        }
+
+        if (status !== 200) {
+            log.warn(`[proxy] HTTP ${status}:`, data);
             return null;
         }
 
-        const data = await res.json();
         if (!data || data.error) {
+            log.warn('[proxy] API error:', data?.error);
             return null;
         }
 
+        log.info(`[proxy] OK — ${(data.extremes as unknown[])?.length ?? '?'} extremes`);
         return processResponse(data, lat, lon);
     } catch (e) {
+        log.warn('[proxy] Fetch failed:', e);
         return null;
     }
 }
