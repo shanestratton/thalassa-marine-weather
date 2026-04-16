@@ -21,7 +21,7 @@ const XW_ID = import.meta.env.VITE_XWEATHER_CLIENT_ID ?? '';
 const XW_SECRET = import.meta.env.VITE_XWEATHER_CLIENT_SECRET ?? '';
 
 function buildLightningTileUrl(): string {
-    return `https://maps.api.xweather.com/${XW_ID}_${XW_SECRET}` + `/lightning-strikes-15min/{z}/{x}/{y}/current.png`;
+    return `https://maps.api.xweather.com/${XW_ID}_${XW_SECRET}` + `/lightning-strikes:15/{z}/{x}/{y}/current.png`;
 }
 
 export function useLightningLayer(
