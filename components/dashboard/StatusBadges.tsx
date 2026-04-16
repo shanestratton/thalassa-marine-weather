@@ -201,10 +201,10 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             statusBadgeLabel = 'INLAND';
             statusBadgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
         } else if (locationType === 'inshore') {
-            statusBadgeLabel = 'INSHORE (Apple)';
+            statusBadgeLabel = 'INSHORE';
             statusBadgeColor = 'bg-teal-500/20 text-teal-300 border-teal-500/30';
         } else {
-            statusBadgeLabel = 'COASTAL (Apple)';
+            statusBadgeLabel = 'COASTAL';
             statusBadgeColor = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
         }
 
