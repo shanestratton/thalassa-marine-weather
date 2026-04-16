@@ -1,6 +1,7 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { BeaconObservation, BuoyStation } from '../../../types';
 import { MAJOR_BUOYS } from '../config';
+import { piCache } from '../../PiCacheService';
 
 import { createLogger } from '../../../utils/createLogger';
 
@@ -93,8 +94,11 @@ async function fetchNDBCBuoy(buoyId: string): Promise<NDBCRawData | null> {
     try {
         const url = `${NDBC_BASE_URL}/${buoyId}.txt`;
 
+        // Route through Pi Cache when available (30 min TTL — buoys update every 30min)
+        const piUrl = piCache.passthroughUrl(url, 30 * 60 * 1000, 'ndbc-buoy');
+
         const response = await CapacitorHttp.get({
-            url,
+            url: piUrl || url,
             headers: { Accept: 'text/plain' },
         });
 
@@ -169,8 +173,11 @@ async function fetchBOMBuoy(buoyId: string): Promise<NDBCRawData | null> {
         const filters = encodeURIComponent(JSON.stringify({ Site: siteName }));
         const url = `${QLD_WAVE_API_BASE}?resource_id=${QLD_WAVE_MASTER_RESOURCE}&filters=${filters}&limit=1&sort=DateTime%20desc`;
 
+        // Route through Pi Cache when available (30 min TTL)
+        const piUrl = piCache.passthroughUrl(url, 30 * 60 * 1000, 'qld-wave-buoy');
+
         const response = await CapacitorHttp.get({
-            url,
+            url: piUrl || url,
             headers: { Accept: 'application/json' },
         });
 
@@ -218,8 +225,11 @@ async function fetchBOMAWS(stationId: string): Promise<NDBCRawData | null> {
         // BOM JSON endpoint pattern for individual stations
         const url = `http://www.bom.gov.au/fwo/IDQ60801/IDQ60801.${stationId}.json`;
 
+        // Route through Pi Cache when available (15 min TTL — AWS updates frequently)
+        const piUrl = piCache.passthroughUrl(url, 15 * 60 * 1000, 'bom-aws');
+
         const response = await CapacitorHttp.get({
-            url,
+            url: piUrl || url,
             headers: { Accept: 'application/json' },
         });
 

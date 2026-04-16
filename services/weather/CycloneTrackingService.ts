@@ -155,9 +155,23 @@ function parseIBTrACStracks(csv: string): Map<string, CyclonePosition[]> {
 
 async function fetchATCF(): Promise<ATCFStorm[]> {
     log.info('[CYCLONE] Fetching real-time ATCF data...');
-    // Route through Pi Cache if available (passthrough caches the response)
-    const piUrl = piCache.passthroughUrl(ATCF_URL, 10 * 60 * 1000, 'knackwx-atcf');
-    const response = await fetch(piUrl || ATCF_URL);
+
+    // Route through Pi Cache's dedicated cyclone endpoint (aligns with scheduler pre-fetch)
+    if (piCache.isAvailable()) {
+        try {
+            const result = await piCache.fetch<ATCFStorm[]>('/api/misc/cyclones', {}, async () => {
+                throw new Error('fallback');
+            });
+            if (result.source !== 'direct' && Array.isArray(result.data)) {
+                log.info(`[CYCLONE] ATCF via Pi: ${result.data.length} systems (${result.source})`);
+                return result.data;
+            }
+        } catch {
+            // Pi failed — fall through to direct fetch
+        }
+    }
+
+    const response = await fetch(ATCF_URL);
     if (!response.ok) {
         log.error(`[CYCLONE] ATCF fetch failed: HTTP ${response.status}`);
         return [];

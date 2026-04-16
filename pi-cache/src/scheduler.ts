@@ -126,11 +126,13 @@ async function prefetchWeather(
 }
 
 async function prefetchTides(cache: Cache, config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
-    const key = `tides:${pf.lat}:${pf.lon}`;
+    const days = 7;
+    // Cache key must match the route handler in routes/tides.ts
+    const key = `tides:predictions:${pf.lat}:${pf.lon}:${days}d`;
     if (cache.hasFresh(key)) return;
 
-    // Try via Supabase edge function (handles WorldTides API key)
-    const url = supabaseEdgeUrl(config, 'tides', { lat: pf.lat, lon: pf.lon });
+    // Supabase edge function — proxy-tides accepts GET with query params
+    const url = supabaseEdgeUrl(config, 'proxy-tides', { lat: pf.lat, lon: pf.lon, days });
     await cachedJsonFetch(cache, {
         cacheKey: key,
         url,
@@ -292,17 +294,17 @@ async function prefetchBuoys(cache: Cache, config: ProxyConfig, pf: PrefetchConf
     });
 }
 
-async function prefetchCyclones(cache: Cache, config: ProxyConfig): Promise<void> {
+async function prefetchCyclones(cache: Cache, _config: ProxyConfig): Promise<void> {
     const key = 'cyclones:active';
     if (cache.hasFresh(key)) return;
 
-    const url = supabaseEdgeUrl(config, 'cyclones');
+    // KnackWx ATCF API — free, CORS-enabled, no API key needed
+    const url = 'https://api.knackwx.com/atcf/v2';
     await cachedJsonFetch(cache, {
         cacheKey: key,
         url,
         ttlMs: TTL.CYCLONE,
-        source: 'nhc-atcf',
-        headers: supabaseHeaders(config),
+        source: 'knackwx-atcf',
     });
 }
 

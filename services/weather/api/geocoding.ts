@@ -2,6 +2,7 @@ import { CapacitorHttp } from '@capacitor/core';
 import { MAJOR_BUOYS, STATE_ABBREVIATIONS } from '../config';
 import { getMapboxKey } from '../keys';
 import { abbreviate } from '../transformers';
+import { piCache } from '../../PiCacheService';
 
 import { createLogger } from '../../../utils/createLogger';
 
@@ -15,6 +16,45 @@ export interface GeoContext {
 }
 
 export const reverseGeocodeContext = async (lat: number, lon: number): Promise<GeoContext | null> => {
+    // ── Pi Cache shortcut: 7-day TTL, location names don't change ──
+    if (piCache.isAvailable()) {
+        try {
+            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,locality,neighborhood,district,poi&access_token=${getMapboxKey() || 'NONE'}`;
+            const piUrl = piCache.passthroughUrl(url, 7 * 24 * 60 * 60 * 1000, 'mapbox-geocode');
+            if (piUrl) {
+                const res = await CapacitorHttp.get({ url: piUrl, connectTimeout: 5000, readTimeout: 10000 });
+                const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+                if (data?.features?.length) {
+                    const place = data.features[0];
+                    const context = place.context || [];
+                    const countryCtx = context.find((c: { id: string }) => c.id.startsWith('country'));
+                    const regionCtx = context.find((c: { id: string }) => c.id.startsWith('region'));
+                    const city = place.text;
+                    const isGenericWater =
+                        /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(
+                            city,
+                        );
+                    if (!isGenericWater) {
+                        const countryShort = countryCtx ? (countryCtx.short_code || countryCtx.text).toUpperCase() : '';
+                        let state = '';
+                        if (regionCtx) {
+                            const regCode = regionCtx.short_code
+                                ? regionCtx.short_code.replace(/^[A-Z]{2}-/i, '').toUpperCase()
+                                : '';
+                            if (regCode && regCode.length <= 3) state = regCode;
+                            else if (STATE_ABBREVIATIONS[regionCtx.text]) state = STATE_ABBREVIATIONS[regionCtx.text];
+                            else if (regionCtx.text && regionCtx.text.length < 20) state = regionCtx.text;
+                        }
+                        const name = [city, state, countryShort].filter((p) => p).join(', ');
+                        return { name, lat: place.center[1], lon: place.center[0] };
+                    }
+                }
+            }
+        } catch {
+            // Pi failed — fall through to direct
+        }
+    }
+
     try {
         // Try Mapbox First (High Precision)
         const mapboxKey = getMapboxKey();

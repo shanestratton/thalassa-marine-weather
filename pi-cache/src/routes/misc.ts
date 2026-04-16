@@ -29,14 +29,14 @@ export function createMiscRoutes(cache: Cache, config: ProxyConfig): Router {
     router.get('/cyclones', async (req: Request, res: Response) => {
         try {
             const key = 'cyclones:active';
-            const url = supabaseEdgeUrl(config, 'cyclones');
+            // KnackWx ATCF API — free, CORS-enabled, no key needed
+            const url = 'https://api.knackwx.com/atcf/v2';
 
             const result = await cachedJsonFetch(cache, {
                 cacheKey: key,
                 url,
                 ttlMs: TTL.CYCLONE,
-                source: 'nhc-jtwc',
-                headers: supabaseHeaders(config),
+                source: 'knackwx-atcf',
             });
 
             res.set('X-Cache', result.fromCache ? (result.stale ? 'STALE' : 'HIT') : 'MISS');
@@ -208,7 +208,7 @@ export function createMiscRoutes(cache: Cache, config: ProxyConfig): Router {
             if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
 
             const key = `precip:nowcast:${lat}:${lon}`;
-            const url = supabaseEdgeUrl(config, 'precipitation', {
+            const url = supabaseEdgeUrl(config, 'proxy-rainbow', {
                 lat: String(lat),
                 lon: String(lon),
             });

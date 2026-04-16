@@ -108,7 +108,7 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
             if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
 
             const key = `weather:stormglass:${lat}:${lon}`;
-            const url = supabaseEdgeUrl(config, 'stormglass', {
+            const url = supabaseEdgeUrl(config, 'proxy-stormglass', {
                 lat: String(lat),
                 lon: String(lon),
             });
