@@ -151,7 +151,17 @@ export const LayerLegendStrip: React.FC<{
     windMaxSpeed: number;
 }> = ({ activeLayer, activeLayers, windMaxSpeed: _windMaxSpeed }) => {
     // Layers that have a legend definition
-    const LEGEND_ELIGIBLE: WeatherLayer[] = ['temperature', 'clouds', 'pressure'];
+    const LEGEND_ELIGIBLE: WeatherLayer[] = [
+        'temperature',
+        'clouds',
+        'pressure',
+        'waves',
+        'currents',
+        'sst',
+        'wind-gusts',
+        'visibility',
+        'cape',
+    ];
 
     // Determine which legend to show: prefer activeLayers Set, fallback to single activeLayer
     let legendLayer: WeatherLayer | null = null;
@@ -195,6 +205,54 @@ export const LayerLegendStrip: React.FC<{
             topArrow: '↑',
             bottomArrow: '↓',
             icon: '🔵',
+        },
+        waves: {
+            gradient: 'linear-gradient(to bottom, #c026d3, #ef4444, #f97316, #eab308, #22c55e, #3b82f6)',
+            topLabel: '6m+',
+            bottomLabel: 'CALM',
+            topArrow: '↑',
+            bottomArrow: '↓',
+            icon: '🌊',
+        },
+        currents: {
+            gradient: 'linear-gradient(to bottom, #ef4444, #f97316, #eab308, #06b6d4, #3b82f6, #1e3a5f)',
+            topLabel: 'FAST',
+            bottomLabel: 'SLOW',
+            topArrow: '↑',
+            bottomArrow: '↓',
+            icon: '🔄',
+        },
+        sst: {
+            gradient: 'linear-gradient(to bottom, #dc2626, #f97316, #eab308, #22c55e, #06b6d4, #2563eb)',
+            topLabel: 'WARM',
+            bottomLabel: 'COLD',
+            topArrow: '↑',
+            bottomArrow: '↓',
+            icon: '🌡️',
+        },
+        'wind-gusts': {
+            gradient: 'linear-gradient(to bottom, #be185d, #ef4444, #f97316, #eab308, #84cc16, #64748b)',
+            topLabel: '50kt+',
+            bottomLabel: 'CALM',
+            topArrow: '↑',
+            bottomArrow: '↓',
+            icon: '🌬️',
+        },
+        visibility: {
+            gradient: 'linear-gradient(to bottom, #22c55e, #84cc16, #eab308, #f97316, #94a3b8, #64748b)',
+            topLabel: 'CLEAR',
+            bottomLabel: 'FOG',
+            topArrow: '↑',
+            bottomArrow: '↓',
+            icon: '👁️',
+        },
+        cape: {
+            gradient: 'linear-gradient(to bottom, #c026d3, #ef4444, #f97316, #eab308, #22c55e, #1e3a5f)',
+            topLabel: '4000+',
+            bottomLabel: 'NONE',
+            topArrow: '↑',
+            bottomArrow: '↓',
+            icon: '⚡',
         },
     };
 
@@ -1044,7 +1102,7 @@ export const LayerFABMenu: React.FC<{
                     {/* ══════════════════════════════════════════ */}
                     {hasCharts && (
                         <>
-                            <div className="h-px bg-white/[0.06] mx-3 mt-1" />
+                            {/* Charts header — tappable to expand/collapse */}
                             <button
                                 aria-label={showCharts ? 'Collapse charts' : 'Show charts'}
                                 onClick={() => {
@@ -1053,11 +1111,14 @@ export const LayerFABMenu: React.FC<{
                                     if (dismissTimer.current) clearTimeout(dismissTimer.current);
                                     dismissTimer.current = setTimeout(() => setShowLayerMenu(false), 8000);
                                 }}
-                                className="w-full flex items-center justify-center gap-2 px-4 py-2 text-gray-500 hover:bg-white/5 transition-colors"
+                                className="w-full px-4 pt-3 pb-1.5 flex items-center gap-2 hover:bg-white/5 transition-colors"
                             >
-                                <span className="text-[10px] font-black uppercase tracking-[0.15em]">Charts</span>
+                                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-violet-400/80">
+                                    Charts
+                                </span>
+                                <div className="flex-1 h-px bg-violet-400/10" />
                                 <svg
-                                    className={`w-3 h-3 transition-transform ${showCharts ? 'rotate-180' : ''}`}
+                                    className={`w-3 h-3 text-violet-400/60 transition-transform ${showCharts ? 'rotate-180' : ''}`}
                                     fill="none"
                                     viewBox="0 0 24 24"
                                     stroke="currentColor"
