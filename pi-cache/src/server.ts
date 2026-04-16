@@ -9,6 +9,12 @@
  */
 
 import 'dotenv/config';
+
+// Force IPv4 for all fetch() calls — most boat networks lack IPv6 connectivity
+// and Node.js 22's undici-based fetch() tries AAAA records first, causing timeouts
+import { Agent, setGlobalDispatcher } from 'undici';
+setGlobalDispatcher(new Agent({ connect: { family: 4 } }));
+
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
