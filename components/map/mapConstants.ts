@@ -36,8 +36,29 @@ export type WeatherLayer =
     | 'sea'
     | 'satellite'
     | 'velocity'
+    // Sea State
     | 'waves'
-    | 'currents';
+    | 'currents'
+    | 'sst'
+    // Atmosphere (Xweather)
+    | 'wind-gusts'
+    | 'visibility'
+    | 'cape';
+
+/** Sea State layers — mutual exclusion within group */
+export const SEA_STATE_LAYERS: WeatherLayer[] = ['waves', 'currents', 'sst'];
+/** Atmosphere layers — mutual exclusion within group */
+export const ATMOSPHERE_LAYERS: WeatherLayer[] = [
+    'rain',
+    'wind',
+    'velocity',
+    'wind-gusts',
+    'temperature',
+    'clouds',
+    'pressure',
+    'visibility',
+    'cape',
+];
 
 // ── Tile sources ──
 function getOwmKey(): string {
@@ -75,13 +96,18 @@ export function getTileUrl(layer: string): string | undefined {
     if (layer === 'temperature') return `https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${owmKey}`;
     if (layer === 'clouds') return `https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmKey}`;
 
-    // Xweather maritime tile layers
+    // Xweather tile layers
     const xw = getXweatherCreds();
     if (xw) {
-        if (layer === 'waves')
-            return `https://maps.api.xweather.com/${xw.id}_${xw.secret}/wave-heights/{z}/{x}/{y}/current.png`;
-        if (layer === 'currents')
-            return `https://maps.api.xweather.com/${xw.id}_${xw.secret}/ocean-currents/{z}/{x}/{y}/current.png`;
+        const xwBase = `https://maps.api.xweather.com/${xw.id}_${xw.secret}`;
+        // Sea State
+        if (layer === 'waves') return `${xwBase}/wave-heights/{z}/{x}/{y}/current.png`;
+        if (layer === 'currents') return `${xwBase}/ocean-currents/{z}/{x}/{y}/current.png`;
+        if (layer === 'sst') return `${xwBase}/sst/{z}/{x}/{y}/current.png`;
+        // Atmosphere
+        if (layer === 'wind-gusts') return `${xwBase}/wind-gusts/{z}/{x}/{y}/current.png`;
+        if (layer === 'visibility') return `${xwBase}/visibility/{z}/{x}/{y}/current.png`;
+        if (layer === 'cape') return `${xwBase}/cape/{z}/{x}/{y}/current.png`;
     }
 
     return undefined;

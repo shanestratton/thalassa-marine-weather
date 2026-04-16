@@ -36,7 +36,7 @@ import { triggerHaptic } from '../../utils/system';
 import { PassageBanner } from './PassageBanner';
 import { GpsService } from '../../services/GpsService';
 
-import { type MapHubProps, type WeatherLayer } from './mapConstants';
+import { type MapHubProps, type WeatherLayer, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS } from './mapConstants';
 import { useMapInit, useLocationDot, usePickerMode } from './useMapInit';
 import { useWeatherLayers, useEmbeddedRain } from './useWeatherLayers';
 import { usePassagePlanner } from './usePassagePlanner';
@@ -782,15 +782,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                         center={center}
                         mapRef={mapRef}
                         toggleLayer={weather.toggleLayer}
-                        onSelectBaseWeather={(layer) => {
-                            if (layer === 'none') {
-                                weather.setActiveLayer('none');
-                            } else {
-                                // Radio select: dismiss satellite overlays, set single base weather
-                                setSquallVisible(false);
-                                setCycloneVisible(false);
-                                weather.setActiveLayer(layer as import('./mapConstants').WeatherLayer);
-                            }
+                        onSelectSeaState={(layer) => {
+                            setSquallVisible(false);
+                            setCycloneVisible(false);
+                            weather.selectInGroup(layer, SEA_STATE_LAYERS);
+                        }}
+                        onSelectAtmosphere={(layer) => {
+                            setSquallVisible(false);
+                            setCycloneVisible(false);
+                            weather.selectInGroup(layer, ATMOSPHERE_LAYERS);
                         }}
                         setShowLayerMenu={weather.setShowLayerMenu}
                         aisVisible={aisVisible}
