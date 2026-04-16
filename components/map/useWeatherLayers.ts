@@ -1123,13 +1123,26 @@ export function useWeatherLayers(
                     tileSize: 256,
                     maxzoom: 18,
                 });
+                // Per-layer opacity: sea marks stay solid, weather heatmaps
+                // are translucent so coastlines/countries remain visible.
+                const LAYER_OPACITY: Partial<Record<WeatherLayer, number>> = {
+                    sea: 1.0,
+                    temperature: 0.6,
+                    clouds: 0.6,
+                    waves: 0.65,
+                    currents: 0.65,
+                    sst: 0.65,
+                    'wind-gusts': 0.6,
+                    visibility: 0.6,
+                    cape: 0.6,
+                };
                 map.addLayer(
                     {
                         id: tileId,
                         type: 'raster',
                         source: tileId,
                         paint: {
-                            'raster-opacity': 1.0,
+                            'raster-opacity': LAYER_OPACITY[tl] ?? 0.65,
                         },
                     },
                     map.getLayer('route-line-layer') ? 'route-line-layer' : undefined,
