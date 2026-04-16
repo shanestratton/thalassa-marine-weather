@@ -258,30 +258,42 @@ export const parseLocation = async (
             name = location;
         }
     } else {
-        // 4. Fallback to Open-Meteo Geocoding (Faster than Nominatim)
-        const fetchOpenMeteoGeo = async (query: string) => {
+        // 4. Forward geocode via Mapbox (commercial, licensed)
+        const fetchMapboxGeo = async (query: string) => {
             try {
-                // Count=1, English
+                const mapboxKey = getMapboxKey();
+                if (!mapboxKey) return [];
                 const res = await CapacitorHttp.get({
-                    url: `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=1&language=en&format=json`,
+                    url: `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?limit=1&language=en&access_token=${mapboxKey}`,
                 });
-
-                if (!res || !res.data) {
-                    return [];
-                }
-
+                if (!res || !res.data) return [];
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
-                return (data && data.results) || [];
+                if (data?.features?.length) {
+                    const f = data.features[0];
+                    const ctx = f.context || [];
+                    const regionCtx = ctx.find((c: { id: string }) => c.id.startsWith('region'));
+                    const countryCtx = ctx.find((c: { id: string }) => c.id.startsWith('country'));
+                    return [
+                        {
+                            latitude: f.center[1],
+                            longitude: f.center[0],
+                            name: f.text || f.place_name?.split(',')[0],
+                            admin1: regionCtx?.text || '',
+                            country_code: countryCtx ? (countryCtx.short_code || '').toUpperCase() : '',
+                            timezone: undefined as string | undefined,
+                        },
+                    ];
+                }
+                return [];
             } catch (e) {
-                log.warn('[geocoding]', e);
+                log.warn('[geocoding] Mapbox forward geocode failed', e);
                 return [];
             }
-            // Silently ignored — non-critical failure
         };
 
-        let results = await fetchOpenMeteoGeo(location);
+        let results = await fetchMapboxGeo(location);
 
-        // FALLBACK: Nominatim (Better for POIs like "Marina")
+        // FALLBACK: Nominatim (OSS, commercial use permitted with attribution)
         if (!results || results.length === 0) {
             try {
                 const res = await CapacitorHttp.get({
@@ -318,7 +330,7 @@ export const parseLocation = async (
             const { suggestLocationCorrection } = await import('../../geminiService');
             const corrected = await suggestLocationCorrection(location);
             if (corrected) {
-                results = await fetchOpenMeteoGeo(corrected);
+                results = await fetchMapboxGeo(corrected);
                 if (results && results.length > 0) {
                     name = corrected;
                 }

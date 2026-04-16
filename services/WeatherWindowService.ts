@@ -5,11 +5,12 @@
  * and scores 6-hour departure windows as Go / Marginal / Wait.
  * Uses the comfort profile thresholds to determine scoring.
  *
- * Data source: Open-Meteo marine forecast API (free, no key needed).
+ * Data source: Open-Meteo Commercial marine forecast API.
  * Falls back to cached data for offline use.
  */
 
 import { ComfortProfileService, type ComfortProfile } from './ComfortProfileService';
+import { getOpenMeteoKey } from './weather/keys';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('WeatherWindow');
@@ -146,19 +147,28 @@ export const WeatherWindowService = {
             /* ignore */
         }
 
-        // Fetch from Open-Meteo Marine API
+        // Fetch from Open-Meteo Commercial Marine API
         try {
+            const omKey = getOpenMeteoKey();
+            const keyParam = omKey ? `&apikey=${omKey}` : '';
+            const marineBase = omKey
+                ? 'https://customer-marine-api.open-meteo.com/v1/marine'
+                : 'https://marine-api.open-meteo.com/v1/marine';
+            const forecastBase = omKey
+                ? 'https://customer-api.open-meteo.com/v1/forecast'
+                : 'https://api.open-meteo.com/v1/forecast';
+
             const url =
-                `https://marine-api.open-meteo.com/v1/marine?` +
+                `${marineBase}?` +
                 `latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}` +
                 `&hourly=wave_height,wave_direction,wave_period,wind_wave_height` +
-                `&forecast_days=7&timezone=auto`;
+                `&forecast_days=7&timezone=auto${keyParam}`;
 
             const windUrl =
-                `https://api.open-meteo.com/v1/forecast?` +
+                `${forecastBase}?` +
                 `latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}` +
                 `&hourly=wind_speed_10m,wind_direction_10m,precipitation_probability` +
-                `&forecast_days=7&timezone=auto&wind_speed_unit=kn`;
+                `&forecast_days=7&timezone=auto&wind_speed_unit=kn${keyParam}`;
 
             const [marineRes, windRes] = await Promise.all([fetch(url), fetch(windUrl)]);
 

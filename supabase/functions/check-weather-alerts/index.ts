@@ -139,7 +139,13 @@ function weatherCodeToDescription(code: number): string {
 // Groups nearby locations to minimize API calls
 async function fetchWeather(lat: number, lon: number): Promise<Record<string, number | null> | null> {
     try {
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=${WEATHER_VARS}&wind_speed_unit=kmh&timezone=auto`;
+        // Use commercial API — free tier is not licensed for App Store apps
+        const apiKey = Deno.env.get('OPEN_METEO_API_KEY') || '';
+        const base = apiKey
+            ? 'https://customer-api.open-meteo.com/v1/forecast'
+            : 'https://api.open-meteo.com/v1/forecast';
+        const keyParam = apiKey ? `&apikey=${apiKey}` : '';
+        const url = `${base}?latitude=${lat}&longitude=${lon}&current=${WEATHER_VARS}&wind_speed_unit=kmh&timezone=auto${keyParam}`;
         const res = await fetch(url);
         if (!res.ok) {
             console.warn(`Open-Meteo error: ${res.status}`);

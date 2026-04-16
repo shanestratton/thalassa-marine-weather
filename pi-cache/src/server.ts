@@ -34,6 +34,7 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 const CACHE_DIR = process.env.CACHE_DIR || './cache';
 let SUPABASE_URL = process.env.SUPABASE_URL || '';
 let SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
+let OPEN_METEO_API_KEY = process.env.OPEN_METEO_API_KEY || '';
 
 // ── Bootstrap ──
 
@@ -69,11 +70,12 @@ app.get('/status', (_req, res) => {
 // The skipper never touches a terminal. The app pushes config here.
 
 app.post('/api/configure', (req, res) => {
-    const { supabaseUrl, supabaseAnonKey, prefetchLat, prefetchLon, prefetchRadius } = req.body || {};
+    const { supabaseUrl, supabaseAnonKey, openMeteoApiKey, prefetchLat, prefetchLon, prefetchRadius } = req.body || {};
 
     // Update in-memory values if provided (empty strings = keep existing)
     if (supabaseUrl) SUPABASE_URL = supabaseUrl;
     if (supabaseAnonKey) SUPABASE_ANON_KEY = supabaseAnonKey;
+    if (openMeteoApiKey) OPEN_METEO_API_KEY = openMeteoApiKey;
 
     if (prefetchLat !== undefined && prefetchLon !== undefined) {
         process.env.PREFETCH_LAT = String(prefetchLat);
@@ -90,6 +92,7 @@ app.post('/api/configure', (req, res) => {
     ];
     if (SUPABASE_URL) envLines.push(`SUPABASE_URL=${SUPABASE_URL}`);
     if (SUPABASE_ANON_KEY) envLines.push(`SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}`);
+    if (OPEN_METEO_API_KEY) envLines.push(`OPEN_METEO_API_KEY=${OPEN_METEO_API_KEY}`);
     if (process.env.PREFETCH_LAT) {
         envLines.push(`PREFETCH_LAT=${process.env.PREFETCH_LAT}`);
         envLines.push(`PREFETCH_LON=${process.env.PREFETCH_LON}`);
@@ -106,7 +109,11 @@ app.post('/api/configure', (req, res) => {
 
     // Restart pre-fetch scheduler with updated config
     stopScheduler();
-    const proxyConfig = { supabaseUrl: SUPABASE_URL, supabaseAnonKey: SUPABASE_ANON_KEY };
+    const proxyConfig = {
+        supabaseUrl: SUPABASE_URL,
+        supabaseAnonKey: SUPABASE_ANON_KEY,
+        openMeteoApiKey: OPEN_METEO_API_KEY,
+    };
     startScheduler(cache, proxyConfig);
 
     console.log(
@@ -164,7 +171,11 @@ app.get('/api/passthrough-tile', async (req, res) => {
 
 // ── API Routes (for direct Pi endpoints — used by pre-fetch) ──
 
-const proxyConfig = { supabaseUrl: SUPABASE_URL, supabaseAnonKey: SUPABASE_ANON_KEY };
+const proxyConfig = {
+    supabaseUrl: SUPABASE_URL,
+    supabaseAnonKey: SUPABASE_ANON_KEY,
+    openMeteoApiKey: OPEN_METEO_API_KEY,
+};
 
 app.use('/api/weather', createWeatherRoutes(cache, proxyConfig));
 app.use('/api/tiles', createTileRoutes(cache, proxyConfig));
