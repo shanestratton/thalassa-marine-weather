@@ -258,22 +258,63 @@ async function prefetchRainRadar(cache: Cache, pf: PrefetchConfig): Promise<void
 }
 
 async function prefetchSynoptic(cache: Cache, _config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
-    const key = `synoptic:${pf.lat}:${pf.lon}`;
-    if (cache.hasFresh(key)) return;
-
-    // BOM synoptic charts (Southern Hemisphere) or NOAA OPC (Northern)
-    // Use direct URLs — no Supabase edge function needed for public chart data
     const isNorthern = pf.lat > 0;
-    const url = isNorthern
-        ? 'https://ocean.weather.gov/A_brief/shtml/atlsfc_brief.gif'
-        : 'https://www.bom.gov.au/fwo/IDY65000.json'; // BOM synoptic analysis JSON
 
-    await cachedJsonFetch(cache, {
-        cacheKey: key,
-        url,
-        ttlMs: TTL.SYNOPTIC,
-        source: 'synoptic-direct',
-    });
+    // Synoptic charts are IMAGES — use tile cache, not JSON cache.
+    // Southern Hemisphere: BOM MSLP colour analysis (IDY00030) — updates at 00/06/12/18 UTC
+    // Northern Hemisphere: NOAA OPC Unified Surface Analysis
+    const charts: Array<{ key: string; url: string; contentType: string; headers?: Record<string, string> }> = [];
+
+    if (isNorthern) {
+        // NOAA OPC — region based on longitude
+        const isPacific = pf.lon < -30 || pf.lon > 100;
+        charts.push({
+            key: 'synoptic:noaa:overview',
+            url: 'https://ocean.weather.gov/UA/entire_UA.gif',
+            contentType: 'image/gif',
+        });
+        charts.push({
+            key: `synoptic:noaa:${isPacific ? 'pacific' : 'atlantic'}`,
+            url: isPacific ? 'https://ocean.weather.gov/UA/OPC_PAC.gif' : 'https://ocean.weather.gov/UA/OPC_ATL.gif',
+            contentType: 'image/gif',
+        });
+    } else {
+        // BOM MSLP colour chart — construct timestamped URL (nearest 6h UTC)
+        const now = new Date();
+        const utcH = now.getUTCHours();
+        const chartHour = Math.floor(utcH / 6) * 6; // 0, 6, 12, or 18
+        const ymd = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const hh = String(chartHour).padStart(2, '0');
+        const timestamp = `${ymd}${hh}00`;
+
+        charts.push({
+            key: `synoptic:bom:mslp:${timestamp}`,
+            url: `https://www.bom.gov.au/fwo/IDY00030.${timestamp}.png`,
+            contentType: 'image/png',
+            headers: { 'User-Agent': 'Mozilla/5.0 ThalassaMarine/1.0' }, // BOM requires UA
+        });
+        // Also grab the simpler B&W chart (smaller, always available)
+        charts.push({
+            key: 'synoptic:bom:bw',
+            url: 'https://www.bom.gov.au/difacs/IDX0894.gif',
+            contentType: 'image/gif',
+        });
+    }
+
+    for (const chart of charts) {
+        if (cache.hasFreshTile(chart.key)) continue;
+        try {
+            await cachedTileFetch(cache, {
+                cacheKey: chart.key,
+                url: chart.url,
+                contentType: chart.contentType,
+                ttlMs: TTL.SYNOPTIC,
+                headers: chart.headers,
+            });
+        } catch {
+            // Individual chart failures are non-critical
+        }
+    }
 }
 
 async function prefetchBuoys(cache: Cache, _config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
