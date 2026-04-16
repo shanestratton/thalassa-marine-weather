@@ -28,7 +28,7 @@ export function createTideRoutes(cache: Cache, config: ProxyConfig): Router {
             if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
 
             const key = `tides:predictions:${lat}:${lon}:${days}d`;
-            const url = supabaseEdgeUrl(config, 'tides', {
+            const url = supabaseEdgeUrl(config, 'proxy-tides', {
                 lat: String(lat),
                 lon: String(lon),
                 days: String(days),

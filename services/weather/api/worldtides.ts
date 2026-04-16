@@ -220,7 +220,7 @@ export const fetchWorldTides = async (
                 { lat, lon, days },
                 async () => null as unknown as WorldTidesResponse,
             );
-            if (result.source !== 'direct' && result.data) return result.data;
+            if (result.source !== 'direct' && result.data?.extremes?.length) return result.data;
         } catch {
             // Pi failed — fall through
         }

@@ -23,7 +23,7 @@ declare const Deno: {
 
 const CORS: Record<string, string> = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, apikey',
 };
 
@@ -37,8 +37,8 @@ Deno.serve(async (req: Request) => {
         return new Response(null, { status: 204, headers: CORS });
     }
 
-    if (req.method !== 'POST') {
-        return corsResponse(JSON.stringify({ error: 'POST required' }), 405);
+    if (req.method !== 'POST' && req.method !== 'GET') {
+        return corsResponse(JSON.stringify({ error: 'GET or POST required' }), 405);
     }
 
     const key = Deno.env.get('WORLDTIDES_API_KEY');
@@ -47,7 +47,23 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-        const { lat, lon, days = 14, stations, stationDistance: rawDist = 100 } = await req.json();
+        // Support both GET (query params) and POST (JSON body)
+        let lat: number, lon: number, days: number, stations: boolean | undefined, rawDist: number;
+        if (req.method === 'GET') {
+            const url = new URL(req.url);
+            lat = Number(url.searchParams.get('lat'));
+            lon = Number(url.searchParams.get('lon'));
+            days = Number(url.searchParams.get('days')) || 14;
+            stations = url.searchParams.get('stations') === 'true';
+            rawDist = Number(url.searchParams.get('stationDistance')) || 100;
+        } else {
+            const body = await req.json();
+            lat = body.lat;
+            lon = body.lon;
+            days = body.days ?? 14;
+            stations = body.stations;
+            rawDist = body.stationDistance ?? 100;
+        }
         // WorldTides API v3 caps stationDistance at 100km — clamp to avoid 400 errors
         const stationDistance = Math.min(Math.max(0, Number(rawDist) || 100), 100);
 
