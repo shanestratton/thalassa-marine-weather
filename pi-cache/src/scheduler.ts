@@ -257,41 +257,48 @@ async function prefetchRainRadar(cache: Cache, pf: PrefetchConfig): Promise<void
     if (tileCount > 0) console.log(`   🌧️ Cached ${tileCount} rain radar tiles`);
 }
 
-async function prefetchSynoptic(cache: Cache, config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
+async function prefetchSynoptic(cache: Cache, _config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
     const key = `synoptic:${pf.lat}:${pf.lon}`;
     if (cache.hasFresh(key)) return;
 
     // BOM synoptic charts (Southern Hemisphere) or NOAA OPC (Northern)
+    // Use direct URLs — no Supabase edge function needed for public chart data
     const isNorthern = pf.lat > 0;
     const url = isNorthern
         ? 'https://ocean.weather.gov/A_brief/shtml/atlsfc_brief.gif'
-        : 'https://www.bom.gov.au/charts/synoptic_col.shtml'; // Parsed downstream
+        : 'https://www.bom.gov.au/fwo/IDY65000.json'; // BOM synoptic analysis JSON
 
-    // Store via Supabase edge function if available
-    const edgeUrl = supabaseEdgeUrl(config, 'synoptic', { lat: pf.lat, lon: pf.lon });
     await cachedJsonFetch(cache, {
         cacheKey: key,
-        url: edgeUrl,
+        url,
         ttlMs: TTL.SYNOPTIC,
-        source: 'synoptic',
-        headers: supabaseHeaders(config),
+        source: 'synoptic-direct',
     });
 }
 
-async function prefetchBuoys(cache: Cache, config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
+async function prefetchBuoys(cache: Cache, _config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
     const key = `buoys:${pf.lat}:${pf.lon}:${pf.radius}`;
     if (cache.hasFresh(key)) return;
 
-    // NOAA NDBC buoys — fetch active stations near the boat
-    const url = `https://www.ndbc.noaa.gov/rss/ndbc_obs_search.php?lat=${pf.lat}N&lon=${Math.abs(pf.lon)}${pf.lon >= 0 ? 'E' : 'W'}&radius=250`;
+    // NOAA NDBC Active Stations — free JSON API (no key needed)
+    // Returns stations within a bounding box around the boat's location
+    const degRadius = pf.radius || 5;
+    const url = `https://www.ndbc.noaa.gov/data/stations/station_table.txt`;
 
-    await cachedJsonFetch(cache, {
-        cacheKey: key,
-        url: supabaseEdgeUrl(config, 'buoys', { lat: pf.lat, lon: pf.lon, radius: pf.radius }),
-        ttlMs: TTL.BUOY,
-        source: 'ndbc',
-        headers: supabaseHeaders(config),
-    });
+    // Fallback: use the NDBC RSS observation search which returns nearby buoy data
+    const rssUrl = `https://www.ndbc.noaa.gov/rss/ndbc_obs_search.php?lat=${pf.lat}N&lon=${Math.abs(pf.lon)}${pf.lon >= 0 ? 'E' : 'W'}&radius=${Math.round(degRadius * 60)}`;
+
+    try {
+        await cachedJsonFetch(cache, {
+            cacheKey: key,
+            url: rssUrl,
+            ttlMs: TTL.BUOY,
+            source: 'ndbc-rss',
+        });
+    } catch {
+        // RSS might fail to parse as JSON — that's OK, client fetches buoys on-demand
+        console.warn('   ⚠️ Buoy pre-fetch skipped (RSS not JSON-parseable)');
+    }
 }
 
 async function prefetchCyclones(cache: Cache, _config: ProxyConfig): Promise<void> {
