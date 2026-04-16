@@ -473,7 +473,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
     const isOpen = fullPage || expanded;
 
     return (
-        <div className={fullPage ? 'px-4 pt-3 pb-28' : (className ?? 'mx-4 mt-3 mb-2')}>
+        <div className={fullPage ? 'px-4 pt-3 pb-44' : (className ?? 'mx-4 mt-3 mb-2')}>
             {/* ── Collapsed Bar (hidden in full-page mode) ── */}
             {!fullPage && (
                 <button
