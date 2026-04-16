@@ -249,7 +249,8 @@ export const LayerFABMenu: React.FC<{
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mapRef: React.MutableRefObject<any>;
     toggleLayer: (layer: WeatherLayer) => void;
-    onSelectBaseWeather: (layer: WeatherLayer | 'none') => void;
+    onSelectSeaState: (layer: WeatherLayer) => void;
+    onSelectAtmosphere: (layer: WeatherLayer) => void;
     setShowLayerMenu: (v: boolean) => void;
     aisVisible?: boolean;
     onToggleAis?: () => void;
@@ -309,7 +310,8 @@ export const LayerFABMenu: React.FC<{
     center,
     mapRef,
     toggleLayer,
-    onSelectBaseWeather,
+    onSelectSeaState,
+    onSelectAtmosphere,
     setShowLayerMenu,
     aisVisible = false,
     onToggleAis,
@@ -378,11 +380,6 @@ export const LayerFABMenu: React.FC<{
     const [stormMenuOpen, setStormMenuOpen] = useState(false);
     const [showCharts, setShowCharts] = useState(false);
 
-    // Determine which base weather layer is active (radio — only one)
-    const BASE_WEATHER_LAYERS = ['velocity', 'waves', 'currents', 'clouds', 'pressure', 'rain'] as const;
-    type BaseWeather = (typeof BASE_WEATHER_LAYERS)[number];
-    const activeBaseWeather: BaseWeather | null = BASE_WEATHER_LAYERS.find((l) => activeLayers.has(l)) ?? null;
-
     // Auto-dismiss menu after 8 seconds of inactivity
     useEffect(() => {
         if (!showLayerMenu) return;
@@ -408,16 +405,6 @@ export const LayerFABMenu: React.FC<{
         return dA - dB;
     });
 
-    // Handle base weather selection (radio logic)
-    const handleBaseWeather = (layer: BaseWeather) => {
-        if (activeLayers.has(layer)) {
-            onSelectBaseWeather('none'); // Deselect
-        } else {
-            onSelectBaseWeather(layer); // Radio-select (clears others)
-        }
-        triggerHaptic('light');
-    };
-
     // Reusable section header
     const SectionHeader = ({ label, color }: { label: string; color: string }) => (
         <div className="px-4 pt-3 pb-1.5 flex items-center gap-2">
@@ -425,11 +412,13 @@ export const LayerFABMenu: React.FC<{
                 className={`text-[10px] font-black uppercase tracking-[0.2em] ${
                     color === 'amber'
                         ? 'text-amber-400/80'
-                        : color === 'sky'
-                          ? 'text-sky-400/80'
-                          : color === 'emerald'
-                            ? 'text-emerald-400/80'
-                            : 'text-gray-400/80'
+                        : color === 'cyan'
+                          ? 'text-cyan-400/80'
+                          : color === 'sky'
+                            ? 'text-sky-400/80'
+                            : color === 'emerald'
+                              ? 'text-emerald-400/80'
+                              : 'text-gray-400/80'
                 }`}
             >
                 {label}
@@ -438,11 +427,13 @@ export const LayerFABMenu: React.FC<{
                 className={`flex-1 h-px ${
                     color === 'amber'
                         ? 'bg-amber-400/10'
-                        : color === 'sky'
-                          ? 'bg-sky-400/10'
-                          : color === 'emerald'
-                            ? 'bg-emerald-400/10'
-                            : 'bg-white/[0.06]'
+                        : color === 'cyan'
+                          ? 'bg-cyan-400/10'
+                          : color === 'sky'
+                            ? 'bg-sky-400/10'
+                            : color === 'emerald'
+                              ? 'bg-emerald-400/10'
+                              : 'bg-white/[0.06]'
                 }`}
             />
         </div>
@@ -733,36 +724,81 @@ export const LayerFABMenu: React.FC<{
                     )}
 
                     {/* ════════════════════���═════════════════════ */}
-                    {/* ── BASE WEATHER (radio / exclusive) ────── */}
+                    {/* ── SEA STATE (radio / exclusive) ────────── */}
                     {/* ══════════════════════════════════════════ */}
-                    <SectionHeader label="Base Weather" color="sky" />
+                    <SectionHeader label="Sea State" color="cyan" />
 
-                    {(
-                        [
-                            { key: 'velocity' as BaseWeather, label: 'Wind', icon: '💨', hint: 'GFS particles' },
-                            { key: 'waves' as BaseWeather, label: 'Waves', icon: '🌊', hint: 'Xweather' },
-                            { key: 'currents' as BaseWeather, label: 'Currents', icon: '🔄', hint: 'Xweather' },
-                            { key: 'clouds' as BaseWeather, label: 'Clouds', icon: '☁️', hint: 'OWM' },
-                            { key: 'pressure' as BaseWeather, label: 'Synoptic', icon: '📊', hint: 'GFS isobars' },
-                            {
-                                key: 'rain' as BaseWeather,
-                                label: 'Offshore Nowcast',
-                                icon: '🌧️',
-                                hint: 'Rainbow Global',
-                            },
-                        ] as const
-                    ).map((layer) => {
-                        const isActive = activeBaseWeather === layer.key;
+                    {[
+                        { key: 'waves' as WeatherLayer, label: 'Wave Heights', icon: '🌊', hint: 'Xweather' },
+                        { key: 'currents' as WeatherLayer, label: 'Ocean Currents', icon: '🔄', hint: 'Xweather' },
+                        { key: 'sst' as WeatherLayer, label: 'Sea Surface Temp', icon: '🌡️', hint: 'Xweather' },
+                    ].map((layer) => {
+                        const isActive = activeLayers.has(layer.key);
                         return (
                             <button
                                 aria-label={`Select ${layer.label} layer`}
                                 key={layer.key}
-                                onClick={() => handleBaseWeather(layer.key)}
+                                onClick={() => {
+                                    onSelectSeaState(layer.key);
+                                    triggerHaptic('light');
+                                }}
+                                className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                                    isActive ? 'bg-cyan-500/10 text-cyan-400' : 'text-gray-400 hover:bg-white/5'
+                                }`}
+                            >
+                                <div
+                                    className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+                                        isActive ? 'border-cyan-400' : 'border-gray-600'
+                                    }`}
+                                >
+                                    {isActive && (
+                                        <div className="w-2 h-2 rounded-full bg-cyan-400 shadow-sm shadow-cyan-400/50" />
+                                    )}
+                                </div>
+                                <span className="text-lg">{layer.icon}</span>
+                                <span className="text-[13px] font-bold flex-1">{layer.label}</span>
+                                {isActive ? (
+                                    <span className="flex items-center gap-1">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-lg shadow-cyan-400/50" />
+                                        <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">
+                                            Active
+                                        </span>
+                                    </span>
+                                ) : (
+                                    <span className="text-[10px] text-gray-500">{layer.hint}</span>
+                                )}
+                            </button>
+                        );
+                    })}
+
+                    {/* ══════════════════════════════════════════ */}
+                    {/* ── ATMOSPHERE (radio / exclusive) ────────── */}
+                    {/* ══════════════════════════════════════════ */}
+                    <SectionHeader label="Atmosphere" color="sky" />
+
+                    {[
+                        { key: 'velocity' as WeatherLayer, label: 'Wind', icon: '💨', hint: 'GFS particles' },
+                        { key: 'wind-gusts' as WeatherLayer, label: 'Wind Gusts', icon: '🌬️', hint: 'Xweather' },
+                        { key: 'rain' as WeatherLayer, label: 'Precipitation', icon: '🌧️', hint: 'Rainbow Global' },
+                        { key: 'clouds' as WeatherLayer, label: 'Cloud Cover', icon: '☁️', hint: 'OWM' },
+                        { key: 'temperature' as WeatherLayer, label: 'Temperature', icon: '🌡️', hint: 'OWM' },
+                        { key: 'pressure' as WeatherLayer, label: 'Synoptic', icon: '📊', hint: 'GFS isobars' },
+                        { key: 'visibility' as WeatherLayer, label: 'Visibility', icon: '👁️', hint: 'Xweather' },
+                        { key: 'cape' as WeatherLayer, label: 'CAPE', icon: '⚡', hint: 'Xweather' },
+                    ].map((layer) => {
+                        const isActive = activeLayers.has(layer.key);
+                        return (
+                            <button
+                                aria-label={`Select ${layer.label} layer`}
+                                key={layer.key}
+                                onClick={() => {
+                                    onSelectAtmosphere(layer.key);
+                                    triggerHaptic('light');
+                                }}
                                 className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
                                     isActive ? 'bg-sky-500/10 text-sky-400' : 'text-gray-400 hover:bg-white/5'
                                 }`}
                             >
-                                {/* Radio indicator */}
                                 <div
                                     className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
                                         isActive ? 'border-sky-400' : 'border-gray-600'

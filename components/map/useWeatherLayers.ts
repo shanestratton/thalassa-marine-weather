@@ -19,7 +19,7 @@ import { WindStore, useWindStore } from '../../stores/WindStore';
 import { WindParticleLayer } from './WindParticleLayer';
 import { type WindGrid } from '../../services/weather/windField';
 import { WindDataController } from '../../services/weather/WindDataController';
-import { type WeatherLayer, getTileUrl, getWindColor } from './mapConstants';
+import { type WeatherLayer, getTileUrl, getWindColor, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS } from './mapConstants';
 import { createWindLabelMarker } from '../../utils/createMarkerEl';
 import {
     initIsobarLayers,
@@ -99,6 +99,22 @@ export function useWeatherLayers(
                 }
                 next.add(layer);
             }
+            return next;
+        });
+    }, []);
+
+    // Select a layer with mutual exclusion within its group.
+    // Other layers in the same group are turned off; cross-group layers stay.
+    const selectInGroup = useCallback((layer: WeatherLayer, group: WeatherLayer[]) => {
+        setActiveLayers((prev) => {
+            const next = new Set(prev);
+            // Remove other layers in the same group
+            for (const g of group) {
+                if (g !== layer) next.delete(g);
+            }
+            // Toggle the selected layer (tap again to deselect)
+            if (next.has(layer)) next.delete(layer);
+            else next.add(layer);
             return next;
         });
     }, []);
@@ -745,7 +761,17 @@ export function useWeatherLayers(
         // ── Static tile layers (sea, temperature, clouds) ──
         // Remove tile layers NOT in active set — must run BEFORE the early return
         // below, otherwise toggling off the last layer skips cleanup.
-        const TILE_LAYERS: WeatherLayer[] = ['sea', 'temperature', 'clouds', 'waves', 'currents'];
+        const TILE_LAYERS: WeatherLayer[] = [
+            'sea',
+            'temperature',
+            'clouds',
+            'waves',
+            'currents',
+            'sst',
+            'wind-gusts',
+            'visibility',
+            'cape',
+        ];
         for (const tl of TILE_LAYERS) {
             const tileId = `tiles-${tl}`;
             if (!activeLayers.has(tl)) {
@@ -1159,6 +1185,7 @@ export function useWeatherLayers(
         setActiveLayer,
         activeLayers,
         toggleLayer,
+        selectInGroup,
         showLayerMenu,
         setShowLayerMenu,
         // Wind
