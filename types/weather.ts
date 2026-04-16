@@ -110,6 +110,12 @@ export interface WeatherMetrics {
     isoDate?: string;
     sunrise?: string;
     sunset?: string;
+    dawn?: string;
+    dusk?: string;
+    nauticalDawn?: string;
+    nauticalDusk?: string;
+    moonrise?: string;
+    moonset?: string;
     highTemp?: number;
     lowTemp?: number;
     currentSpeed?: number | null;

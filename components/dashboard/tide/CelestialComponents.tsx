@@ -1,35 +1,13 @@
 import React from 'react';
 import { createLogger } from '../../../utils/createLogger';
+import { getMoonPhase } from '../../../utils/celestial';
 
 const log = createLogger('CelestialComponents');
 import { ArrowUpIcon, ArrowDownIcon } from '../../Icons';
 
-// --- MOON LOGIC ---
+// --- MOON LOGIC (now powered by SunCalc — works 100% offline) ---
 export const getMoonPhaseData = (date: Date) => {
-    const synodic = 29.53058867;
-    const knownNewMoon = new Date('2000-01-06T12:24:01').getTime(); // UTC
-    const diff = date.getTime() - knownNewMoon;
-    const days = diff / (1000 * 60 * 60 * 24);
-
-    // Normalize to 0-1 cycle
-    let phaseRatio = (days % synodic) / synodic;
-    if (phaseRatio < 0) phaseRatio += 1;
-
-    let phaseName = '';
-    // Approx phase windows
-    if (phaseRatio < 0.03 || phaseRatio > 0.97) phaseName = 'New Moon';
-    else if (phaseRatio < 0.22) phaseName = 'Waxing Crescent';
-    else if (phaseRatio < 0.28) phaseName = 'First Quarter';
-    else if (phaseRatio < 0.47) phaseName = 'Waxing Gibbous';
-    else if (phaseRatio < 0.53) phaseName = 'Full Moon';
-    else if (phaseRatio < 0.72) phaseName = 'Waning Gibbous';
-    else if (phaseRatio < 0.78) phaseName = 'Last Quarter';
-    else phaseName = 'Waning Crescent';
-
-    // Illumination fraction (0 = New, 1 = Full)
-    const illumination = 0.5 * (1 - Math.cos(phaseRatio * 2 * Math.PI));
-
-    return { phaseName, illumination, phaseRatio };
+    return getMoonPhase(date);
 };
 
 interface MoonVisualProps {

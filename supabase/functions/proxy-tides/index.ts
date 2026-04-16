@@ -47,7 +47,9 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-        const { lat, lon, days = 14, stations, stationDistance = 200 } = await req.json();
+        const { lat, lon, days = 14, stations, stationDistance: rawDist = 100 } = await req.json();
+        // WorldTides API v3 caps stationDistance at 100km — clamp to avoid 400 errors
+        const stationDistance = Math.min(Math.max(0, Number(rawDist) || 100), 100);
 
         if (typeof lat !== 'number' || typeof lon !== 'number') {
             return corsResponse(JSON.stringify({ error: 'lat and lon are required numbers' }), 400);
