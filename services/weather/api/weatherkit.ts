@@ -3,6 +3,7 @@ import { createLogger } from '../../../utils/createLogger';
 import { MarineWeatherReport, HourlyForecast, ForecastDay, SourcedWeatherMetrics, MetricSource } from '../../../types';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
 import { getSolarTimes, getMoonData } from '../../../utils/celestial';
+import { piCache } from '../../PiCacheService';
 const log = createLogger('WeatherKit');
 
 // ── Types ─────────────────────────────────────────────────────
@@ -302,7 +303,6 @@ export const fetchWeatherKitFull = async (lat: number, lon: number): Promise<Wea
     }
 
     const url = `${supabaseUrl}/functions/v1/fetch-weatherkit`;
-    // supabaseKey already retrieved above
     const body = {
         lat,
         lon,
@@ -311,6 +311,45 @@ export const fetchWeatherKitFull = async (lat: number, lon: number): Promise<Wea
 
     try {
         let json: WeatherKitRaw;
+
+        // ── Pi Cache shortcut: route through local Pi for offline availability ──
+        if (piCache.isAvailable()) {
+            try {
+                const piUrl = piCache.passthroughUrl(
+                    `${url}?lat=${lat}&lon=${lon}&dataSets=currentWeather,forecastHourly,forecastDaily,forecastNextHour`,
+                    15 * 60 * 1000,
+                    'weatherkit',
+                );
+                if (piUrl) {
+                    const piRes = await CapacitorHttp.get({ url: piUrl, connectTimeout: 5000, readTimeout: 15000 });
+                    const piData = typeof piRes.data === 'string' ? JSON.parse(piRes.data) : piRes.data;
+                    if (piData && piData.currentWeather) {
+                        log.info('[weatherkit] Served from Pi Cache');
+                        json = piData;
+                        // Skip the direct Supabase fetch — jump to mapping
+                        const observation = json?.currentWeather ? mapCurrentWeather(json.currentWeather) : null;
+                        const hourly = json?.forecastHourly ? mapHourlyForecast(json.forecastHourly) : [];
+                        const daily = json?.forecastDaily ? mapDailyForecast(json.forecastDaily) : [];
+                        const { rain: minutelyRain, summary: rainSummary } = json?.forecastNextHour
+                            ? mapNextHourForecast(json.forecastNextHour)
+                            : { rain: [], summary: '' };
+                        const result: WeatherKitFullResponse = {
+                            observation,
+                            hourly,
+                            daily,
+                            minutelyRain,
+                            rainSummary,
+                        };
+                        cachedFull = { data: result, fetchedAt: Date.now(), key: cacheKey };
+                        apiCacheSet('weatherkit', lat, lon, result);
+                        return result;
+                    }
+                }
+            } catch {
+                // Pi failed — fall through to direct Supabase
+            }
+        }
+
         try {
             const res = await CapacitorHttp.post({
                 url,

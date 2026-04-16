@@ -66,7 +66,23 @@ export async function cachedJsonFetch(
         }
 
         const data = await res.json();
-        cache.set(opts.cacheKey, data, opts.ttlMs, opts.source);
+
+        // Don't cache error responses — prevents stale API errors from persisting
+        const isError =
+            data &&
+            typeof data === 'object' &&
+            !Array.isArray(data) &&
+            ('error' in (data as Record<string, unknown>) || 'message' in (data as Record<string, unknown>)) &&
+            !('extremes' in (data as Record<string, unknown>)) && // Tide data can have metadata alongside
+            !('hourly' in (data as Record<string, unknown>)) && // Weather data
+            !('current' in (data as Record<string, unknown>)); // Current conditions
+
+        if (!isError) {
+            cache.set(opts.cacheKey, data, opts.ttlMs, opts.source);
+        } else {
+            console.warn(`⚠️ Skipping cache for ${opts.cacheKey}: response looks like an error`);
+        }
+
         return { data, fromCache: false, stale: false };
     } catch (err) {
         // 3. Fetch failed — serve stale if we have it
