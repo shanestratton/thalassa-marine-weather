@@ -5,7 +5,7 @@
  * forecast confidence. This service queries GFS, ECMWF, and optionally ICON/ACCESS-G
  * for the same set of route waypoints, then produces a comparison matrix.
  *
- * Uses Open-Meteo's multi-model endpoint (free tier) which provides access to:
+ * Uses Open-Meteo's commercial multi-model endpoint which provides access to:
  *   - GFS (NOAA) — 0.25° global
  *   - ECMWF IFS — 0.1° global (best model)
  *   - ICON (DWD) — 0.125° Europe, 0.25° global
@@ -261,14 +261,15 @@ async function fetchModelForecast(
             timezone: 'UTC',
         });
 
-        let baseUrl = 'https://api.open-meteo.com/v1/forecast';
-        let waveUrl = 'https://marine-api.open-meteo.com/v1/marine';
+        // Always use commercial API — free tier is not licensed for App Store apps
+        const baseUrl = 'https://customer-api.open-meteo.com/v1/forecast';
+        const waveUrl = 'https://customer-marine-api.open-meteo.com/v1/marine';
 
         if (omKey) {
-            baseUrl = 'https://customer-api.open-meteo.com/v1/forecast';
-            waveUrl = 'https://customer-marine-api.open-meteo.com/v1/marine';
             params.set('apikey', omKey);
             waveParams.set('apikey', omKey);
+        } else {
+            log.warn(`[MultiModel] No Open-Meteo API key — ${model.name} query may fail`);
         }
 
         // Fetch wind/pressure and waves in parallel

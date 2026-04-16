@@ -17,6 +17,21 @@ import { Cache } from './cache.js';
 export interface ProxyConfig {
     supabaseUrl: string;
     supabaseAnonKey: string;
+    openMeteoApiKey?: string;
+}
+
+/**
+ * Build a commercial Open-Meteo API URL.
+ * Uses customer-api.open-meteo.com with the API key appended.
+ * Falls back to env var if not in config.
+ */
+export function openMeteoUrl(config: ProxyConfig, type: 'forecast' | 'marine', params: string): string {
+    const key = config.openMeteoApiKey || process.env.OPEN_METEO_API_KEY || '';
+    const base =
+        type === 'marine'
+            ? 'https://customer-marine-api.open-meteo.com/v1/marine'
+            : 'https://customer-api.open-meteo.com/v1/forecast';
+    return key ? `${base}?${params}&apikey=${key}` : `${base}?${params}`;
 }
 
 // ── JSON Proxy ──

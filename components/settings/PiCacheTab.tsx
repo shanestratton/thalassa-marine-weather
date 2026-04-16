@@ -27,6 +27,7 @@ import { triggerHaptic } from '../../utils/system';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+const OPEN_METEO_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_OPEN_METEO_API_KEY) || '';
 
 // ── Phase display config ──────────────────────────────────────
 
@@ -104,6 +105,7 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                         piCache.pushConfig({
                             supabaseUrl: SUPABASE_URL,
                             supabaseAnonKey: SUPABASE_KEY,
+                            openMeteoApiKey: OPEN_METEO_KEY || undefined,
                             prefetchLat: loc.lat,
                             prefetchLon: loc.lon,
                             prefetchRadius: 5,

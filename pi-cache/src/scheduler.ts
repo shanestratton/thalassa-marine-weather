@@ -10,7 +10,14 @@
 
 import cron from 'node-cron';
 import { Cache } from './cache.js';
-import { ProxyConfig, cachedJsonFetch, cachedTileFetch, supabaseEdgeUrl, supabaseHeaders } from './proxy.js';
+import {
+    ProxyConfig,
+    cachedJsonFetch,
+    cachedTileFetch,
+    supabaseEdgeUrl,
+    supabaseHeaders,
+    openMeteoUrl,
+} from './proxy.js';
 
 // ── TTL Constants (milliseconds) ──
 
@@ -114,13 +121,13 @@ async function prefetchWeather(
 
     if (cache.hasFresh(key)) return; // Already fresh, skip
 
-    // Try Open-Meteo directly (no API key needed)
+    // Open-Meteo Commercial API — key injected by openMeteoUrl helper
     const params =
         type === 'current'
             ? `latitude=${pf.lat}&longitude=${pf.lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn`
             : `latitude=${pf.lat}&longitude=${pf.lon}&hourly=temperature_2m,relative_humidity_2m,precipitation_probability,precipitation,weather_code,cloud_cover,wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn&forecast_days=7`;
 
-    const url = `https://api.open-meteo.com/v1/forecast?${params}`;
+    const url = openMeteoUrl(config, 'forecast', params);
 
     await cachedJsonFetch(cache, { cacheKey: key, url, ttlMs: ttl, source: 'open-meteo' });
 }
@@ -174,7 +181,7 @@ async function prefetchSatelliteTiles(cache: Cache, pf: PrefetchConfig, band: 'i
 
 async function prefetchGrib(
     cache: Cache,
-    _config: ProxyConfig,
+    config: ProxyConfig,
     pf: PrefetchConfig,
     type: 'wind' | 'pressure' | 'waves',
 ): Promise<void> {
@@ -186,14 +193,14 @@ async function prefetchGrib(
         params = `latitude=${pf.lat}&longitude=${pf.lon}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn&forecast_days=5`;
     } else if (type === 'waves') {
         params = `latitude=${pf.lat}&longitude=${pf.lon}&hourly=wave_height,wave_direction,wave_period,swell_wave_height,swell_wave_direction,swell_wave_period&forecast_days=5`;
-        const url = `https://marine-api.open-meteo.com/v1/marine?${params}`;
+        const url = openMeteoUrl(config, 'marine', params);
         await cachedJsonFetch(cache, { cacheKey: key, url, ttlMs: TTL.GRIB, source: 'open-meteo-marine' });
         return;
     } else {
         params = `latitude=${pf.lat}&longitude=${pf.lon}&hourly=pressure_msl,surface_pressure&forecast_days=5`;
     }
 
-    const url = `https://api.open-meteo.com/v1/forecast?${params}`;
+    const url = openMeteoUrl(config, 'forecast', params);
     await cachedJsonFetch(cache, { cacheKey: key, url, ttlMs: TTL.GRIB, source: 'open-meteo-grib' });
 }
 

@@ -510,6 +510,7 @@ class PiCacheServiceImpl {
     async pushConfig(config: {
         supabaseUrl: string;
         supabaseAnonKey: string;
+        openMeteoApiKey?: string;
         prefetchLat?: number;
         prefetchLon?: number;
         prefetchRadius?: number;
