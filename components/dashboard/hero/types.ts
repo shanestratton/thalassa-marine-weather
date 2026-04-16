@@ -119,7 +119,7 @@ export interface HeroStatsRowsProps {
  * Props for HeroWidgetGrid component
  */
 export interface HeroWidgetGridProps {
-    layoutType: 'coastal' | 'offshore' | 'inland';
+    layoutType: 'inshore' | 'coastal' | 'offshore' | 'inland';
     data: WeatherMetrics;
     values: CardDisplayValues;
     units: UnitPreferences;

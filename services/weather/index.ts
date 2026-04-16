@@ -47,7 +47,7 @@ export const fetchWeatherByStrategy = async (
     lat: number,
     lon: number,
     name: string,
-    locationType?: 'coastal' | 'offshore' | 'inland',
+    locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
 ): Promise<MarineWeatherReport> => {
     const dedupKey = `${lat.toFixed(2)},${lon.toFixed(2)}`;
     const existing = _inflight.get(dedupKey);
@@ -63,7 +63,7 @@ const _fetchWeatherByStrategyImpl = async (
     lat: number,
     lon: number,
     name: string,
-    locationType?: 'coastal' | 'offshore' | 'inland',
+    locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
 ): Promise<MarineWeatherReport> => {
     const isOffshore = locationType === 'offshore';
     const needsStormGlass = locationType !== 'inland';
@@ -156,7 +156,7 @@ const _fetchWeatherByStrategyImpl = async (
     // --- DETERMINE LOCATION TYPE ---
     const computedLocationType =
         stormGlassReport?.locationType || locationType || openMeteoReport?.locationType || 'coastal';
-    report.locationType = computedLocationType as 'coastal' | 'offshore' | 'inland';
+    report.locationType = computedLocationType as 'inshore' | 'coastal' | 'offshore' | 'inland';
 
     // --- ENRICH WITH STORMGLASS MARINE DATA ---
     // WeatherKit doesn't provide wave, swell, water temp, or current data.
@@ -393,7 +393,7 @@ export const fetchPrecisionWeather = async (
     location: string,
     coords?: { lat: number; lon: number },
     forceRefresh = false,
-    existingLocationType?: 'coastal' | 'offshore' | 'inland',
+    existingLocationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
 ): Promise<MarineWeatherReport> => {
     let lat: number, lon: number, name: string;
 

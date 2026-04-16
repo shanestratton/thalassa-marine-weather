@@ -107,7 +107,7 @@ const HeroSlideComponent = ({
     lat?: number;
     guiDetails?: TideGUIDetails;
     coordinates?: { lat: number; lon: number };
-    locationType?: 'coastal' | 'offshore' | 'inland';
+    locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
     generatedAt?: string;
     onTimeSelect?: (time: number | undefined) => void;
     onHourChange?: (hour: number) => void;
@@ -185,11 +185,15 @@ const HeroSlideComponent = ({
     const _rowHeightClass = 'min-h-[52px] sm:flex-1';
 
     // FIX: Offshore should show 3x3 Grid, not Tide Graph (unless Coastal)
-    const showTideGraph = locationType === 'coastal' && !isLandlocked && tides && tides.length > 0;
+    const showTideGraph =
+        (locationType === 'coastal' || locationType === 'inshore') && !isLandlocked && tides && tides.length > 0;
     // Detect when tides SHOULD be available but aren't (API failure / key issue)
-    const tidesExpectedButMissing = locationType === 'coastal' && !isLandlocked && (!tides || tides.length === 0);
-    // In essential mode, show map for any coastal location — independent of tide availability
-    const showMapInstead = isEssentialMode && (locationType === 'coastal' || locationType === 'inland' || isLandlocked);
+    const tidesExpectedButMissing =
+        (locationType === 'coastal' || locationType === 'inshore') && !isLandlocked && (!tides || tides.length === 0);
+    // In essential mode, show map for any coastal/inshore location — independent of tide availability
+    const showMapInstead =
+        isEssentialMode &&
+        (locationType === 'coastal' || locationType === 'inshore' || locationType === 'inland' || isLandlocked);
     const _showGrid = !showTideGraph && !showMapInstead; // Explicit switch
 
     // Rain detection — only on Today slide (index 0) with minutely data
@@ -1073,7 +1077,9 @@ const HeroSlideComponent = ({
                                                         ? INLAND_WIDGETS
                                                         : locationType === 'offshore'
                                                           ? OFFSHORE_WIDGETS
-                                                          : locationType === 'coastal' && !hasMarineMetrics
+                                                          : (locationType === 'coastal' ||
+                                                                  locationType === 'inshore') &&
+                                                              !hasMarineMetrics
                                                             ? INLAND_WIDGETS
                                                             : OFFSHORE_WIDGETS;
 

@@ -45,7 +45,7 @@ export interface DashboardWidgetContextType {
     timeZone?: string;
     modelUsed?: string;
     isLandlocked?: boolean;
-    locationType?: 'coastal' | 'offshore' | 'inland';
+    locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
     lat?: number; // Added for Southern Hemi Moon Logic
     tideGUIDetails?: TideGUIDetails;
 

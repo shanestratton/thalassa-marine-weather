@@ -9,9 +9,9 @@ describe('determineLocationType', () => {
         expect(determineLocationType(5, 9, 'Redcliffe, QLD', true, 3)).toBe('coastal');
     });
 
-    it('coastal: near land + maritime name', () => {
-        // e.g. Mooloolaba Harbour — 2km from land, 15km from water, maritime name
-        expect(determineLocationType(2, 15, 'Mooloolaba Harbour', false, 5)).toBe('coastal');
+    it('inshore: near land + harbour name', () => {
+        // e.g. Mooloolaba Harbour — 2km from land, 15km from water, inshore name
+        expect(determineLocationType(2, 15, 'Mooloolaba Harbour', false, 5)).toBe('inshore');
     });
 
     it('coastal: near land + on water grid', () => {
@@ -43,6 +43,23 @@ describe('determineLocationType', () => {
         // Near land, no tides, no maritime name, moderate elevation
         // Should still fall back to coastal (sailor-biased)
         expect(determineLocationType(15, 20, 'Someplace', false, 50)).toBe('coastal');
+    });
+
+    // ── INSHORE SCENARIOS ──
+
+    it('inshore: marina with tides', () => {
+        // e.g. Scarborough Marina — 3km from land, tides, low elevation
+        expect(determineLocationType(3, 8, 'Scarborough Marina', true, 2)).toBe('inshore');
+    });
+
+    it('inshore: river estuary near land', () => {
+        // e.g. Brisbane River mouth — near land, estuary name, tides
+        expect(determineLocationType(5, 10, 'Brisbane River Estuary', true, 1)).toBe('inshore');
+    });
+
+    it('inshore: anchorage near land', () => {
+        // e.g. Moreton Bay Anchorage — near land, anchorage keyword
+        expect(determineLocationType(6, 5, 'Moreton Bay Anchorage', true, 0)).toBe('inshore');
     });
 
     // ── OFFSHORE SCENARIOS ──
@@ -79,9 +96,9 @@ describe('determineLocationType', () => {
 
     // ── EDGE CASES ──
 
-    it('maritime name + near land = coastal, not offshore', () => {
-        // "Port Douglas" near land should be coastal, not offshore
-        expect(determineLocationType(8, 10, 'Port Douglas', true, 5)).toBe('coastal');
+    it('inshore name + near land = inshore, not offshore', () => {
+        // "Port Douglas" near land should be inshore (port = enclosed waters)
+        expect(determineLocationType(8, 10, 'Port Douglas', true, 5)).toBe('inshore');
     });
 
     it('no data at all defaults to offshore (sailor safety bias)', () => {

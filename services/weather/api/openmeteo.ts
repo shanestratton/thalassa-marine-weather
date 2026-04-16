@@ -421,7 +421,7 @@ export const fetchOpenMeteo = async (
     }
 
     // Infer Location Type
-    let locType: 'coastal' | 'offshore' | 'inland' = 'offshore';
+    let locType: 'inshore' | 'coastal' | 'offshore' | 'inland' = 'offshore';
 
     // 1. Determine "Distance to Water" using Marine Grid Snap
     // (Handled by Ring Search above: distToWaterIdx is set to 0 if found)

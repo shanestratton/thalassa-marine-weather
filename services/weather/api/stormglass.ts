@@ -56,7 +56,7 @@ export const fetchStormGlassWeather = async (
     lat: number,
     lon: number,
     name: string,
-    existingLocationType?: 'coastal' | 'offshore' | 'inland',
+    existingLocationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
 ): Promise<MarineWeatherReport> => {
     // 1. CHECK CACHE (3h TTL — model data updates every 6h)
     // API key lives server-side in Supabase Secrets — no client-side check needed.

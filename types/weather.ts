@@ -266,7 +266,7 @@ export interface MarineWeatherReport {
     timeZone?: string;
     utcOffset?: number;
     isLandlocked?: boolean;
-    locationType?: 'coastal' | 'offshore' | 'inland';
+    locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
     distToLandKm?: number;
     synopticMap?: GridPoint[];
     tideGUIDetails?: {

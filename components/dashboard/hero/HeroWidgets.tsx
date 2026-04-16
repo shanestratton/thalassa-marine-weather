@@ -40,7 +40,7 @@ export const renderHeroWidget = (
     align: 'left' | 'center' | 'right' = 'left',
     sources?: SourceMap,
     compact?: boolean,
-    locationType?: 'coastal' | 'offshore' | 'inland',
+    locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
 ) => {
     const valSize = compact ? 'text-lg' : 'text-2xl';
     const subSize = compact ? 'text-[11px]' : 'text-sm';
