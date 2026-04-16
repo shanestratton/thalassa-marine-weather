@@ -20,7 +20,7 @@ interface HeroWidgetsProps {
     >;
     trends?: Record<string, 'up' | 'down' | 'stable'>;
     isLive?: boolean;
-    locationType?: 'coastal' | 'offshore' | 'inland';
+    locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
     hourly?: HourlyForecast[];
 }
 

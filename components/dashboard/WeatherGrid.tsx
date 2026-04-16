@@ -308,7 +308,7 @@ export const DetailedMetricsWidget = ({
     current: WeatherMetrics;
     units: UnitPreferences;
     hourly?: HourlyForecast[];
-    locationType?: 'coastal' | 'offshore' | 'inland';
+    locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
 }) => {
     const { settings, updateSettings } = useThalassa();
     const activeWidgets = settings.detailsWidgets || [

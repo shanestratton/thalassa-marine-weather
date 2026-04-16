@@ -71,7 +71,7 @@ export const mapStormGlassToReport = (
     seaLevels: Partial<StormGlassTideData>[] = [],
     _model: string = 'sg',
     astro?: AstroEntry[], // Pass astronomy data
-    existingLocationType?: 'coastal' | 'offshore' | 'inland',
+    existingLocationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
     timeZone?: string,
     utcOffset?: number,
 ): MarineWeatherReport => {
@@ -496,7 +496,7 @@ export const mapStormGlassToReport = (
     // waveHeight is in ft here. 0.2m is approx 0.65ft.
     const hasWaves = current.waveHeight !== null && current.waveHeight > 0.6;
 
-    let locType: 'coastal' | 'offshore' | 'inland' = 'inland';
+    let locType: 'inshore' | 'coastal' | 'offshore' | 'inland' = 'inland';
 
     if (existingLocationType) {
         locType = existingLocationType;

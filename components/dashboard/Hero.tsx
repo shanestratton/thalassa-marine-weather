@@ -62,7 +62,7 @@ export const HeroSection = ({
     lat?: number;
     guiDetails?: TideGUIDetails;
     coordinates?: { lat: number; lon: number };
-    locationType?: 'coastal' | 'offshore' | 'inland';
+    locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
     onTimeSelect?: (time: number | undefined) => void;
     customTime?: number;
     utcOffset?: number;

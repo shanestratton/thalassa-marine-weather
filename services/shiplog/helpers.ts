@@ -317,7 +317,7 @@ export function determineLoggingZone(): LoggingZone {
 
         // Fall back to locationType classification
         if (locationType === 'inland') return 'nearshore';
-        if (locationType === 'coastal') return 'coastal';
+        if (locationType === 'coastal' || locationType === 'inshore') return 'coastal';
 
         return 'nearshore'; // Safe default
     } catch (e) {

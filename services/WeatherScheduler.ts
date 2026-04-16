@@ -57,7 +57,7 @@ export const isBadWeather = (weather: MarineWeatherReport): boolean => {
  * 4. Location-specific: inland=60m, coastal=30m, offshore=60m
  */
 export const getUpdateInterval = (
-    locationType: 'inland' | 'coastal' | 'offshore',
+    locationType: 'inshore' | 'inland' | 'coastal' | 'offshore',
     weather: MarineWeatherReport,
     isCurrentLocation: boolean = true,
     satelliteMode: boolean = false,
@@ -83,6 +83,7 @@ export const getUpdateInterval = (
             return INLAND_INTERVAL;
         case 'offshore':
             return OFFSHORE_INTERVAL;
+        case 'inshore':
         case 'coastal':
         default:
             return COASTAL_INTERVAL;

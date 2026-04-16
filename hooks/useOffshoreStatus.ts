@@ -37,7 +37,7 @@ export interface OffshoreStatus {
     isTestMode: boolean;
 }
 
-export function useOffshoreStatus(locationType?: 'coastal' | 'offshore' | 'inland'): OffshoreStatus {
+export function useOffshoreStatus(locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland'): OffshoreStatus {
     const modelCode = (useSettingsStore((s) => s.settings.offshoreModel) || 'sg') as OffshoreModel;
 
     // Override state for the test toggle

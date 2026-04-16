@@ -14,7 +14,7 @@ interface StatusBadgesProps {
     nextUpdate: number | null;
     fallbackInland?: boolean;
     stationId?: string;
-    locationType?: 'coastal' | 'offshore' | 'inland';
+    locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
     beaconName?: string;
     buoyName?: string;
     /** When offshore, show the user's selected model in the badge */
@@ -200,6 +200,9 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         } else if (locationType === 'inland' || isLandlocked || fallbackInland) {
             statusBadgeLabel = 'INLAND';
             statusBadgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+        } else if (locationType === 'inshore') {
+            statusBadgeLabel = 'INSHORE (Apple)';
+            statusBadgeColor = 'bg-teal-500/20 text-teal-300 border-teal-500/30';
         } else {
             statusBadgeLabel = 'COASTAL (Apple)';
             statusBadgeColor = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
@@ -535,7 +538,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                                 <div className="flex justify-between">
                                                     <span className="text-slate-400">Zone</span>
                                                     <span
-                                                        className={`font-bold uppercase text-sm ${locationType === 'coastal' ? 'text-emerald-400' : locationType === 'offshore' ? 'text-sky-400' : 'text-amber-400'}`}
+                                                        className={`font-bold uppercase text-sm ${locationType === 'inshore' ? 'text-teal-400' : locationType === 'coastal' ? 'text-emerald-400' : locationType === 'offshore' ? 'text-sky-400' : 'text-amber-400'}`}
                                                     >
                                                         {locationType}
                                                     </span>

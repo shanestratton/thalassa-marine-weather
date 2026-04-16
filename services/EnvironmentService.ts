@@ -116,7 +116,7 @@ class EnvironmentServiceClass {
      * Called by WeatherContext when new weather data arrives.
      */
     updateFromWeatherData(data: {
-        locationType?: 'coastal' | 'offshore' | 'inland' | string;
+        locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland' | string;
         isLandlocked?: boolean;
         elevation?: number;
     }): void {
@@ -135,13 +135,13 @@ class EnvironmentServiceClass {
                 confidence = 0.95;
                 source = 'weather_type';
             } else {
-                // 'coastal' — could go either way. Check isLandlocked.
+                // 'inshore' or 'coastal' — both near water. Check isLandlocked.
                 if (data.isLandlocked === true) {
                     newDetected = 'onshore';
                     confidence = 0.85;
                     source = 'landlocked';
                 } else {
-                    // Coastal + not landlocked = near water = offshore theme
+                    // Inshore/Coastal + not landlocked = near water = offshore theme
                     newDetected = 'offshore';
                     confidence = 0.8;
                     source = 'weather_type';
