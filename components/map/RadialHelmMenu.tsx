@@ -452,43 +452,15 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 }
             }
 
-            // Check if hovering over a Tier 2 item (130-200px from center)
-            if (dist > 100 && activeCategory) {
-                const cat = categories.find((c) => c.id === activeCategory);
-                if (cat) {
-                    const catIdx = categories.findIndex((c) => c.id === activeCategory);
-                    const catAngle = tier1Angles[catIdx];
-                    const catPos = polarToXY(catAngle, TIER1_RADIUS);
-
-                    // Relative to category node
-                    const rdx = e.clientX - (fabCenterX + catPos.x);
-                    const rdy = e.clientY - (fabCenterY + catPos.y);
-                    const rdist = Math.hypot(rdx, rdy);
-
-                    if (rdist < TIER2_RADIUS + 40) {
-                        const rAngle = (Math.atan2(rdy, rdx) * 180) / Math.PI;
-                        const itemSpread = Math.min(TIER2_SPREAD_PER_ITEM * (cat.items.length - 1), 120);
-                        const itemAngles = distributeArc(cat.items.length, TIER2_CENTER_ANGLE, itemSpread);
-
-                        let closestItemIdx = 0;
-                        let closestItemDist = Infinity;
-                        itemAngles.forEach((a, i) => {
-                            const d = Math.abs(((rAngle - a + 540) % 360) - 180);
-                            if (d < closestItemDist) {
-                                closestItemDist = d;
-                                closestItemIdx = i;
-                            }
-                        });
-                        if (closestItemDist < 30) {
-                            const newHover = cat.items[closestItemIdx].id;
-                            if (newHover !== hoveredItem) {
-                                setHoveredItem(newHover);
-                                triggerHaptic('light');
-                            }
-                        } else {
-                            setHoveredItem(null);
-                        }
-                    }
+            // Tier 2 items now live in a grid, not an arc — use DOM hit-testing
+            // via elementFromPoint so the drag-hover works for any grid layout.
+            if (activeCategory) {
+                const el = document.elementFromPoint(e.clientX, e.clientY);
+                const btn = el?.closest<HTMLButtonElement>('[data-helm-item]');
+                const itemId = btn?.getAttribute('data-helm-item') || null;
+                if (itemId !== hoveredItem) {
+                    setHoveredItem(itemId);
+                    if (itemId) triggerHaptic('light');
                 }
             }
         },
@@ -592,75 +564,92 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 )}
             </AnimatePresence>
 
-            {/* ── Tier 2: Layer Items (fanned from active category) ── */}
+            {/* ── Tier 2: Layer Items ──
+                A compact 2-column grid anchored below the FAB. Replaces the
+                previous arc layout which mathematically couldn't fit >6 items
+                (52px buttons × 9 atmosphere items overlap severely in any
+                on-screen arc). The grid: (a) always touchable regardless of
+                item count, (b) preserves tight spacing, (c) keeps the gesture-
+                drag semantics via hit-testing in handlePointerMove which now
+                uses geometric hit-testing against grid cells.
+            */}
             <AnimatePresence>
                 {isOpen &&
                     activeCategory &&
                     (() => {
-                        const catIdx = categories.findIndex((c) => c.id === activeCategory);
-                        const cat = categories[catIdx];
+                        const cat = categories.find((c) => c.id === activeCategory);
                         if (!cat) return null;
 
-                        const catAngle = tier1Angles[catIdx];
-                        const catPos = polarToXY(catAngle, TIER1_RADIUS);
-                        const itemSpread = Math.min(TIER2_SPREAD_PER_ITEM * (cat.items.length - 1), 120);
-                        const itemAngles = distributeArc(cat.items.length, TIER2_CENTER_ANGLE, itemSpread);
-
-                        return cat.items.map((item, i) => {
-                            const pos = polarToXY(itemAngles[i], TIER2_RADIUS);
-                            const active = isItemActive(item);
-                            const hovered = hoveredItem === item.id;
-
-                            return (
-                                <motion.button
-                                    key={`item-${item.id}`}
-                                    custom={i}
-                                    variants={itemVariants}
-                                    initial="hidden"
-                                    animate="visible"
-                                    exit="exit"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleItemTap(item);
-                                    }}
-                                    className={`absolute flex flex-col items-center justify-center rounded-xl border transition-colors ${
-                                        active
-                                            ? 'bg-sky-500/20 border-sky-400/40 text-white'
-                                            : hovered
-                                              ? 'bg-white/10 border-white/20 text-white'
-                                              : 'bg-slate-900/70 border-white/[0.08] text-gray-400'
-                                    } backdrop-blur-md`}
-                                    style={{
-                                        width: 52,
-                                        height: 52,
-                                        // Position relative to FAB center, offset by category position + item position
-                                        right: -(catPos.x + pos.x) + 6,
-                                        top: catPos.y + pos.y - 2,
-                                    }}
-                                    whileHover={{ scale: 1.1 }}
-                                    whileTap={{ scale: 0.92 }}
+                        return (
+                            <motion.div
+                                key={`grid-${cat.id}`}
+                                className="absolute flex flex-col gap-1.5 rounded-2xl border border-white/[0.08] bg-slate-900/85 p-1.5 backdrop-blur-xl shadow-2xl"
+                                style={{
+                                    // Anchor right-of-container (i.e. near the FAB) — grid grows left + down.
+                                    right: 60,
+                                    top: 0,
+                                    // Clamp width so grid never overflows off-screen to the left.
+                                    maxWidth: 'min(260px, calc(100vw - 80px))',
+                                }}
+                                initial={{ opacity: 0, scale: 0.85, x: 12 }}
+                                animate={{ opacity: 1, scale: 1, x: 0 }}
+                                exit={{ opacity: 0, scale: 0.85, x: 12 }}
+                                transition={SPRING_SNAPPY}
+                            >
+                                <div
+                                    className="grid gap-1.5"
+                                    style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}
                                 >
-                                    <span className="text-base leading-none">{item.icon}</span>
-                                    <span className="text-[8px] font-bold mt-0.5 uppercase tracking-wider leading-none">
-                                        {item.label}
-                                    </span>
-                                    {active && (
-                                        <motion.span
-                                            className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-sky-400"
-                                            layoutId={`active-dot-${item.id}`}
-                                            animate={{
-                                                boxShadow: [
-                                                    '0 0 4px 1px rgba(56,189,248,0.4)',
-                                                    '0 0 8px 2px rgba(56,189,248,0.6)',
-                                                    '0 0 4px 1px rgba(56,189,248,0.4)',
-                                                ],
-                                            }}
-                                            transition={{ duration: 2, repeat: Infinity }}
-                                        />
-                                    )}
-                                </motion.button>
-                            );
-                        });
+                                    {cat.items.map((item, i) => {
+                                        const active = isItemActive(item);
+                                        const hovered = hoveredItem === item.id;
+                                        return (
+                                            <motion.button
+                                                key={`item-${item.id}`}
+                                                data-helm-item={item.id}
+                                                custom={i}
+                                                variants={itemVariants}
+                                                initial="hidden"
+                                                animate="visible"
+                                                exit="exit"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleItemTap(item);
+                                                }}
+                                                className={`relative flex h-14 w-16 flex-col items-center justify-center rounded-xl border transition-colors ${
+                                                    active
+                                                        ? 'bg-sky-500/20 border-sky-400/40 text-white'
+                                                        : hovered
+                                                          ? 'bg-white/10 border-white/20 text-white'
+                                                          : 'bg-slate-900/50 border-white/[0.06] text-gray-400'
+                                                }`}
+                                                whileHover={{ scale: 1.05 }}
+                                                whileTap={{ scale: 0.93 }}
+                                            >
+                                                <span className="text-base leading-none">{item.icon}</span>
+                                                <span className="mt-1 text-[9px] font-bold uppercase tracking-wider leading-none">
+                                                    {item.label}
+                                                </span>
+                                                {active && (
+                                                    <motion.span
+                                                        className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-sky-400"
+                                                        layoutId={`active-dot-${item.id}`}
+                                                        animate={{
+                                                            boxShadow: [
+                                                                '0 0 4px 1px rgba(56,189,248,0.4)',
+                                                                '0 0 8px 2px rgba(56,189,248,0.6)',
+                                                                '0 0 4px 1px rgba(56,189,248,0.4)',
+                                                            ],
+                                                        }}
+                                                        transition={{ duration: 2, repeat: Infinity }}
+                                                    />
+                                                )}
+                                            </motion.button>
+                                        );
+                                    })}
+                                </div>
+                            </motion.div>
+                        );
                     })()}
             </AnimatePresence>
 
@@ -745,14 +734,16 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 )}
             </motion.button>
 
-            {/* ── "Clear All" strip at bottom when open with active layers ── */}
+            {/* ── "Clear All" pill ── Positioned BELOW the FAB so it never
+                overlaps categories or item grid. Only shown when the menu is
+                open AND there are active layers to clear. */}
             <AnimatePresence>
                 {isOpen && totalActive > 0 && (
                     <motion.button
-                        initial={{ opacity: 0, y: -8 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -8 }}
-                        transition={{ ...SPRING_TIGHT, delay: 0.1 }}
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        transition={{ ...SPRING_TIGHT, delay: 0.12 }}
                         onClick={(e) => {
                             e.stopPropagation();
                             toggleLayer('none');
@@ -768,7 +759,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                             setIsOpen(false);
                             setActiveCategory(null);
                         }}
-                        className="mt-2 px-3 py-1.5 rounded-xl bg-red-500/10 border border-red-500/20 backdrop-blur-md text-red-400 text-[10px] font-black uppercase tracking-widest hover:bg-red-500/20 transition-colors"
+                        className="absolute right-0 top-[60px] whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
                     >
                         Clear All
                     </motion.button>

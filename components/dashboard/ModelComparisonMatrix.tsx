@@ -7,9 +7,11 @@
  *
  * Uses the app's existing Beaufort-inspired wind color scale.
  */
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { OffshoreModel } from '../../types';
+import { queryMultiModel, type MultiModelResult } from '../../services/weather/MultiModelWeatherService';
+import { useLocationCoords } from '../../stores/LocationStore';
 
 // ── Wind Color Scale (same breakpoints as useWindHeatMap) ──
 
@@ -78,7 +80,8 @@ const TIME_COLS: TimeColumn[] = [
 ];
 
 // ── Mock Data ──
-// Strong convergence 0-24h, moderate at 36h, severe divergence at 48-72h
+// Fallback when the live OpenMeteo multi-model call fails (offline, no key, etc.)
+// Strong convergence 0-24h, moderate at 36h, severe divergence at 48-72h.
 
 const MOCK_MODELS: ModelRow[] = [
     { code: 'sg', label: 'Stormglass AI', values: [14, 16, 18, 20, 24, 28] },
@@ -86,6 +89,63 @@ const MOCK_MODELS: ModelRow[] = [
     { code: 'gfs', label: 'GFS / NOAA', values: [14, 17, 19, 18, 19, 22] },
     { code: 'icon', label: 'ICON', values: [13, 15, 18, 21, 27, 32] },
 ];
+
+/**
+ * Transform a MultiModelResult (the service output) into the ModelRow[] shape
+ * this component uses. We sample each model's forecast at our 6 canonical time
+ * offsets (Now, +12h, +24h, +36h, +48h, +72h) from the first waypoint.
+ */
+function multiModelToRows(result: MultiModelResult | null): ModelRow[] | null {
+    if (!result || result.waypoints.length === 0) return null;
+    const wp = result.waypoints[0];
+    if (wp.forecasts.length === 0) return null;
+
+    const t0 = new Date(result.queryTime).getTime();
+    const pickAt = (points: (typeof wp.forecasts)[0]['points'], offsetH: number): number => {
+        const target = t0 + offsetH * 3600 * 1000;
+        // Find the forecast point closest to target (linear scan — points are in order, max ~120)
+        let closest = points[0];
+        let closestDiff = Math.abs(new Date(closest.time).getTime() - target);
+        for (const p of points) {
+            const d = Math.abs(new Date(p.time).getTime() - target);
+            if (d < closestDiff) {
+                closest = p;
+                closestDiff = d;
+            }
+        }
+        return closest.windSpeed;
+    };
+
+    const labelFor = (id: string): string => {
+        switch (id) {
+            case 'gfs':
+                return 'GFS / NOAA';
+            case 'ecmwf':
+                return 'ECMWF';
+            case 'icon':
+                return 'ICON';
+            case 'access_g':
+                return 'ACCESS-G';
+            case 'gem':
+                return 'GEM';
+            default:
+                return id.toUpperCase();
+        }
+    };
+    const codeFor = (id: string): OffshoreModel => {
+        // OffshoreModel union: 'sg' | 'ecmwf' | 'gfs' | 'icon'
+        // Unknown IDs (access_g, gem) map to 'sg' so the selected-ring logic
+        // doesn't break — we just lose the highlight for those rows.
+        if (id === 'ecmwf' || id === 'gfs' || id === 'icon') return id;
+        return 'sg';
+    };
+
+    return wp.forecasts.map((f) => ({
+        code: codeFor(f.model.id),
+        label: labelFor(f.model.id),
+        values: TIME_COLS.map((col) => pickAt(f.points, col.offsetHours)),
+    }));
+}
 
 // ── Convergence Engine ──
 
@@ -114,7 +174,47 @@ interface Props {
 }
 
 export const ModelComparisonMatrix: React.FC<Props> = React.memo(({ visible, onClose, selectedModel }) => {
-    const confidence = useMemo(() => calcConfidence(MOCK_MODELS), []);
+    // Live multi-model data (fetched from OpenMeteo on open). Falls back to
+    // MOCK_MODELS if unavailable so the matrix always shows something useful.
+    const { lat, lon } = useLocationCoords();
+    const [liveRows, setLiveRows] = useState<ModelRow[] | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [isStale, setIsStale] = useState(false);
+
+    useEffect(() => {
+        if (!visible) return;
+        if (lat == null || lon == null) return;
+
+        let cancelled = false;
+        setIsLoading(true);
+        setIsStale(false);
+
+        queryMultiModel([{ lat, lon, name: 'here' }], ['gfs', 'ecmwf', 'icon'], 72)
+            .then((result) => {
+                if (cancelled) return;
+                const rows = multiModelToRows(result);
+                if (rows && rows.length > 0) {
+                    setLiveRows(rows);
+                    setIsStale(false);
+                } else {
+                    setIsStale(true);
+                }
+            })
+            .catch(() => {
+                if (!cancelled) setIsStale(true);
+            })
+            .finally(() => {
+                if (!cancelled) setIsLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [visible, lat, lon]);
+
+    // Use live data when available; fall back to mock to avoid empty UI.
+    const rows = liveRows ?? MOCK_MODELS;
+    const confidence = useMemo(() => calcConfidence(rows), [rows]);
 
     if (!visible) return null;
 
@@ -140,8 +240,23 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(({ visible, onC
                 {/* Header */}
                 <div className="flex items-center justify-between px-5 pt-4 pb-3">
                     <div>
-                        <h2 className="text-sm font-black text-white uppercase tracking-wider">Model Convergence</h2>
-                        <p className="text-[11px] text-gray-500 mt-0.5">Wind speed (kts) — tap outside to close</p>
+                        <h2 className="text-sm font-black text-white uppercase tracking-wider flex items-center gap-2">
+                            Model Convergence
+                            {isLoading && (
+                                <span className="w-3 h-3 rounded-full border-2 border-sky-400 border-t-transparent animate-spin" />
+                            )}
+                            {isStale && !isLoading && (
+                                <span
+                                    className="text-[9px] font-bold text-amber-400 px-1.5 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/20 normal-case tracking-normal"
+                                    title="Live multi-model fetch failed — showing sample data"
+                                >
+                                    offline
+                                </span>
+                            )}
+                        </h2>
+                        <p className="text-[11px] text-gray-500 mt-0.5">
+                            Wind speed (kts) — {liveRows ? 'live GFS / ECMWF / ICON forecast' : 'tap outside to close'}
+                        </p>
                     </div>
                     <button
                         onClick={onClose}
@@ -180,7 +295,7 @@ export const ModelComparisonMatrix: React.FC<Props> = React.memo(({ visible, onC
                         </thead>
 
                         <tbody>
-                            {MOCK_MODELS.map((model) => {
+                            {rows.map((model) => {
                                 const isSelected = model.code === selectedModel;
                                 return (
                                     <tr key={model.code}>
