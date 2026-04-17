@@ -26,6 +26,41 @@ import { useSettings } from '../context/SettingsContext';
 import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
 import { UnitPreferences, SourcedWeatherMetrics } from '../types';
 import { fetchMinutelyRainWithSummary, MinutelyRain } from '../services/weather/api/weatherkit';
+import { fetchRainbowPrecip } from '../services/weather/api/rainbowPrecip';
+import { useSettingsStore } from '../stores/settingsStore';
+
+/**
+ * Unified rain data fetcher — routes to Rainbow.ai (Skipper) or WeatherKit (others).
+ * Rainbow.ai provides 4-hour forecast at 1km resolution; WeatherKit gives 1-hour minutely.
+ */
+async function fetchRainData(
+    lat: number,
+    lon: number,
+    useRainbow: boolean,
+    cancelled: boolean,
+    onData: (rain: MinutelyRain[], summary: string) => void,
+): Promise<void> {
+    if (cancelled) return;
+
+    if (useRainbow) {
+        try {
+            const result = await fetchRainbowPrecip(lat, lon);
+            if (cancelled) return;
+            if (result && result.rain.length > 0) {
+                onData(result.rain, result.summary);
+                return;
+            }
+        } catch {
+            // Rainbow.ai failed — fall through to WeatherKit
+        }
+    }
+
+    // WeatherKit fallback (all tiers, or if Rainbow.ai fails)
+    const { rain, summary } = await fetchMinutelyRainWithSummary(lat, lon);
+    if (!cancelled) {
+        onData(rain, summary);
+    }
+}
 
 interface DashboardProps {
     onOpenMap: () => void;
@@ -95,12 +130,14 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         }
     }, [current]);
 
-    // Minutely rain data from Apple WeatherKit
+    // Minutely rain data — Rainbow.ai for Skipper tier, WeatherKit fallback for others
     const [minutelyRain, setMinutelyRain] = useState<MinutelyRain[]>([]);
     const [rainSummary, setRainSummary] = useState<string>('');
     const [_rainStatus, setRainStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
     const precipRef = useRef<number>(0);
     precipRef.current = current?.precipitation ?? 0;
+    const subscriptionTier = useSettingsStore((s) => s.settings.subscriptionTier);
+    const isSkipper = subscriptionTier === 'owner';
 
     useEffect(() => {
         if (!data?.coordinates) return;
@@ -109,7 +146,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         setRainStatus('loading');
 
         // 5-minute local cache key to prevent re-fetch on every remount
-        const cacheKey = `thalassa_rain_${lat.toFixed(2)}_${lon.toFixed(2)}`;
+        const source = isSkipper ? 'rainbow' : 'wk';
+        const cacheKey = `thalassa_rain_${source}_${lat.toFixed(2)}_${lon.toFixed(2)}`;
         const cached = localStorage.getItem(cacheKey);
         if (cached) {
             try {
@@ -127,21 +165,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                         () => {
                             if (document.hidden) return; // Battery: skip when backgrounded
                             if (!navigator.onLine || cancelled) return;
-                            fetchMinutelyRainWithSummary(lat, lon)
-                                .then(({ rain, summary }) => {
-                                    if (!cancelled && rain.length > 0) {
-                                        setMinutelyRain(rain);
-                                        setRainSummary(summary);
-                                        setRainStatus('loaded');
-                                        localStorage.setItem(
-                                            cacheKey,
-                                            JSON.stringify({ ts: Date.now(), data: rain, summary }),
-                                        );
-                                    }
-                                })
-                                .catch(() => {
-                                    /* keep cached data */
-                                });
+                            fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary) => {
+                                setMinutelyRain(rain);
+                                setRainSummary(summary);
+                                setRainStatus('loaded');
+                                localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary }));
+                            });
                         },
                         5 * 60 * 1000,
                     );
@@ -155,59 +184,49 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             }
         }
 
-        // Initial fetch
-        fetchMinutelyRainWithSummary(lat, lon)
-            .then(({ rain, summary }) => {
-                if (!cancelled) {
+        // ── Unified rain fetch: Rainbow.ai for Skipper, WeatherKit for others ──
+        fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary) => {
+            if (rain.length > 0) {
+                setMinutelyRain(rain);
+                setRainSummary(summary);
+                setRainStatus('loaded');
+                localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary }));
+            } else {
+                const fallback = synthesizeFromHourly();
+                setMinutelyRain(fallback);
+                setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
+            }
+        }).catch(() => {
+            if (!cancelled) {
+                const fallback = synthesizeFromHourly();
+                setMinutelyRain(fallback);
+                setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
+            }
+        });
+
+        // Live refresh every 5 minutes
+        const rainTimer = setInterval(
+            () => {
+                if (document.hidden) return;
+                if (!navigator.onLine) return;
+                fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary) => {
                     if (rain.length > 0) {
                         setMinutelyRain(rain);
                         setRainSummary(summary);
                         setRainStatus('loaded');
                         localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary }));
                     } else {
-                        // Fallback: synthesize from hourly precipitation
                         const fallback = synthesizeFromHourly();
                         setMinutelyRain(fallback);
                         setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
                     }
-                }
-            })
-            .catch(() => {
-                if (!cancelled) {
-                    // Fallback: synthesize from hourly precipitation
-                    const fallback = synthesizeFromHourly();
-                    setMinutelyRain(fallback);
-                    setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
-                }
-            });
-
-        // Live refresh every 5 minutes (WeatherKit has internal caching)
-        const rainTimer = setInterval(
-            () => {
-                if (document.hidden) return; // Battery: skip when backgrounded
-                if (!navigator.onLine) return;
-                fetchMinutelyRainWithSummary(lat, lon)
-                    .then(({ rain, summary }) => {
-                        if (!cancelled) {
-                            if (rain.length > 0) {
-                                setMinutelyRain(rain);
-                                setRainSummary(summary);
-                                setRainStatus('loaded');
-                                localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary }));
-                            } else {
-                                const fallback = synthesizeFromHourly();
-                                setMinutelyRain(fallback);
-                                setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
-                            }
-                        }
-                    })
-                    .catch(() => {
-                        if (!cancelled) {
-                            const fallback = synthesizeFromHourly();
-                            setMinutelyRain(fallback);
-                            setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
-                        }
-                    });
+                }).catch(() => {
+                    if (!cancelled) {
+                        const fallback = synthesizeFromHourly();
+                        setMinutelyRain(fallback);
+                        setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
+                    }
+                });
             },
             5 * 60 * 1000,
         );
@@ -229,7 +248,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             }));
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [data?.coordinates?.lat, data?.coordinates?.lon]);
+    }, [data?.coordinates?.lat, data?.coordinates?.lon, isSkipper]);
 
     // Stable scroll callbacks that batch state updates via rAF
     const handleTimeSelect = useCallback((time: number | undefined) => {

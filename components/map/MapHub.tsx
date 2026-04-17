@@ -58,6 +58,7 @@ import type { ActiveCyclone } from '../../services/weather/CycloneTrackingServic
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 import { LayerFABMenu } from './MapHubOverlays';
+import { RadialHelmMenu } from './RadialHelmMenu';
 import { MapActionFabs } from './MapActionFabs';
 import { ThalassaHelixControl, LegendDock, type HelixLayer } from './ThalassaHelixControl';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
@@ -771,8 +772,89 @@ export const MapHub: React.FC<MapHubProps> = ({
                     deviceMode={deviceMode}
                 />
 
-                {/* ═══ LAYER FAB MENU ═══ */}
+                {/* ═══ RADIAL HELM MENU (gesture-based layer control) ═══ */}
                 {!passage.showPassage && !embedded && !isPinView && (
+                    <RadialHelmMenu
+                        activeLayers={weather.activeLayers}
+                        toggleLayer={weather.toggleLayer}
+                        selectInGroup={weather.selectInGroup}
+                        tacticalState={{
+                            aisVisible,
+                            onToggleAis: () => {
+                                setAisVisible((v) => {
+                                    if (!v) {
+                                        setSquallVisible(false);
+                                        setCycloneVisible(false);
+                                    }
+                                    return !v;
+                                });
+                            },
+                            cycloneVisible,
+                            onToggleCyclones: () => {
+                                const willBeVisible = !cycloneVisible;
+                                setCycloneVisible(willBeVisible);
+                                if (willBeVisible) {
+                                    setSquallVisible(false);
+                                    setAisVisible(false);
+                                    setChokepointVisible(false);
+                                    setSeamarkVisible(false);
+                                    setTideStationsVisible(false);
+                                    setWeatherInspectMode(false);
+                                    weather.setActiveLayer('none');
+                                }
+                            },
+                            squallVisible,
+                            onToggleSquall: () => {
+                                const willBeVisible = !squallVisible;
+                                setSquallVisible(willBeVisible);
+                                if (willBeVisible) {
+                                    setCycloneVisible(false);
+                                    setAisVisible(false);
+                                    setChokepointVisible(false);
+                                    setSeamarkVisible(false);
+                                    setTideStationsVisible(false);
+                                    setWeatherInspectMode(false);
+                                    weather.setActiveLayer('none');
+                                }
+                            },
+                            lightningVisible,
+                            onToggleLightning: () => setLightningVisible((v) => !v),
+                            weatherInspectMode,
+                            onToggleWeatherInspect: () => {
+                                setWeatherInspectMode((v) => {
+                                    if (!v) {
+                                        setSquallVisible(false);
+                                        setCycloneVisible(false);
+                                    }
+                                    return !v;
+                                });
+                            },
+                            seamarkVisible,
+                            onToggleSeamark: () => {
+                                setSeamarkVisible((v) => {
+                                    if (!v) {
+                                        setSquallVisible(false);
+                                        setCycloneVisible(false);
+                                    }
+                                    return !v;
+                                });
+                            },
+                            tideStationsVisible,
+                            onToggleTideStations: () => {
+                                setTideStationsVisible((v) => {
+                                    if (!v) {
+                                        setSquallVisible(false);
+                                        setCycloneVisible(false);
+                                    }
+                                    return !v;
+                                });
+                            },
+                        }}
+                    />
+                )}
+
+                {/* ═══ LEGACY LAYER MENU (kept for chart/SK/vessel controls not yet in radial) ═══ */}
+                {!passage.showPassage && !embedded && !isPinView && weather.showLayerMenu && (
                     <LayerFABMenu
                         activeLayers={weather.activeLayers}
                         showLayerMenu={weather.showLayerMenu}
@@ -828,7 +910,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onToggleCyclones={() => {
                             const willBeVisible = !cycloneVisible;
                             setCycloneVisible(willBeVisible);
-                            // Storm layer is a dedicated full-screen view — deselect everything else
                             if (willBeVisible) {
                                 setSquallVisible(false);
                                 setAisVisible(false);
@@ -848,7 +929,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onToggleSquall={() => {
                             const willBeVisible = !squallVisible;
                             setSquallVisible(willBeVisible);
-                            // Squall layer is a dedicated full-screen view — deselect everything else
                             if (willBeVisible) {
                                 setCycloneVisible(false);
                                 setAisVisible(false);
