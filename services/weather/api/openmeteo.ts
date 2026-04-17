@@ -179,27 +179,29 @@ export const fetchOpenMeteo = async (
 
     if (isCommercial) params.append('apikey', apiKey!);
 
-    // Fetch Weather — route through Pi Cache if available, else direct
+    // Fetch Weather — try Pi Cache combined endpoint first (instant if pre-fetched),
+    // then fall back to direct API call
     const directUrl = `${baseUrl}?${params.toString()}`;
-    const fetchUrl = piCache.passthroughUrl(directUrl, 15 * 60 * 1000, 'open-meteo') || directUrl;
-    const res = await CapacitorHttp.get({ url: fetchUrl });
 
-    if (!res || res.status !== 200) {
-        throw new Error(`OpenMeteo HTTP ${res?.status || 'no response'}`);
-    }
+    const fetchDirect = async (): Promise<OMWeatherResponse> => {
+        const fetchUrl = piCache.passthroughUrl(directUrl, 15 * 60 * 1000, 'open-meteo') || directUrl;
+        const res = await CapacitorHttp.get({ url: fetchUrl });
+        if (!res || res.status !== 200) throw new Error(`OpenMeteo HTTP ${res?.status || 'no response'}`);
+        if (!res.data) throw new Error('OpenMeteo returned no data');
+        let d = res.data as OMWeatherResponse;
+        if (typeof d === 'string') d = JSON.parse(d);
+        return d;
+    };
 
-    if (!res.data) {
-        throw new Error('OpenMeteo returned no data');
-    }
+    // Pi Cache combined endpoint — serves the full dataset pre-fetched by the scheduler.
+    // Cache key uses 2dp rounding so GPS drift on a moored boat still gets cache HITs.
+    const piResult = await piCache.fetch<OMWeatherResponse>(
+        '/api/weather/combined',
+        { lat: safeLat.toFixed(4), lon: safeLon.toFixed(4) },
+        fetchDirect,
+    );
 
-    let wData = res.data as OMWeatherResponse;
-    if (typeof wData === 'string') {
-        try {
-            wData = JSON.parse(wData);
-        } catch (e) {
-            throw e;
-        }
-    }
+    let wData = piResult.data;
 
     // Fetch Marine (Waves) using Ring Search (Proximity)
     let waveData: OMMarineResponse | null = null;
