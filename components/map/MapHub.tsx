@@ -59,6 +59,7 @@ import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 import { LayerFABMenu } from './MapHubOverlays';
 import { RadialHelmMenu } from './RadialHelmMenu';
+import { StormPicker } from './StormPicker';
 import { MapActionFabs } from './MapActionFabs';
 import { ThalassaHelixControl, LegendDock, type HelixLayer } from './ThalassaHelixControl';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
@@ -302,6 +303,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [closestStorm, setClosestStorm] = useState<ActiveCyclone | null>(null);
     const [allCyclones, setAllCyclones] = useState<ActiveCyclone[]>([]);
     const skipAutoFlyRef = useRef(false);
+    // Storm picker modal — opens when the user taps Storms in the radial menu
+    // AND there are multiple active cyclones to choose from.
+    const [stormPickerOpen, setStormPickerOpen] = useState(false);
 
     // Fetch all active cyclones for the storm picker menu (runs regardless of layer visibility)
     // Dynamic import — CycloneTrackingService is large and only needed after map loads
@@ -791,6 +795,28 @@ export const MapHub: React.FC<MapHubProps> = ({
                             },
                             cycloneVisible,
                             onToggleCyclones: () => {
+                                // When MULTIPLE cyclones are active, open the picker modal
+                                // instead of just toggling — otherwise the user has no way
+                                // to switch between storms (previous behaviour auto-focused
+                                // only the closest one). With 0 or 1 storms, fall back to
+                                // the simple toggle.
+                                if (allCyclones.length > 1) {
+                                    setStormPickerOpen(true);
+                                    // Also enable the layer if it's off so the picked storm
+                                    // becomes visible immediately.
+                                    if (!cycloneVisible) {
+                                        setCycloneVisible(true);
+                                        setSquallVisible(false);
+                                        setAisVisible(false);
+                                        setChokepointVisible(false);
+                                        setSeamarkVisible(false);
+                                        setTideStationsVisible(false);
+                                        setWeatherInspectMode(false);
+                                        weather.setActiveLayer('none');
+                                    }
+                                    return;
+                                }
+                                // Single- or zero-storm case — plain toggle (existing behaviour)
                                 const willBeVisible = !cycloneVisible;
                                 setCycloneVisible(willBeVisible);
                                 if (willBeVisible) {
@@ -1454,6 +1480,21 @@ export const MapHub: React.FC<MapHubProps> = ({
                     </div>
                 )}
             </Suspense>
+
+            {/* ═══ STORM PICKER — opens when user taps Storms with multiple cyclones ═══ */}
+            <StormPicker
+                visible={stormPickerOpen}
+                cyclones={allCyclones}
+                userLat={location.lat}
+                userLon={location.lon}
+                selectedStormName={closestStorm?.name ?? null}
+                onSelect={handleSelectStorm}
+                onClose={() => setStormPickerOpen(false)}
+                onClearStorms={() => {
+                    setCycloneVisible(false);
+                    setClosestStorm(null);
+                }}
+            />
         </div>
     );
 };

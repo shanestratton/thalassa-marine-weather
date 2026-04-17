@@ -346,7 +346,13 @@ async function fetchRainbowNowcast(lat: number, lon: number, apiKey: string): Pr
             data.forecast || [];
 
         if (forecast.length === 0) {
-            return { minutes: [], summary: data.summary?.intensity || 'No precipitation expected' };
+            // Empty forecast + Rainbow's own summary string. Rainbow can return
+            // tokens like "no_precipitation" or "none" as the intensity — don't
+            // leak those raw tokens to the UI, just say "No precipitation expected".
+            const NO_RAIN = new Set(['none', 'no_precipitation', 'no_rain', 'clear', '']);
+            const tok = (data.summary?.intensity as string | undefined)?.toLowerCase?.() ?? '';
+            const fallback = tok && !NO_RAIN.has(tok) ? tok.replace(/_/g, ' ') : 'No precipitation expected';
+            return { minutes: [], summary: fallback };
         }
 
         // Map Rainbow's native minute-by-minute format to our standard
@@ -387,13 +393,18 @@ async function fetchRainbowNowcast(lat: number, lon: number, apiKey: string): Pr
             }
         }
 
-        // Use Rainbow's own intensity summary if available
-        if (data.summary?.intensity && data.summary.intensity !== 'none') {
-            const rainbowIntensity = data.summary.intensity;
-            // Augment our summary with Rainbow's intensity classification
+        // Use Rainbow's own intensity summary if available AND meaningful.
+        // Filter the same "no rain" tokens as the client-side fix so we don't
+        // build strings like "No_precipitation rain continuing" when Rainbow
+        // says there's no precipitation.
+        const NO_RAIN_TOKENS = new Set(['none', 'no_precipitation', 'no_rain', 'clear', '']);
+        const rawIntensity = ((data.summary?.intensity as string | undefined) ?? '').toLowerCase();
+        if (rawIntensity && !NO_RAIN_TOKENS.has(rawIntensity)) {
             if (isCurrentlyRaining && !summary.includes('stopping')) {
                 const precipLabel = minutes[0]?.precipType === 'snow' ? 'Snow' : 'Rain';
-                summary = `${rainbowIntensity.charAt(0).toUpperCase() + rainbowIntensity.slice(1)} ${precipLabel.toLowerCase()} continuing`;
+                const clean = rawIntensity.replace(/_/g, ' ');
+                const titled = clean.charAt(0).toUpperCase() + clean.slice(1);
+                summary = `${titled} ${precipLabel.toLowerCase()} continuing`;
             }
         }
 
