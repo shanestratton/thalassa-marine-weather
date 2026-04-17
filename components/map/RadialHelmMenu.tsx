@@ -229,7 +229,7 @@ function buildCategories(
         },
         {
             id: 'sea',
-            label: 'Sea State',
+            label: 'Sea', // Short — "Sea State" overflowed the 60px bubble at tracking-0.15em
             icon: <SeaCategoryIcon />,
             color: 'text-cyan-400',
             glowColor: 'rgba(34,211,238,0.4)',
@@ -262,7 +262,7 @@ function buildCategories(
         },
         {
             id: 'atmosphere',
-            label: 'Atmosphere',
+            label: 'Sky', // Short — "Atmosphere" overflowed the 60px bubble
             icon: <AtmosphereCategoryIcon />,
             color: 'text-sky-400',
             glowColor: 'rgba(56,189,248,0.4)',
@@ -415,17 +415,18 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     const categories = useMemo(() => buildCategories(tacticalState, chartsState), [tacticalState, chartsState]);
 
     // ── Arc layout parameters ──
-    // Categories fan out DOWN-LEFT from the FAB (since it's on the right edge, near the top).
-    // In CSS screen coords: sin(angle) > 0 for angles 0°–180° pushes items DOWN.
+    // Categories fan out DOWN-LEFT from the FAB. With the FAB now anchored at
+    // top-[128px] (below the legacy chart FAB), we have ~100px of headroom for
+    // the upper arc and unlimited room below.
     //
-    // Dynamic sizing: tighter arc for 3 categories, wider + larger radius for 4
-    // so the new "Charts" bubble doesn't overlap with Sea State / Atmosphere.
-    // At radius 120 × spread 95°, 4 bubbles are ~62px center-to-center — one
-    // bubble-diameter apart. Below 3 categories we revert to the original
-    // tighter arc so it looks intentional, not stretched.
-    const TIER1_RADIUS = categories.length >= 4 ? 120 : 90;
+    // Chord geometry for no-overlap:
+    //   chord = 2 * R * sin(step/2)
+    //   At 60px bubble-diameter + 15px gap, we want chord ≥ 75px.
+    //   4 items, step = SPREAD/3. Solving gives R=125, SPREAD=105° as the
+    //   minimum that gives clear visual separation at every pair.
+    const TIER1_RADIUS = categories.length >= 4 ? 125 : 90;
     const TIER1_CENTER_ANGLE = 150; // Down-left (keeps arc below top edge)
-    const TIER1_SPREAD = categories.length >= 4 ? 95 : 70;
+    const TIER1_SPREAD = categories.length >= 4 ? 105 : 70;
 
     // Tier 2 items are now rendered in a grid, not an arc — these constants
     // are kept for the drag-hover zone detection in handlePointerMove.
@@ -621,7 +622,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
 
     return (
         <div
-            className={`absolute z-[700] top-[56px] right-3 ${isOpen ? 'pointer-events-auto' : ''}`}
+            className={`absolute z-[700] top-[128px] right-3 ${isOpen ? 'pointer-events-auto' : ''}`}
             onPointerDown={handleContainerPointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -668,13 +669,13 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                 className="fixed flex flex-col gap-2 rounded-2xl border border-white/15 bg-slate-900/95 p-3 backdrop-blur-xl shadow-2xl"
                                 style={{
                                     // Anchor the grid to the right edge of the viewport, BELOW the
-                                    // Tier 1 category arc. The previous `right: 60` placed it on top
-                                    // of the category bubbles — items got shadowed and unreadable.
-                                    // Fixed (not absolute) so it escapes the 48px FAB container.
+                                    // Tier 1 category arc. Fixed (not absolute) so it escapes the
+                                    // 48px FAB container.
                                     right: 12,
-                                    // Category arc max bottom ≈ FAB top (56) + radius (90) + category
-                                    // height (60) = ~206 → anchor below that with a small gap.
-                                    top: 220,
+                                    // FAB now at top-[128], arc radius 125 → lowest bubble center at
+                                    // y ≈ 128 + sin(97.5°)*125 = ~251, plus 30px bubble half-height
+                                    // = 281 bottom. Anchor grid at 300 with a 20px gap.
+                                    top: 300,
                                     // Span most of the viewport width on phones; cap on tablets.
                                     width: 'calc(100vw - 24px)',
                                     maxWidth: 360,
@@ -832,7 +833,11 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                     style={isActive ? { boxShadow: `0 0 12px 2px ${cat.glowColor}` } : {}}
                                 >
                                     <span className="text-xl leading-none">{cat.icon}</span>
-                                    <span className="text-[8px] font-black mt-1 uppercase tracking-[0.15em] leading-none">
+                                    {/* Category label — tight tracking so longer words ("Tactical",
+                                        "Charts") fit inside the 60px bubble without hanging over
+                                        the edges. Width clamp + truncate is a safety net for any
+                                        future label that still overflows. */}
+                                    <span className="mt-1 max-w-[52px] truncate text-[8px] font-black uppercase leading-none tracking-wider">
                                         {cat.label}
                                     </span>
                                 </motion.div>
@@ -871,9 +876,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
 
             {/* ── Tier-1 Clear All pill ── Shown only when the menu is open,
                 NO category is selected (so the tier-2 grid isn't on screen),
-                AND there are active layers. Positioned below the category arc
-                (top: 220px is below the tier-1 radius of 120 + headroom) so
-                it never overlaps the 4-bubble arc or the FAB. */}
+                AND there are active layers. Positioned below the category arc —
+                with FAB at top-[128] + radius 125, the bottom-most bubble
+                reaches ~281; this pill sits clear at 320px. */}
             <AnimatePresence>
                 {isOpen && !activeCategory && totalActive > 0 && (
                     <motion.button
@@ -899,7 +904,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                             setActiveCategory(null);
                         }}
                         className="fixed right-3 whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
-                        style={{ top: 260 }}
+                        style={{ top: 320 }}
                     >
                         Clear All · {totalActive}
                     </motion.button>
