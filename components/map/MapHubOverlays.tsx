@@ -14,6 +14,7 @@ import { type AvNavConnectionStatus } from '../../services/AvNavService';
 import { type ChartSource, type ChartSourceId } from '../../services/ChartCatalogService';
 import { type OpenChart } from '../../services/MBTilesService';
 import { triggerHaptic } from '../../utils/system';
+import { AnchorIcon, LocalChartIcon, iconForChartSource } from './ChartSourceIcons';
 
 // ── Resolve truncated ATCF storm names (10-char limit) ──
 const NUMBER_NAMES: Record<number, string> = {
@@ -1156,7 +1157,9 @@ export const LayerFABMenu: React.FC<{
                                                         }}
                                                         className={`w-full flex items-center gap-3 px-4 py-2 text-left transition-colors ${isActive ? 'bg-emerald-500/10 text-emerald-400' : 'text-gray-400 hover:bg-white/5'}`}
                                                     >
-                                                        <span className="text-base">🗺️</span>
+                                                        <AnchorIcon
+                                                            className={`w-5 h-5 shrink-0 ${isActive ? 'text-emerald-400' : 'text-emerald-400/60'}`}
+                                                        />
                                                         <div className="flex-1 min-w-0">
                                                             <span className="text-[13px] font-bold block truncate">
                                                                 {chart.name}
@@ -1287,7 +1290,14 @@ export const LayerFABMenu: React.FC<{
                                                             }}
                                                             className={`w-full flex items-center gap-3 px-4 py-2 text-left transition-colors ${isActive ? 'bg-sky-500/10 text-sky-400' : needsKey ? 'text-gray-500 hover:bg-white/5' : 'text-gray-400 hover:bg-white/5'}`}
                                                         >
-                                                            <span className="text-base">{src.flag}</span>
+                                                            {(() => {
+                                                                const Icon = iconForChartSource(src.id);
+                                                                return (
+                                                                    <Icon
+                                                                        className={`w-5 h-5 shrink-0 ${isActive ? 'text-sky-400' : needsKey ? 'text-amber-400/60' : 'text-sky-400/60'}`}
+                                                                    />
+                                                                );
+                                                            })()}
                                                             <div className="flex-1 min-w-0">
                                                                 <span className="text-[13px] font-bold block truncate">
                                                                     {src.name}
@@ -1426,7 +1436,9 @@ export const LayerFABMenu: React.FC<{
                                                             }}
                                                             className={`w-full flex items-center gap-3 px-4 py-2 text-left transition-colors ${isActive ? 'bg-purple-500/10 text-purple-400' : 'text-gray-400 hover:bg-white/5'}`}
                                                         >
-                                                            <span className="text-base">🗺️</span>
+                                                            <LocalChartIcon
+                                                                className={`w-5 h-5 shrink-0 ${isActive ? 'text-purple-400' : 'text-purple-400/60'}`}
+                                                            />
                                                             <div className="flex-1 min-w-0">
                                                                 <span className="text-[13px] font-bold block truncate">
                                                                     {chart.name}
