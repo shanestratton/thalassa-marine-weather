@@ -57,11 +57,19 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
         const maxIntensity = Math.max(...workingData.map((d) => d.intensity), 0.1);
 
         // DATA ALWAYS WINS: determine rain from actual minute-by-minute intensities.
-        const RAIN_THRESHOLD = 0.1; // mm/hr — ignore trace amounts below this
+        // Threshold tuned to human-observable precipitation. Satellite+radar
+        // fusion (Rainbow precip-global) can report 0.1-0.3 mm/hr over clear
+        // skies when there are mid-level clouds with virga not reaching the
+        // ground — we don't want to tell the skipper "rain for the next hour"
+        // for that. 0.3 mm/hr is roughly light drizzle, barely visible. The
+        // "Currently raining" test is stricter — needs to be real drizzle, not
+        // trace moisture.
+        const RAIN_THRESHOLD = 0.3; // mm/hr — trace amounts below this ignored
+        const RAIN_CURRENT_THRESHOLD = 0.5; // mm/hr — at least light rain to call it raining
         const hasRain = workingData.some((d) => d.intensity >= RAIN_THRESHOLD);
         const firstRainEntry = workingData.find((d) => d.intensity >= RAIN_THRESHOLD);
         const firstRainIdx = workingData.findIndex((d) => d.intensity >= RAIN_THRESHOLD);
-        const isCurrentlyRaining = (workingData[0]?.intensity ?? 0) >= RAIN_THRESHOLD;
+        const isCurrentlyRaining = (workingData[0]?.intensity ?? 0) >= RAIN_CURRENT_THRESHOLD;
 
         // Compute real minutes-until-rain using actual timestamps
         const minutesUntilRain = firstRainEntry
@@ -282,7 +290,12 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
     ];
 
     return (
-        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[9999] flex items-center justify-center p-6" onClick={onClose}>
+        <div
+            role="dialog"
+            aria-modal="true"
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-6"
+            onClick={onClose}
+        >
             {/* Backdrop */}
             <div className="absolute inset-0 bg-black/80" />
 

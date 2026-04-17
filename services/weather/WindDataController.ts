@@ -20,6 +20,14 @@ import { WindStore } from '../../stores/WindStore';
 const log = createLogger('WindCtrl');
 
 // ── Bounds Cache (avoid redundant re-fetches) ──
+//
+// GFS model runs every 6 hours (00Z, 06Z, 12Z, 18Z), so wind data older than
+// ~3 hours could be from an outdated model run. We invalidate the cache after
+// WIND_GRID_MAX_AGE_MS to force a refresh on the next pan or layer toggle —
+// previously the grid stuck around indefinitely while bounds held steady,
+// which is what made the chart-page wind look "wrong direction" (actually
+// just stale) after the app had been open for hours.
+const WIND_GRID_MAX_AGE_MS = 3 * 60 * 60 * 1000;
 
 interface CachedBounds {
     north: number;
@@ -27,6 +35,7 @@ interface CachedBounds {
     west: number;
     east: number;
     zoom: number;
+    fetchedAt: number;
 }
 
 let lastFetchedBounds: CachedBounds | null = null;
@@ -40,6 +49,10 @@ function boundsChangedSignificantly(a: CachedBounds, b: CachedBounds): boolean {
     const zoomDiff = Math.abs(a.zoom - b.zoom);
 
     return latShift / latSpan > 0.4 || lonShift / lonSpan > 0.4 || zoomDiff > 1;
+}
+
+function isCacheStale(cached: CachedBounds): boolean {
+    return Date.now() - cached.fetchedAt > WIND_GRID_MAX_AGE_MS;
 }
 
 // ── Moveend listener management ──
@@ -115,11 +128,22 @@ export const WindDataController = {
                 west: bounds.getWest(),
                 east: bounds.getEast(),
                 zoom: currentZoom,
+                fetchedAt: Date.now(),
             };
 
-            // Skip if bounds haven't changed significantly
-            if (lastFetchedBounds && !boundsChangedSignificantly(lastFetchedBounds, currentBounds)) {
+            // Skip if bounds haven't changed significantly AND the cache is fresh.
+            // Without the age check, a grid fetched hours ago stays forever —
+            // user sees stale wind directions that no longer match conditions.
+            if (
+                lastFetchedBounds &&
+                !boundsChangedSignificantly(lastFetchedBounds, currentBounds) &&
+                !isCacheStale(lastFetchedBounds)
+            ) {
                 return;
+            }
+            if (lastFetchedBounds && isCacheStale(lastFetchedBounds)) {
+                const ageMin = Math.round((Date.now() - lastFetchedBounds.fetchedAt) / 60000);
+                log.info(`[WindController] Wind grid is ${ageMin}m old — refetching`);
             }
 
             // Add 30% padding
@@ -167,10 +191,11 @@ export const WindDataController = {
                         west,
                         east,
                         zoom: currentZoom,
+                        fetchedAt: Date.now(),
                     };
                     WindStore.setGrid(grid);
                     log.info(
-                        `[WindController] GFS GRIB loaded: ${grid.width}×${grid.height}, ${grid.totalHours} forecast hours`,
+                        `[WindController] GFS GRIB loaded: ${grid.width}×${grid.height}, ${grid.totalHours} forecast hours, refTime=${grid.refTime || 'n/a'}`,
                     );
                     return;
                 }
@@ -183,7 +208,7 @@ export const WindDataController = {
                 : await fetchWindGrid(north, south, west, east, currentZoom);
 
             if (fallbackGrid) {
-                lastFetchedBounds = { north, south, west, east, zoom: currentZoom };
+                lastFetchedBounds = { north, south, west, east, zoom: currentZoom, fetchedAt: Date.now() };
                 WindStore.setGrid(fallbackGrid);
             } else {
                 WindStore.setError('No wind data available');
