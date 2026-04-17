@@ -3,8 +3,10 @@ import { parseLocation, reverseGeocode } from './api/geocoding';
 import { fetchOpenMeteo } from './api/openmeteo';
 import { fetchStormGlassWeather } from './api/stormglass';
 import { fetchWeatherKitFull, buildReportFromWeatherKit } from './api/weatherkit';
+import { fetchUnifiedWeather } from './api/unified';
 import { fetchRealTides } from './api/tides';
 import { saveToCache, getFromCache, getFromCacheOffline } from './cache';
+import { useAuthStore } from '../../stores/authStore';
 
 import { createLogger } from '../../utils/createLogger';
 
@@ -17,6 +19,7 @@ export { reverseGeocode, parseLocation } from './api/geocoding';
 export { fetchOpenMeteo } from './api/openmeteo';
 export { fetchActiveBuoys } from './api/buoys';
 export { fetchWeatherKitRealtime, fetchWeatherKitFull, fetchMinutelyRain } from './api/weatherkit';
+export { fetchUnifiedWeather, fetchUnifiedWeatherRaw, extractNowcast } from './api/unified';
 
 // Alias for compatibility
 export const fetchStormglassData = fetchStormGlassWeather;
@@ -67,12 +70,15 @@ const _fetchWeatherByStrategyImpl = async (
 ): Promise<MarineWeatherReport> => {
     const isOffshore = locationType === 'offshore';
     const needsStormGlass = locationType !== 'inland';
+    const userId = useAuthStore.getState().user?.id;
 
-    // --- PARALLEL API CALLS (all four simultaneously) ---
-    const [wkResult, sgResult, omResult, tideResult] = await Promise.allSettled([
-        // 1. WeatherKit: PRIMARY atmospheric source
-        fetchWeatherKitFull(lat, lon).catch((e) => {
-            log.warn('WeatherKit failed:', e?.message || e);
+    // ── UNIFIED ENDPOINT (single call replaces WeatherKit + OpenMeteo) ──
+    // Fires in parallel with StormGlass + Tides.
+    // If unified succeeds, we skip the WeatherKit + OpenMeteo calls entirely.
+    const [unifiedResult, sgResult, tideResult] = await Promise.allSettled([
+        // 1. Unified get-weather: single endpoint, subscription-routed
+        fetchUnifiedWeather(lat, lon, name, userId).catch((e) => {
+            log.warn('Unified weather failed:', e?.message || e);
             return null;
         }),
 
@@ -84,43 +90,71 @@ const _fetchWeatherByStrategyImpl = async (
               })
             : Promise.resolve(null),
 
-        // 3. OpenMeteo: Fallback atmospheric + CAPE for wind field map
-        fetchOpenMeteo(lat, lon, name, false, 'best_match').catch((e) => {
-            log.warn('OpenMeteo failed:', e?.message || e);
-            return null;
-        }),
-
-        // 4. WorldTides: Direct tide fetch (24h cached — always fires)
+        // 3. WorldTides: Direct tide fetch (24h cached — always fires)
         fetchRealTides(lat, lon).catch((e) => {
             log.warn('Tides failed:', e?.message || e);
             return null;
         }),
     ]);
 
-    // --- EXTRACT RESULTS ---
-    const weatherKitFull = wkResult.status === 'fulfilled' ? wkResult.value : null;
+    const unifiedReport = unifiedResult.status === 'fulfilled' ? unifiedResult.value : null;
     const stormGlassReport = sgResult.status === 'fulfilled' ? sgResult.value : null;
-    const openMeteoReport = omResult.status === 'fulfilled' ? omResult.value : null;
     const tideData = tideResult.status === 'fulfilled' ? tideResult.value : null;
 
-    // --- DIAGNOSTIC LOGGING ---
+    // ── FALLBACK: if unified failed, try WeatherKit + OpenMeteo individually ──
+    let weatherKitFull = null;
+    let openMeteoReport = null;
+
+    if (!unifiedReport) {
+        log.info('Unified endpoint unavailable — falling back to WeatherKit + OpenMeteo');
+        const [wkResult, omResult] = await Promise.allSettled([
+            fetchWeatherKitFull(lat, lon).catch((e) => {
+                log.warn('WeatherKit failed:', e?.message || e);
+                return null;
+            }),
+            fetchOpenMeteo(lat, lon, name, false, 'best_match').catch((e) => {
+                log.warn('OpenMeteo failed:', e?.message || e);
+                return null;
+            }),
+        ]);
+        weatherKitFull = wkResult.status === 'fulfilled' ? wkResult.value : null;
+        openMeteoReport = omResult.status === 'fulfilled' ? omResult.value : null;
+    }
 
     // --- BUILD BASE REPORT ---
-    // WeatherKit is base for ALL locations (model-based forecasts work globally).
-    // For offshore, StormGlass overrides the current observation (marine-tuned GFS).
     let report: MarineWeatherReport;
 
-    if (weatherKitFull) {
-        // ✅ PRIMARY PATH: Build report from WeatherKit (works globally)
-        report = buildReportFromWeatherKit(weatherKitFull, lat, lon, name);
+    if (unifiedReport) {
+        // ✅ UNIFIED PATH: Single-endpoint response (premium or free)
+        report = unifiedReport;
 
-        // OFFSHORE BLEND: WeatherKit's currentWeather observation is unreliable at sea
-        // (sparse station data). Override current atmospheric fields with StormGlass.
-        // WeatherKit hourly/daily forecasts are model-based and remain valid.
+        // OFFSHORE BLEND: Override current atmospheric observation with StormGlass
+        // for offshore locations (unified endpoint uses model data which can be
+        // unreliable for current conditions far from weather stations).
         if (isOffshore && stormGlassReport) {
             const sg = stormGlassReport.current;
             const current = { ...report.current };
-            // StormGlass atmospheric override for current observation only
+            if (sg.airTemperature != null) current.airTemperature = sg.airTemperature;
+            if (sg.feelsLike != null) current.feelsLike = sg.feelsLike;
+            if (sg.windSpeed != null) current.windSpeed = sg.windSpeed;
+            if (sg.windGust != null) current.windGust = sg.windGust;
+            if (sg.windDirection) current.windDirection = sg.windDirection;
+            if (sg.windDegree != null) current.windDegree = sg.windDegree;
+            if (sg.pressure != null) current.pressure = sg.pressure;
+            if (sg.humidity != null) current.humidity = sg.humidity;
+            if (sg.cloudCover != null) current.cloudCover = sg.cloudCover;
+            if (sg.visibility != null) current.visibility = sg.visibility;
+            if (sg.condition) current.condition = sg.condition;
+            if (sg.description) current.description = sg.description;
+            report.current = current;
+        }
+    } else if (weatherKitFull) {
+        // FALLBACK: WeatherKit as atmospheric base
+        report = buildReportFromWeatherKit(weatherKitFull, lat, lon, name);
+
+        if (isOffshore && stormGlassReport) {
+            const sg = stormGlassReport.current;
+            const current = { ...report.current };
             if (sg.airTemperature != null) current.airTemperature = sg.airTemperature;
             if (sg.feelsLike != null) current.feelsLike = sg.feelsLike;
             if (sg.windSpeed != null) current.windSpeed = sg.windSpeed;
@@ -136,7 +170,7 @@ const _fetchWeatherByStrategyImpl = async (
             report.current = current;
         }
     } else if (stormGlassReport) {
-        // WeatherKit failed — use StormGlass as full fallback
+        // WeatherKit also failed — use StormGlass as full fallback
         report = stormGlassReport;
     } else if (openMeteoReport) {
         // Last resort — OpenMeteo only
@@ -316,9 +350,10 @@ const _fetchWeatherByStrategyImpl = async (
 
     // --- MODEL TAG ---
     const sourcesParts: string[] = [];
-    if (weatherKitFull?.observation) sourcesParts.push('wk');
+    if (unifiedReport) sourcesParts.push(unifiedReport.modelUsed.includes('rb') ? 'rb+om' : 'wk');
+    else if (weatherKitFull?.observation) sourcesParts.push('wk');
     if (stormGlassReport) sourcesParts.push('sg');
-    if (openMeteoReport) sourcesParts.push('om');
+    if (!unifiedReport && openMeteoReport) sourcesParts.push('om');
     report.modelUsed = sourcesParts.join('+') || report.modelUsed;
 
     report.locationName = name;
