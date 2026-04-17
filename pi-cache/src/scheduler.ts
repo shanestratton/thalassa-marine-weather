@@ -78,8 +78,9 @@ async function runPrefetch(cache: Cache, proxyConfig: ProxyConfig, pf: PrefetchC
     console.log(`\n🔄 Pre-fetch starting for ${pf.lat}, ${pf.lon} (r=${pf.radius}°)...`);
 
     // Run fetches in parallel batches to avoid hammering the network
-    // Batch 1: Core weather (combined = what the app actually requests) + tides + rain radar
+    // Batch 1: Core weather (unified + combined + current + forecast) + tides + rain radar
     await Promise.allSettled([
+        track('weather-unified', () => prefetchWeatherUnified(cache, proxyConfig, pf)),
         track('weather-combined', () => prefetchWeatherCombined(cache, proxyConfig, pf)),
         track('weather-current', () => prefetchWeather(cache, proxyConfig, pf, 'current')),
         track('weather-forecast', () => prefetchWeather(cache, proxyConfig, pf, 'forecast')),
@@ -135,6 +136,52 @@ async function prefetchWeatherCombined(cache: Cache, config: ProxyConfig, pf: Pr
     );
 
     await cachedJsonFetch(cache, { cacheKey: key, url, ttlMs: TTL.WEATHER_CURRENT, source: 'open-meteo-combined' });
+}
+
+/**
+ * Pre-fetch the UNIFIED weather response from the get-weather edge function.
+ * This is the new single-endpoint pipeline that returns standardized weather
+ * regardless of subscription tier. Pre-fetches both full and minified versions.
+ *
+ * The user_id comes from PREFETCH_USER_ID in .env — pushed by the app during
+ * configuration so the edge function can check the user's subscription tier.
+ */
+async function prefetchWeatherUnified(cache: Cache, config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
+    const rlat = parseFloat(pf.lat.toFixed(2));
+    const rlon = parseFloat(pf.lon.toFixed(2));
+    const userId = process.env.PREFETCH_USER_ID || '';
+
+    // Full response
+    const fullKey = `weather:unified:${rlat}:${rlon}:${userId}:0`;
+    if (!cache.hasFresh(fullKey)) {
+        const params: Record<string, string> = { lat: String(pf.lat), lon: String(pf.lon), minified: '0' };
+        if (userId) params.user_id = userId;
+
+        const url = supabaseEdgeUrl(config, 'get-weather', params);
+        await cachedJsonFetch(cache, {
+            cacheKey: fullKey,
+            url,
+            ttlMs: TTL.WEATHER_CURRENT,
+            source: 'get-weather',
+            headers: supabaseHeaders(config),
+        });
+    }
+
+    // Minified response (for Iridium GO! / low-bandwidth)
+    const miniKey = `weather:unified:${rlat}:${rlon}:${userId}:1`;
+    if (!cache.hasFresh(miniKey)) {
+        const params: Record<string, string> = { lat: String(pf.lat), lon: String(pf.lon), minified: '1' };
+        if (userId) params.user_id = userId;
+
+        const url = supabaseEdgeUrl(config, 'get-weather', params);
+        await cachedJsonFetch(cache, {
+            cacheKey: miniKey,
+            url,
+            ttlMs: TTL.WEATHER_CURRENT,
+            source: 'get-weather-minified',
+            headers: supabaseHeaders(config),
+        });
+    }
 }
 
 async function prefetchWeather(
