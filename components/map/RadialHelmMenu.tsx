@@ -63,6 +63,19 @@ export interface RadialHelmMenuProps {
         tideStationsVisible?: boolean;
         onToggleTideStations?: () => void;
     };
+    /** Nautical chart sources — populated by MapHub from the chart catalog +
+     *  SignalK/AvNav + local MBTiles. Each entry renders as a toggle in the
+     *  "Charts" category of the radial menu. Left empty → category hides. */
+    chartsState?: {
+        sources?: Array<{
+            id: string;
+            label: string;
+            /** Short icon component — anchor for AvNav, flag for NOAA, etc. */
+            iconKind: 'avnav' | 'noaa' | 'ecdis' | 'linz' | 'local' | 'generic';
+            enabled: boolean;
+            onToggle: () => void;
+        }>;
+    };
     /** If true, hide the menu entirely */
     hidden?: boolean;
 }
@@ -141,7 +154,10 @@ const glowPulse: Variants = {
 
 // ── Default categories ──────────────────────────────────────────
 
-function buildCategories(tacticalState: RadialHelmMenuProps['tacticalState']): HelmCategory[] {
+function buildCategories(
+    tacticalState: RadialHelmMenuProps['tacticalState'],
+    chartsState: RadialHelmMenuProps['chartsState'],
+): HelmCategory[] {
     const tactical: HelmMenuItem[] = [];
 
     // Only include tactical items that have callbacks provided
@@ -325,7 +341,57 @@ function buildCategories(tacticalState: RadialHelmMenuProps['tacticalState']): H
                 },
             ],
         },
+        // ── Charts (4th category) ──
+        // Surfaces o-charts (AvNav/SignalK), free charts (NOAA, LINZ) and any
+        // local MBTiles directly in the radial menu. Each source is a plain
+        // on/off toggle — for opacity / fly-to / per-chart selection users
+        // still have the legacy Chart FAB panel.
+        ...buildChartsCategory(chartsState),
     ];
+}
+
+/** Build the "Charts" category. Returns an empty array if no sources exist,
+ *  so the radial menu falls back to 3 categories when the user has no chart
+ *  sources configured (keeps the arc layout clean). */
+function buildChartsCategory(chartsState: RadialHelmMenuProps['chartsState']): HelmCategory[] {
+    const sources = chartsState?.sources ?? [];
+    if (sources.length === 0) return [];
+
+    const items: HelmMenuItem[] = sources.map((src) => ({
+        id: `chart-${src.id}`,
+        label: src.label,
+        icon: chartSourceIcon(src.iconKind),
+        action: src.onToggle,
+    }));
+
+    return [
+        {
+            id: 'charts',
+            label: 'Charts',
+            icon: <ChartsCategoryIcon />,
+            color: 'text-violet-400',
+            glowColor: 'rgba(167,139,250,0.4)',
+            items,
+        },
+    ];
+}
+
+/** Dispatch to the inline SVG icon for a chart-source kind. */
+function chartSourceIcon(kind: 'avnav' | 'noaa' | 'ecdis' | 'linz' | 'local' | 'generic'): React.ReactNode {
+    switch (kind) {
+        case 'avnav':
+            return <ChartAnchorIcon />;
+        case 'noaa':
+            return <ChartNoaaIcon />;
+        case 'ecdis':
+            return <ChartEcdisIcon />;
+        case 'linz':
+            return <ChartLinzIcon />;
+        case 'local':
+            return <ChartLocalIcon />;
+        default:
+            return <ChartGenericIcon />;
+    }
 }
 
 // ── Component ────────────────────────────────────────────────────
@@ -335,6 +401,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     toggleLayer,
     selectInGroup,
     tacticalState,
+    chartsState,
     hidden = false,
 }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -345,20 +412,26 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const dragStartPos = useRef<{ x: number; y: number } | null>(null);
 
-    const categories = useMemo(() => buildCategories(tacticalState), [tacticalState]);
+    const categories = useMemo(() => buildCategories(tacticalState, chartsState), [tacticalState, chartsState]);
 
     // ── Arc layout parameters ──
     // Categories fan out DOWN-LEFT from the FAB (since it's on the right edge, near the top).
     // In CSS screen coords: sin(angle) > 0 for angles 0°–180° pushes items DOWN.
-    // Center angle 150° keeps the arc below the FAB, preventing items going off-screen.
-    const TIER1_RADIUS = 90;
+    //
+    // Dynamic sizing: tighter arc for 3 categories, wider + larger radius for 4
+    // so the new "Charts" bubble doesn't overlap with Sea State / Atmosphere.
+    // At radius 120 × spread 95°, 4 bubbles are ~62px center-to-center — one
+    // bubble-diameter apart. Below 3 categories we revert to the original
+    // tighter arc so it looks intentional, not stretched.
+    const TIER1_RADIUS = categories.length >= 4 ? 120 : 90;
     const TIER1_CENTER_ANGLE = 150; // Down-left (keeps arc below top edge)
-    const TIER1_SPREAD = 70; // degrees of arc
+    const TIER1_SPREAD = categories.length >= 4 ? 95 : 70;
 
-    // Tier 2 items fan out further from the selected category
+    // Tier 2 items are now rendered in a grid, not an arc — these constants
+    // are kept for the drag-hover zone detection in handlePointerMove.
     const TIER2_RADIUS = 80;
     const TIER2_CENTER_ANGLE = 145;
-    const TIER2_SPREAD_PER_ITEM = 24; // degrees between items
+    const TIER2_SPREAD_PER_ITEM = 24;
 
     const tier1Angles = useMemo(
         () => distributeArc(categories.length, TIER1_CENTER_ANGLE, TIER1_SPREAD),
@@ -504,9 +577,14 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (item.id === 'inspect') return tacticalState?.weatherInspectMode ?? false;
             if (item.id === 'seamark') return tacticalState?.seamarkVisible ?? false;
             if (item.id === 'tides') return tacticalState?.tideStationsVisible ?? false;
+            // Charts — items are id'd as chart-<sourceId>; match against chartsState.
+            if (item.id.startsWith('chart-')) {
+                const srcId = item.id.slice('chart-'.length);
+                return chartsState?.sources?.find((s) => s.id === srcId)?.enabled ?? false;
+            }
             return false;
         },
-        [activeLayers, tacticalState],
+        [activeLayers, tacticalState, chartsState],
     );
 
     // Total active count (for badge)
@@ -519,8 +597,12 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         if (tacticalState?.weatherInspectMode) count++;
         if (tacticalState?.seamarkVisible) count++;
         if (tacticalState?.tideStationsVisible) count++;
+        // Active chart sources count too — so the FAB badge reflects them.
+        if (chartsState?.sources) {
+            for (const s of chartsState.sources) if (s.enabled) count++;
+        }
         return count;
-    }, [activeLayers, tacticalState]);
+    }, [activeLayers, tacticalState, chartsState]);
 
     // Any active items in a category?
     const categoryHasActive = useCallback(
@@ -670,6 +752,37 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                         );
                                     })}
                                 </div>
+
+                                {/* Footer — "Clear All" pill lives INSIDE the grid panel now so
+                                    it can never overlap the Tier 1 arc or the categories. Shows
+                                    only when at least one layer is active. */}
+                                {totalActive > 0 && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            toggleLayer('none');
+                                            if (tacticalState?.aisVisible) tacticalState.onToggleAis?.();
+                                            if (tacticalState?.cycloneVisible) tacticalState.onToggleCyclones?.();
+                                            if (tacticalState?.squallVisible) tacticalState.onToggleSquall?.();
+                                            if (tacticalState?.lightningVisible) tacticalState.onToggleLightning?.();
+                                            if (tacticalState?.weatherInspectMode)
+                                                tacticalState.onToggleWeatherInspect?.();
+                                            if (tacticalState?.seamarkVisible) tacticalState.onToggleSeamark?.();
+                                            if (tacticalState?.tideStationsVisible)
+                                                tacticalState.onToggleTideStations?.();
+                                            // Also clear any chart sources.
+                                            chartsState?.sources?.forEach((s) => {
+                                                if (s.enabled) s.onToggle();
+                                            });
+                                            triggerHaptic('medium');
+                                            setIsOpen(false);
+                                            setActiveCategory(null);
+                                        }}
+                                        className="mt-1 w-full rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-red-400 transition-colors hover:bg-red-500/20"
+                                    >
+                                        Clear All · {totalActive} active
+                                    </button>
+                                )}
                             </motion.div>
                         );
                     })()}
@@ -756,20 +869,21 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                 )}
             </motion.button>
 
-            {/* ── "Clear All" pill ── Positioned BELOW the FAB so it never
-                overlaps categories or item grid. Only shown when the menu is
-                open AND there are active layers to clear. */}
+            {/* ── Tier-1 Clear All pill ── Shown only when the menu is open,
+                NO category is selected (so the tier-2 grid isn't on screen),
+                AND there are active layers. Positioned below the category arc
+                (top: 220px is below the tier-1 radius of 120 + headroom) so
+                it never overlaps the 4-bubble arc or the FAB. */}
             <AnimatePresence>
-                {isOpen && totalActive > 0 && (
+                {isOpen && !activeCategory && totalActive > 0 && (
                     <motion.button
-                        initial={{ opacity: 0, scale: 0.8 }}
+                        initial={{ opacity: 0, scale: 0.85 }}
                         animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.8 }}
-                        transition={{ ...SPRING_TIGHT, delay: 0.12 }}
+                        exit={{ opacity: 0, scale: 0.85 }}
+                        transition={{ ...SPRING_SNAPPY, delay: 0.2 }}
                         onClick={(e) => {
                             e.stopPropagation();
                             toggleLayer('none');
-                            // Also clear tactical states
                             if (tacticalState?.aisVisible) tacticalState.onToggleAis?.();
                             if (tacticalState?.cycloneVisible) tacticalState.onToggleCyclones?.();
                             if (tacticalState?.squallVisible) tacticalState.onToggleSquall?.();
@@ -777,13 +891,17 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                             if (tacticalState?.weatherInspectMode) tacticalState.onToggleWeatherInspect?.();
                             if (tacticalState?.seamarkVisible) tacticalState.onToggleSeamark?.();
                             if (tacticalState?.tideStationsVisible) tacticalState.onToggleTideStations?.();
+                            chartsState?.sources?.forEach((s) => {
+                                if (s.enabled) s.onToggle();
+                            });
                             triggerHaptic('medium');
                             setIsOpen(false);
                             setActiveCategory(null);
                         }}
-                        className="absolute right-0 top-[60px] whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
+                        className="fixed right-3 whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
+                        style={{ top: 260 }}
                     >
-                        Clear All
+                        Clear All · {totalActive}
                     </motion.button>
                 )}
             </AnimatePresence>
@@ -839,6 +957,79 @@ const AtmosphereCategoryIcon = () => (
             strokeLinejoin="round"
             d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z"
         />
+    </svg>
+);
+
+// 4th category: stacked-layers "charts" glyph — echoes the legacy chart FAB icon.
+const ChartsCategoryIcon = () => (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0l4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0l-5.571 3-5.571-3"
+        />
+    </svg>
+);
+
+// Chart source icons — mirrors ChartSourceIcons.tsx but inlined so RadialHelmMenu
+// stays a single self-contained file.
+const ChartAnchorIcon = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <circle cx={12} cy={5} r={1.5} strokeLinecap="round" strokeLinejoin="round" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.5v14M8.5 10h7" />
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M5 14.5c0 3.5 3 6 7 6s7-2.5 7-6M5 14.5l-1.5 1.5M5 14.5h2m12 0l1.5 1.5M19 14.5h-2"
+        />
+    </svg>
+);
+const ChartNoaaIcon = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+        <circle cx={12} cy={12} r={8.5} />
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 7.5l1.18 2.39 2.64.38-1.91 1.86.45 2.63L12 13.52l-2.36 1.24.45-2.63-1.91-1.86 2.64-.38L12 7.5z"
+            fill="currentColor"
+            fillOpacity={0.15}
+        />
+    </svg>
+);
+const ChartEcdisIcon = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+        <rect x={3.5} y={3.5} width={17} height={17} rx={2} />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.5 9h17M3.5 15h17M9 3.5v17M15 3.5v17" />
+    </svg>
+);
+const ChartLinzIcon = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v18" />
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 6c-1.5 1-3 1.5-4.5 1.5M12 6c1.5 1 3 1.5 4.5 1.5M12 10c-2 1.3-4 1.8-6 1.8M12 10c2 1.3 4 1.8 6 1.8M12 14.5c-2 1.3-4 1.8-5.5 1.8M12 14.5c2 1.3 4 1.8 5.5 1.8"
+        />
+    </svg>
+);
+const ChartLocalIcon = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M3.75 8.25V6A1.5 1.5 0 015.25 4.5h4.19a1.5 1.5 0 011.06.44l1.56 1.56h6.69A1.5 1.5 0 0120.25 8v9.75A1.5 1.5 0 0118.75 19.25H5.25a1.5 1.5 0 01-1.5-1.5v-9.5z"
+        />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 13h6M12 10v6" />
+    </svg>
+);
+const ChartGenericIcon = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M9 6.75L3.75 9v11.25l5.25-2.25 6 2.25 5.25-2.25V6.75l-5.25 2.25-6-2.25z"
+        />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 6.75v11.25M15 9v11.25" />
     </svg>
 );
 
