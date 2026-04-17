@@ -348,16 +348,17 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     const categories = useMemo(() => buildCategories(tacticalState), [tacticalState]);
 
     // ── Arc layout parameters ──
-    // Categories fan out to the LEFT of the FAB (since it's on the right edge)
-    // Center angle: 180° = directly left. Arc spans from ~135° to ~225° (upward-left to downward-left)
+    // Categories fan out DOWN-LEFT from the FAB (since it's on the right edge, near the top).
+    // In CSS screen coords: sin(angle) > 0 for angles 0°–180° pushes items DOWN.
+    // Center angle 150° keeps the arc below the FAB, preventing items going off-screen.
     const TIER1_RADIUS = 90;
-    const TIER1_CENTER_ANGLE = 180; // Left
-    const TIER1_SPREAD = 80; // degrees of arc
+    const TIER1_CENTER_ANGLE = 150; // Down-left (keeps arc below top edge)
+    const TIER1_SPREAD = 70; // degrees of arc
 
     // Tier 2 items fan out further from the selected category
     const TIER2_RADIUS = 80;
-    const TIER2_CENTER_ANGLE = 180;
-    const TIER2_SPREAD_PER_ITEM = 28; // degrees between items
+    const TIER2_CENTER_ANGLE = 145;
+    const TIER2_SPREAD_PER_ITEM = 24; // degrees between items
 
     const tier1Angles = useMemo(
         () => distributeArc(categories.length, TIER1_CENTER_ANGLE, TIER1_SPREAD),
@@ -466,7 +467,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
 
                     if (rdist < TIER2_RADIUS + 40) {
                         const rAngle = (Math.atan2(rdy, rdx) * 180) / Math.PI;
-                        const itemSpread = Math.min(TIER2_SPREAD_PER_ITEM * (cat.items.length - 1), 140);
+                        const itemSpread = Math.min(TIER2_SPREAD_PER_ITEM * (cat.items.length - 1), 120);
                         const itemAngles = distributeArc(cat.items.length, TIER2_CENTER_ANGLE, itemSpread);
 
                         let closestItemIdx = 0;
@@ -555,13 +556,19 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         [isItemActive],
     );
 
+    // Capture pointer so drag gestures track beyond the FAB's bounding box
+    const handleContainerPointerDown = useCallback((e: React.PointerEvent) => {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    }, []);
+
     if (hidden) return null;
 
     // ── Render ───────────────────────────────────────────────
 
     return (
         <div
-            className="absolute z-[700] top-[56px] right-3"
+            className={`absolute z-[700] top-[56px] right-3 ${isOpen ? 'pointer-events-auto' : ''}`}
+            onPointerDown={handleContainerPointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
             onPointerCancel={handlePointerUp}
@@ -596,7 +603,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
 
                         const catAngle = tier1Angles[catIdx];
                         const catPos = polarToXY(catAngle, TIER1_RADIUS);
-                        const itemSpread = Math.min(TIER2_SPREAD_PER_ITEM * (cat.items.length - 1), 140);
+                        const itemSpread = Math.min(TIER2_SPREAD_PER_ITEM * (cat.items.length - 1), 120);
                         const itemAngles = distributeArc(cat.items.length, TIER2_CENTER_ANGLE, itemSpread);
 
                         return cat.items.map((item, i) => {
