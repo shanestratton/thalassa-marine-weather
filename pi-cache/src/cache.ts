@@ -28,20 +28,25 @@ export class Cache {
         const dbPath = path.join(cacheDir, 'thalassa-cache.db');
 
         this.db = new Database(dbPath);
-        // ── Performance pragmas (tuned for Pi SD-card I/O) ──
-        // WAL: readers and writers work concurrently; readers never block writers.
+        // ── Performance pragmas (tuned for Pi 5 + Gen 4 NVMe) ──
+        // WAL: concurrent readers/writers; readers never block writers.
         this.db.pragma('journal_mode = WAL');
-        // NORMAL: skip fsync on every write; still durable across checkpoints.
+        // NORMAL: skip fsync per write; durable across checkpoints.
+        // NVMe writes are so cheap we could use FULL, but NORMAL is industry standard.
         this.db.pragma('synchronous = NORMAL');
-        // 64MB page cache (default is 2MB) — big win for hot-key reads.
-        this.db.pragma('cache_size = -64000');
-        // Keep temp B-trees in RAM instead of spilling to SD card.
+        // 128MB page cache (default is 2MB). Pi 5 has 4–8GB RAM; plenty of headroom.
+        this.db.pragma('cache_size = -131072');
+        // Keep temp B-trees in RAM.
         this.db.pragma('temp_store = MEMORY');
-        // 256MB memory-mapped reads — tile reads become near-RAM speed.
-        this.db.pragma('mmap_size = 268435456');
-        // Checkpoint every ~4MB of WAL instead of the 1000-page default —
-        // keeps the WAL file small so readers don't traverse a huge log.
-        this.db.pragma('wal_autocheckpoint = 1000');
+        // 1GB memory-mapped reads. With NVMe the kernel page cache is the real win —
+        // mmap lets SQLite skip syscall overhead on every read.
+        this.db.pragma('mmap_size = 1073741824');
+        // Checkpoint every ~40MB of WAL (10000 pages × 4KB). NVMe makes larger
+        // checkpoints near-free, so we amortise checkpoint cost across more writes.
+        this.db.pragma('wal_autocheckpoint = 10000');
+        // Hard cap on WAL file size (64MB) — prevents runaway growth if something
+        // holds a long read transaction open.
+        this.db.pragma('journal_size_limit = 67108864');
 
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS kv_cache (
