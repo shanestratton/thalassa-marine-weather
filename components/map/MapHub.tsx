@@ -850,6 +850,63 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 });
                             },
                         }}
+                        chartsState={{
+                            // Compose chart sources from AvNav (o-charts) + free chart
+                            // catalog + local MBTiles so all chart toggles live in the
+                            // radial menu's 4th category.
+                            sources: [
+                                ...skCharts.availableCharts.map((c) => ({
+                                    id: `sk-${c.id}`,
+                                    label: c.name.length > 10 ? c.name.substring(0, 10) : c.name,
+                                    iconKind: 'avnav' as const,
+                                    enabled: skChartIds.has(c.id),
+                                    onToggle: () => {
+                                        setSkChartIds((prev) => {
+                                            const next = new Set(prev);
+                                            if (next.has(c.id)) next.delete(c.id);
+                                            else next.add(c.id);
+                                            return next;
+                                        });
+                                    },
+                                })),
+                                ...chartCatalog.sources.map((s) => ({
+                                    id: `cat-${s.id}`,
+                                    label:
+                                        s.id === 'noaa-ncds'
+                                            ? 'NOAA'
+                                            : s.id === 'noaa-ecdis'
+                                              ? 'ECDIS'
+                                              : s.id === 'linz-charts'
+                                                ? 'NZ'
+                                                : s.name.length > 10
+                                                  ? s.name.substring(0, 10)
+                                                  : s.name,
+                                    iconKind: (s.id === 'noaa-ncds'
+                                        ? 'noaa'
+                                        : s.id === 'noaa-ecdis'
+                                          ? 'ecdis'
+                                          : s.id === 'linz-charts'
+                                            ? 'linz'
+                                            : 'generic') as 'noaa' | 'ecdis' | 'linz' | 'generic',
+                                    enabled: s.enabled && !!s.tileUrl,
+                                    onToggle: () => chartCatalog.toggleSource(s.id),
+                                })),
+                                ...localCharts.availableCharts.map((c) => ({
+                                    id: `local-${c.fileName}`,
+                                    label: c.name.length > 10 ? c.name.substring(0, 10) : c.name,
+                                    iconKind: 'local' as const,
+                                    enabled: localChartIds.has(c.fileName),
+                                    onToggle: () => {
+                                        setLocalChartIds((prev) => {
+                                            const next = new Set(prev);
+                                            if (next.has(c.fileName)) next.delete(c.fileName);
+                                            else next.add(c.fileName);
+                                            return next;
+                                        });
+                                    },
+                                })),
+                            ],
+                        }}
                     />
                 )}
 
