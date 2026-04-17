@@ -28,8 +28,20 @@ export class Cache {
         const dbPath = path.join(cacheDir, 'thalassa-cache.db');
 
         this.db = new Database(dbPath);
+        // ── Performance pragmas (tuned for Pi SD-card I/O) ──
+        // WAL: readers and writers work concurrently; readers never block writers.
         this.db.pragma('journal_mode = WAL');
+        // NORMAL: skip fsync on every write; still durable across checkpoints.
         this.db.pragma('synchronous = NORMAL');
+        // 64MB page cache (default is 2MB) — big win for hot-key reads.
+        this.db.pragma('cache_size = -64000');
+        // Keep temp B-trees in RAM instead of spilling to SD card.
+        this.db.pragma('temp_store = MEMORY');
+        // 256MB memory-mapped reads — tile reads become near-RAM speed.
+        this.db.pragma('mmap_size = 268435456');
+        // Checkpoint every ~4MB of WAL instead of the 1000-page default —
+        // keeps the WAL file small so readers don't traverse a huge log.
+        this.db.pragma('wal_autocheckpoint = 1000');
 
         this.db.exec(`
             CREATE TABLE IF NOT EXISTS kv_cache (
