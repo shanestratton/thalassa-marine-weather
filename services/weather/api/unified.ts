@@ -13,6 +13,7 @@
 
 import { createLogger } from '../../../utils/createLogger';
 import { piCache } from '../../PiCacheService';
+import { resolveTimeZone, formatTimeInZone } from '../../../utils/timezone';
 import type { MarineWeatherReport, SourcedWeatherMetrics, HourlyForecast, ForecastDay } from '../../../types/weather';
 
 const log = createLogger('UnifiedWeather');
@@ -227,6 +228,16 @@ export async function fetchUnifiedWeather(
 function mapToMarineReport(resp: StandardWeatherResponse, lat: number, lon: number, name: string): MarineWeatherReport {
     const c = resp.current;
 
+    // Resolve the target location's IANA timezone. OpenMeteo returns a real tz;
+    // WeatherKit returns 'UTC' as a sentinel. Either way, tz-lookup fills the gap
+    // so sunrise/sunset render in LOCAL-TO-LOCATION time, not device time.
+    const timeZone = resolveTimeZone(lat, lon, resp.timezone);
+
+    // Daily sunrise/sunset arrive as ISO strings from the edge function.
+    // Format today's into HH:MM in the target tz for the "current" block.
+    const todaySunrise = resp.daily[0]?.sunrise ? formatTimeInZone(resp.daily[0].sunrise, timeZone) : undefined;
+    const todaySunset = resp.daily[0]?.sunset ? formatTimeInZone(resp.daily[0].sunset, timeZone) : undefined;
+
     const current: SourcedWeatherMetrics = {
         windSpeed: c.windSpeed,
         windGust: c.windGust,
@@ -247,6 +258,8 @@ function mapToMarineReport(resp: StandardWeatherResponse, lat: number, lon: numb
         feelsLike: c.feelsLike,
         isDay: c.isDay ?? undefined,
         dewPoint: c.dewPoint,
+        sunrise: todaySunrise,
+        sunset: todaySunset,
     };
 
     // Hourly forecast
@@ -266,7 +279,8 @@ function mapToMarineReport(resp: StandardWeatherResponse, lat: number, lon: numb
         humidity: h.humidity,
     }));
 
-    // Daily forecast
+    // Daily forecast — format sunrise/sunset as HH:MM in the target tz so the UI
+    // doesn't have to re-parse provider-specific ISO string formats.
     const forecast: ForecastDay[] = resp.daily.map((d) => ({
         day: dayName(d.date),
         date: d.date,
@@ -279,8 +293,8 @@ function mapToMarineReport(resp: StandardWeatherResponse, lat: number, lon: numb
         condition: d.condition,
         precipitation: d.precipSum,
         precipChance: d.precipProbability ?? undefined,
-        sunrise: d.sunrise,
-        sunset: d.sunset,
+        sunrise: d.sunrise ? formatTimeInZone(d.sunrise, timeZone) : d.sunrise,
+        sunset: d.sunset ? formatTimeInZone(d.sunset, timeZone) : d.sunset,
         uvIndex: d.uvIndexMax ?? undefined,
     }));
 
@@ -296,7 +310,7 @@ function mapToMarineReport(resp: StandardWeatherResponse, lat: number, lon: numb
         boatingAdvice: '', // Generated downstream
         generatedAt: resp.timestamp,
         modelUsed: modelTag,
-        timeZone: resp.timezone || undefined,
+        timeZone, // Resolved via provider-hint → tz-lookup fallback (never 'UTC' sentinel)
     };
 }
 

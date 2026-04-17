@@ -3,6 +3,7 @@ import { createLogger } from '../../../utils/createLogger';
 import { MarineWeatherReport, HourlyForecast, ForecastDay, SourcedWeatherMetrics, MetricSource } from '../../../types';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
 import { getSolarTimes, getMoonData } from '../../../utils/celestial';
+import { resolveTimeZone } from '../../../utils/timezone';
 import { piCache } from '../../PiCacheService';
 const log = createLogger('WeatherKit');
 
@@ -128,13 +129,24 @@ const fractionToPercent = (v: number | null | undefined): number | null => (v !=
 /** Apple meters → km */
 const mToKm = (v: number | null | undefined): number | null => (v != null ? v / 1000 : null);
 
-/** Round an ISO timestamp to the nearest minute and format as HH:MM */
-function roundToNearestMinute(isoStr: string): string {
+/** Round an ISO timestamp to the nearest minute and format as HH:MM.
+ * If `timeZone` is provided (IANA ID), renders in that zone rather than the
+ * device's local time — critical for sunrise/sunset at remote locations. */
+function roundToNearestMinute(isoStr: string, timeZone?: string): string {
     const d = new Date(isoStr);
     // Round: if seconds >= 30, bump to next minute
     if (d.getSeconds() >= 30) d.setMinutes(d.getMinutes() + 1);
     d.setSeconds(0, 0);
-    return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+    try {
+        return d.toLocaleTimeString('en-GB', {
+            ...(timeZone ? { timeZone } : {}),
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+        });
+    } catch {
+        return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+    }
 }
 
 // ── Response Mappers ──────────────────────────────────────────
@@ -190,16 +202,27 @@ function mapHourlyForecast(forecastHourly: WeatherKitRaw): HourlyForecast[] {
     );
 }
 
-/** Map Apple forecastDaily → ForecastDay[] */
-function mapDailyForecast(forecastDaily: WeatherKitRaw): ForecastDay[] {
+/** Map Apple forecastDaily → ForecastDay[].
+ *
+ * @param timeZone  Optional IANA tz — when provided, sunrise/sunset and the day
+ *                  label are rendered in the target location's zone, not the
+ *                  device's. Without this, a boat in Sydney viewing Texas would
+ *                  see Texas sunrise converted to AEST (wrong). */
+function mapDailyForecast(forecastDaily: WeatherKitRaw, timeZone?: string): ForecastDay[] {
     const days = forecastDaily?.days;
     if (!Array.isArray(days)) return [];
 
     return days.map((d: WeatherKitRaw): ForecastDay => {
         const dateStr = d.forecastStart || '';
         const dateObj = new Date(dateStr);
-        const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
-        const isoDate = dateObj.toLocaleDateString('en-CA'); // YYYY-MM-DD in device timezone
+        const dayName = dateObj.toLocaleDateString('en-US', {
+            weekday: 'short',
+            ...(timeZone ? { timeZone } : {}),
+        });
+        // YYYY-MM-DD in target tz (en-CA formats as ISO date)
+        const isoDate = dateObj.toLocaleDateString('en-CA', {
+            ...(timeZone ? { timeZone } : {}),
+        });
 
         return {
             day: dayName,
@@ -215,8 +238,8 @@ function mapDailyForecast(forecastDaily: WeatherKitRaw): ForecastDay[] {
             precipChance: d.precipitationChance != null ? Math.round(d.precipitationChance * 100) : undefined,
             cloudCover: fractionToPercent(d.daytimeForecast?.cloudCover) ?? undefined,
             uvIndex: d.maxUvIndex ?? undefined,
-            sunrise: d.sunrise ? roundToNearestMinute(d.sunrise) : undefined,
-            sunset: d.sunset ? roundToNearestMinute(d.sunset) : undefined,
+            sunrise: d.sunrise ? roundToNearestMinute(d.sunrise, timeZone) : undefined,
+            sunset: d.sunset ? roundToNearestMinute(d.sunset, timeZone) : undefined,
             humidity: fractionToPercent(d.daytimeForecast?.humidity) ?? undefined,
             pressure: d.restOfDayForecast?.pressureTrend ?? undefined,
         };
@@ -289,6 +312,10 @@ export const fetchWeatherKitFull = async (lat: number, lon: number): Promise<Wea
         return cachedFull.data;
     }
 
+    // WeatherKit doesn't return a timezone — resolve from lat/lon so daily
+    // sunrise/sunset render in the TARGET location's local time.
+    const tz = resolveTimeZone(lat, lon);
+
     // 2. Persistent cache (survives app restarts — 15min TTL)
     const persistent = apiCacheGet<WeatherKitFullResponse>('weatherkit', lat, lon);
     if (persistent) {
@@ -329,7 +356,7 @@ export const fetchWeatherKitFull = async (lat: number, lon: number): Promise<Wea
                         // Skip the direct Supabase fetch — jump to mapping
                         const observation = json?.currentWeather ? mapCurrentWeather(json.currentWeather) : null;
                         const hourly = json?.forecastHourly ? mapHourlyForecast(json.forecastHourly) : [];
-                        const daily = json?.forecastDaily ? mapDailyForecast(json.forecastDaily) : [];
+                        const daily = json?.forecastDaily ? mapDailyForecast(json.forecastDaily, tz) : [];
                         const { rain: minutelyRain, summary: rainSummary } = json?.forecastNextHour
                             ? mapNextHourForecast(json.forecastNextHour)
                             : { rain: [], summary: '' };
@@ -385,7 +412,7 @@ export const fetchWeatherKitFull = async (lat: number, lon: number): Promise<Wea
         // Map all four datasets
         const observation = json?.currentWeather ? mapCurrentWeather(json.currentWeather) : null;
         const hourly = json?.forecastHourly ? mapHourlyForecast(json.forecastHourly) : [];
-        const daily = json?.forecastDaily ? mapDailyForecast(json.forecastDaily) : [];
+        const daily = json?.forecastDaily ? mapDailyForecast(json.forecastDaily, tz) : [];
         const { rain: minutelyRain, summary: rainSummary } = json?.forecastNextHour
             ? mapNextHourForecast(json.forecastNextHour)
             : { rain: [], summary: '' };
@@ -458,16 +485,20 @@ export function buildReportFromWeatherKit(
     const obs = wk.observation;
     const today = wk.daily[0];
 
-    // SunCalc: compute sunrise/sunset + moon offline for current day
+    // Resolve target-location tz (WeatherKit itself doesn't return one).
+    const timeZone = resolveTimeZone(lat, lon);
+
+    // SunCalc: compute sunrise/sunset + moon offline for current day, formatted
+    // in the target tz so the SolarArc card shows LOCAL-TO-LOCATION time.
     const now = new Date();
-    const solar = getSolarTimes(now, lat, lon);
-    const moon = getMoonData(now, lat, lon);
+    const solar = getSolarTimes(now, lat, lon, timeZone);
+    const moon = getMoonData(now, lat, lon, timeZone);
 
     // SunCalc: override sunrise/sunset on each forecast day
     for (const day of wk.daily) {
         if (day.isoDate || day.date) {
             const dayDate = new Date((day.isoDate || day.date) + 'T12:00:00');
-            const daySolar = getSolarTimes(dayDate, lat, lon);
+            const daySolar = getSolarTimes(dayDate, lat, lon, timeZone);
             day.sunrise = daySolar.sunrise;
             day.sunset = daySolar.sunset;
         }
@@ -591,7 +622,7 @@ export function buildReportFromWeatherKit(
         alerts: [],
         generatedAt: new Date().toISOString(),
         modelUsed: 'weatherkit',
-        timeZone: undefined, // Will be set by OpenMeteo or StormGlass
+        timeZone, // Resolved from lat/lon via tz-lookup (WeatherKit doesn't return one)
         utcOffset: undefined,
     };
 }

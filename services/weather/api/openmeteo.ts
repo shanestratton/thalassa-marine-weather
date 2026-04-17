@@ -7,6 +7,7 @@ import { calculateFeelsLike, calculateDistance } from '../../../utils/math';
 import { degreesToCardinal } from '../../../utils/format';
 import { piCache } from '../../PiCacheService';
 import { getSolarTimes, getMoonData } from '../../../utils/celestial';
+import { resolveTimeZone } from '../../../utils/timezone';
 
 import { generateTacticalAdvice, generateSafetyAlerts } from '../../../utils/advisory';
 import { fetchRealTides } from './tides';
@@ -329,7 +330,9 @@ export const fetchOpenMeteo = async (
 
     // Build Daily
     const dailyArr = wData.daily || {};
-    const tz = wData.timezone || undefined;
+    // Prefer OpenMeteo's returned tz; fall back to lat/lon lookup so edge cases
+    // (timezone missing, empty string) still give us a valid IANA zone.
+    const tz = resolveTimeZone(safeLat, safeLon, wData.timezone);
     const dailies = (dailyArr.time || []).map((t: string, i: number) => {
         // SunCalc: compute sunrise/sunset mathematically (works offline)
         const dayDate = new Date(t + 'T12:00:00');
@@ -432,7 +435,7 @@ export const fetchOpenMeteo = async (
         boatingAdvice: advice,
         isLandlocked: false,
         alerts: generateSafetyAlerts(currentMetrics, dailies[0]?.highTemp, dailies),
-        timeZone: wData.timezone,
+        timeZone: tz, // Resolved above (OpenMeteo value, tz-lookup fallback)
         utcOffset: wData.utc_offset_seconds,
     };
 
