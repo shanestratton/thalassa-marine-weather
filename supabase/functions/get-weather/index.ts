@@ -69,7 +69,7 @@ interface StandardCurrent {
 }
 
 interface StandardNowcast {
-    minutes: { time: string; intensity: number }[]; // mm/hr per minute
+    minutes: { time: string; intensity: number; precipType?: string }[]; // mm/hr per minute
     summary: string;
 }
 
@@ -129,7 +129,7 @@ interface MinifiedWeatherResponse {
         r: number | null; // precip mm/hr
         cnd: string; // condition
     };
-    n?: { m: number; i: number }[]; // nowcast: minutes-from-now + intensity
+    n?: { m: number; i: number; pt?: string }[]; // nowcast: minutes-from-now + intensity + precipType
     h: {
         // hourly (next 24h only)
         t: number; // hours from now
@@ -215,147 +215,10 @@ const kmhToKts = (v: number | null | undefined): number | null => (v != null ? M
 const frac = (v: number | null | undefined): number | null => (v != null ? Math.round(v * 100) : null);
 
 // ════════════════════════════════════════════════════════════════
-// RAINBOW.AI PNG PIXEL DECODING (same as proxy-rainbow)
+// RAINBOW.AI NOWCAST API (v1 — direct JSON, no tile decoding!)
 // ════════════════════════════════════════════════════════════════
 
-const RAINBOW_BASE = 'https://api.rainbow.ai/tiles/v1';
-
-function readU32(buf: Uint8Array, off: number): number {
-    return ((buf[off] << 24) | (buf[off + 1] << 16) | (buf[off + 2] << 8) | buf[off + 3]) >>> 0;
-}
-
-function paeth(a: number, b: number, c: number): number {
-    const p = a + b - c;
-    const pa = Math.abs(p - a);
-    const pb = Math.abs(p - b);
-    const pc = Math.abs(p - c);
-    if (pa <= pb && pa <= pc) return a;
-    return pb <= pc ? b : c;
-}
-
-async function decodePngPixel(png: Uint8Array, width: number, px: number, py: number): Promise<number> {
-    try {
-        let offset = 8;
-        let colorType = 0;
-        const idatChunks: Uint8Array[] = [];
-
-        while (offset < png.length) {
-            const length = readU32(png, offset);
-            const type = String.fromCharCode(png[offset + 4], png[offset + 5], png[offset + 6], png[offset + 7]);
-            if (type === 'IHDR') colorType = png[offset + 17];
-            else if (type === 'IDAT') idatChunks.push(png.slice(offset + 8, offset + 8 + length));
-            else if (type === 'IEND') break;
-            offset += 12 + length;
-        }
-
-        if (idatChunks.length === 0) return 0;
-
-        const totalLen = idatChunks.reduce((s, c) => s + c.length, 0);
-        const compressed = new Uint8Array(totalLen);
-        let pos = 0;
-        for (const chunk of idatChunks) {
-            compressed.set(chunk, pos);
-            pos += chunk.length;
-        }
-
-        const ds = new DecompressionStream('deflate');
-        const writer = ds.writable.getWriter();
-        writer.write(compressed).catch(() => {});
-        writer.close().catch(() => {});
-
-        const reader = ds.readable.getReader();
-        const chunks: Uint8Array[] = [];
-        for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (value) chunks.push(value);
-        }
-
-        const inflatedLen = chunks.reduce((s, c) => s + c.length, 0);
-        const raw = new Uint8Array(inflatedLen);
-        let p = 0;
-        for (const c of chunks) {
-            raw.set(c, p);
-            p += c.length;
-        }
-
-        const bpp = colorType === 6 ? 4 : colorType === 2 ? 3 : colorType === 4 ? 2 : 1;
-        const rowBytes = width * bpp;
-        const stride = rowBytes + 1;
-
-        let prevRow: Uint8Array | null = null;
-        let targetRow: Uint8Array | null = null;
-
-        for (let y = Math.max(0, py - 1); y <= py; y++) {
-            const rowStart = y * stride;
-            if (rowStart >= raw.length) break;
-            const filterByte = raw[rowStart];
-            const scanline = raw.slice(rowStart + 1, rowStart + 1 + rowBytes);
-            const decoded = new Uint8Array(rowBytes);
-
-            for (let i = 0; i < rowBytes; i++) {
-                const a = i >= bpp ? decoded[i - bpp] : 0;
-                const b = prevRow ? prevRow[i] : 0;
-                const c2 = prevRow && i >= bpp ? prevRow[i - bpp] : 0;
-                const x = scanline[i] ?? 0;
-                switch (filterByte) {
-                    case 0:
-                        decoded[i] = x;
-                        break;
-                    case 1:
-                        decoded[i] = (x + a) & 0xff;
-                        break;
-                    case 2:
-                        decoded[i] = (x + b) & 0xff;
-                        break;
-                    case 3:
-                        decoded[i] = (x + Math.floor((a + b) / 2)) & 0xff;
-                        break;
-                    case 4:
-                        decoded[i] = (x + paeth(a, b, c2)) & 0xff;
-                        break;
-                    default:
-                        decoded[i] = x;
-                }
-            }
-            if (y === py) targetRow = decoded;
-            prevRow = decoded;
-        }
-
-        return targetRow ? (targetRow[px * bpp] ?? 0) : 0;
-    } catch {
-        return 0;
-    }
-}
-
-function dbzToMmHr(pixel: number): number {
-    if (pixel < 12) return 0;
-    const dBZ = 5 + ((pixel - 12) * 50) / 71;
-    const Z = Math.pow(10, dBZ / 10);
-    return Math.round(Math.pow(Z / 200, 1 / 1.6) * 100) / 100;
-}
-
-function latLonToTile(lat: number, lon: number, zoom: number) {
-    const n = Math.pow(2, zoom);
-    const x = Math.floor(((lon + 180) / 360) * n);
-    const latRad = (lat * Math.PI) / 180;
-    const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n);
-    return { x, y };
-}
-
-function latLonToPixel(lat: number, lon: number, zoom: number, tx: number, ty: number) {
-    const n = Math.pow(2, zoom);
-    const px = Math.min(255, Math.max(0, Math.floor((((lon + 180) / 360) * n - tx) * 256)));
-    const latRad = (lat * Math.PI) / 180;
-    const py = Math.min(
-        255,
-        Math.max(
-            0,
-            Math.floor((((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n - ty) * 256),
-        ),
-    );
-    return { px, py };
-}
+const RAINBOW_NOWCAST = 'https://api.rainbow.ai/nowcast/v1';
 
 // ════════════════════════════════════════════════════════════════
 // DATA FETCHERS
@@ -454,87 +317,85 @@ async function fetchPremium(lat: number, lon: number): Promise<StandardWeatherRe
 }
 
 /**
- * Rainbow.ai nowcast: sample precipitation at the user's point across 4 hours.
+ * Rainbow.ai Nowcast API — direct JSON point forecast.
+ *
+ * Uses the new /nowcast/v1/precip-global/{lon}/{lat} endpoint which returns
+ * minute-by-minute precipitation with precipType (rain/snow/mixed) directly
+ * as JSON. No tile fetching, no PNG decoding. Global coverage via satellite
+ * + radar fusion at 1km² resolution.
+ *
+ * Response: { forecast: [{precipRate, precipType, timestampBegin, timestampEnd}...],
+ *             summary: {intensity} }
  */
 async function fetchRainbowNowcast(lat: number, lon: number, apiKey: string): Promise<StandardNowcast | null> {
     if (!apiKey) return null;
 
     try {
-        // Get snapshot
-        const snapRes = await fetch(`${RAINBOW_BASE}/snapshot?token=${apiKey}`);
-        if (!snapRes.ok) return null;
-        const { snapshot } = await snapRes.json();
-        if (!snapshot) return null;
+        // Nowcast API: /nowcast/v1/precip-global/{longitude}/{latitude}
+        // NOTE: longitude comes FIRST in the path!
+        const url = `${RAINBOW_NOWCAST}/precip-global/${lon.toFixed(4)}/${lat.toFixed(4)}?token=${apiKey}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
 
-        // Tile coordinates at zoom 10
-        const zoom = 10;
-        const { x: tx, y: ty } = latLonToTile(lat, lon, zoom);
-        const { px, py } = latLonToPixel(lat, lon, zoom, tx, ty);
-
-        // Fetch tiles for key forecast steps
-        const STEPS = [0, 10, 20, 30, 40, 50, 60, 80, 100, 120, 150, 180, 210, 240];
-        const points: { min: number; intensity: number }[] = [];
-
-        // Process in batches of 4
-        for (let b = 0; b < STEPS.length; b += 4) {
-            const batch = STEPS.slice(b, b + 4);
-            const results = await Promise.allSettled(
-                batch.map(async (min) => {
-                    const url = `${RAINBOW_BASE}/precip/${snapshot}/${min * 60}/${zoom}/${tx}/${ty}?token=${apiKey}&color=dbz_u8`;
-                    const res = await fetch(url);
-                    if (!res.ok) return { min, intensity: 0 };
-                    const buf = new Uint8Array(await res.arrayBuffer());
-                    const pixel = await decodePngPixel(buf, 256, px, py);
-                    return { min, intensity: dbzToMmHr(pixel) };
-                }),
-            );
-            for (const r of results) {
-                points.push(r.status === 'fulfilled' ? r.value : { min: 0, intensity: 0 });
-            }
+        if (!res.ok) {
+            console.warn(`[get-weather] Rainbow Nowcast API ${res.status}`);
+            return null;
         }
 
-        // Interpolate to minute-by-minute (240 points)
-        const now = Date.now();
-        const minutes: { time: string; intensity: number }[] = [];
-        points.sort((a, b) => a.min - b.min);
+        const data = await res.json();
+        const forecast: { precipRate: number; precipType?: string; timestampBegin: number; timestampEnd: number }[] =
+            data.forecast || [];
 
-        for (let m = 0; m <= 240; m++) {
-            const before = points.filter((p) => p.min <= m).slice(-1)[0];
-            const after = points.find((p) => p.min > m);
-            let intensity = 0;
-            if (before && after && before.min !== m) {
-                const t = (m - before.min) / (after.min - before.min);
-                intensity = before.intensity + t * (after.intensity - before.intensity);
-            } else if (before) {
-                intensity = before.intensity;
-            }
-            minutes.push({
-                time: new Date(now + m * 60000).toISOString(),
-                intensity: Math.round(intensity * 100) / 100,
-            });
+        if (forecast.length === 0) {
+            return { minutes: [], summary: data.summary?.intensity || 'No precipitation expected' };
         }
 
-        // Build summary
+        // Map Rainbow's native minute-by-minute format to our standard
+        const minutes: { time: string; intensity: number; precipType?: string }[] = forecast.map((f) => ({
+            time: new Date(f.timestampBegin * 1000).toISOString(),
+            intensity: Math.round((f.precipRate ?? 0) * 100) / 100,
+            precipType: f.precipType || undefined,
+        }));
+
+        // Build human-readable summary
         const THRESH = 0.1;
-        const firstRain = minutes.find((m) => m.intensity >= THRESH);
-        const isRaining = (minutes[0]?.intensity ?? 0) >= THRESH;
+        const now = Date.now();
+        const firstPrecip = minutes.find((m) => m.intensity >= THRESH);
+        const isCurrentlyRaining = (minutes[0]?.intensity ?? 0) >= THRESH;
         let summary = 'No precipitation expected';
 
-        if (firstRain) {
-            const minsUntil = Math.max(1, Math.round((new Date(firstRain.time).getTime() - now) / 60000));
-            if (isRaining) {
+        if (firstPrecip) {
+            const precipLabel = firstPrecip.precipType === 'snow' ? 'Snow' : 'Rain';
+            const minsUntil = Math.max(1, Math.round((new Date(firstPrecip.time).getTime() - now) / 60000));
+
+            if (isCurrentlyRaining) {
                 const dryAt = minutes.find((m, i) => i > 0 && m.intensity < THRESH);
-                summary = dryAt
-                    ? `Rain stopping in ~${Math.round((new Date(dryAt.time).getTime() - now) / 60000)} min`
-                    : 'Rain continuing';
+                if (dryAt) {
+                    const minsUntilDry = Math.max(1, Math.round((new Date(dryAt.time).getTime() - now) / 60000));
+                    summary = `${precipLabel} stopping in ~${minsUntilDry} min`;
+                } else {
+                    summary = `${precipLabel} continuing`;
+                }
             } else {
-                summary = minsUntil <= 60 ? `Rain in ${minsUntil} min` : `Rain in ~${Math.round(minsUntil / 60)}h`;
+                summary =
+                    minsUntil <= 60
+                        ? `${precipLabel} in ${minsUntil} min`
+                        : `${precipLabel} in ~${Math.round(minsUntil / 60)}h`;
+            }
+        }
+
+        // Use Rainbow's own intensity summary if available
+        if (data.summary?.intensity && data.summary.intensity !== 'none') {
+            const rainbowIntensity = data.summary.intensity;
+            // Augment our summary with Rainbow's intensity classification
+            if (isCurrentlyRaining && !summary.includes('stopping')) {
+                const precipLabel = minutes[0]?.precipType === 'snow' ? 'Snow' : 'Rain';
+                summary = `${rainbowIntensity.charAt(0).toUpperCase() + rainbowIntensity.slice(1)} ${precipLabel.toLowerCase()} continuing`;
             }
         }
 
         return { minutes, summary };
     } catch (err) {
-        console.error('[get-weather] Rainbow nowcast error:', err);
+        console.error('[get-weather] Rainbow Nowcast API error:', err);
         return null;
     }
 }
@@ -711,10 +572,11 @@ function minify(full: StandardWeatherResponse): MinifiedWeatherResponse {
     if (full.nowcast?.minutes?.length) {
         result.n = full.nowcast.minutes
             .filter((_, i) => i % 10 === 0) // Every 10 minutes
-            .filter((m) => m.intensity > 0.05) // Only actual rain
+            .filter((m) => m.intensity > 0.05) // Only actual precip
             .map((m) => ({
                 m: Math.round((new Date(m.time).getTime() - Date.now()) / 60000),
                 i: Math.round(m.intensity * 10) / 10,
+                ...(m.precipType && m.precipType !== 'rain' ? { pt: m.precipType } : {}),
             }));
         if (result.n.length === 0) delete result.n;
     }
