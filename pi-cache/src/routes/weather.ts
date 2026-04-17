@@ -111,6 +111,46 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
     });
 
     /**
+     * GET /api/weather/combined?lat=X&lon=Y
+     * Full atmospheric dataset: current + hourly (16d) + daily — matches what the app's
+     * fetchOpenMeteo() needs in one shot. Coordinates are rounded to 2dp for cache key
+     * so GPS drift on a moored boat still gets cache HITs.
+     */
+    router.get('/combined', async (req: Request, res: Response) => {
+        try {
+            const { lat, lon } = req.query;
+            if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
+
+            // Round to 2dp for cache key (~1km grid) — GPS drift won't break cache hits
+            const rlat = parseFloat(parseFloat(lat as string).toFixed(2));
+            const rlon = parseFloat(parseFloat(lon as string).toFixed(2));
+            const key = `weather:combined:${rlat}:${rlon}`;
+
+            const url = openMeteoUrl(
+                config,
+                'forecast',
+                `latitude=${lat}&longitude=${lon}` +
+                    `&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,snowfall,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
+                    `&hourly=temperature_2m,relative_humidity_2m,dew_point_2m,precipitation_probability,precipitation,weather_code,pressure_msl,surface_pressure,cloud_cover,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,cape` +
+                    `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_hours,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant` +
+                    `&timezone=auto&forecast_days=16&models=best_match`,
+            );
+
+            const result = await cachedJsonFetch(cache, {
+                cacheKey: key,
+                url,
+                ttlMs: TTL.WEATHER_CURRENT,
+                source: 'open-meteo-combined',
+            });
+
+            res.set('X-Cache', result.fromCache ? (result.stale ? 'STALE' : 'HIT') : 'MISS');
+            res.json(result.data);
+        } catch (err) {
+            res.status(502).json({ error: 'Combined weather failed', message: (err as Error).message });
+        }
+    });
+
+    /**
      * GET /api/weather/stormglass?lat=X&lon=Y
      * StormGlass premium data via Supabase edge function (API key stays on server).
      */

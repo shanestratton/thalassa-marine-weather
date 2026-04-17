@@ -78,8 +78,9 @@ async function runPrefetch(cache: Cache, proxyConfig: ProxyConfig, pf: PrefetchC
     console.log(`\n🔄 Pre-fetch starting for ${pf.lat}, ${pf.lon} (r=${pf.radius}°)...`);
 
     // Run fetches in parallel batches to avoid hammering the network
-    // Batch 1: Core weather + tides + rain radar
+    // Batch 1: Core weather (combined = what the app actually requests) + tides + rain radar
     await Promise.allSettled([
+        track('weather-combined', () => prefetchWeatherCombined(cache, proxyConfig, pf)),
         track('weather-current', () => prefetchWeather(cache, proxyConfig, pf, 'current')),
         track('weather-forecast', () => prefetchWeather(cache, proxyConfig, pf, 'forecast')),
         track('tides', () => prefetchTides(cache, proxyConfig, pf)),
@@ -109,6 +110,32 @@ async function runPrefetch(cache: Cache, proxyConfig: ProxyConfig, pf: PrefetchC
 }
 
 // ── Individual Pre-fetch Functions ──
+
+/**
+ * Pre-fetch the COMBINED weather response that the app's fetchOpenMeteo() expects.
+ * This is the critical one — it's what makes the app open instantly without a spinner.
+ * Coordinates are rounded to 2dp so GPS drift on a moored boat still gets cache HITs.
+ */
+async function prefetchWeatherCombined(cache: Cache, config: ProxyConfig, pf: PrefetchConfig): Promise<void> {
+    // Round to 2dp — must match the Pi route's rounding logic
+    const rlat = parseFloat(pf.lat.toFixed(2));
+    const rlon = parseFloat(pf.lon.toFixed(2));
+    const key = `weather:combined:${rlat}:${rlon}`;
+
+    if (cache.hasFresh(key)) return;
+
+    const url = openMeteoUrl(
+        config,
+        'forecast',
+        `latitude=${pf.lat}&longitude=${pf.lon}` +
+            `&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,rain,showers,snowfall,weather_code,cloud_cover,pressure_msl,surface_pressure,wind_speed_10m,wind_direction_10m,wind_gusts_10m` +
+            `&hourly=temperature_2m,relative_humidity_2m,dew_point_2m,precipitation_probability,precipitation,weather_code,pressure_msl,surface_pressure,cloud_cover,visibility,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index,cape` +
+            `&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max,precipitation_sum,precipitation_hours,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant` +
+            `&timezone=auto&forecast_days=16&models=best_match`,
+    );
+
+    await cachedJsonFetch(cache, { cacheKey: key, url, ttlMs: TTL.WEATHER_CURRENT, source: 'open-meteo-combined' });
+}
 
 async function prefetchWeather(
     cache: Cache,
