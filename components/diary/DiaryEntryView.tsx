@@ -7,6 +7,7 @@
 import React from 'react';
 import { DiaryEntry, MOOD_CONFIG } from '../../services/DiaryService';
 import { AudioWidget } from './AudioWidget';
+import { DiaryPhoto } from './DiaryPhoto';
 import { UndoToast } from '../ui/UndoToast';
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -111,7 +112,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                     {e.photos.length > 0 && (
                         <div className="flex gap-1 overflow-x-auto snap-x snap-mandatory">
                             {e.photos.map((url, i) => (
-                                <img
+                                <DiaryPhoto
                                     key={i}
                                     src={url}
                                     alt=""
