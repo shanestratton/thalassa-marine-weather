@@ -48,24 +48,42 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}" 2>/dev/null || echo ".")" && pwd)"
 if [[ -f "$SCRIPT_DIR/package.json" ]]; then
+    # Running from a checked-out repo — use this directory as-is.
     INSTALL_DIR="$SCRIPT_DIR"
 else
     INSTALL_DIR="/opt/thalassa-pi-cache"
-    if [[ ! -d "$INSTALL_DIR" ]] || [[ ! -f "$INSTALL_DIR/package.json" ]]; then
-        mkdir -p "$INSTALL_DIR"
-        if command -v git &>/dev/null; then
-            echo -e "  Downloading..."
-            rm -rf /tmp/thalassa-clone
-            git clone --depth 1 --filter=blob:none --sparse \
-                https://github.com/shanestratton/thalassa-marine-weather.git /tmp/thalassa-clone 2>/dev/null
-            cd /tmp/thalassa-clone && git sparse-checkout set pi-cache 2>/dev/null
-            cp -r pi-cache/* "$INSTALL_DIR/"
-            rm -rf /tmp/thalassa-clone
-        else
-            echo -e "${RED}  Need git: sudo apt install git${NC}"
-            exit 1
-        fi
+    IS_FRESH_INSTALL=0
+    [[ ! -d "$INSTALL_DIR" ]] || [[ ! -f "$INSTALL_DIR/package.json" ]] && IS_FRESH_INSTALL=1
+
+    if ! command -v git &>/dev/null; then
+        echo -e "${RED}  Need git: sudo apt install git${NC}"
+        exit 1
     fi
+
+    # Always pull fresh source (fresh install OR update). .env and cache/
+    # live alongside the source and are preserved — we only replace code.
+    if [[ "$IS_FRESH_INSTALL" == "1" ]]; then
+        echo -e "  Downloading..."
+    else
+        echo -e "  Updating to latest..."
+    fi
+
+    mkdir -p "$INSTALL_DIR"
+    rm -rf /tmp/thalassa-clone
+    git clone --depth 1 --filter=blob:none --sparse \
+        https://github.com/shanestratton/thalassa-marine-weather.git /tmp/thalassa-clone 2>/dev/null
+    cd /tmp/thalassa-clone && git sparse-checkout set pi-cache 2>/dev/null
+
+    # Copy source over existing install. rsync preserves .env and cache/
+    # because they don't exist in the source tree. Using --delete would be
+    # dangerous — it would wipe .env and cache/ — so we just overlay.
+    if command -v rsync &>/dev/null; then
+        rsync -a --exclude='node_modules' --exclude='dist' \
+            /tmp/thalassa-clone/pi-cache/ "$INSTALL_DIR/"
+    else
+        cp -r /tmp/thalassa-clone/pi-cache/* "$INSTALL_DIR/"
+    fi
+    rm -rf /tmp/thalassa-clone
 fi
 
 cd "$INSTALL_DIR"
