@@ -166,13 +166,25 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
             const { lat, lon, user_id, minified } = req.query;
             if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
 
+            // ── Round to 2 decimals to match the scheduler's pre-fetch key ──
+            // The scheduler rounds via `pf.lat.toFixed(2)` before building its
+            // cache key. Without the same rounding here, a client sending
+            // lat=40.71283 would miss the pre-fetch cached under 40.71, and
+            // every boot would trigger a fresh upstream fetch — wiping out
+            // the Pi's entire purpose.
+            const rlat = parseFloat(parseFloat(lat as string).toFixed(2));
+            const rlon = parseFloat(parseFloat(lon as string).toFixed(2));
+            if (!isFinite(rlat) || !isFinite(rlon)) {
+                return res.status(400).json({ error: 'lat/lon must be numeric' });
+            }
+
             const mini = minified === '1' ? '1' : '0';
             const uid = (user_id as string) || '';
-            const key = `weather:unified:${lat}:${lon}:${uid}:${mini}`;
+            const key = `weather:unified:${rlat}:${rlon}:${uid}:${mini}`;
 
             const params: Record<string, string> = {
-                lat: String(lat),
-                lon: String(lon),
+                lat: String(rlat),
+                lon: String(rlon),
                 minified: mini,
             };
             if (uid) params.user_id = uid;
