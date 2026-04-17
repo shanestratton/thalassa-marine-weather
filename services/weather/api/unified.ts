@@ -153,17 +153,29 @@ export async function fetchUnifiedWeatherRaw(
 
     const directUrl = `${supabaseUrl}/functions/v1/get-weather?${params}`;
 
-    // Try Pi Cache first
+    // Try Pi Cache first, via the DEDICATED /api/weather/unified endpoint.
+    //
+    // The previous code used piCache.passthroughUrl() which goes to the Pi's
+    // generic /api/passthrough with cache key `passthrough:${url}`. But the
+    // scheduler pre-fetches under key `weather:unified:${lat}:${lon}:${uid}:0`
+    // — so those keys NEVER matched. Every client boot missed the Pi's
+    // pre-fetched cache and forced a fresh upstream fetch, explaining the
+    // "goes off for a while to fetch fresh" experience the user reported.
+    //
+    // The dedicated endpoint uses the scheduler's exact key and rounds lat/
+    // lon to 2 decimals server-side, so the Pi scheduler's pre-fetched data
+    // is a HIT on nearly every boot.
     if (piCache.isAvailable()) {
         try {
-            const piUrl = piCache.passthroughUrl(directUrl, 5 * 60 * 1000, 'get-weather');
+            const piUrl = piCache.unifiedWeatherUrl(lat, lon, userId, false);
             if (piUrl) {
                 const piRes = await fetch(piUrl, { signal: AbortSignal.timeout(5000) });
                 if (piRes.ok) {
                     const data = await piRes.json();
                     if (data && !data.error) {
+                        const xCache = piRes.headers.get('X-Cache');
                         cached = { data, fetchedAt: Date.now(), key: cacheKey };
-                        log.info(`Unified weather served from Pi Cache (${data.provider})`);
+                        log.info(`Unified weather served from Pi Cache (${data.provider}, X-Cache: ${xCache})`);
                         return data;
                     }
                 }

@@ -185,6 +185,26 @@ class PiCacheServiceImpl {
         return `http://${this.config.host}:${this.config.port}`;
     }
 
+    /**
+     * Build a URL for the Pi's DEDICATED unified-weather endpoint. This is what
+     * the scheduler pre-fetches — using it means we hit the scheduler's cache
+     * key exactly and get a near-instant HIT on almost every boot.
+     *
+     * Returns null if the Pi isn't available. Lat/lon are rounded to 2
+     * decimals on the server side to match the scheduler; we still pass full
+     * precision here so the server round is the single source of truth.
+     */
+    unifiedWeatherUrl(lat: number, lon: number, userId?: string, minified = false): string | null {
+        if (!this.isAvailable()) return null;
+        const params = new URLSearchParams({
+            lat: String(lat),
+            lon: String(lon),
+            minified: minified ? '1' : '0',
+        });
+        if (userId) params.set('user_id', userId);
+        return `${this.baseUrl}/api/weather/unified?${params.toString()}`;
+    }
+
     /** Get fetch stats — used by UI to show Pi Cache source indicator. */
     getFetchStats(): PiFetchStats {
         return { ...this._fetchStats };

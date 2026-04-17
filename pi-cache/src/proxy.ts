@@ -1,11 +1,16 @@
 /**
- * Proxy — Generic fetch-through-cache middleware.
+ * Proxy — Generic fetch-through-cache middleware with stale-while-revalidate.
  *
- * Every external API call follows the same pattern:
- *   1. Check local cache → serve if fresh
- *   2. Cache stale or missing → fetch from upstream (Supabase Edge Function or direct URL)
- *   3. Store response in cache with TTL
- *   4. If fetch fails and we have stale data → serve stale (better than nothing at sea)
+ * Pattern (SWR):
+ *   1. Fresh hit (within TTL)          → serve from cache, no upstream call
+ *   2. Stale hit (within stale window) → serve from cache IMMEDIATELY, refresh
+ *                                        upstream in the background
+ *   3. Expired (beyond stale window)   → block on upstream fetch, then serve
+ *   4. Upstream failed, any cache hit  → serve stale (better than nothing at sea)
+ *
+ * The stale-while-revalidate behavior means clients almost never wait on
+ * upstream fetches after the first boot — critical for the "instant opens"
+ * experience the Pi is supposed to give the app at sea.
  *
  * Two variants:
  *   - cachedJsonProxy: for JSON API responses (kv_cache table)
@@ -13,6 +18,16 @@
  */
 
 import { Cache } from './cache.js';
+
+/** In-flight upstream requests — deduplicates background revalidation so we
+ *  don't stampede the upstream API when many concurrent requests hit a stale
+ *  entry simultaneously. Keyed by cacheKey. */
+const inFlight = new Map<string, Promise<unknown>>();
+
+/** How long past the TTL we'll serve stale content while revalidating in
+ *  background. After this window, we fall back to a blocking fetch. Default
+ *  30 min — aligns with the weather staleness window on the client side. */
+const DEFAULT_STALE_WINDOW_MS = 30 * 60 * 1000;
 
 export interface ProxyConfig {
     supabaseUrl: string;
@@ -49,47 +64,32 @@ interface JsonProxyOptions {
     headers?: Record<string, string>;
     /** Optional request timeout in ms (default: 15000) */
     timeout?: number;
+    /** How long past TTL we'll serve stale data while revalidating in the
+     *  background. Defaults to 30 min. */
+    staleWindowMs?: number;
 }
 
-/**
- * Fetch JSON through the cache layer.
- * Returns { data, fromCache, stale } so the caller can set appropriate headers.
- */
-export async function cachedJsonFetch(
-    cache: Cache,
-    opts: JsonProxyOptions,
-): Promise<{ data: unknown; fromCache: boolean; stale: boolean }> {
-    // 1. Check cache
-    const cached = cache.get(opts.cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-        return { data: cached.data, fromCache: true, stale: false };
-    }
-
-    // 2. Try upstream fetch
+/** Perform the blocking upstream fetch and write to cache. Used both for
+ *  cold loads (no cache) and for background revalidation of stale entries. */
+async function fetchAndCache(cache: Cache, opts: JsonProxyOptions): Promise<unknown> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), opts.timeout || 15000);
     try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), opts.timeout || 15000);
-
         const res = await fetch(opts.url, {
             headers: opts.headers || {},
             signal: controller.signal,
         });
-        clearTimeout(timer);
-
-        if (!res.ok) {
-            throw new Error(`Upstream ${res.status}: ${res.statusText}`);
-        }
-
+        if (!res.ok) throw new Error(`Upstream ${res.status}: ${res.statusText}`);
         const data = await res.json();
 
-        // Don't cache error responses — prevents stale API errors from persisting
+        // Don't cache error responses — prevents stale API errors from persisting.
         const isError =
             data &&
             typeof data === 'object' &&
             !Array.isArray(data) &&
             ('error' in (data as Record<string, unknown>) || 'message' in (data as Record<string, unknown>)) &&
-            !('extremes' in (data as Record<string, unknown>)) && // Tide data can have metadata alongside
-            !('hourly' in (data as Record<string, unknown>)) && // Weather data
+            !('extremes' in (data as Record<string, unknown>)) && // Tide data
+            !('hourly' in (data as Record<string, unknown>)) && // Weather
             !('current' in (data as Record<string, unknown>)); // Current conditions
 
         if (!isError) {
@@ -97,10 +97,72 @@ export async function cachedJsonFetch(
         } else {
             console.warn(`⚠️ Skipping cache for ${opts.cacheKey}: response looks like an error`);
         }
+        return data;
+    } finally {
+        clearTimeout(timer);
+    }
+}
 
+/** Fire a background revalidation (deduplicated per cacheKey). Errors are
+ *  swallowed — the stale data has already been served to the client. */
+function revalidateInBackground(cache: Cache, opts: JsonProxyOptions): void {
+    if (inFlight.has(opts.cacheKey)) return; // Already revalidating.
+    const p = fetchAndCache(cache, opts)
+        .catch((err) => {
+            console.warn(`⚡ Background revalidation failed for ${opts.cacheKey}: ${(err as Error).message}`);
+        })
+        .finally(() => {
+            inFlight.delete(opts.cacheKey);
+        });
+    inFlight.set(opts.cacheKey, p);
+}
+
+/**
+ * Fetch JSON through the cache layer with stale-while-revalidate semantics.
+ *
+ * Returns `{ data, fromCache, stale }`:
+ *   - Fresh hit:   fromCache=true,  stale=false  (no upstream call)
+ *   - Stale hit:   fromCache=true,  stale=true   (upstream refresh in background)
+ *   - Cold/expired: fromCache=false, stale=false (blocking upstream fetch)
+ *   - Upstream down but cache exists: fromCache=true, stale=true
+ */
+export async function cachedJsonFetch(
+    cache: Cache,
+    opts: JsonProxyOptions,
+): Promise<{ data: unknown; fromCache: boolean; stale: boolean }> {
+    const now = Date.now();
+    const cached = cache.get(opts.cacheKey);
+    const staleWindow = opts.staleWindowMs ?? DEFAULT_STALE_WINDOW_MS;
+
+    // 1. Fresh hit — serve instantly, no upstream call.
+    if (cached && cached.expiresAt > now) {
+        return { data: cached.data, fromCache: true, stale: false };
+    }
+
+    // 2. Stale hit (within stale window) — serve stale IMMEDIATELY, revalidate
+    //    in background. This is the SWR fast path that makes the app instant
+    //    when the Pi has any recent cache, even if the TTL has ticked over.
+    if (cached && cached.expiresAt > now - staleWindow) {
+        revalidateInBackground(cache, opts);
+        return { data: cached.data, fromCache: true, stale: true };
+    }
+
+    // 3. No cache or stale past the window — block on upstream fetch.
+    //    Dedupe concurrent requests for the same key so we don't stampede
+    //    upstream when the dashboard mounts and 3 simultaneous boot fetches
+    //    all want the same endpoint.
+    try {
+        let promise = inFlight.get(opts.cacheKey) as Promise<unknown> | undefined;
+        if (!promise) {
+            promise = fetchAndCache(cache, opts).finally(() => {
+                inFlight.delete(opts.cacheKey);
+            });
+            inFlight.set(opts.cacheKey, promise);
+        }
+        const data = await promise;
         return { data, fromCache: false, stale: false };
     } catch (err) {
-        // 3. Fetch failed — serve stale if we have it
+        // 4. Fetch failed — serve whatever stale data we still have.
         if (cached) {
             console.warn(`⚡ Serving stale cache for ${opts.cacheKey}: ${(err as Error).message}`);
             return { data: cached.data, fromCache: true, stale: true };
