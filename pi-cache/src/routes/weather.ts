@@ -151,6 +151,50 @@ export function createWeatherRoutes(cache: Cache, config: ProxyConfig): Router {
     });
 
     /**
+     * GET /api/weather/unified?lat=X&lon=Y&user_id=UUID&minified=0|1
+     * Unified weather pipeline via get-weather Supabase edge function.
+     *
+     * Routes to Rainbow.ai+OpenMeteo (premium) or Apple WeatherKit (free)
+     * based on the user's subscription tier. Subscription check happens
+     * server-side in the edge function.
+     *
+     * This is the PRIMARY endpoint the Pi should pre-fetch — it gives the
+     * frontend everything it needs in a single request.
+     */
+    router.get('/unified', async (req: Request, res: Response) => {
+        try {
+            const { lat, lon, user_id, minified } = req.query;
+            if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
+
+            const mini = minified === '1' ? '1' : '0';
+            const uid = (user_id as string) || '';
+            const key = `weather:unified:${lat}:${lon}:${uid}:${mini}`;
+
+            const params: Record<string, string> = {
+                lat: String(lat),
+                lon: String(lon),
+                minified: mini,
+            };
+            if (uid) params.user_id = uid;
+
+            const url = supabaseEdgeUrl(config, 'get-weather', params);
+
+            const result = await cachedJsonFetch(cache, {
+                cacheKey: key,
+                url,
+                ttlMs: TTL.WEATHER_CURRENT,
+                source: 'get-weather',
+                headers: supabaseHeaders(config),
+            });
+
+            res.set('X-Cache', result.fromCache ? (result.stale ? 'STALE' : 'HIT') : 'MISS');
+            res.json(result.data);
+        } catch (err) {
+            res.status(502).json({ error: 'Unified weather fetch failed', message: (err as Error).message });
+        }
+    });
+
+    /**
      * GET /api/weather/stormglass?lat=X&lon=Y
      * StormGlass premium data via Supabase edge function (API key stays on server).
      */

@@ -514,6 +514,7 @@ class PiCacheServiceImpl {
         prefetchLat?: number;
         prefetchLon?: number;
         prefetchRadius?: number;
+        userId?: string;
     }): Promise<boolean> {
         if (!this.isAvailable()) return false;
 

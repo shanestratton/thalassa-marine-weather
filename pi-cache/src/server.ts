@@ -70,12 +70,15 @@ app.get('/status', (_req, res) => {
 // The skipper never touches a terminal. The app pushes config here.
 
 app.post('/api/configure', (req, res) => {
-    const { supabaseUrl, supabaseAnonKey, openMeteoApiKey, prefetchLat, prefetchLon, prefetchRadius } = req.body || {};
+    const { supabaseUrl, supabaseAnonKey, openMeteoApiKey, prefetchLat, prefetchLon, prefetchRadius, userId } =
+        req.body || {};
 
     // Update in-memory values if provided (empty strings = keep existing)
     if (supabaseUrl) SUPABASE_URL = supabaseUrl;
     if (supabaseAnonKey) SUPABASE_ANON_KEY = supabaseAnonKey;
     if (openMeteoApiKey) OPEN_METEO_API_KEY = openMeteoApiKey;
+
+    if (userId) process.env.PREFETCH_USER_ID = String(userId);
 
     if (prefetchLat !== undefined && prefetchLon !== undefined) {
         process.env.PREFETCH_LAT = String(prefetchLat);
@@ -93,6 +96,7 @@ app.post('/api/configure', (req, res) => {
     if (SUPABASE_URL) envLines.push(`SUPABASE_URL=${SUPABASE_URL}`);
     if (SUPABASE_ANON_KEY) envLines.push(`SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}`);
     if (OPEN_METEO_API_KEY) envLines.push(`OPEN_METEO_API_KEY=${OPEN_METEO_API_KEY}`);
+    if (process.env.PREFETCH_USER_ID) envLines.push(`PREFETCH_USER_ID=${process.env.PREFETCH_USER_ID}`);
     if (process.env.PREFETCH_LAT) {
         envLines.push(`PREFETCH_LAT=${process.env.PREFETCH_LAT}`);
         envLines.push(`PREFETCH_LON=${process.env.PREFETCH_LON}`);

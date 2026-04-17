@@ -23,6 +23,7 @@ import {
     type ProvisionPhase,
 } from '../../services/PiProvisionService';
 import { BoatNetworkService, useBoatNetwork } from '../../services/BoatNetworkService';
+import { useAuthStore } from '../../stores/authStore';
 import { triggerHaptic } from '../../utils/system';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
@@ -63,6 +64,7 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
     const [provisionDone, setProvisionDone] = useState<{ success: boolean; message: string } | null>(null);
 
     const boatNetwork = useBoatNetwork();
+    const authUser = useAuthStore((s) => s.user);
 
     const isSkipper = canAccess(settings.subscriptionTier, 'piCache');
     const isEnabled = settings.piCacheEnabled ?? false;
@@ -109,6 +111,7 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                             prefetchLat: loc.lat,
                             prefetchLon: loc.lon,
                             prefetchRadius: 5,
+                            userId: authUser?.id,
                         });
                     }
 
@@ -124,7 +127,7 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                 setDiscovering(false);
             }
         },
-        [onSave],
+        [onSave, authUser?.id],
     );
 
     // Auto-discover when toggle is enabled

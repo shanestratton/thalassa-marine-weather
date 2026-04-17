@@ -170,7 +170,7 @@ class PiProvisionServiceClass {
         username: string,
         password: string,
         onProgress: (progress: ProvisionProgress) => void,
-        supabaseConfig?: { url: string; key: string; lat: number; lon: number },
+        supabaseConfig?: { url: string; key: string; lat: number; lon: number; userId?: string },
     ): Promise<ProvisionResult> {
         if (!this.isAvailable) {
             return {
@@ -321,6 +321,7 @@ class PiProvisionServiceClass {
                         prefetchLat: supabaseConfig.lat,
                         prefetchLon: supabaseConfig.lon,
                         prefetchRadius: 5,
+                        userId: supabaseConfig.userId,
                     });
                     log.info('Config pushed to Pi');
                 } catch (err) {
