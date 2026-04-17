@@ -29,6 +29,12 @@ coverage
 .vercel
 .env*.local
 
+# Claude-managed per-session worktrees (local only)
+.claude/worktrees/
+
+# Supabase CLI ephemeral state
+supabase/.temp/
+
 # Bathymetry data (large binary files)
 tiles/
 *.tif
