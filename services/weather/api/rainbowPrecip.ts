@@ -175,10 +175,23 @@ export async function fetchRainbowPrecip(lat: number, lon: number): Promise<Rain
             forecastHours: 4,
         };
 
-        // Use Rainbow's intensity classification if available
-        if (nowcastData?.summary?.intensity && nowcastData.summary.intensity !== 'none') {
-            const intensity = nowcastData.summary.intensity;
-            result.summary = `${intensity.charAt(0).toUpperCase() + intensity.slice(1)} precipitation`;
+        // Use Rainbow's intensity classification if available AND meaningful.
+        // Rainbow returns tokens like "light", "moderate", "heavy" for actual
+        // rain — but also "no_precipitation" / "none" when there's no rain.
+        // The previous code only filtered out "none", so "no_precipitation"
+        // slipped through and produced "No_precipitation precipitation" on
+        // the UI (literally the user's bug report). Treat any of the "no rain"
+        // tokens as falsy, and strip underscores so future unknown tokens
+        // don't render underscores either.
+        const NO_RAIN_TOKENS = new Set(['none', 'no_precipitation', 'no_rain', 'clear', '']);
+        const rawIntensity = nowcastData?.summary?.intensity?.toLowerCase?.() ?? '';
+        if (rawIntensity && !NO_RAIN_TOKENS.has(rawIntensity)) {
+            // Already contains "precip" / "rain"? Don't double up ("heavy rain" stays "Heavy Rain",
+            // but bare "heavy" becomes "Heavy precipitation").
+            const clean = rawIntensity.replace(/_/g, ' ');
+            const titled = clean.charAt(0).toUpperCase() + clean.slice(1);
+            const alreadyHasNoun = /\b(rain|precip|snow|shower|drizzle)/i.test(titled);
+            result.summary = alreadyHasNoun ? titled : `${titled} precipitation`;
         }
 
         cached = { data: result, fetchedAt: Date.now(), key: cacheKey };
