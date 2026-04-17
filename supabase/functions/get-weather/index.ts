@@ -356,11 +356,15 @@ async function fetchRainbowNowcast(lat: number, lon: number, apiKey: string): Pr
             precipType: f.precipType || undefined,
         }));
 
-        // Build human-readable summary
-        const THRESH = 0.1;
+        // Build human-readable summary. THRESH=0.3 mm/hr so satellite-fusion
+        // noise (virga, mid-level cloud droplets not reaching ground) doesn't
+        // trigger "Rain in 5 min" headlines when the sky is visibly clear.
+        // CURRENT_THRESH=0.5 is the "actually raining now" bar — stricter.
+        const THRESH = 0.3;
+        const CURRENT_THRESH = 0.5;
         const now = Date.now();
         const firstPrecip = minutes.find((m) => m.intensity >= THRESH);
-        const isCurrentlyRaining = (minutes[0]?.intensity ?? 0) >= THRESH;
+        const isCurrentlyRaining = (minutes[0]?.intensity ?? 0) >= CURRENT_THRESH;
         let summary = 'No precipitation expected';
 
         if (firstPrecip) {

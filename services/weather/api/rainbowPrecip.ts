@@ -65,10 +65,15 @@ function getIntensityLabel(mmHr: number): string {
 function buildSummary(data: RainbowMinutelyRain[]): string {
     if (!data || data.length === 0) return 'No data available';
 
-    const THRESHOLD = 0.1;
+    // Match the RainForecastCard threshold (0.3 mm/hr) so the summary and the
+    // UI agree about whether rain is expected. The old 0.1 threshold flagged
+    // satellite-fusion noise as real rain and produced "Rain in 5 min" alerts
+    // while skies were clear.
+    const THRESHOLD = 0.3;
+    const CURRENT_THRESHOLD = 0.5;
     const now = Date.now();
     const firstRain = data.find((d) => d.intensity >= THRESHOLD);
-    const isRaining = data[0]?.intensity >= THRESHOLD;
+    const isRaining = (data[0]?.intensity ?? 0) >= CURRENT_THRESHOLD;
 
     if (!firstRain) return 'No precipitation expected next 4 hours';
 
@@ -177,7 +182,20 @@ export async function fetchRainbowPrecip(lat: number, lon: number): Promise<Rain
         }
 
         cached = { data: result, fetchedAt: Date.now(), key: cacheKey };
-        log.info(`Rainbow.ai nowcast: ${rain.length} minute points`);
+
+        // Provenance log — helps diagnose "clear sky but chart says rain" reports.
+        // Shows the EXACT coordinates queried, the first forecast minute's
+        // timestamp (proves data freshness), max precipRate across the window,
+        // and the count of minutes the app will treat as "raining" (>=0.3mm/hr).
+        const maxIntensity = rain.reduce((m, r) => Math.max(m, r.intensity), 0);
+        const rainyMinutes = rain.filter((r) => r.intensity >= 0.3).length;
+        const firstTs = forecast[0]?.timestampBegin;
+        log.info(
+            `Rainbow.ai nowcast @ (${lat.toFixed(4)},${lon.toFixed(4)}): ${rain.length} minutes, ` +
+                `firstTs=${firstTs ? new Date(firstTs * 1000).toISOString() : 'n/a'}, ` +
+                `max=${maxIntensity}mm/h, rainy=${rainyMinutes}min, ` +
+                `rainbowSummary="${nowcastData?.summary?.intensity ?? 'n/a'}"`,
+        );
         return result;
     } catch (err) {
         log.error('Rainbow.ai precipitation fetch failed:', err);

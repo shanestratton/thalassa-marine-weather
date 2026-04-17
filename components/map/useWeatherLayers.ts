@@ -173,6 +173,12 @@ export function useWeatherLayers(
         label: string;
     }
     const unifiedFramesRef = useRef<UnifiedRainFrame[]>([]);
+    /** Timestamp of last rain-layer fetch. Used to auto-refresh the radar+forecast
+     *  frames when the layer has been loaded for longer than RAIN_MAX_AGE_MS —
+     *  otherwise the chart keeps showing hours-old radar while the weather has
+     *  moved on. */
+    const rainFetchedAtRef = useRef<number>(0);
+    const RAIN_MAX_AGE_MS = 10 * 60 * 1000; // RainViewer publishes every 10 min
     /** Track which radar/forecast layer index is currently visible */
     const visibleRadarIdxRef = useRef<number | null>(null);
     const visibleForecastIdxRef = useRef<number | null>(null);
@@ -732,6 +738,7 @@ export function useWeatherLayers(
                 });
             }
             unifiedFramesRef.current = [];
+            rainFetchedAtRef.current = 0; // Next activation gets a fresh fetch
             setRainFrameCount(0);
             setRainFrameIndex(0);
             setRainReady(false);
@@ -872,8 +879,28 @@ export function useWeatherLayers(
         }
 
         // ── Rain (unified: RainViewer radar past + GFS forecast future) ──
-        if (activeLayers.has('rain') && unifiedFramesRef.current.length === 0) {
-            // Only fetch if not already loaded (idempotent guard)
+        // Fetch when: not loaded yet OR loaded but stale (>10 min). Without
+        // the staleness gate the chart would keep showing hours-old radar
+        // while current weather has moved on — one of the symptoms behind
+        // the user's "it's showing rain here but sky is clear" report.
+        const rainAge = Date.now() - rainFetchedAtRef.current;
+        const rainStale = rainFetchedAtRef.current > 0 && rainAge > RAIN_MAX_AGE_MS;
+        if (activeLayers.has('rain') && (unifiedFramesRef.current.length === 0 || rainStale)) {
+            if (rainStale) {
+                log.info(`[Rain] Layer data ${Math.round(rainAge / 60000)}m old — refreshing`);
+                // Clear old layers so they get re-created with fresh frames
+                for (let i = 0; i < unifiedFramesRef.current.length; i++) {
+                    try {
+                        if (map.getLayer(`rain-frame-${i}`)) map.removeLayer(`rain-frame-${i}`);
+                        if (map.getSource(`rain-frame-${i}`)) map.removeSource(`rain-frame-${i}`);
+                    } catch {
+                        /* best effort */
+                    }
+                }
+                unifiedFramesRef.current = [];
+                visibleRadarIdxRef.current = null;
+                visibleForecastIdxRef.current = null;
+            }
             setRainLoading(true);
             setRainReady(false);
             setRainFrameIndex(0);
@@ -971,6 +998,7 @@ export function useWeatherLayers(
                     }
 
                     unifiedFramesRef.current = unified;
+                    rainFetchedAtRef.current = Date.now(); // Stamp for staleness-based auto-refresh
                     setRainFrameCount(unified.length);
                     setRainFrameIndex(nowIdx);
 
