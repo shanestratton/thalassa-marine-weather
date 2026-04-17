@@ -12,6 +12,7 @@ import { getPrecipitationLabelV2 } from '../../services/WeatherFormatter';
 import { calculateFeelsLike, getSunTimes } from '../../utils/math';
 import { degreesToCardinal } from '../../utils/format';
 import { generateTacticalAdvice, generateSafetyAlerts } from '../../utils/advisory';
+import { resolveTimeZone, formatTimeInZone } from '../../utils/timezone';
 
 /** StormGlass Astronomy API response shape */
 export interface AstroEntry {
@@ -75,6 +76,11 @@ export const mapStormGlassToReport = (
     timeZone?: string,
     utcOffset?: number,
 ): MarineWeatherReport => {
+    // Resolve target-location IANA tz. Prefer an upstream-supplied tz (e.g. from
+    // OpenMeteo) if valid; otherwise derive from lat/lon so sunrise/sunset
+    // render in LOCAL-TO-LOCATION time regardless of where the skipper stands.
+    const tz = resolveTimeZone(lat, lon, timeZone);
+
     // 1. Current Conditions
     const now = new Date();
     const nowTime = now.getTime();
@@ -184,8 +190,7 @@ export const mapStormGlassToReport = (
     // METAR/airport data removed in v20.0 - was skewing marine conditions
 
     const sunTimes = getSunTimes(now, lat, lon);
-    const fmtTime = (d: Date | null) =>
-        d ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--';
+    const fmtTime = (d: Date | null) => (d ? formatTimeInZone(d, tz) : '--:--');
     const sRise = sunTimes ? fmtTime(sunTimes.sunrise) : '06:00';
     const sSet = sunTimes ? fmtTime(sunTimes.sunset) : '18:00';
 
@@ -234,20 +239,8 @@ export const mapStormGlassToReport = (
         cape: typeof currentHour.cape === 'number' ? currentHour.cape : 0,
         isDay: true,
         isEstimated: false,
-        sunrise: astro?.[0]?.sunrise
-            ? new Date(astro[0].sunrise).toLocaleTimeString('en-GB', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  hour12: false,
-              })
-            : sRise,
-        sunset: astro?.[0]?.sunset
-            ? new Date(astro[0].sunset).toLocaleTimeString('en-GB', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  hour12: false,
-              })
-            : sSet,
+        sunrise: astro?.[0]?.sunrise ? formatTimeInZone(astro[0].sunrise, tz) : sRise,
+        sunset: astro?.[0]?.sunset ? formatTimeInZone(astro[0].sunset, tz) : sSet,
         moonPhase: astro?.[0]?.moonPhase?.current?.text,
         moonPhaseValue: astro?.[0]?.moonPhase?.current?.value,
         moonIllumination: astro?.[0]?.moonFraction,
@@ -431,20 +424,8 @@ export const mapStormGlassToReport = (
                 condition: getCondition(avgCloud, totalPrecip, true),
                 precipitation: parseFloat(totalPrecip.toFixed(1)),
                 uvIndex: maxUV,
-                sunrise: sunTimesDay
-                    ? sunTimesDay.sunrise.toLocaleTimeString('en-GB', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          hour12: false,
-                      })
-                    : '06:00',
-                sunset: sunTimesDay
-                    ? sunTimesDay.sunset.toLocaleTimeString('en-GB', {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                          hour12: false,
-                      })
-                    : '18:00',
+                sunrise: sunTimesDay ? formatTimeInZone(sunTimesDay.sunrise, tz) : '06:00',
+                sunset: sunTimesDay ? formatTimeInZone(sunTimesDay.sunset, tz) : '18:00',
                 pressure: parseFloat((totalPress / dayHours.length).toFixed(1)),
                 cloudCover: Math.round(avgCloud),
                 isEstimated: false,
@@ -521,7 +502,7 @@ export const mapStormGlassToReport = (
         isLandlocked: locType === 'inland',
         locationType: locType,
         alerts: generateSafetyAlerts(current, dailies[0]?.highTemp, dailies),
-        timeZone,
+        timeZone: tz, // Resolved (tz-lookup fallback when caller didn't pass one)
         utcOffset,
     };
 };
