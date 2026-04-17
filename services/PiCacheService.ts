@@ -87,6 +87,46 @@ class PiCacheServiceImpl {
     private lastPushedLon = 0;
     private lastPushTime = 0;
 
+    // ── Ready Promise ──
+    //
+    // Resolves after the FIRST health check or discovery attempt completes —
+    // regardless of outcome. Weather fetchers await this (with a short cap)
+    // before deciding Pi-vs-direct, so a cold boot race can't make them fall
+    // through to the network while the Pi check is still in flight.
+    private _firstCheckDone: Promise<void> | null = null;
+    private _markFirstCheckDone: (() => void) | null = null;
+
+    private initReadyPromise(): void {
+        // Idempotent — only create once per enable cycle.
+        if (this._firstCheckDone) return;
+        this._firstCheckDone = new Promise<void>((resolve) => {
+            this._markFirstCheckDone = resolve;
+        });
+    }
+
+    private resolveReady(): void {
+        this._markFirstCheckDone?.();
+        this._markFirstCheckDone = null;
+    }
+
+    /**
+     * Wait for the first Pi health check / discovery attempt to complete.
+     *
+     * Returns immediately if:
+     *   - Pi Cache is disabled (nothing to wait for)
+     *   - Pi is already known to be reachable (health check already ran)
+     *
+     * Otherwise waits up to `maxMs` (default 1500ms) for the first check.
+     * Use this before fetching weather on boot so Pi-capable fetchers don't
+     * race past the discovery phase and hit the network unnecessarily.
+     */
+    async awaitReady(maxMs: number = 1500): Promise<void> {
+        if (!this.config.enabled) return;
+        if (this.status.reachable) return;
+        if (!this._firstCheckDone) return;
+        await Promise.race([this._firstCheckDone, new Promise<void>((resolve) => setTimeout(resolve, maxMs))]);
+    }
+
     // ── Boot ──
 
     /**
@@ -119,10 +159,14 @@ class PiCacheServiceImpl {
         this.config = { ...this.config, ...config };
 
         if (this.config.enabled && !wasEnabled) {
+            this.initReadyPromise();
             this.startHealthChecks();
         } else if (!this.config.enabled && wasEnabled) {
             this.stopHealthChecks();
             this.status = { reachable: false, lastCheck: 0, latencyMs: 0 };
+            // Resolve any pending awaitReady() so fetchers don't hang.
+            this.resolveReady();
+            this._firstCheckDone = null;
         }
     }
 
@@ -230,9 +274,21 @@ class PiCacheServiceImpl {
                         discoveredVia: host,
                     };
 
+                    // Persist the winning host so next boot is an instant verify
+                    // (checkHealth on a known host ≈ 100ms LAN) instead of another
+                    // 5-host discovery sweep.
+                    if (typeof localStorage !== 'undefined') {
+                        try {
+                            localStorage.setItem('thalassa_pi_cache_host', host);
+                        } catch {
+                            /* quota/private mode — non-fatal */
+                        }
+                    }
+
                     // Now get full status with cache stats
                     await this.checkHealth();
                     this.notifyListeners();
+                    this.resolveReady();
                     return this.status;
                 }
             } catch {
@@ -240,8 +296,10 @@ class PiCacheServiceImpl {
             }
         }
 
-        // Nothing found
+        // Nothing found — mark ready so fetchers stop waiting and fall through
+        // to direct network.
         this.status = { reachable: false, lastCheck: Date.now(), latencyMs: 0 };
+        this.resolveReady();
         return this.status;
     }
 
@@ -264,7 +322,10 @@ class PiCacheServiceImpl {
     // ── Health Check ──
 
     private async checkHealth(): Promise<boolean> {
-        if (!this.config.enabled || !this.config.host) return false;
+        if (!this.config.enabled || !this.config.host) {
+            this.resolveReady();
+            return false;
+        }
 
         const start = Date.now();
         try {
@@ -272,13 +333,13 @@ class PiCacheServiceImpl {
             try {
                 const res = await CapacitorHttp.get({
                     url: `${this.baseUrl}/status`,
-                    connectTimeout: 3000,
-                    readTimeout: 3000,
+                    connectTimeout: 2000,
+                    readTimeout: 2000,
                 });
                 data = res.data;
             } catch {
                 const res = await fetch(`${this.baseUrl}/status`, {
-                    signal: AbortSignal.timeout(3000),
+                    signal: AbortSignal.timeout(2000),
                 });
                 data = await res.json();
             }
@@ -296,6 +357,7 @@ class PiCacheServiceImpl {
             if (wasReachable !== this.status.reachable) {
                 this.notifyListeners();
             }
+            this.resolveReady();
             return this.status.reachable;
         } catch {
             const wasReachable = this.status.reachable;
@@ -306,6 +368,7 @@ class PiCacheServiceImpl {
                 latencyMs: Date.now() - start,
             };
             if (wasReachable) this.notifyListeners();
+            this.resolveReady();
             return false;
         }
     }
