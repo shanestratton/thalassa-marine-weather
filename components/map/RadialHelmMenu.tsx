@@ -583,22 +583,44 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                         return (
                             <motion.div
                                 key={`grid-${cat.id}`}
-                                className="absolute flex flex-col gap-1.5 rounded-2xl border border-white/[0.08] bg-slate-900/85 p-1.5 backdrop-blur-xl shadow-2xl"
+                                className="fixed flex flex-col gap-2 rounded-2xl border border-white/15 bg-slate-900/95 p-3 backdrop-blur-xl shadow-2xl"
                                 style={{
-                                    // Anchor right-of-container (i.e. near the FAB) — grid grows left + down.
-                                    right: 60,
-                                    top: 0,
-                                    // Clamp width so grid never overflows off-screen to the left.
-                                    maxWidth: 'min(260px, calc(100vw - 80px))',
+                                    // Anchor the grid to the right edge of the viewport, BELOW the
+                                    // Tier 1 category arc. The previous `right: 60` placed it on top
+                                    // of the category bubbles — items got shadowed and unreadable.
+                                    // Fixed (not absolute) so it escapes the 48px FAB container.
+                                    right: 12,
+                                    // Category arc max bottom ≈ FAB top (56) + radius (90) + category
+                                    // height (60) = ~206 → anchor below that with a small gap.
+                                    top: 220,
+                                    // Span most of the viewport width on phones; cap on tablets.
+                                    width: 'calc(100vw - 24px)',
+                                    maxWidth: 360,
                                 }}
-                                initial={{ opacity: 0, scale: 0.85, x: 12 }}
-                                animate={{ opacity: 1, scale: 1, x: 0 }}
-                                exit={{ opacity: 0, scale: 0.85, x: 12 }}
+                                initial={{ opacity: 0, scale: 0.92, y: -8 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.92, y: -8 }}
                                 transition={SPRING_SNAPPY}
                             >
+                                {/* Header chip: active category label + count */}
+                                <div className="flex items-center justify-between px-1">
+                                    <div className="flex items-center gap-2">
+                                        <span className={`text-lg ${cat.color}`}>{cat.icon}</span>
+                                        <span className="text-[11px] font-black uppercase tracking-[0.18em] text-white/90">
+                                            {cat.label}
+                                        </span>
+                                    </div>
+                                    <span className="text-[10px] font-semibold text-gray-500">
+                                        {cat.items.length} layers
+                                    </span>
+                                </div>
+
+                                {/* 3-column grid gives 9 items 3 rows with breathing room;
+                                    auto-fit lets it degrade to 2 cols gracefully on very
+                                    narrow viewports. */}
                                 <div
-                                    className="grid gap-1.5"
-                                    style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}
+                                    className="grid gap-2"
+                                    style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(88px, 1fr))' }}
                                 >
                                     {cat.items.map((item, i) => {
                                         const active = isItemActive(item);
@@ -616,23 +638,23 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                                     e.stopPropagation();
                                                     handleItemTap(item);
                                                 }}
-                                                className={`relative flex h-14 w-16 flex-col items-center justify-center rounded-xl border transition-colors ${
+                                                className={`relative flex h-16 flex-col items-center justify-center gap-1 rounded-xl border transition-colors ${
                                                     active
-                                                        ? 'bg-sky-500/20 border-sky-400/40 text-white'
+                                                        ? 'bg-sky-500/20 border-sky-400/50 text-white'
                                                         : hovered
-                                                          ? 'bg-white/10 border-white/20 text-white'
-                                                          : 'bg-slate-900/50 border-white/[0.06] text-gray-400'
+                                                          ? 'bg-white/10 border-white/25 text-white'
+                                                          : 'bg-slate-800/70 border-white/[0.08] text-gray-300'
                                                 }`}
-                                                whileHover={{ scale: 1.05 }}
-                                                whileTap={{ scale: 0.93 }}
+                                                whileHover={{ scale: 1.04 }}
+                                                whileTap={{ scale: 0.94 }}
                                             >
-                                                <span className="text-base leading-none">{item.icon}</span>
-                                                <span className="mt-1 text-[9px] font-bold uppercase tracking-wider leading-none">
+                                                <span className="text-[18px] leading-none">{item.icon}</span>
+                                                <span className="text-[10px] font-bold uppercase tracking-wider leading-none">
                                                     {item.label}
                                                 </span>
                                                 {active && (
                                                     <motion.span
-                                                        className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-sky-400"
+                                                        className="absolute top-1 right-1 h-2 w-2 rounded-full bg-sky-400"
                                                         layoutId={`active-dot-${item.id}`}
                                                         animate={{
                                                             boxShadow: [
