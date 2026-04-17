@@ -7,6 +7,7 @@ import { fetchUnifiedWeather } from './api/unified';
 import { fetchRealTides } from './api/tides';
 import { saveToCache, getFromCache, getFromCacheOffline } from './cache';
 import { useAuthStore } from '../../stores/authStore';
+import { piCache } from '../PiCacheService';
 
 import { createLogger } from '../../utils/createLogger';
 
@@ -71,6 +72,15 @@ const _fetchWeatherByStrategyImpl = async (
     const isOffshore = locationType === 'offshore';
     const needsStormGlass = locationType !== 'inland';
     const userId = useAuthStore.getState().user?.id;
+
+    // ── Wait for Pi Cache discovery to settle (boot race fix) ──
+    // On cold start, the health check is still in flight when the dashboard
+    // mounts and fires this fetch. Without this gate, every fetcher sees
+    // piCache.isAvailable() === false and falls through to the network —
+    // bypassing a Pi that's about to come online ~200ms later.
+    // Cap at 1.5s so a genuinely-offline Pi doesn't delay the page.
+    // No-ops instantly when Pi is disabled or already known-reachable.
+    await piCache.awaitReady(1500);
 
     // ── UNIFIED ENDPOINT (single call replaces WeatherKit + OpenMeteo) ──
     // Fires in parallel with StormGlass + Tides.
