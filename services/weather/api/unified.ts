@@ -186,11 +186,14 @@ export async function fetchUnifiedWeatherRaw(
             return null;
         }
 
-        const data: StandardWeatherResponse = await res.json();
-        if (data.error) {
-            log.warn('Unified weather returned error:', (data as unknown as { error: string }).error);
+        // Edge function may return an { error: string } envelope instead of
+        // the full StandardWeatherResponse on failure — parse defensively.
+        const raw = (await res.json()) as StandardWeatherResponse | { error: string };
+        if ('error' in raw && typeof raw.error === 'string') {
+            log.warn('Unified weather returned error:', raw.error);
             return null;
         }
+        const data = raw as StandardWeatherResponse;
 
         cached = { data, fetchedAt: Date.now(), key: cacheKey };
         log.info(`Unified weather: ${data.provider}, premium=${data.isPremium}`);
