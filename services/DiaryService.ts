@@ -14,6 +14,13 @@
 
 import { createLogger } from '../utils/createLogger';
 import { supabase } from './supabase';
+import {
+    savePhoto as idbSavePhoto,
+    loadPhoto as idbLoadPhoto,
+    deletePhoto as idbDeletePhoto,
+    isIdbPhoto,
+    IDB_PHOTO_PREFIX,
+} from './diaryPhotoStore';
 const log = createLogger('Diary');
 
 // ── Types ──────────────────────────────────────────────────────
@@ -80,6 +87,9 @@ class DiaryServiceClass {
     private _recentlySynced: { entry: DiaryEntry; syncedAt: number }[] = [];
     // In-memory cache of photo blobs keyed by blob: URL — avoids base64 in localStorage
     private _pendingPhotoBlobs = new Map<string, Blob>();
+    // Cache mapping idb: references → short-lived blob URLs for <img> rendering.
+    // Avoids re-reading IndexedDB on every render.
+    private _idbRefToBlobUrl = new Map<string, string>();
 
     constructor() {
         // Auto-sync when connectivity resumes
@@ -190,18 +200,27 @@ class DiaryServiceClass {
             _pendingPhotos: (entry.photos || []).filter((p) => p.startsWith('data:')),
         };
 
-        // Save to pending queue immediately (survives app crash).
-        // _addPending is async (converts blob: photos to data URIs) but we
-        // fire-and-forget to avoid blocking the UI — the entry is already
-        // in React state for immediate display.
-        this._addPending(localEntry).then(() => {
-            // Try to sync immediately after pending save completes
-            this.syncPending();
-        });
+        // AWAIT persistence before returning. The previous fire-and-forget
+        // pattern lost entries if the app was backgrounded between the Save
+        // tap and the async write completing (iOS WKWebView process suspend
+        // is aggressive on low-memory devices). With the IDB-based photo
+        // store, _addPending is fast — just a localStorage write + a couple
+        // of IDB promotions at worst — so this is safe to await.
+        try {
+            await this._addPending(localEntry);
+        } catch (e) {
+            log.error('Failed to persist diary entry to pending queue:', e);
+            // Don't throw — the entry is still in React state for the user to
+            // see and retry. But flag it as offline so the UI shows a warning.
+            return { ...localEntry, _offline: true };
+        }
+
+        // Fire sync in the background — don't block the UI on it.
+        void this.syncPending();
 
         // Return entry without _offline flag — avoids persistent PENDING badge in UI.
-        // The entry is in the pending queue (localStorage) so it won't be lost.
-        // Background sync will upload it; if it fails, the periodic 30s retry catches it.
+        // The entry is now durably in pending queue AND IndexedDB; background sync
+        // will upload it, and the periodic 30s retry catches transient failures.
         return { ...localEntry, _offline: false };
     }
 
@@ -241,6 +260,20 @@ class DiaryServiceClass {
         // Delete from pending if offline entry
         if (id.startsWith('offline-')) {
             const pending = this._getPendingEntries();
+            const entry = pending.find((e) => e.id === id);
+            // Clean up any IDB-backed photos so they don't leak bytes
+            if (entry?.photos) {
+                for (const p of entry.photos) {
+                    if (isIdbPhoto(p)) {
+                        void idbDeletePhoto(p);
+                        const cachedUrl = this._idbRefToBlobUrl.get(p);
+                        if (cachedUrl) {
+                            URL.revokeObjectURL(cachedUrl);
+                            this._idbRefToBlobUrl.delete(p);
+                        }
+                    }
+                }
+            }
             this._savePending(pending.filter((e) => e.id !== id));
             return true;
         }
@@ -264,20 +297,58 @@ class DiaryServiceClass {
     // ── Photos ─────────────────────────────────────────────────
 
     async uploadPhoto(file: File): Promise<string | null> {
-        // Compress first
+        // Compress first (always — trims upload bandwidth and local storage).
         const compressed = await this._compressImage(file);
 
-        // Try upload if online
+        // Try direct upload if connectivity looks viable.
         if (supabase && navigator.onLine) {
             const url = await this._uploadPhotoToStorage(file);
             if (url) return url;
         }
 
-        // Offline: create a blob URL (tiny string) instead of a massive base64 data URI.
-        // The blob displays the photo in the UI; the actual data stays in memory.
-        const blobUrl = URL.createObjectURL(compressed);
-        this._pendingPhotoBlobs.set(blobUrl, compressed);
-        return blobUrl;
+        // Offline (or upload failed): persist the compressed Blob to IndexedDB
+        // and return an idb: reference. IndexedDB survives WKWebView process
+        // suspend, unlike the in-memory _pendingPhotoBlobs Map, so the photo
+        // won't vanish if iOS backgrounds the app between pick and save.
+        try {
+            const idbRef = await idbSavePhoto(compressed);
+            // Also stash in the legacy in-memory cache so the UI can render
+            // immediately via a blob: URL without a round-trip through IDB.
+            // The idbRef is the source of truth for persistence.
+            const blobUrl = URL.createObjectURL(compressed);
+            this._pendingPhotoBlobs.set(idbRef, compressed);
+            this._idbRefToBlobUrl.set(idbRef, blobUrl);
+            return idbRef;
+        } catch (e) {
+            log.error('IndexedDB savePhoto failed, falling back to blob: URL:', e);
+            // Last resort: in-memory blob URL (may be lost on suspend, but
+            // better than dropping the photo entirely).
+            const blobUrl = URL.createObjectURL(compressed);
+            this._pendingPhotoBlobs.set(blobUrl, compressed);
+            return blobUrl;
+        }
+    }
+
+    /**
+     * Given a photo reference (idb:, blob:, data:, http[s]:), return a URL
+     * the UI can pass to an <img src>. For idb: refs this creates a short-
+     * lived blob URL (cached to avoid duplicates across renders).
+     */
+    async resolvePhotoUrl(ref: string): Promise<string | null> {
+        if (!ref) return null;
+        if (ref.startsWith('http://') || ref.startsWith('https://')) return ref;
+        if (ref.startsWith('data:') || ref.startsWith('blob:')) return ref;
+        if (isIdbPhoto(ref)) {
+            // Cached blob URL?
+            const cached = this._idbRefToBlobUrl.get(ref);
+            if (cached) return cached;
+            const blob = await idbLoadPhoto(ref);
+            if (!blob) return null;
+            const url = URL.createObjectURL(blob);
+            this._idbRefToBlobUrl.set(ref, url);
+            return url;
+        }
+        return ref; // unknown scheme — hand it to the <img> and hope
     }
 
     private async _uploadPhotoToStorage(file: File): Promise<string | null> {
@@ -401,11 +472,43 @@ class DiaryServiceClass {
 
             for (const entry of pending) {
                 try {
-                    // 1. Upload any pending photos (blob: URLs or data: URIs → public URLs)
+                    // 1. Upload any pending photos. Three offline schemes can appear:
+                    //    - idb:<key>     → Blob in IndexedDB (durable; preferred path)
+                    //    - blob:<uuid>   → legacy in-memory Blob (pre-IDB entries)
+                    //    - data:...      → legacy base64 data URI (older entries)
+                    // Anything else (http/https) is treated as already uploaded.
+                    //
+                    // CRITICAL: if a photo upload fails (e.g., transient network
+                    // error mid-sync), we re-add the original reference so it
+                    // gets retried on the next sync — rather than silently
+                    // dropping the photo the way the legacy code did.
                     const uploadedPhotos: string[] = [];
+                    let allPhotosUploaded = true;
                     for (const photo of entry.photos) {
-                        if (photo.startsWith('blob:')) {
-                            // Upload from in-memory blob cache
+                        if (isIdbPhoto(photo)) {
+                            const blob = await idbLoadPhoto(photo);
+                            if (blob) {
+                                const url = await this._uploadBlob(blob);
+                                if (url) {
+                                    uploadedPhotos.push(url);
+                                    // Success — clean up IDB copy and any cached blob URL.
+                                    await idbDeletePhoto(photo);
+                                    const cachedUrl = this._idbRefToBlobUrl.get(photo);
+                                    if (cachedUrl) {
+                                        URL.revokeObjectURL(cachedUrl);
+                                        this._idbRefToBlobUrl.delete(photo);
+                                    }
+                                    this._pendingPhotoBlobs.delete(photo);
+                                } else {
+                                    // Upload failed — keep the idb ref so we retry.
+                                    uploadedPhotos.push(photo);
+                                    allPhotosUploaded = false;
+                                }
+                            } else {
+                                // Blob missing in IDB (cleared/corrupted) — can't recover.
+                                log.warn('IDB photo missing, dropping reference:', photo);
+                            }
+                        } else if (photo.startsWith('blob:')) {
                             const blob = this._pendingPhotoBlobs.get(photo);
                             if (blob) {
                                 const url = await this._uploadBlob(blob);
@@ -413,15 +516,46 @@ class DiaryServiceClass {
                                     uploadedPhotos.push(url);
                                     this._pendingPhotoBlobs.delete(photo);
                                     URL.revokeObjectURL(photo);
+                                } else {
+                                    // Keep retrying — but blob: URLs die on app restart,
+                                    // so promote to IDB for durability across restarts.
+                                    try {
+                                        const idbRef = await idbSavePhoto(blob);
+                                        uploadedPhotos.push(idbRef);
+                                    } catch {
+                                        uploadedPhotos.push(photo);
+                                    }
+                                    allPhotosUploaded = false;
                                 }
                             }
+                            // If blob not in Map → app was restarted and it's gone.
                         } else if (photo.startsWith('data:')) {
                             const url = await this._uploadDataUri(photo);
-                            if (url) uploadedPhotos.push(url);
-                            // If upload fails, skip this photo but save the entry
+                            if (url) {
+                                uploadedPhotos.push(url);
+                            } else {
+                                // Keep the data URI for retry.
+                                uploadedPhotos.push(photo);
+                                allPhotosUploaded = false;
+                            }
                         } else {
                             uploadedPhotos.push(photo);
                         }
+                    }
+
+                    // If any photo failed to upload, skip the entry insert for
+                    // this round — we'll retry on the next sync. Persist the
+                    // current state of the photos array so any blob:→idb:
+                    // promotions aren't lost on next sync attempt.
+                    if (!allPhotosUploaded) {
+                        log.info('Deferring entry insert — photos still pending upload');
+                        const pendingNow = this._getPendingEntries();
+                        const idx = pendingNow.findIndex((e) => e.id === entry.id);
+                        if (idx >= 0) {
+                            pendingNow[idx] = { ...pendingNow[idx], photos: uploadedPhotos };
+                            this._savePending(pendingNow);
+                        }
+                        continue;
                     }
 
                     // 2. Upload pending audio if needed
@@ -550,22 +684,25 @@ class DiaryServiceClass {
 
     private _savePending(entries: DiaryEntry[]): void {
         try {
-            // Strip blob: URLs (can't be serialized) but KEEP data: URIs.
-            // Data URIs are intentionally preserved so photo data survives
-            // iOS WKWebView process termination (share sheet, memory pressure).
+            // Strip blob: URLs — they're process-scoped and can't survive a
+            // restart anyway. KEEP idb: refs (tiny strings pointing to Blobs
+            // in IndexedDB) and data: URIs (legacy entries).
             const cleaned = entries.map((e) => ({
                 ...e,
                 photos: e.photos.filter((p) => !p.startsWith('blob:')),
             }));
             localStorage.setItem(PENDING_KEY, JSON.stringify(cleaned));
         } catch (e) {
-            // If localStorage is full (likely from photo data URIs), try once
-            // more with aggressively stripped photos as a last resort
-            log.error('Pending write failed, retrying without photos:', e);
+            // localStorage full — most likely cause is a legacy entry with
+            // data: URIs. Strip all non-URL and non-idb photos as a last
+            // resort so at least the text content survives.
+            log.error('Pending write failed, retrying with photos stripped:', e);
             try {
                 const minimal = entries.map((en) => ({
                     ...en,
-                    photos: en.photos.filter((p) => p.startsWith('http://') || p.startsWith('https://')),
+                    photos: en.photos.filter(
+                        (p) => p.startsWith('http://') || p.startsWith('https://') || p.startsWith(IDB_PHOTO_PREFIX),
+                    ),
                 }));
                 localStorage.setItem(PENDING_KEY, JSON.stringify(minimal));
             } catch (e2) {
@@ -575,23 +712,32 @@ class DiaryServiceClass {
     }
 
     /**
-     * Add a pending entry, converting blob: photo URLs to compressed data URIs
-     * so they survive localStorage persistence and iOS WKWebView termination.
+     * Add a pending entry. Photos are expected to be durable references
+     * (idb: refs, data: URIs, or http[s]: URLs) — see uploadPhoto(). Legacy
+     * blob: URLs that somehow reach here get promoted to idb: refs so they
+     * survive WKWebView process suspend.
      */
     private async _addPending(entry: DiaryEntry): Promise<void> {
-        // Convert blob: photos to small data URIs before saving
         const persistedPhotos: string[] = [];
         for (const photo of entry.photos) {
             if (photo.startsWith('blob:')) {
+                // Legacy — promote to IndexedDB for durability.
                 const blob = this._pendingPhotoBlobs.get(photo);
                 if (blob) {
-                    const dataUri = await this._blobToCompressedDataUri(blob);
-                    if (dataUri) {
-                        persistedPhotos.push(dataUri);
+                    try {
+                        const idbRef = await idbSavePhoto(blob);
+                        persistedPhotos.push(idbRef);
                         continue;
+                    } catch {
+                        // Fall back to data URI if IDB write fails.
+                        const dataUri = await this._blobToCompressedDataUri(blob);
+                        if (dataUri) {
+                            persistedPhotos.push(dataUri);
+                            continue;
+                        }
                     }
                 }
-                // If blob not in memory cache, skip it (can't persist)
+                // No recoverable bytes for this blob — drop the reference.
             } else {
                 persistedPhotos.push(photo);
             }

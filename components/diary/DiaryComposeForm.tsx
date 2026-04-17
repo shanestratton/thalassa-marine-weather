@@ -9,6 +9,7 @@ import { DiaryMood, MOOD_CONFIG } from '../../services/DiaryService';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { triggerHaptic } from '../../utils/system';
 import { AudioWidget } from './AudioWidget';
+import { DiaryPhoto } from './DiaryPhoto';
 import { OfflineBadge } from '../ui/OfflineBadge';
 
 // ── Helpers ──
@@ -367,7 +368,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                         >
                             {photos.map((url, i) => (
                                 <div key={i} className="relative aspect-square rounded-xl overflow-hidden group">
-                                    <img src={url} loading="lazy" alt="" className="w-full h-full object-cover" />
+                                    <DiaryPhoto src={url} alt="" className="w-full h-full object-cover" />
                                     <button
                                         aria-label="Remove this item"
                                         onClick={() => onPhotoRemove(i)}
