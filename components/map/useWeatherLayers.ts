@@ -905,7 +905,8 @@ export function useWeatherLayers(
                     const nowcast: { path: string; time: number }[] = radar?.nowcast ?? [];
                     const allRadar = [...past, ...nowcast];
 
-                    // 2. Rainbow.ai forecast tiles (1km res) — via Supabase Edge Proxy
+                    // 2. Rainbow Global forecast tiles (1km res, satellite+radar fusion) — via Supabase Edge Proxy
+                    // Uses precip-global layer for worldwide coverage (not just radar footprints).
                     // API key stays server-side in Supabase Secrets (RAINBOW_API_KEY).
                     let rainbowSnapshot: number | null = null;
                     const RAINBOW_FORECAST_MINUTES = [10, 20, 30, 40, 50, 60, 80, 100, 120, 150, 180, 210, 240];
@@ -914,9 +915,10 @@ export function useWeatherLayers(
 
                     if (supabaseUrl) {
                         try {
-                            const snapResp = await fetch(`${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot`, {
-                                signal: abortCtrl.signal,
-                            });
+                            const snapResp = await fetch(
+                                `${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot&layer=precip-global`,
+                                { signal: abortCtrl.signal },
+                            );
                             if (snapResp.ok) {
                                 const snapData = await snapResp.json();
                                 rainbowSnapshot = snapData.snapshot || null;
@@ -963,7 +965,7 @@ export function useWeatherLayers(
                             else label = `+${Math.floor(mins / 60)}h${mins % 60}m`;
                             const forecastSecs = mins * 60;
                             // All tile requests go through proxy-rainbow (API key stays server-side)
-                            const tileUrl = `${supabaseUrl}/functions/v1/proxy-rainbow?action=tile&snapshot=${rainbowSnapshot}&forecast=${forecastSecs}&z={z}&x={x}&y={y}&color=dbz_u8`;
+                            const tileUrl = `${supabaseUrl}/functions/v1/proxy-rainbow?action=tile&layer=precip-global&snapshot=${rainbowSnapshot}&forecast=${forecastSecs}&z={z}&x={x}&y={y}&color=dbz_u8`;
                             unified.push({ type: 'forecast', forecastTileUrl: tileUrl, label });
                         }
                     }
