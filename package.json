@@ -58,6 +58,7 @@
         "@types/mapbox-gl": "^3.4.1",
         "capacitor-tcp-socket": "^7.1.0",
         "class-variance-authority": "^0.7.1",
+        "framer-motion": "^12.38.0",
         "jspdf": "^4.1.0",
         "kdbush": "^4.0.2",
         "leaflet": "^1.9.4",
