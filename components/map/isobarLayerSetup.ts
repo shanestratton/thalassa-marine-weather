@@ -44,7 +44,10 @@ export function hideIsobarLayers(
             /* skip */
         }
     }
-    // Restore land label opacity
+    // Restore land label opacity — guarded because getStyle() throws
+    // "Style is not done loading" when called before style load completes;
+    // the effect will re-fire once it's ready.
+    if (!map.isStyleLoaded()) return;
     const style = map.getStyle();
     if (style?.layers) {
         for (const layer of style.layers) {
@@ -70,7 +73,9 @@ export function showIsobarLayers(
     for (const id of ISOBAR_LAYER_IDS) {
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
     }
-    // Desaturate landmasses to charcoal + ghost labels to 30%
+    // Desaturate landmasses to charcoal + ghost labels to 30% — guarded
+    // because getStyle() throws before style load completes.
+    if (!map.isStyleLoaded()) return;
     const style = map.getStyle();
     if (style?.layers) {
         for (const layer of style.layers) {

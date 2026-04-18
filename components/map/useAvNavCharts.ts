@@ -92,7 +92,7 @@ export function useAvNavCharts(
                     let beforeLayer: string | undefined;
                     if (map.getLayer('sea-marks-tiles')) {
                         beforeLayer = 'sea-marks-tiles';
-                    } else {
+                    } else if (map.isStyleLoaded()) {
                         // Find first symbol layer to insert before
                         const layers = map.getStyle()?.layers || [];
                         const firstSymbol = layers.find((l) => l.type === 'symbol');

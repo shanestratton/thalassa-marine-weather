@@ -3,7 +3,7 @@
  *
  * Tactical overlay: additive, can coexist with base weather layers.
  * Shows global lightning strike positions (last 15 min) via Xweather tiles.
- * Auto-refreshes every 5 minutes (302 redirect busts tile cache).
+ * Pi routing is handled upstream by the map's transformRequest.
  */
 
 import { useEffect, useRef } from 'react';
@@ -20,8 +20,14 @@ const LIGHTNING_LAYER = 'lightning-xweather-layer';
 const XW_ID = import.meta.env.VITE_XWEATHER_CLIENT_ID ?? '';
 const XW_SECRET = import.meta.env.VITE_XWEATHER_CLIENT_SECRET ?? '';
 
-function buildLightningTileUrl(): string {
-    return `https://maps.api.xweather.com/${XW_ID}_${XW_SECRET}` + `/lightning-strikes:15/{z}/{x}/{y}/current.png`;
+// Xweather raster layer code. The `:15` suffix is the valid modifier for
+// the 15-minute aggregation — don't drop it, the account isn't entitled to
+// the plain `lightning-strikes` layer and it will 403.
+function buildLightningTileUrl(cacheBust?: number): string {
+    const suffix = cacheBust ? `?_ts=${cacheBust}` : '';
+    return (
+        `https://maps.api.xweather.com/${XW_ID}_${XW_SECRET}` + `/lightning-strikes:15/{z}/{x}/{y}/current.png${suffix}`
+    );
 }
 
 export function useLightningLayer(
@@ -30,6 +36,7 @@ export function useLightningLayer(
     visible: boolean,
 ) {
     const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+    const errorHandler = useRef<((e: unknown) => void) | null>(null);
     const isSetUp = useRef(false);
 
     useEffect(() => {
@@ -43,8 +50,10 @@ export function useLightningLayer(
         }
 
         if (visible && !isSetUp.current) {
-            // ── Setup ──
-            const tileUrl = buildLightningTileUrl();
+            // Stamp the initial tile URL so post-refresh `setTiles` with a new
+            // stamp is distinguishable — both Mapbox and the Pi passthrough
+            // cache key include the query string.
+            const tileUrl = buildLightningTileUrl(Date.now());
 
             try {
                 if (!map.getSource(LIGHTNING_SOURCE)) {
@@ -84,13 +93,25 @@ export function useLightningLayer(
                 log.warn('Failed to add lightning layer:', err);
             }
 
-            // ── Auto-refresh every 5 min (302 redirect busts cache) ──
+            // Tile load failures (403/404 from Xweather, CORS, etc.) surface on
+            // the map's 'error' event, not the setup try/catch. Scope to our
+            // source so we don't spam the console with unrelated errors.
+            const handler = (e: mapboxgl.ErrorEvent & { sourceId?: string }) => {
+                if (e?.sourceId === LIGHTNING_SOURCE) {
+                    log.warn('Lightning tile error:', e.error?.message ?? e);
+                }
+            };
+            errorHandler.current = handler as (e: unknown) => void;
+            map.on('error', handler);
+
+            // Refresh every 5 min with a fresh stamp so both Mapbox and the Pi
+            // passthrough bypass their caches and fetch a new 15-min aggregate.
             refreshTimer.current = setInterval(
                 () => {
                     try {
                         const src = map.getSource(LIGHTNING_SOURCE) as mapboxgl.RasterTileSource;
                         if (src && typeof src.setTiles === 'function') {
-                            src.setTiles([buildLightningTileUrl()]);
+                            src.setTiles([buildLightningTileUrl(Date.now())]);
                             log.info('Lightning tiles refreshed');
                         }
                     } catch {
@@ -117,6 +138,14 @@ export function useLightningLayer(
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
             }
+            if (errorHandler.current) {
+                try {
+                    map.off('error', errorHandler.current as never);
+                } catch {
+                    /* map may be destroyed */
+                }
+                errorHandler.current = null;
+            }
             isSetUp.current = false;
             log.info('Lightning layer removed');
         }
@@ -125,6 +154,14 @@ export function useLightningLayer(
             if (refreshTimer.current) {
                 clearInterval(refreshTimer.current);
                 refreshTimer.current = null;
+            }
+            if (errorHandler.current && map) {
+                try {
+                    map.off('error', errorHandler.current as never);
+                } catch {
+                    /* map may be destroyed */
+                }
+                errorHandler.current = null;
             }
         };
     }, [mapRef, mapReady, visible]);

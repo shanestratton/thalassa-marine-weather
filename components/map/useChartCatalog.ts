@@ -62,7 +62,7 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
                     let beforeLayer: string | undefined;
                     if (map.getLayer('sea-marks-tiles')) {
                         beforeLayer = 'sea-marks-tiles';
-                    } else {
+                    } else if (map.isStyleLoaded()) {
                         const layers = map.getStyle()?.layers || [];
                         const firstSymbol = layers.find((l) => l.type === 'symbol');
                         beforeLayer = firstSymbol?.id;
