@@ -54,6 +54,9 @@ def fetch_cmems(start: datetime, end: datetime) -> Path:
     out_path = OUT_DIR / f"cmems-currents-{start:%Y%m%dT%H}.nc"
     log.info("Fetching %s → %s into %s", start.isoformat(), end.isoformat(), out_path)
 
+    # copernicusmarine 2.x renamed `overwrite_output_data` → `overwrite`
+    # and removed `force_download` entirely (the toolbox now downloads
+    # by default without prompting).
     copernicusmarine.subset(
         dataset_id=DATASET_ID,
         variables=VARIABLES,
@@ -67,8 +70,7 @@ def fetch_cmems(start: datetime, end: datetime) -> Path:
         end_datetime=end.strftime("%Y-%m-%dT%H:%M:%S"),
         output_filename=out_path.name,
         output_directory=str(out_path.parent),
-        force_download=True,
-        overwrite_output_data=True,
+        overwrite=True,
     )
     return out_path
 
