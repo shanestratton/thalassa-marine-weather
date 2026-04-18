@@ -53,6 +53,7 @@ import { useLocalCharts } from './useLocalCharts';
 import { useSeamarkLayer } from './useSeamarkLayer';
 import { useTideStationLayer } from './useTideStationLayer';
 import { useLightningLayer } from './useLightningLayer';
+import { useOceanCurrentParticleLayer, isCmemsCurrentsEnabled } from './useOceanCurrentParticleLayer';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
@@ -75,6 +76,10 @@ const VesselSearch = lazyRetry(
     'VesselSearch',
 );
 const AisLegend = lazyRetry(() => import('./AisLegend').then((m) => ({ default: m.AisLegend })), 'AisLegend');
+const CmemsAttribution = lazyRetry(
+    () => import('./CmemsAttribution').then((m) => ({ default: m.CmemsAttribution })),
+    'CmemsAttribution',
+);
 const AisGuardAlert = lazyRetry(
     () => import('./AisGuardAlert').then((m) => ({ default: m.AisGuardAlert })),
     'AisGuardAlert',
@@ -664,6 +669,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Lightning Strikes (Xweather GLD360) ──
     useLightningLayer(mapRef, mapReady, lightningVisible);
 
+    // ── Ocean Currents (CMEMS via Mapbox raster-particle) ──
+    // Gated by VITE_CMEMS_CURRENTS_ENABLED. When the flag is off the hook
+    // no-ops and the existing Xweather raster-currents tile layer renders
+    // instead (managed by useWeatherLayers via the 'currents' WeatherLayer).
+    const currentsVisible = weather.activeLayers.has('currents');
+    useOceanCurrentParticleLayer(mapRef, mapReady, currentsVisible, 0);
+
     // ── Hide OpenSeaMap raster overlay when o-charts provide native icons ──
     // The openseamap-overlay (PNG tiles) is baked into the map style and shows
     // its own seamark icons. When o-charts are active they render their own
@@ -1102,6 +1114,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {/* ═══ AIS COLOUR LEGEND + GUARD ZONE TOGGLE ═══ */}
                 <Suspense fallback={null}>
                     {!passage.showPassage && !embedded && !isPinView && <AisLegend visible={aisVisible} />}
+                    {isCmemsCurrentsEnabled() && (
+                        <React.Suspense fallback={null}>
+                            <CmemsAttribution visible={currentsVisible} />
+                        </React.Suspense>
+                    )}
 
                     {/* ═══ VESSEL SEARCH BUTTON ═══ */}
                     {!passage.showPassage && !embedded && !isPinView && aisVisible && (

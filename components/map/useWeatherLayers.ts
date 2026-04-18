@@ -768,12 +768,16 @@ export function useWeatherLayers(
         // ── Static tile layers (sea, temperature, clouds) ──
         // Remove tile layers NOT in active set — must run BEFORE the early return
         // below, otherwise toggling off the last layer skips cleanup.
+        // When the CMEMS particle layer is enabled, `currents` is served by
+        // useOceanCurrentParticleLayer instead of the Xweather raster tile.
+        const cmemsCurrentsEnabled =
+            String(import.meta.env.VITE_CMEMS_CURRENTS_ENABLED ?? 'false').toLowerCase() === 'true';
         const TILE_LAYERS: WeatherLayer[] = [
             'sea',
             'temperature',
             'clouds',
             'waves',
-            'currents',
+            ...(cmemsCurrentsEnabled ? [] : (['currents'] as WeatherLayer[])),
             'sst',
             'wind-gusts',
             'visibility',
@@ -794,6 +798,22 @@ export function useWeatherLayers(
                 }
             }
         }
+        // When CMEMS currents is on, ensure the legacy Xweather raster currents
+        // tile is gone — it was served by this loop before the feature flag was
+        // introduced and may still be on the map from a prior session.
+        if (cmemsCurrentsEnabled) {
+            try {
+                if (map.getLayer('tiles-currents')) map.removeLayer('tiles-currents');
+            } catch (_) {
+                log.warn('[useWeatherLayers] tiles-currents layer cleanup', _);
+            }
+            try {
+                if (map.getSource('tiles-currents')) map.removeSource('tiles-currents');
+            } catch (_) {
+                log.warn('[useWeatherLayers] tiles-currents source cleanup', _);
+            }
+        }
+
         // Sync permanent sea marks layers with the 'sea' toggle
         const seaVisible = activeLayers.has('sea') ? 'visible' : 'none';
         for (const lid of [

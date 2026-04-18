@@ -23,6 +23,8 @@ interface ImportMetaEnv {
     readonly VITE_LINZ_API_KEY: string;
     readonly VITE_XWEATHER_CLIENT_ID: string;
     readonly VITE_XWEATHER_CLIENT_SECRET: string;
+    readonly VITE_MAPBOX_USERNAME: string;
+    readonly VITE_CMEMS_CURRENTS_ENABLED: string;
 
     // Standard Vite Environment Variables
     readonly BASE_URL: string;

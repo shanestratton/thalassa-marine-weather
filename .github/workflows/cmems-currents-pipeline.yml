@@ -1,0 +1,48 @@
+name: CMEMS Currents → Mapbox MTS
+
+# Refresh the ocean-currents tileset daily. CMEMS nominally releases the
+# global forecast at ~05:00 UTC; we wait an hour and pull the new window.
+on:
+    schedule:
+        - cron: '0 6 * * *'
+    workflow_dispatch:
+
+jobs:
+    publish:
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        # Only run the scheduled job on the default branch. Manual dispatches
+        # can still run on any branch.
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/master'
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.11'
+                  cache: 'pip'
+                  cache-dependency-path: scripts/cmems-currents-pipeline/requirements.txt
+
+            - name: Install pipeline deps + Mapbox tilesets CLI
+              run: |
+                  pip install -r scripts/cmems-currents-pipeline/requirements.txt
+                  pip install mapbox-tilesets
+
+            - name: Run pipeline
+              env:
+                  COPERNICUS_MARINE_USERNAME: ${{ secrets.COPERNICUS_MARINE_USERNAME }}
+                  COPERNICUS_MARINE_PASSWORD: ${{ secrets.COPERNICUS_MARINE_PASSWORD }}
+                  MAPBOX_UPLOAD_TOKEN: ${{ secrets.MAPBOX_UPLOAD_TOKEN }}
+                  MAPBOX_USERNAME: ${{ secrets.MAPBOX_USERNAME }}
+              run: python scripts/cmems-currents-pipeline/pipeline.py
+
+            - name: Upload NetCDF artifact on failure (for debugging)
+              if: failure()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: cmems-debug-${{ github.run_id }}
+                  path: /tmp/cmems-currents/
+                  if-no-files-found: ignore
+                  retention-days: 7
