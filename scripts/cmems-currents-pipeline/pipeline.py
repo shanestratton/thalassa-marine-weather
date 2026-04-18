@@ -164,18 +164,19 @@ def netcdf_to_geotiffs(nc_path: Path) -> list[Path]:
     return out_paths
 
 
-def run_with_retry(cmd: list[str], env: dict, step_label: str, max_attempts: int = 4) -> subprocess.CompletedProcess:
+def run_with_retry(cmd: list[str], env: dict, step_label: str, max_attempts: int = 6) -> subprocess.CompletedProcess:
     """Run a tilesets CLI command, retrying on 429 Too Many Requests.
 
-    MTS enforces ~40 API calls/min — publishing 48 hourly tilesets back-
-    to-back exceeds that. Exponential backoff gives the rate-limiter time
-    to reset.
+    MTS enforces ~40 API calls/min per endpoint. With 49 tilesets ×
+    ~4 calls each (upload --replace = delete+upload, create, publish,
+    optional update-recipe) that's ~200 calls, so we need generous
+    backoff to stay ahead of the bucket.
     """
     for attempt in range(1, max_attempts + 1):
         result = subprocess.run(cmd, env=env, capture_output=True, text=True)
         combined = (result.stdout or "") + (result.stderr or "")
         if "Too Many Requests" in combined or "429" in combined:
-            wait_s = 20 * attempt  # 20, 40, 60, 80s — gives rate limit full minute to reset
+            wait_s = 30 * attempt  # 30, 60, 90, 120, 150, 180s — ~10 min worst-case budget
             log.warning("%s hit 429 (attempt %d/%d) — sleeping %ds",
                         step_label, attempt, max_attempts, wait_s)
             time.sleep(wait_s)
