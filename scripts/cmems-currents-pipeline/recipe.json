@@ -11,10 +11,10 @@
             "input_no_data_value": -9999,
             "source_rules": {
                 "filter": [
-                    ["==", ["get", "bandindex"], 1],
-                    ["==", ["get", "bandindex"], 2]
+                    ["all", ["in", ["bandindex"], ["literal", [1]]]],
+                    ["all", ["in", ["bandindex"], ["literal", [2]]]]
                 ],
-                "name": ["case", ["==", ["get", "bandindex"], 1], "u", "v"]
+                "name": ["case", ["==", ["bandindex"], 1], "u", "v"]
             }
         }
     }
