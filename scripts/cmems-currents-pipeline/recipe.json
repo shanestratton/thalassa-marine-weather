@@ -1,16 +1,21 @@
 {
     "version": 1,
     "type": "rasterarray",
+    "minzoom": 0,
+    "maxzoom": 6,
     "layers": {
         "currents": {
             "tilesize": 512,
             "buffer": 1,
-            "bands": [
-                { "name": "uo", "sourceindex": 0, "sourceband": 1, "units": "m/s" },
-                { "name": "vo", "sourceindex": 0, "sourceband": 2, "units": "m/s" }
-            ]
+            "resampling": "bilinear",
+            "input_no_data_value": -9999,
+            "source_rules": {
+                "filter": [
+                    ["==", ["get", "bandindex"], 1],
+                    ["==", ["get", "bandindex"], 2]
+                ],
+                "name": ["case", ["==", ["get", "bandindex"], 1], "u", "v"]
+            }
         }
-    },
-    "minzoom": 0,
-    "maxzoom": 6
+    }
 }
