@@ -274,28 +274,59 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             </button>
                         </div>
 
-                        {/* Row 3 — Radio Report (full width) */}
-                        <button
-                            aria-label="Open radio position reporting"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate('radio');
-                            }}
-                            style={GLASS.card}
-                            className="w-full p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
-                        >
-                            <div className="flex items-center gap-2.5">
-                                <div className="p-2 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.12)' }}>
-                                    <SignalIcon color="#f59e0b" />
+                        {/* Row 3 — MOB + Radio Report */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <button
+                                aria-label="Man Overboard"
+                                onClick={() => {
+                                    triggerHaptic('heavy');
+                                    onNavigate('mob');
+                                }}
+                                style={{
+                                    ...GLASS.card,
+                                    background:
+                                        'linear-gradient(135deg, rgba(239,68,68,0.18) 0%, rgba(20,25,35,0.6) 100%)',
+                                    borderColor: 'rgba(239,68,68,0.35)',
+                                }}
+                                className="p-3.5 text-left hover:brightness-110 transition-all active:scale-[0.98] card-lift"
+                            >
+                                <div className="flex items-center gap-2.5">
+                                    <div className="p-2 rounded-lg" style={{ background: 'rgba(239, 68, 68, 0.18)' }}>
+                                        <MobIcon color="#ef4444" />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[13px] font-black text-white tracking-wide">MOB</h4>
+                                        <p className="text-[11px] font-bold uppercase tracking-widest text-red-400 mt-0.5">
+                                            Mark &amp; Track
+                                        </p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <h4 className="text-[13px] font-black text-white tracking-wide">Radio Report</h4>
-                                    <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
-                                        Report Pos
-                                    </p>
+                            </button>
+
+                            <button
+                                aria-label="Open radio position reporting"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('radio');
+                                }}
+                                style={GLASS.card}
+                                className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                            >
+                                <div className="flex items-center gap-2.5">
+                                    <div className="p-2 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.12)' }}>
+                                        <SignalIcon color="#f59e0b" />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[13px] font-black text-white tracking-wide">
+                                            Radio Report
+                                        </h4>
+                                        <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
+                                            DSC &amp; Pos
+                                        </p>
+                                    </div>
                                 </div>
-                            </div>
-                        </button>
+                            </button>
+                        </div>
                     </CollapsibleContent>
                 </div>
 
@@ -679,6 +710,14 @@ const BookIcon: React.FC<{ color: string }> = ({ color }) => (
             strokeLinejoin="round"
             d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
         />
+    </svg>
+);
+
+const MobIcon: React.FC<{ color: string }> = ({ color }) => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
+        <circle cx="12" cy="12" r="9" />
+        <circle cx="12" cy="12" r="4.5" />
+        <circle cx="12" cy="12" r="1.5" fill={color} />
     </svg>
 );
 
