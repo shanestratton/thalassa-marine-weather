@@ -145,8 +145,21 @@ def netcdf_to_geotiffs(nc_path: Path) -> list[Path]:
             nodata=NODATA,
             tiled=True,  # cloud-optimized block layout, faster MTS reads
         )
+
+        # MTS raster-array needs a stable way to tell the two bands apart
+        # in the source_rules.name expression. The bandindex operator
+        # doesn't cleanly differentiate per-filter-output, so we also
+        # stamp explicit band descriptions into the GeoTIFF — MTS can
+        # then filter/name via ["get", "description"].
+        import rasterio
+        with rasterio.open(tif_path, "r+") as dst:
+            dst.set_band_description(1, "u")
+            dst.set_band_description(2, "v")
+            dst.update_tags(1, STANDARD_NAME="eastward_sea_water_velocity", UNITS="m/s")
+            dst.update_tags(2, STANDARD_NAME="northward_sea_water_velocity", UNITS="m/s")
+
         out_paths.append(tif_path)
-        log.info("Wrote %s (shape=%s, nodata=%s)", tif_path, filled.shape, NODATA)
+        log.info("Wrote %s (shape=%s, nodata=%s, bands=[u,v])", tif_path, filled.shape, NODATA)
 
     return out_paths
 
