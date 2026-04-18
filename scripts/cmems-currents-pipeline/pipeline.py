@@ -172,8 +172,10 @@ def upload_to_mts(tif_paths: list[Path]) -> None:
                 )
             else:
                 create.check_returncode()
-        elif '"message"' in combined:
-            # tilesets CLI sometimes prints an API error to stdout but exits 0
+        elif '"errors"' in combined or '"error"' in combined.lower().replace("error -", ""):
+            # tilesets CLI sometimes prints an API error to stdout but exits 0.
+            # Detect this by looking for an errors array (validation failures)
+            # — a plain "message" can just be a success confirmation.
             log.error("create returned 0 but response looks like an error — aborting")
             raise RuntimeError(f"tilesets create reported an error: {combined}")
 
