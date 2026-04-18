@@ -30,7 +30,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 # ── Config ────────────────────────────────────────────────────────────────
 
-DATASET_ID = "cmems_mod_glo_phy_anfc_merged-uv_PT1H-i_202211"
+DATASET_ID = "cmems_mod_glo_phy_anfc_merged-uv_PT1H-i"
 VARIABLES = ["uo", "vo"]
 # 48-hour forecast window, surface only (depth=0).
 FORECAST_HOURS = 48
