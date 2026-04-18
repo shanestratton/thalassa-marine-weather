@@ -208,7 +208,28 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             statusBadgeColor = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
         }
 
-        const timerBadgeColor = 'bg-sky-500/20 text-sky-300 border-sky-500/30';
+        // Timer badge goes amber/red when the underlying data is past its
+        // refresh window so a tappable "retry" is visually obvious.
+        const dataAgeMin = useMemo(() => {
+            if (!generatedAt) return 0;
+            const ts = new Date(generatedAt).getTime();
+            if (Number.isNaN(ts)) return 0;
+            return Math.max(0, (Date.now() - ts) / 60_000);
+        }, [generatedAt]);
+        const isOffshoreForTimer = offshore;
+        const veryOldThresh = isOffshoreForTimer ? 240 : 120;
+        const oldThresh = isOffshoreForTimer ? 120 : 60;
+        let timerBadgeColor: string;
+        let staleLabel: string | null = null;
+        if (dataAgeMin >= veryOldThresh) {
+            timerBadgeColor = 'bg-red-500/20 text-red-300 border-red-500/30';
+            staleLabel = `${Math.round(dataAgeMin / 60)}H OLD`;
+        } else if (dataAgeMin >= oldThresh) {
+            timerBadgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+            staleLabel = `${Math.round(dataAgeMin)}M OLD`;
+        } else {
+            timerBadgeColor = 'bg-sky-500/20 text-sky-300 border-sky-500/30';
+        }
 
         // Format helpers for the info modal
         const fmt = (v: number | null | undefined, unit: string, decimals = 1) => {
@@ -301,7 +322,13 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                             d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182"
                                         />
                                     </svg>
-                                    {nextUpdate ? <Countdown targetTime={nextUpdate} /> : 'LIVE'}
+                                    {staleLabel ? (
+                                        staleLabel
+                                    ) : nextUpdate ? (
+                                        <Countdown targetTime={nextUpdate} />
+                                    ) : (
+                                        'LIVE'
+                                    )}
                                 </>
                             )}
                         </button>
