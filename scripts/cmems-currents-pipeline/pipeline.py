@@ -157,8 +157,13 @@ def upload_to_mts(tif_paths: list[Path]) -> None:
             capture_output=True,
             text=True,
         )
+        log.info("create rc=%d stdout=%s stderr=%s",
+                 create.returncode,
+                 create.stdout.strip() or "(empty)",
+                 create.stderr.strip() or "(empty)")
+        combined = (create.stderr or "") + (create.stdout or "")
         if create.returncode != 0:
-            if "already exists" in (create.stderr + create.stdout).lower():
+            if "already exists" in combined.lower():
                 log.info("Tileset exists — updating recipe instead")
                 subprocess.run(
                     ["tilesets", "update-recipe", tileset_id, str(recipe_path)],
@@ -166,8 +171,11 @@ def upload_to_mts(tif_paths: list[Path]) -> None:
                     check=True,
                 )
             else:
-                log.error("create failed: stdout=%s stderr=%s", create.stdout, create.stderr)
                 create.check_returncode()
+        elif '"message"' in combined:
+            # tilesets CLI sometimes prints an API error to stdout but exits 0
+            log.error("create returned 0 but response looks like an error — aborting")
+            raise RuntimeError(f"tilesets create reported an error: {combined}")
 
         # 4. Publish — kicks off the MTS processing job.
         subprocess.run(
