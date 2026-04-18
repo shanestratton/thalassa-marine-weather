@@ -6,8 +6,8 @@
             "tilesize": 512,
             "buffer": 1,
             "bands": [
-                { "name": "uo", "source_band": 1, "units": "m/s" },
-                { "name": "vo", "source_band": 2, "units": "m/s" }
+                { "name": "uo", "sourceindex": 0, "sourceband": 1, "units": "m/s" },
+                { "name": "vo", "sourceindex": 0, "sourceband": 2, "units": "m/s" }
             ]
         }
     },
