@@ -42,6 +42,12 @@ export default defineConfig(({ mode }) => {
                     changeOrigin: true,
                     rewrite: (path: string) => path.replace(/^\/api\/rainbow/, '/tiles/v1'),
                 },
+                // Proxy NGA Maritime Safety Information (broadcast warnings / NTMs)
+                '/api/nga-msi': {
+                    target: 'https://msi.nga.mil',
+                    changeOrigin: true,
+                    rewrite: (path: string) => path.replace(/^\/api\/nga-msi/, '/api/publications'),
+                },
                 // Proxy Signal K mock server (dev only) — avoids CORS for localhost:3100
                 '/signalk': {
                     target: 'http://localhost:3100',

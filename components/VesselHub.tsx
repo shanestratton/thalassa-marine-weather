@@ -341,6 +341,17 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     onNavigate('gpx-import');
                                 }}
                             />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<NoticeIcon color="#ef4444" />}
+                                label="Notices to Mariners"
+                                status="NAVAREA • HYDRO"
+                                statusColor="#ef4444"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('notices');
+                                }}
+                            />
                         </div>
                     </CollapsibleContent>
                 </div>
@@ -773,6 +784,16 @@ const GpxIcon: React.FC<{ color: string }> = ({ color }) => (
             strokeLinecap="round"
             strokeLinejoin="round"
             d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"
+        />
+    </svg>
+);
+
+const NoticeIcon: React.FC<{ color: string }> = ({ color }) => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
         />
     </svg>
 );
