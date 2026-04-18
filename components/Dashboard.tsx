@@ -10,6 +10,7 @@ import { triggerHaptic } from '../utils/system';
 import { HeroSection } from './dashboard/Hero';
 import { CompactHeaderRow } from './dashboard/CompactHeaderRow';
 import { StatusBadges } from './dashboard/StatusBadges';
+import { StalenessBanner } from './dashboard/StalenessBanner';
 import { OffshoreBoundaryToast } from './dashboard/OffshoreBoundaryToast';
 import { getMoonPhase } from './dashboard/WeatherHelpers';
 import { useOffshoreStatus } from '../hooks/useOffshoreStatus';
@@ -22,6 +23,7 @@ import { RainForecastCard } from './dashboard/RainForecastCard';
 import { ShimmerBlock } from './ui/ShimmerBlock';
 
 import { useSettings } from '../context/SettingsContext';
+import { useWeather } from '../context/WeatherContext';
 
 import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
 import { UnitPreferences, SourcedWeatherMetrics } from '../types';
@@ -102,6 +104,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
     // Settings
     const { settings: userSettings, updateSettings } = useSettings();
+
+    // Freshness signals for the StalenessBanner
+    const { error: weatherError, backgroundUpdating, loading: weatherLoading, refreshData } = useWeather();
     const isInland = data?.locationType === 'inland' || isLandlocked;
     const offshore = useOffshoreStatus(data?.locationType);
     const isOffshore = offshore.isOffshore;
@@ -809,6 +814,15 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 className="fixed left-0 right-0 z-[125] px-4"
                                 style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}
                             >
+                                <StalenessBanner
+                                    generatedAt={data.generatedAt}
+                                    stale={data._stale}
+                                    staleAgeMinutes={data._staleAgeMinutes}
+                                    error={weatherError}
+                                    locationType={data.locationType}
+                                    onRefresh={() => refreshData()}
+                                    isSyncing={weatherLoading || backgroundUpdating}
+                                />
                                 <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
                                     <StatusBadges
                                         isLandlocked={isLandlocked}
