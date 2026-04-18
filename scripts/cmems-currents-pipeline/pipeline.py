@@ -49,35 +49,62 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 # ── Steps ─────────────────────────────────────────────────────────────────
 
 def fetch_cmems(start: datetime, end: datetime) -> Path:
-    """Download surface currents for the forecast window as a single NetCDF."""
+    """Download surface currents for the forecast window as a single NetCDF.
+
+    Copernicus's auth.marine.copernicus.eu endpoint is intermittently
+    unreachable from GitHub's us-east-1 runners, so we retry the whole
+    download on transient connection failures.
+    """
     import copernicusmarine  # lazy import — keeps the script importable without creds
 
     out_path = OUT_DIR / f"cmems-currents-{start:%Y%m%dT%H}.nc"
-    log.info("Fetching %s → %s into %s", start.isoformat(), end.isoformat(), out_path)
+    username = require_env("COPERNICUS_MARINE_USERNAME")
+    password = require_env("COPERNICUS_MARINE_PASSWORD")
 
-    # copernicusmarine 2.x notes:
-    # - `force_download` was removed entirely (no-prompt download is now default)
-    # - `overwrite_output_data` → `overwrite`
-    # - The toolbox does NOT auto-read `COPERNICUS_MARINE_USERNAME`/`_PASSWORD`
-    #   env vars; it looks for a login config file or explicit kwargs. Passing
-    #   explicitly keeps secrets out of a credentials file on disk.
-    # `merged-uv_PT1H-i` is a surface-only dataset, so no depth kwargs.
-    copernicusmarine.subset(
-        dataset_id=DATASET_ID,
-        variables=VARIABLES,
-        minimum_longitude=-180,
-        maximum_longitude=180,
-        minimum_latitude=-80,
-        maximum_latitude=90,
-        start_datetime=start.strftime("%Y-%m-%dT%H:%M:%S"),
-        end_datetime=end.strftime("%Y-%m-%dT%H:%M:%S"),
-        output_filename=out_path.name,
-        output_directory=str(out_path.parent),
-        overwrite=True,
-        username=require_env("COPERNICUS_MARINE_USERNAME"),
-        password=require_env("COPERNICUS_MARINE_PASSWORD"),
-    )
-    return out_path
+    max_attempts = 3
+    for attempt in range(1, max_attempts + 1):
+        log.info("Fetching %s → %s into %s (attempt %d/%d)",
+                 start.isoformat(), end.isoformat(), out_path, attempt, max_attempts)
+        try:
+            # copernicusmarine 2.x notes:
+            # - `force_download` was removed entirely (no-prompt download is now default)
+            # - `overwrite_output_data` → `overwrite`
+            # - The toolbox does NOT auto-read `COPERNICUS_MARINE_USERNAME`/`_PASSWORD`
+            #   env vars; it looks for a login config file or explicit kwargs.
+            # `merged-uv_PT1H-i` is a surface-only dataset, so no depth kwargs.
+            copernicusmarine.subset(
+                dataset_id=DATASET_ID,
+                variables=VARIABLES,
+                minimum_longitude=-180,
+                maximum_longitude=180,
+                minimum_latitude=-80,
+                maximum_latitude=90,
+                start_datetime=start.strftime("%Y-%m-%dT%H:%M:%S"),
+                end_datetime=end.strftime("%Y-%m-%dT%H:%M:%S"),
+                output_filename=out_path.name,
+                output_directory=str(out_path.parent),
+                overwrite=True,
+                username=username,
+                password=password,
+            )
+            return out_path
+        except Exception as exc:  # noqa: BLE001 — we look at the class name
+            msg = f"{type(exc).__name__}: {exc}"
+            is_transient = any(
+                sig in msg
+                for sig in [
+                    "CouldNotConnectToAuthenticationSystem",
+                    "ConnectTimeout",
+                    "ReadTimeout",
+                    "ConnectionError",
+                ]
+            )
+            if is_transient and attempt < max_attempts:
+                wait_s = 90 * attempt  # 90s, 180s — give the auth system time to recover
+                log.warning("Transient CMEMS auth failure: %s — retrying in %ds", msg, wait_s)
+                time.sleep(wait_s)
+                continue
+            raise
 
 
 def netcdf_to_geotiffs(nc_path: Path) -> list[Path]:
