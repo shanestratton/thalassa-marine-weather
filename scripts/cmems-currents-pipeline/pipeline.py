@@ -152,7 +152,7 @@ def upload_to_mts(tif_paths: list[Path]) -> None:
         #    the cron idempotent across daily runs.
         create = subprocess.run(
             ["tilesets", "create", tileset_id, "--recipe", str(recipe_path),
-             "--name", f"Thalassa Currents h+{i:02d}"],
+             "--name", f"Thalassa Currents h{i:02d}"],
             env=env,
             capture_output=True,
             text=True,
