@@ -20,7 +20,7 @@ const log = createLogger('NoticeToMariners');
 export type NgaAreaCode = '4' | '12' | 'A' | 'C' | 'P' | string;
 
 export interface Notice {
-    /** Stable id — `${msgYear}/${msgNumber}` */
+    /** Stable id — `${navArea}-${msgYear}/${msgNumber}` (NGA cross-lists the same message across areas). */
     id: string;
     msgYear: number;
     msgNumber: number;
@@ -192,7 +192,7 @@ interface RawBroadcastWarn {
 function normalise(raw: RawBroadcastWarn): Notice {
     const text = raw.text || '';
     return {
-        id: `${raw.msgYear}/${raw.msgNumber}`,
+        id: `${raw.navArea}-${raw.msgYear}/${raw.msgNumber}`,
         msgYear: raw.msgYear,
         msgNumber: raw.msgNumber,
         navArea: raw.navArea,
@@ -224,6 +224,14 @@ function loadCache(): CachePayload | null {
         if (!raw) return null;
         const parsed = JSON.parse(raw) as CachePayload;
         if (!parsed?.notices || !Array.isArray(parsed.notices)) return null;
+        // JSON.parse turns Date fields back into strings — rehydrate so the
+        // Notice type contract holds for consumers that call Date methods.
+        for (const n of parsed.notices) {
+            if (n.issueDateParsed && !(n.issueDateParsed instanceof Date)) {
+                const d = new Date(n.issueDateParsed as unknown as string);
+                n.issueDateParsed = Number.isNaN(d.getTime()) ? null : d;
+            }
+        }
         return parsed;
     } catch {
         return null;
@@ -281,8 +289,11 @@ class NoticeToMarinersServiceClass {
                 }
                 const body = (await res.json()) as { 'broadcast-warn': RawBroadcastWarn[] };
                 const list = Array.isArray(body['broadcast-warn']) ? body['broadcast-warn'] : [];
+                const seen = new Set<string>();
                 const notices = list
                     .map(normalise)
+                    // NGA occasionally returns the same notice twice — dedupe by id.
+                    .filter((n) => (seen.has(n.id) ? false : (seen.add(n.id), true)))
                     // Newest first by msgYear/msgNumber
                     .sort((a, b) => b.msgYear - a.msgYear || b.msgNumber - a.msgNumber);
 
