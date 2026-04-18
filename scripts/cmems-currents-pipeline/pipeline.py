@@ -199,9 +199,13 @@ def upload_to_mts(tif_paths: list[Path]) -> None:
         source_uri = f"mapbox://tileset-source/{username}/{source_id}"
         log.info("Uploading %s → %s", tif, tileset_id)
 
-        # 1. Upload the raster-source file (creates/overwrites the source).
+        # 1. Upload the raster-source file.
+        #    --replace deletes any previously uploaded files for this source.
+        #    Without it, every daily run APPENDS another copy, and MTS then
+        #    fails processing with "error during processing" when it tries
+        #    to merge the conflicting files.
         up = run_with_retry(
-            ["tilesets", "upload-raster-source", username, source_id, str(tif)],
+            ["tilesets", "upload-raster-source", "--replace", username, source_id, str(tif)],
             env, f"upload h{i:02d}",
         )
         up.check_returncode()
