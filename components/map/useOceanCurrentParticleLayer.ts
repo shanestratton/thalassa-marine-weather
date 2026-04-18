@@ -68,6 +68,22 @@ export function useOceanCurrentParticleLayer(
 
         const wantsHour = Math.min(Math.max(0, Math.round(forecastHour)), MAX_FORECAST_HOUR);
 
+        // Error handler — if a specific forecast hour hasn't published yet
+        // (MTS processing queue is slow), Mapbox fires a 'source' error.
+        // Quietly tear down so the scrubber can still move; user sees blank.
+        // `ErrorEvent` in mapbox-gl types doesn't expose sourceId on the
+        // public interface, but the runtime does emit it — so we cast.
+        const handleError = (e: unknown) => {
+            const sourceId = (e as { sourceId?: string } | null)?.sourceId;
+            if (sourceId !== SOURCE_ID) return;
+            const status = (e as { error?: { status?: number } } | null)?.error?.status;
+            log.warn(`CMEMS source error (h+${currentHourRef.current}, status=${status ?? '?'}) — removing`);
+            removeLayers(map);
+            currentHourRef.current = -1;
+        };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        map.on('error', handleError as any);
+
         // Swap source URL on forecast-hour change
         if (visible && currentHourRef.current !== wantsHour) {
             try {
@@ -86,6 +102,11 @@ export function useOceanCurrentParticleLayer(
             currentHourRef.current = -1;
             log.info('Removed currents layer');
         }
+
+        return () => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            map.off('error', handleError as any);
+        };
     }, [mapRef, mapReady, visible, forecastHour]);
 
     // Unmount cleanup
