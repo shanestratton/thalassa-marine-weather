@@ -25,6 +25,12 @@ const SOURCE_ID = 'cmems-currents-source';
 const PARTICLE_LAYER_ID = 'cmems-currents-particles';
 const MAGNITUDE_LAYER_ID = 'cmems-currents-magnitude';
 
+// Prefetch source: mounted as a tiny invisible layer so Mapbox starts
+// downloading tiles for the next forecast hour in the background. When
+// the user scrubs to that hour the swap is instant.
+const PREFETCH_SOURCE_ID = 'cmems-currents-prefetch-source';
+const PREFETCH_LAYER_ID = 'cmems-currents-prefetch';
+
 // ── Config ──
 // One tileset per forecast hour — pipeline.py publishes h00..h47.
 const MAPBOX_USERNAME = import.meta.env.VITE_MAPBOX_USERNAME ?? 'thalassa';
@@ -99,8 +105,17 @@ export function useOceanCurrentParticleLayer(
 
         if (!visible && currentHourRef.current !== -1) {
             removeLayers(map);
+            removePrefetch(map);
             currentHourRef.current = -1;
             log.info('Removed currents layer');
+        }
+
+        // Warm the next forecast hour in the background so scrubbing feels
+        // instant. Only when visible + not at the tail of the forecast.
+        if (visible && wantsHour < MAX_FORECAST_HOUR) {
+            mountPrefetch(map, wantsHour + 1);
+        } else {
+            removePrefetch(map);
         }
 
         return () => {
@@ -115,8 +130,53 @@ export function useOceanCurrentParticleLayer(
             const map = mapRef.current;
             if (!map) return;
             removeLayers(map);
+            removePrefetch(map);
         };
     }, [mapRef]);
+}
+
+// ── Prefetch helpers (warm next forecast hour) ──
+
+const prefetchHourRef: { current: number } = { current: -1 };
+
+function mountPrefetch(map: mapboxgl.Map, hour: number): void {
+    if (prefetchHourRef.current === hour && map.getSource(PREFETCH_SOURCE_ID)) return;
+    removePrefetch(map);
+    try {
+        map.addSource(PREFETCH_SOURCE_ID, {
+            type: 'raster-array',
+            url: tilesetUrlForHour(hour),
+            tileSize: 512,
+        } as unknown as mapboxgl.SourceSpecification);
+        // Transparent raster layer → forces Mapbox to fetch tiles but
+        // nothing draws. raster-particle sources only load tiles when a
+        // layer references them, so we can't skip the layer entirely.
+        map.addLayer({
+            id: PREFETCH_LAYER_ID,
+            type: 'raster',
+            source: PREFETCH_SOURCE_ID,
+            'source-layer': 'currents',
+            paint: { 'raster-opacity': 0 },
+        });
+        prefetchHourRef.current = hour;
+        log.info(`Prefetching currents h+${hour}`);
+    } catch (err) {
+        log.warn('prefetch mount failed', err);
+    }
+}
+
+function removePrefetch(map: mapboxgl.Map): void {
+    try {
+        if (map.getLayer(PREFETCH_LAYER_ID)) map.removeLayer(PREFETCH_LAYER_ID);
+    } catch {
+        /* best effort */
+    }
+    try {
+        if (map.getSource(PREFETCH_SOURCE_ID)) map.removeSource(PREFETCH_SOURCE_ID);
+    } catch {
+        /* best effort */
+    }
+    prefetchHourRef.current = -1;
 }
 
 // ── Layer management helpers ──
