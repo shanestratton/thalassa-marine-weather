@@ -227,16 +227,21 @@ def upload_to_mts(tif_paths: list[Path]) -> None:
                  create.stdout.strip() or "(empty)",
                  create.stderr.strip() or "(empty)")
         combined = (create.stderr or "") + (create.stdout or "")
-        if create.returncode != 0:
-            if "already exists" in combined.lower():
-                log.info("Tileset exists — updating recipe instead")
-                up2 = run_with_retry(
-                    ["tilesets", "update-recipe", tileset_id, str(recipe_path)],
-                    env, f"update-recipe h{i:02d}",
-                )
-                up2.check_returncode()
-            else:
-                create.check_returncode()
+
+        # The tilesets CLI returns rc=0 for BOTH successful creation AND
+        # "already exists" — we have to string-match to distinguish. If the
+        # tileset already existed we MUST push update-recipe, otherwise the
+        # stale recipe stays in place and publish runs against it.
+        already_exists = "already exists" in combined.lower()
+        if already_exists:
+            log.info("Tileset exists — updating recipe")
+            up2 = run_with_retry(
+                ["tilesets", "update-recipe", tileset_id, str(recipe_path)],
+                env, f"update-recipe h{i:02d}",
+            )
+            up2.check_returncode()
+        elif create.returncode != 0:
+            create.check_returncode()
         elif '"errors"' in combined:
             log.error("create returned 0 but response contains an errors array — aborting")
             raise RuntimeError(f"tilesets create reported an error: {combined}")
