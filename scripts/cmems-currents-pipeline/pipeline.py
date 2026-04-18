@@ -30,7 +30,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 # ── Config ────────────────────────────────────────────────────────────────
 
-DATASET_ID = "cmems_mod_glo_phy-cur_anfc_0.083deg_PT1H-i"
+DATASET_ID = "cmems_mod_glo_phy_anfc_merged-uv_PT1H-i_202211"
 VARIABLES = ["uo", "vo"]
 # 48-hour forecast window, surface only (depth=0).
 FORECAST_HOURS = 48
@@ -60,6 +60,7 @@ def fetch_cmems(start: datetime, end: datetime) -> Path:
     # - The toolbox does NOT auto-read `COPERNICUS_MARINE_USERNAME`/`_PASSWORD`
     #   env vars; it looks for a login config file or explicit kwargs. Passing
     #   explicitly keeps secrets out of a credentials file on disk.
+    # `merged-uv_PT1H-i` is a surface-only dataset, so no depth kwargs.
     copernicusmarine.subset(
         dataset_id=DATASET_ID,
         variables=VARIABLES,
@@ -67,8 +68,6 @@ def fetch_cmems(start: datetime, end: datetime) -> Path:
         maximum_longitude=180,
         minimum_latitude=-80,
         maximum_latitude=90,
-        minimum_depth=DEPTH_M,
-        maximum_depth=DEPTH_M,
         start_datetime=start.strftime("%Y-%m-%dT%H:%M:%S"),
         end_datetime=end.strftime("%Y-%m-%dT%H:%M:%S"),
         output_filename=out_path.name,
@@ -87,9 +86,10 @@ def netcdf_to_geotiffs(nc_path: Path) -> list[Path]:
     import xarray as xr
 
     ds = xr.open_dataset(nc_path)
-    # CMEMS uses `time` as the forecast step dim; `depth` is singleton
-    # because we pulled only surface.
-    ds = ds.squeeze("depth", drop=True)
+    # Surface-only dataset has no `depth` dim; older products did, so
+    # squeeze defensively.
+    if "depth" in ds.dims:
+        ds = ds.squeeze("depth", drop=True)
     ds = ds.rio.write_crs("EPSG:4326")
 
     out_paths: list[Path] = []
