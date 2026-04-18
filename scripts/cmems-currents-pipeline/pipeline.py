@@ -129,15 +129,24 @@ def netcdf_to_geotiffs(nc_path: Path) -> list[Path]:
             [hour_slice["uo"], hour_slice["vo"]],
             dim="band",
         ).assign_coords(band=[1, 2])
-        stacked.rio.to_raster(
+
+        # Mapbox MTS raster-array doesn't accept NaN nodata — the job
+        # fails with a generic "error during processing". Replace NaN
+        # with a finite sentinel (-9999) and declare it explicitly.
+        NODATA = -9999.0
+        filled = stacked.fillna(NODATA)
+
+        # LZW compression (MTS-friendly) — deflate is hit-or-miss.
+        filled.rio.to_raster(
             tif_path,
             driver="GTiff",
-            compress="deflate",
+            compress="lzw",
             dtype="float32",
-            nodata=np.nan,
+            nodata=NODATA,
+            tiled=True,  # cloud-optimized block layout, faster MTS reads
         )
         out_paths.append(tif_path)
-        log.info("Wrote %s (shape=%s)", tif_path, stacked.shape)
+        log.info("Wrote %s (shape=%s, nodata=%s)", tif_path, filled.shape, NODATA)
 
     return out_paths
 
