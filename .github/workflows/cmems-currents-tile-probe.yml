@@ -1,0 +1,43 @@
+name: CMEMS Currents — Tile Probe
+
+# Dump raw tile endpoint responses to find out why they 400.
+on:
+    workflow_dispatch:
+
+jobs:
+    probe:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - name: Fetch tile metadata + sample tile
+              env:
+                  MAPBOX_UPLOAD_TOKEN: ${{ secrets.MAPBOX_UPLOAD_TOKEN }}
+                  MAPBOX_USERNAME: ${{ secrets.MAPBOX_USERNAME }}
+              run: |
+                  set -euo pipefail
+                  TS="${MAPBOX_USERNAME}.thalassa-currents-h00"
+                  T="${MAPBOX_UPLOAD_TOKEN}"
+
+                  echo "== Tileset metadata =="
+                  curl -s "https://api.mapbox.com/tilesets/v1/${TS}?access_token=${T}" | python3 -m json.tool || true
+
+                  echo
+                  echo "== TileJSON (the source client loads) =="
+                  curl -s -H "Accept: application/vnd.mapbox-mrt.tile+protobuf" \
+                      "https://api.mapbox.com/v4/${TS}.json?access_token=${T}" | python3 -m json.tool || true
+
+                  echo
+                  echo "== GET z=0/0/0 tile (headers + body prefix) =="
+                  curl -s -D - -o /tmp/tile.mrt \
+                      "https://api.mapbox.com/rasterarrays/v1/${TS}/0/0/0.mrt?access_token=${T}" | head -30
+                  echo "Body size: $(wc -c < /tmp/tile.mrt) bytes"
+                  echo "First 200 bytes of body:"
+                  head -c 200 /tmp/tile.mrt | xxd | head -10 || true
+
+                  echo
+                  echo "== GET z=3/7/3 tile (headers) =="
+                  curl -s -D - -o /tmp/tile3.mrt \
+                      "https://api.mapbox.com/rasterarrays/v1/${TS}/3/7/3.mrt?access_token=${T}" | head -30
+                  echo "Body size: $(wc -c < /tmp/tile3.mrt) bytes"
+                  echo "First 200 bytes of body:"
+                  head -c 200 /tmp/tile3.mrt | xxd | head -10 || true
