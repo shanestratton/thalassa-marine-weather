@@ -1,0 +1,14 @@
+{
+    "version": 1,
+    "type": "rasterarray",
+    "layers": {
+        "currents": {
+            "tilesize": 512,
+            "buffer": 1,
+            "bands": ["uo", "vo"],
+            "units": "m/s"
+        }
+    },
+    "minzoom": 0,
+    "maxzoom": 6
+}

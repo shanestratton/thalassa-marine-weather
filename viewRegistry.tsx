@@ -87,6 +87,7 @@ const RadioConsolePage = lazyRetry(
     () => import('./components/vessel/RadioConsolePage').then((m) => ({ default: m.RadioConsolePage })),
     'RadioConsolePage',
 );
+const MobPage = lazyRetry(() => import('./components/vessel/MobPage').then((m) => ({ default: m.MobPage })), 'MobPage');
 const AvNavPage = lazyRetry(
     () => import('./components/vessel/AvNavPage').then((m) => ({ default: m.AvNavPage })),
     'AvNavPage',
@@ -308,6 +309,15 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
     radio: {
         component: RadioConsolePage,
         boundaryName: 'RadioConsole',
+        group: 'vessel',
+        getProps: (ctx) => ({
+            onBack: () => ctx.setPage('vessel'),
+            onNavigate: (page: string) => ctx.setPage(page),
+        }),
+    },
+    mob: {
+        component: MobPage,
+        boundaryName: 'MobPage',
         group: 'vessel',
         getProps: (ctx) => ({
             onBack: () => ctx.setPage('vessel'),
