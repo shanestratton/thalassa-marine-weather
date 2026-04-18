@@ -1311,14 +1311,17 @@ export function useCycloneLayer(
             if (map.getSource('cyclone-sleeve-src')) map.removeSource('cyclone-sleeve-src');
 
             // Per-storm past track lines (dynamic IDs: past-track-{sid}-outline, past-track-{sid}-line)
-            for (const layerId of map.getStyle()?.layers?.map((l) => l.id) ?? []) {
-                if (layerId.startsWith('past-track-')) {
-                    map.removeLayer(layerId);
+            // getStyle() throws if style isn't loaded; cleanup shouldn't crash the app.
+            if (map.isStyleLoaded()) {
+                for (const layerId of map.getStyle()?.layers?.map((l) => l.id) ?? []) {
+                    if (layerId.startsWith('past-track-')) {
+                        map.removeLayer(layerId);
+                    }
                 }
-            }
-            for (const srcId of Object.keys(map.getStyle()?.sources ?? {})) {
-                if (srcId.startsWith('past-track-')) {
-                    map.removeSource(srcId);
+                for (const srcId of Object.keys(map.getStyle()?.sources ?? {})) {
+                    if (srcId.startsWith('past-track-')) {
+                        map.removeSource(srcId);
+                    }
                 }
             }
 

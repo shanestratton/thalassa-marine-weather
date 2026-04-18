@@ -386,9 +386,14 @@ export const GlobalWindLayer: React.FC<GlobalWindLayerProps> = ({ map, visible }
                 const p = data.points[i];
                 if (!bounds.contains([p.lat, p.lon])) continue;
 
+                // Open-Meteo wind_direction is meteorological — the angle the wind
+                // is coming FROM. Arrows should point in the direction the wind is
+                // travelling TO, so add 180° (same convention as CurrentConditionsCard
+                // and EssentialMapSlide).
+                const arrowDeg = (p.windDirection + 180) % 360;
                 const icon = L.divIcon({
                     html: `<svg viewBox="0 0 24 24" width="16" height="16" style="
-                        transform: rotate(${p.windDirection}deg);
+                        transform: rotate(${arrowDeg}deg);
                         filter: drop-shadow(0 0 2px rgba(0,0,0,0.8));
                     ">
                         <path d="M12 2L8 10h3v12h2V10h3z" fill="rgba(255,255,255,0.7)" />

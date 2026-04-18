@@ -605,26 +605,21 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
             <button
                 onClick={() => setShowModal(true)}
                 aria-label={`System status: ${activeCount} active`}
-                className="relative flex items-center justify-center pointer-events-auto"
+                className={`relative w-12 h-12 rounded-2xl flex items-center justify-center border shadow-2xl transition-all pointer-events-auto ${
+                    hasUrgent
+                        ? 'bg-amber-500/90 border-amber-400/40 shadow-amber-500/30'
+                        : 'bg-sky-500/90 border-sky-400/40 shadow-sky-500/30'
+                }`}
             >
-                {/* Glow ring when multiple systems active or urgent */}
+                {/* Glow ring when multiple systems active or urgent — sits just outside the button bounds */}
                 {(activeCount > 1 || hasUrgent) && (
                     <span
-                        className={`absolute inset-[-3px] rounded-2xl animate-ping opacity-30 ${
+                        className={`absolute inset-[-3px] rounded-2xl animate-ping opacity-30 pointer-events-none ${
                             hasUrgent ? 'bg-amber-400' : 'bg-sky-400'
                         }`}
                     />
                 )}
-                {/* Main button — matches layer FAB size (w-12 h-12 rounded-2xl) */}
-                <span
-                    className={`relative w-12 h-12 rounded-2xl flex items-center justify-center border shadow-2xl transition-all ${
-                        hasUrgent
-                            ? 'bg-amber-500/90 border-amber-400/40 shadow-amber-500/30'
-                            : 'bg-sky-500/90 border-sky-400/40 shadow-sky-500/30'
-                    }`}
-                >
-                    <span className="text-white font-bold text-base">ℹ</span>
-                </span>
+                <span className="relative text-white font-bold text-base">ℹ</span>
 
                 {/* Active count badge */}
                 {activeCount > 1 && (
