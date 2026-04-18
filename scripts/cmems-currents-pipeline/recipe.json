@@ -5,8 +5,10 @@
         "currents": {
             "tilesize": 512,
             "buffer": 1,
-            "bands": ["uo", "vo"],
-            "units": "m/s"
+            "bands": [
+                { "name": "uo", "source_band": 1, "units": "m/s" },
+                { "name": "vo", "source_band": 2, "units": "m/s" }
+            ]
         }
     },
     "minzoom": 0,
