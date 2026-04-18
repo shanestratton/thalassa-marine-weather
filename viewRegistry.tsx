@@ -91,6 +91,10 @@ const AvNavPage = lazyRetry(
     () => import('./components/vessel/AvNavPage').then((m) => ({ default: m.AvNavPage })),
     'AvNavPage',
 );
+const NoticesPage = lazyRetry(
+    () => import('./components/vessel/NoticesPage').then((m) => ({ default: m.NoticesPage })),
+    'NoticesPage',
+);
 const GpxImportPage = lazyRetry(
     () => import('./components/vessel/GpxImportPage').then((m) => ({ default: m.GpxImportPage })),
     'GpxImportPage',
@@ -240,6 +244,12 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
     avnav: {
         component: AvNavPage,
         boundaryName: 'AvNavCharts',
+        group: 'vessel',
+        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
+    },
+    notices: {
+        component: NoticesPage,
+        boundaryName: 'Notices',
         group: 'vessel',
         getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
     },
