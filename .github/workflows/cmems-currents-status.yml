@@ -19,9 +19,11 @@ jobs:
                   echo "== Latest job status for each Thalassa currents tileset =="
                   for i in $(seq -w 0 48); do
                       ts="${MAPBOX_USERNAME}.thalassa-currents-h${i}"
-                      # Get most recent job for this tileset
                       jobs_json=$(curl -s "https://api.mapbox.com/tilesets/v1/${ts}/jobs?limit=1&access_token=${MAPBOX_UPLOAD_TOKEN}")
                       stage=$(echo "$jobs_json" | python3 -c "import sys,json; j=json.load(sys.stdin); print(j[0].get('stage','?')) if j else print('no-job')" 2>/dev/null || echo '?')
-                      msg=$(echo "$jobs_json" | python3 -c "import sys,json; j=json.load(sys.stdin); print(j[0].get('errors',[{}])[0].get('message','') if j and j[0].get('errors') else '')" 2>/dev/null || echo '')
-                      printf "h%s %-15s  %s\n" "$i" "$stage" "$msg"
+                      printf "h%s %-15s\n" "$i" "$stage"
                   done
+
+                  echo
+                  echo "== FULL JSON for h00 (first tileset) =="
+                  curl -s "https://api.mapbox.com/tilesets/v1/${MAPBOX_USERNAME}.thalassa-currents-h00/jobs?limit=1&access_token=${MAPBOX_UPLOAD_TOKEN}" | python3 -m json.tool
