@@ -54,9 +54,12 @@ def fetch_cmems(start: datetime, end: datetime) -> Path:
     out_path = OUT_DIR / f"cmems-currents-{start:%Y%m%dT%H}.nc"
     log.info("Fetching %s → %s into %s", start.isoformat(), end.isoformat(), out_path)
 
-    # copernicusmarine 2.x renamed `overwrite_output_data` → `overwrite`
-    # and removed `force_download` entirely (the toolbox now downloads
-    # by default without prompting).
+    # copernicusmarine 2.x notes:
+    # - `force_download` was removed entirely (no-prompt download is now default)
+    # - `overwrite_output_data` → `overwrite`
+    # - The toolbox does NOT auto-read `COPERNICUS_MARINE_USERNAME`/`_PASSWORD`
+    #   env vars; it looks for a login config file or explicit kwargs. Passing
+    #   explicitly keeps secrets out of a credentials file on disk.
     copernicusmarine.subset(
         dataset_id=DATASET_ID,
         variables=VARIABLES,
@@ -71,6 +74,8 @@ def fetch_cmems(start: datetime, end: datetime) -> Path:
         output_filename=out_path.name,
         output_directory=str(out_path.parent),
         overwrite=True,
+        username=require_env("COPERNICUS_MARINE_USERNAME"),
+        password=require_env("COPERNICUS_MARINE_PASSWORD"),
     )
     return out_path
 
