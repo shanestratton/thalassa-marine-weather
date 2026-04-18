@@ -22,6 +22,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -114,6 +115,33 @@ def netcdf_to_geotiffs(nc_path: Path) -> list[Path]:
     return out_paths
 
 
+def run_with_retry(cmd: list[str], env: dict, step_label: str, max_attempts: int = 4) -> subprocess.CompletedProcess:
+    """Run a tilesets CLI command, retrying on 429 Too Many Requests.
+
+    MTS enforces ~40 API calls/min — publishing 48 hourly tilesets back-
+    to-back exceeds that. Exponential backoff gives the rate-limiter time
+    to reset.
+    """
+    for attempt in range(1, max_attempts + 1):
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True)
+        combined = (result.stdout or "") + (result.stderr or "")
+        if "Too Many Requests" in combined or "429" in combined:
+            wait_s = 20 * attempt  # 20, 40, 60, 80s — gives rate limit full minute to reset
+            log.warning("%s hit 429 (attempt %d/%d) — sleeping %ds",
+                        step_label, attempt, max_attempts, wait_s)
+            time.sleep(wait_s)
+            continue
+        if result.returncode != 0:
+            # Non-rate-limit failure — let the caller decide.
+            log.error("%s failed rc=%d stdout=%s stderr=%s",
+                      step_label, result.returncode,
+                      result.stdout.strip() or "(empty)",
+                      result.stderr.strip() or "(empty)")
+            return result
+        return result
+    raise RuntimeError(f"{step_label} still rate-limited after {max_attempts} attempts")
+
+
 def upload_to_mts(tif_paths: list[Path]) -> None:
     """Upload each hourly GeoTIFF to Mapbox as a raster-array tileset.
 
@@ -136,26 +164,23 @@ def upload_to_mts(tif_paths: list[Path]) -> None:
         log.info("Uploading %s → %s", tif, tileset_id)
 
         # 1. Upload the raster-source file (creates/overwrites the source).
-        subprocess.run(
+        up = run_with_retry(
             ["tilesets", "upload-raster-source", username, source_id, str(tif)],
-            env=env,
-            check=True,
+            env, f"upload h{i:02d}",
         )
+        up.check_returncode()
 
         # 2. Write a per-hour recipe that points at this source.
         recipe_with_source = {**base_recipe, "sources": [{"uri": source_uri}]}
         recipe_path = tif.parent / f"recipe-h{i:02d}.json"
         recipe_path.write_text(json.dumps(recipe_with_source, indent=2))
 
-        # 3. Create the tileset. `create` no-ops with an error if the tileset
-        #    already exists, so we use `update-recipe` as a fallback to keep
-        #    the cron idempotent across daily runs.
-        create = subprocess.run(
+        # 3. Create the tileset. `create` fails with "already exists" on the
+        #    second-day run — then we `update-recipe` to keep it idempotent.
+        create = run_with_retry(
             ["tilesets", "create", tileset_id, "--recipe", str(recipe_path),
              "--name", f"Thalassa Currents h{i:02d}"],
-            env=env,
-            capture_output=True,
-            text=True,
+            env, f"create h{i:02d}",
         )
         log.info("create rc=%d stdout=%s stderr=%s",
                  create.returncode,
@@ -165,26 +190,29 @@ def upload_to_mts(tif_paths: list[Path]) -> None:
         if create.returncode != 0:
             if "already exists" in combined.lower():
                 log.info("Tileset exists — updating recipe instead")
-                subprocess.run(
+                up2 = run_with_retry(
                     ["tilesets", "update-recipe", tileset_id, str(recipe_path)],
-                    env=env,
-                    check=True,
+                    env, f"update-recipe h{i:02d}",
                 )
+                up2.check_returncode()
             else:
                 create.check_returncode()
-        elif '"errors"' in combined or '"error"' in combined.lower().replace("error -", ""):
-            # tilesets CLI sometimes prints an API error to stdout but exits 0.
-            # Detect this by looking for an errors array (validation failures)
-            # — a plain "message" can just be a success confirmation.
-            log.error("create returned 0 but response looks like an error — aborting")
+        elif '"errors"' in combined:
+            log.error("create returned 0 but response contains an errors array — aborting")
             raise RuntimeError(f"tilesets create reported an error: {combined}")
 
-        # 4. Publish — kicks off the MTS processing job.
-        subprocess.run(
+        # 4. Publish — kicks off the MTS processing job. This is the most
+        #    rate-limited endpoint so the retry wrapper earns its keep here.
+        pub = run_with_retry(
             ["tilesets", "publish", tileset_id],
-            env=env,
-            check=True,
+            env, f"publish h{i:02d}",
         )
+        pub.check_returncode()
+
+        # Courtesy delay so we don't hammer MTS's rate limiter on the next
+        # iteration. Mapbox's documented limit is 40 calls/min; 3 calls per
+        # hour × 48 hours = 144 calls total, so we need >36s total pause.
+        time.sleep(1.5)
 
 
 def require_env(name: str) -> str:
