@@ -1,0 +1,27 @@
+name: CMEMS Currents — Tileset Status
+
+# Poll Mapbox MTS for processing status of every thalassa-currents-h## tileset.
+# Useful to see whether a publish is still queued, processing, or succeeded.
+on:
+    workflow_dispatch:
+
+jobs:
+    status:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - name: Query tileset statuses
+              env:
+                  MAPBOX_UPLOAD_TOKEN: ${{ secrets.MAPBOX_UPLOAD_TOKEN }}
+                  MAPBOX_USERNAME: ${{ secrets.MAPBOX_USERNAME }}
+              run: |
+                  set -euo pipefail
+                  echo "== Latest job status for each Thalassa currents tileset =="
+                  for i in $(seq -w 0 48); do
+                      ts="${MAPBOX_USERNAME}.thalassa-currents-h${i}"
+                      # Get most recent job for this tileset
+                      jobs_json=$(curl -s "https://api.mapbox.com/tilesets/v1/${ts}/jobs?limit=1&access_token=${MAPBOX_UPLOAD_TOKEN}")
+                      stage=$(echo "$jobs_json" | python3 -c "import sys,json; j=json.load(sys.stdin); print(j[0].get('stage','?')) if j else print('no-job')" 2>/dev/null || echo '?')
+                      msg=$(echo "$jobs_json" | python3 -c "import sys,json; j=json.load(sys.stdin); print(j[0].get('errors',[{}])[0].get('message','') if j and j[0].get('errors') else '')" 2>/dev/null || echo '')
+                      printf "h%s %-15s  %s\n" "$i" "$stage" "$msg"
+                  done
