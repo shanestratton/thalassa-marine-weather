@@ -268,10 +268,12 @@ def upload_to_mts(tif_paths: list[Path]) -> None:
         )
         pub.check_returncode()
 
-        # Courtesy delay so we don't hammer MTS's rate limiter on the next
-        # iteration. Mapbox's documented limit is 40 calls/min; 3 calls per
-        # hour × 48 hours = 144 calls total, so we need >36s total pause.
-        time.sleep(1.5)
+        # Courtesy delay — stay well under MTS's ~40 calls/min limit.
+        # With --replace, upload alone costs 2 calls (delete+upload), plus
+        # create/update-recipe and publish = 4–5 calls per hour. 4s between
+        # iterations = 15 requests/min ceiling, comfortably under limit,
+        # without which we saw sustained 429s even after 10min of retries.
+        time.sleep(4)
 
 
 def require_env(name: str) -> str:
