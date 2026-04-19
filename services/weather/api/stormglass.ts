@@ -13,6 +13,16 @@ import { useSettingsStore } from '../../../stores/settingsStore';
 
 import { createLogger } from '../../../utils/createLogger';
 
+// ── Inflight-promise dedup ────────────────────────────────────────────────
+// Two parallel calls to fetchStormGlassWeather for the same coordinates
+// (common when the passage planner fires origin + destination requests
+// that happen to share a waypoint, or when the user mashes "generate"
+// before the first fetch lands) would both miss the cache and both hit
+// StormGlass. Coalesce them with an in-memory inflight map, same pattern
+// as CycloneTrackingService.
+const inflightByCoords = new Map<string, Promise<MarineWeatherReport>>();
+const inflightKey = (lat: number, lon: number) => `${lat.toFixed(4)}|${lon.toFixed(4)}`;
+
 const log = createLogger('stormglass');
 
 // FIX: Generate dense hourly tide data from High/Low extremes using Cosine Interpolation.
@@ -63,6 +73,29 @@ export const fetchStormGlassWeather = async (
     const cached = apiCacheGet<MarineWeatherReport>('stormglass', lat, lon);
     if (cached) return cached;
 
+    // 1b. Check for an inflight fetch for the same coords — avoids hitting
+    // StormGlass twice when two callers race before the cache write.
+    const key = inflightKey(lat, lon);
+    const existing = inflightByCoords.get(key);
+    if (existing) return existing;
+
+    const task = (async (): Promise<MarineWeatherReport> => {
+        try {
+            return await doFetchStormGlassWeather(lat, lon, name, existingLocationType);
+        } finally {
+            inflightByCoords.delete(key);
+        }
+    })();
+    inflightByCoords.set(key, task);
+    return task;
+};
+
+const doFetchStormGlassWeather = async (
+    lat: number,
+    lon: number,
+    name: string,
+    existingLocationType?: 'inshore' | 'coastal' | 'offshore' | 'inland',
+): Promise<MarineWeatherReport> => {
     // 2. Parallel Fetching (PERFORMANCE CRITICAL)
     // We launch all independent requests simultaneously.
 
