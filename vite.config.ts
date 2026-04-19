@@ -51,13 +51,17 @@ export default defineConfig(({ mode }) => {
                 // Proxy CMEMS currents binaries from the rolling GitHub Release.
                 // github.com release URLs 302 to objects.githubusercontent.com
                 // which lacks CORS headers, so we proxy same-origin.
-                '/currents': {
+                // Path is `/api/currents` (not `/currents`) to match prod:
+                // Vercel's Attack Challenge Mode 403s non-API paths but
+                // exempts /api/*, so the client hits /api/currents directly
+                // and skips the rewrite that used to live in vercel.json.
+                '/api/currents': {
                     target: 'https://github.com',
                     changeOrigin: true,
                     followRedirects: true,
                     rewrite: (path: string) =>
                         path.replace(
-                            /^\/currents/,
+                            /^\/api\/currents/,
                             '/shanestratton/thalassa-marine-weather/releases/download/cmems-currents-latest',
                         ),
                 },
