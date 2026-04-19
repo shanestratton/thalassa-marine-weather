@@ -147,6 +147,18 @@ def netcdf_to_geotiffs(nc_path: Path) -> list[Path]:
         out_paths.append(slice_path)
         log.info("Wrote %s (time=%s, vars=[uo,vo], nodata=%s)", slice_path, t, NODATA)
 
+        # On the first slice, run gdalinfo to surface the exact NETCDF
+        # subdatasets and per-band metadata MTS will see. Helps debug
+        # "filters did not match" / dimensionality errors once.
+        if i == 0:
+            try:
+                import subprocess as _sp
+                out = _sp.run(["gdalinfo", str(slice_path)],
+                              capture_output=True, text=True, check=False)
+                log.info("gdalinfo(%s):\n%s", slice_path.name, out.stdout[:4000])
+            except Exception as e:  # noqa: BLE001
+                log.warn("gdalinfo probe failed: %s", e)
+
     return out_paths
 
 
