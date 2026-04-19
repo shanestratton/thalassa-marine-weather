@@ -147,19 +147,39 @@ def netcdf_to_geotiffs(nc_path: Path) -> list[Path]:
         out_paths.append(slice_path)
         log.info("Wrote %s (time=%s, vars=[uo,vo], nodata=%s)", slice_path, t, NODATA)
 
-        # On the first slice, dump the NetCDF structure so we can see
-        # what NETCDF_VARNAME / NETCDF_DIM_time values MTS will see.
+        # On the first slice, open via GDAL and enumerate per-band
+        # metadata — this is exactly what MTS sees when it evaluates
+        # the recipe filter expressions. If `NETCDF_VARNAME` isn't
+        # listed here, filtering on it can't match.
         if i == 0:
-            probe = xr.open_dataset(slice_path)
-            log.info("NetCDF structure for %s:", slice_path.name)
-            log.info("  dims = %s", dict(probe.sizes))
-            log.info("  coords = %s", list(probe.coords))
-            log.info("  data_vars = %s", list(probe.data_vars))
-            for var in probe.data_vars:
-                log.info("  %s: shape=%s dtype=%s attrs=%s",
-                        var, probe[var].shape, probe[var].dtype,
-                        dict(probe[var].attrs))
-            probe.close()
+            try:
+                from osgeo import gdal
+                gdal.UseExceptions()
+                gds = gdal.Open(str(slice_path))
+                if gds is None:
+                    log.warning("GDAL could not open %s directly", slice_path)
+                else:
+                    sub = gds.GetSubDatasets()
+                    log.info("GDAL raster count=%d, subdatasets=%s",
+                             gds.RasterCount, [s[0] for s in sub[:4]])
+                    # If subdatasets exist, MTS likely reads via them —
+                    # enumerate one level down.
+                    if sub:
+                        for sd_uri, _sd_desc in sub[:3]:
+                            sdds = gdal.Open(sd_uri)
+                            if sdds is None:
+                                continue
+                            log.info("  subds %s: bands=%d", sd_uri, sdds.RasterCount)
+                            for bi in range(1, min(sdds.RasterCount, 3) + 1):
+                                b = sdds.GetRasterBand(bi)
+                                log.info("    band %d metadata=%s",
+                                         bi, b.GetMetadata())
+                    else:
+                        for bi in range(1, gds.RasterCount + 1):
+                            b = gds.GetRasterBand(bi)
+                            log.info("  band %d metadata=%s", bi, b.GetMetadata())
+            except Exception as e:  # noqa: BLE001
+                log.warning("GDAL probe failed: %s", e)
 
     return out_paths
 
