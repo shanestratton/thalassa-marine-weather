@@ -11,10 +11,10 @@
             "input_no_data_value": -9999,
             "source_rules": {
                 "filter": [
-                    ["all", ["in", ["bandindex"], ["literal", [1]]]],
-                    ["all", ["in", ["bandindex"], ["literal", [2]]]]
+                    ["==", ["get", "NETCDF_VARNAME"], "uo"],
+                    ["==", ["get", "NETCDF_VARNAME"], "vo"]
                 ],
-                "name": ["to-string", ["bandindex"]]
+                "name": ["get", "NETCDF_VARNAME"]
             }
         }
     }
