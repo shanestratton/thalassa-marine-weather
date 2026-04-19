@@ -11,10 +11,10 @@
             "input_no_data_value": -9999,
             "source_rules": {
                 "filter": [
-                    ["==", ["get", "BAND"], 1],
-                    ["==", ["get", "BAND"], 2]
+                    ["==", ["get", "STANDARD_NAME"], "eastward_sea_water_velocity"],
+                    ["==", ["get", "STANDARD_NAME"], "northward_sea_water_velocity"]
                 ],
-                "name": ["case", ["==", ["get", "BAND"], 1], "u", "v"]
+                "name": ["case", ["==", ["get", "STANDARD_NAME"], "eastward_sea_water_velocity"], "u", "v"]
             }
         }
     }
