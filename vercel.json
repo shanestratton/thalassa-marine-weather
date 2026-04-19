@@ -6,7 +6,7 @@
         },
         {
             "source": "/currents/:file",
-            "destination": "https://github.com/shanestratton/thalassa-marine-weather/releases/download/cmems-currents-latest/:file"
+            "destination": "/api/currents/:file"
         },
         {
             "source": "/((?!.*\\..*).*)",
