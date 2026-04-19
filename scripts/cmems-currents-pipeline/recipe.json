@@ -11,10 +11,10 @@
             "input_no_data_value": -9999,
             "source_rules": {
                 "filter": [
-                    ["all", ["==", ["get", "NETCDF_DIM_component"], "0"]],
-                    ["all", ["==", ["get", "NETCDF_DIM_component"], "1"]]
+                    ["all", ["==", ["sourceindex"], 0]],
+                    ["all", ["==", ["sourceindex"], 1]]
                 ],
-                "name": ["case", ["==", ["get", "NETCDF_DIM_component"], "0"], "u", "v"]
+                "name": ["case", ["==", ["sourceindex"], 0], "u", "v"]
             }
         }
     }
