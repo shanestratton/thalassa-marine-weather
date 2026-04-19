@@ -33,8 +33,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 DATASET_ID = "cmems_mod_glo_phy_anfc_merged-uv_PT1H-i"
 VARIABLES = ["uo", "vo"]
-# 48-hour forecast window, surface only (depth=0).
-FORECAST_HOURS = 48
+# 12-hour forecast window, surface only. Mapbox MTS rate limits mean
+# we can only publish ~12-15 tilesets per run without hitting sustained
+# 429s — so ship a useful near-term horizon now and chunk longer-range
+# forecasts across multiple workflow runs later.
+FORECAST_HOURS = 12
 DEPTH_M = 0.494
 
 # Mapbox tileset naming. One tileset-per-hour keeps each upload bounded
