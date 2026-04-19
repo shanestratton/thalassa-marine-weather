@@ -1,77 +1,39 @@
 /**
- * useOceanCurrentParticleLayer — Mapbox GL JS native `raster-particle` layer
- * fed by CMEMS surface-currents data (uo/vo components) uploaded to Mapbox
- * Tiling Service by `scripts/cmems-currents-pipeline/pipeline.py`.
+ * useOceanCurrentParticleLayer — Custom WebGL particle layer for CMEMS
+ * ocean-currents data, fetched as binary blobs from a daily GitHub
+ * Release asset. Reuses the existing WindParticleLayer engine so the
+ * render pipeline, camera projection and GPU memory management match
+ * the battle-tested wind layer — only the data source differs.
  *
- * Renders animated particle flow GPU-side — same approach as Mapbox's
- * reference GFS winds example, zero custom WebGL.
- *
- * Source of truth for the licence attribution is scripts/cmems-currents-pipeline/README.md;
- * the `SourceLegend` component surfaces the chip whenever this layer is visible.
- *
- * Feature flag: controlled by VITE_CMEMS_CURRENTS_ENABLED so the layer
- * stays behind a gate until the MTS tileset has been populated by the
- * daily pipeline.
+ * Design notes:
+ *   - Binary blobs are produced by scripts/cmems-currents-pipeline/pipeline.py
+ *     and attached to release `cmems-currents-latest` (one .bin per hour).
+ *   - The first-use fetch loads 13 hours × ~2 MB = ~25 MB upfront; the
+ *     scrubber then swaps the layer's single-timestep data on each hour
+ *     change (no further network traffic).
+ *   - Gated by VITE_CMEMS_CURRENTS_ENABLED so the existing Xweather
+ *     raster-currents layer remains the default fallback.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
+import { WindParticleLayer } from './WindParticleLayer';
+import { fetchCurrentsGrid } from '../../services/weather/api/currentsGrid';
+import type { WindGrid } from '../../services/weather/windField';
 
 const log = createLogger('CurrentParticleLayer');
 
-// ── Layer/Source IDs ──
-const SOURCE_ID = 'cmems-currents-source';
-const PARTICLE_LAYER_ID = 'cmems-currents-particles';
-const MAGNITUDE_LAYER_ID = 'cmems-currents-magnitude';
-
-// Prefetch source: mounted as a tiny invisible layer so Mapbox starts
-// downloading tiles for the next forecast hour in the background. When
-// the user scrubs to that hour the swap is instant.
-const PREFETCH_SOURCE_ID = 'cmems-currents-prefetch-source';
-const PREFETCH_LAYER_ID = 'cmems-currents-prefetch';
-
-// ── Config ──
-// One tileset per forecast hour — pipeline.py publishes h00..h47.
-const MAPBOX_USERNAME = import.meta.env.VITE_MAPBOX_USERNAME ?? 'thalassa';
-const TILESET_PREFIX = 'thalassa-currents';
-// Keep in sync with FORECAST_HOURS in scripts/cmems-currents-pipeline/pipeline.py
-const MAX_FORECAST_HOUR = 11;
-
+const LAYER_ID = 'cmems-currents-particles';
 const FEATURE_ENABLED = String(import.meta.env.VITE_CMEMS_CURRENTS_ENABLED ?? 'false').toLowerCase() === 'true';
-
-/**
- * Pick a particle count that looks dense but doesn't burn phone battery.
- * CMEMS currents are mostly 0.1–0.5 m/s — a 2–3 m/s rip is rare — so we
- * optimize density for the common case. Based on quick benches on an
- * iPhone 12, 1500 particles holds 60fps; desktops can push 3500.
- */
-function pickParticleCount(): number {
-    if (typeof window === 'undefined') return 1500;
-    const dpr = window.devicePixelRatio ?? 1;
-    // Coarse device class — hardware-concurrency is the closest signal
-    // we have to "this phone is under-powered" in a web context.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const cores = (navigator as any).hardwareConcurrency ?? 4;
-    const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent ?? '');
-    if (isMobile) return cores <= 4 ? 1000 : 1500;
-    // Desktop
-    return dpr >= 2 ? 3500 : 2500;
-}
-
-function tilesetUrlForHour(hour: number): string {
-    const h = Math.min(Math.max(0, Math.round(hour)), MAX_FORECAST_HOUR);
-    const hh = h.toString().padStart(2, '0');
-    return `mapbox://${MAPBOX_USERNAME}.${TILESET_PREFIX}-h${hh}`;
-}
 
 /**
  * Mount a CMEMS ocean-currents particle layer.
  *
- * @param mapRef       - mapbox-gl map instance ref
- * @param mapReady     - has the map loaded its initial style?
- * @param visible      - is the user currently viewing currents?
- * @param forecastHour - 0..47, scrubbed via the SynopticScrubber
+ * @param mapRef       mapbox-gl map instance ref
+ * @param mapReady     has the map loaded its initial style?
+ * @param visible      is the user currently viewing currents?
+ * @param forecastHour 0..N-1 hourly index (clamped to available range)
  */
 export function useOceanCurrentParticleLayer(
     mapRef: React.MutableRefObject<mapboxgl.Map | null>,
@@ -79,69 +41,96 @@ export function useOceanCurrentParticleLayer(
     visible: boolean,
     forecastHour: number = 0,
 ) {
-    const currentHourRef = useRef<number>(-1);
+    const layerRef = useRef<WindParticleLayer | null>(null);
+    const gridRef = useRef<WindGrid | null>(null);
+    const currentHourRef = useRef(-1);
+    const [loading, setLoading] = useState(false);
 
+    // Lazy-load the grid the first time currents becomes visible.
+    useEffect(() => {
+        if (!FEATURE_ENABLED || !visible || gridRef.current || loading) return;
+        let cancelled = false;
+        setLoading(true);
+        fetchCurrentsGrid()
+            .then((grid) => {
+                if (cancelled || !grid) {
+                    setLoading(false);
+                    return;
+                }
+                gridRef.current = grid;
+                log.info(`Currents grid cached (${grid.totalHours}h × ${grid.width}×${grid.height})`);
+                setLoading(false);
+                // Force re-render of the effect below so the layer picks up the new grid
+                currentHourRef.current = -1;
+            })
+            .catch((err) => {
+                log.warn('Failed to load currents grid', err);
+                setLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [visible, loading]);
+
+    // Mount / update / unmount the custom layer based on visibility.
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
 
         if (!FEATURE_ENABLED) {
-            if (visible) {
-                log.info('CMEMS currents gated off (VITE_CMEMS_CURRENTS_ENABLED=false)');
-            }
+            if (visible) log.info('gated off — VITE_CMEMS_CURRENTS_ENABLED=false');
             return;
         }
 
-        const wantsHour = Math.min(Math.max(0, Math.round(forecastHour)), MAX_FORECAST_HOUR);
+        const grid = gridRef.current;
 
-        // Error handler — if a specific forecast hour hasn't published yet
-        // (MTS processing queue is slow), Mapbox fires a 'source' error.
-        // Quietly tear down so the scrubber can still move; user sees blank.
-        // `ErrorEvent` in mapbox-gl types doesn't expose sourceId on the
-        // public interface, but the runtime does emit it — so we cast.
-        const handleError = (e: unknown) => {
-            const sourceId = (e as { sourceId?: string } | null)?.sourceId;
-            if (sourceId !== SOURCE_ID) return;
-            const status = (e as { error?: { status?: number } } | null)?.error?.status;
-            log.warn(`CMEMS source error (h+${currentHourRef.current}, status=${status ?? '?'}) — removing`);
-            removeLayers(map);
+        // Tear down when hidden.
+        if (!visible) {
+            if (layerRef.current && map.getLayer(LAYER_ID)) {
+                try {
+                    map.removeLayer(LAYER_ID);
+                } catch {
+                    /* best effort */
+                }
+            }
+            layerRef.current = null;
             currentHourRef.current = -1;
-        };
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        map.on('error', handleError as any);
+            return;
+        }
 
-        // Swap source URL on forecast-hour change
-        if (visible && currentHourRef.current !== wantsHour) {
+        // Grid not loaded yet — the fetch effect will trigger a re-run.
+        if (!grid) return;
+
+        const wantsHour = Math.min(Math.max(0, Math.round(forecastHour)), grid.totalHours - 1);
+
+        if (!layerRef.current) {
             try {
-                // Mapbox has no setUrl() for raster-array — tear down + re-add.
-                removeLayers(map);
-                addLayers(map, wantsHour);
-                currentHourRef.current = wantsHour;
-                log.info(`Mounted currents h+${wantsHour}`);
+                const layer = new WindParticleLayer(LAYER_ID);
+                map.addLayer(layer);
+                layerRef.current = layer;
+                currentHourRef.current = -1;
+                log.info(`Mounted currents particle layer (id=${LAYER_ID})`);
             } catch (err) {
-                log.warn('Failed to mount currents layer', err);
+                log.warn('Failed to mount particle layer', err);
+                return;
             }
         }
 
-        if (!visible && currentHourRef.current !== -1) {
-            removeLayers(map);
-            removePrefetch(map);
-            currentHourRef.current = -1;
-            log.info('Removed currents layer');
+        if (currentHourRef.current !== wantsHour) {
+            try {
+                layerRef.current.setWindData(grid.u[wantsHour], grid.v[wantsHour], grid.width, grid.height, {
+                    north: grid.north,
+                    south: grid.south,
+                    east: grid.east,
+                    west: grid.west,
+                });
+                currentHourRef.current = wantsHour;
+                map.triggerRepaint();
+                log.info(`Currents hour swapped to h+${wantsHour}`);
+            } catch (err) {
+                log.warn('Failed to set currents data', err);
+            }
         }
-
-        // Warm the next forecast hour in the background so scrubbing feels
-        // instant. Only when visible + not at the tail of the forecast.
-        if (visible && wantsHour < MAX_FORECAST_HOUR) {
-            mountPrefetch(map, wantsHour + 1);
-        } else {
-            removePrefetch(map);
-        }
-
-        return () => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            map.off('error', handleError as any);
-        };
     }, [mapRef, mapReady, visible, forecastHour]);
 
     // Unmount cleanup
@@ -149,150 +138,20 @@ export function useOceanCurrentParticleLayer(
         return () => {
             const map = mapRef.current;
             if (!map) return;
-            removeLayers(map);
-            removePrefetch(map);
+            try {
+                if (layerRef.current && map.getLayer(LAYER_ID)) {
+                    map.removeLayer(LAYER_ID);
+                }
+            } catch {
+                /* best effort */
+            }
+            layerRef.current = null;
+            gridRef.current = null;
         };
     }, [mapRef]);
 }
 
-// ── Prefetch helpers (warm next forecast hour) ──
-
-const prefetchHourRef: { current: number } = { current: -1 };
-
-function mountPrefetch(map: mapboxgl.Map, hour: number): void {
-    if (prefetchHourRef.current === hour && map.getSource(PREFETCH_SOURCE_ID)) return;
-    removePrefetch(map);
-    try {
-        map.addSource(PREFETCH_SOURCE_ID, {
-            type: 'raster-array',
-            url: tilesetUrlForHour(hour),
-            tileSize: 512,
-        } as unknown as mapboxgl.SourceSpecification);
-        // Transparent raster layer → forces Mapbox to fetch tiles but
-        // nothing draws. raster-particle sources only load tiles when a
-        // layer references them, so we can't skip the layer entirely.
-        map.addLayer({
-            id: PREFETCH_LAYER_ID,
-            type: 'raster',
-            source: PREFETCH_SOURCE_ID,
-            'source-layer': 'currents',
-            paint: { 'raster-opacity': 0 },
-        });
-        prefetchHourRef.current = hour;
-        log.info(`Prefetching currents h+${hour}`);
-    } catch (err) {
-        log.warn('prefetch mount failed', err);
-    }
-}
-
-function removePrefetch(map: mapboxgl.Map): void {
-    try {
-        if (map.getLayer(PREFETCH_LAYER_ID)) map.removeLayer(PREFETCH_LAYER_ID);
-    } catch {
-        /* best effort */
-    }
-    try {
-        if (map.getSource(PREFETCH_SOURCE_ID)) map.removeSource(PREFETCH_SOURCE_ID);
-    } catch {
-        /* best effort */
-    }
-    prefetchHourRef.current = -1;
-}
-
-// ── Layer management helpers ──
-
-function addLayers(map: mapboxgl.Map, hour: number): void {
-    if (!map.getSource(SOURCE_ID)) {
-        // `raster-array` is the source type that ships u/v bands as MRT.
-        // Types not yet in @types/mapbox-gl as of 3.18, hence the cast.
-        map.addSource(SOURCE_ID, {
-            type: 'raster-array',
-            url: tilesetUrlForHour(hour),
-            tileSize: 512,
-        } as unknown as mapboxgl.SourceSpecification);
-    }
-
-    // Magnitude underlay — colorscale of |u,v|. Subtle: the particles tell
-    // the direction story; this is just a "is it fast here?" backdrop.
-    // Range 0–1.5 m/s covers realistic ocean currents: open-ocean (0.1–0.5),
-    // Gulf Stream peaks (~1.2), reserving red for genuine rips.
-    if (!map.getLayer(MAGNITUDE_LAYER_ID)) {
-        map.addLayer({
-            id: MAGNITUDE_LAYER_ID,
-            type: 'raster',
-            source: SOURCE_ID,
-            'source-layer': 'currents',
-            paint: {
-                'raster-opacity': 0.35,
-                'raster-color': [
-                    'interpolate',
-                    ['linear'],
-                    ['raster-value'],
-                    0.0,
-                    'rgba(30, 58, 95, 0.0)',
-                    0.15,
-                    'rgba(6, 182, 212, 0.3)',
-                    0.4,
-                    'rgba(234, 179, 8, 0.45)',
-                    0.8,
-                    'rgba(249, 115, 22, 0.6)',
-                    1.5,
-                    'rgba(239, 68, 68, 0.8)',
-                ],
-                'raster-color-mix': [1, 1, 0, 0], // |uo| + |vo| approx for underlay
-                'raster-color-range': [0, 1.5],
-            },
-        });
-    }
-
-    if (!map.getLayer(PARTICLE_LAYER_ID)) {
-        map.addLayer({
-            id: PARTICLE_LAYER_ID,
-            type: 'raster-particle' as unknown as 'raster',
-            source: SOURCE_ID,
-            'source-layer': 'currents',
-            paint: {
-                'raster-particle-count': pickParticleCount(),
-                'raster-particle-max-speed': 1.5, // m/s — calibrated to CMEMS typical max
-                'raster-particle-speed-factor': 0.4,
-                'raster-particle-fade-opacity-factor': 0.95,
-                'raster-particle-reset-rate-factor': 0.6,
-                'raster-particle-color': [
-                    'interpolate',
-                    ['linear'],
-                    ['raster-particle-speed'],
-                    0.0,
-                    '#cffafe', // near-stationary — pale cyan
-                    0.15,
-                    '#22d3ee',
-                    0.4,
-                    '#eab308',
-                    0.8,
-                    '#f97316',
-                    1.5,
-                    '#ef4444', // rip — red
-                ],
-            },
-        });
-    }
-}
-
-function removeLayers(map: mapboxgl.Map): void {
-    for (const id of [PARTICLE_LAYER_ID, MAGNITUDE_LAYER_ID]) {
-        try {
-            if (map.getLayer(id)) map.removeLayer(id);
-        } catch {
-            /* best effort */
-        }
-    }
-    try {
-        if (map.getSource(SOURCE_ID)) map.removeSource(SOURCE_ID);
-    } catch {
-        /* best effort */
-    }
-}
-
-/** Exposed so the legend component can check whether to show attribution. */
+/** Exposed so the legend / attribution chip can check the flag state. */
 export function isCmemsCurrentsEnabled(): boolean {
     return FEATURE_ENABLED;
 }

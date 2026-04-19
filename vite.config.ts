@@ -48,6 +48,19 @@ export default defineConfig(({ mode }) => {
                     changeOrigin: true,
                     rewrite: (path: string) => path.replace(/^\/api\/nga-msi/, '/api/publications'),
                 },
+                // Proxy CMEMS currents binaries from the rolling GitHub Release.
+                // github.com release URLs 302 to objects.githubusercontent.com
+                // which lacks CORS headers, so we proxy same-origin.
+                '/currents': {
+                    target: 'https://github.com',
+                    changeOrigin: true,
+                    followRedirects: true,
+                    rewrite: (path: string) =>
+                        path.replace(
+                            /^\/currents/,
+                            '/shanestratton/thalassa-marine-weather/releases/download/cmems-currents-latest',
+                        ),
+                },
                 // Proxy Signal K mock server (dev only) — avoids CORS for localhost:3100
                 '/signalk': {
                     target: 'http://localhost:3100',

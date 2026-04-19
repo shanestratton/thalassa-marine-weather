@@ -15,7 +15,7 @@
       style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
       font-src 'self' https://fonts.gstatic.com;
       img-src 'self' data: blob: https: http:;
-      connect-src 'self' data: http: https://*.supabase.co wss://*.supabase.co https://*.open-meteo.com https://api.stormglass.io https://api.mapbox.com https://events.mapbox.com https://tiles.openseamap.org https://tile.openweathermap.org https://server.arcgisonline.com https://*.arcgis.com https://api.rainviewer.com https://tilecache.rainviewer.com https://nominatim.openstreetmap.org https://generativelanguage.googleapis.com https://weatherkit.apple.com https://*.weatherkit.apple.com https://*.sentry.io https://*.tile.openstreetmap.org https://fonts.googleapis.com https://fonts.gstatic.com https://cdn-icons-png.flaticon.com https://*.noaa.gov https://api.knackwx.com https://*.maptiler.com https://realearth.ssec.wisc.edu https://gibs.earthdata.nasa.gov https://services.geoplatform.gov https://cdn.jsdelivr.net https://mesonet.agron.iastate.edu https://nowcoast.noaa.gov https://api.spoonacular.com https://img.spoonacular.com;
+      connect-src 'self' data: http: https://*.supabase.co wss://*.supabase.co https://*.open-meteo.com https://api.stormglass.io https://api.mapbox.com https://events.mapbox.com https://tiles.openseamap.org https://tile.openweathermap.org https://server.arcgisonline.com https://*.arcgis.com https://api.rainviewer.com https://tilecache.rainviewer.com https://nominatim.openstreetmap.org https://generativelanguage.googleapis.com https://weatherkit.apple.com https://*.weatherkit.apple.com https://*.sentry.io https://*.tile.openstreetmap.org https://fonts.googleapis.com https://fonts.gstatic.com https://cdn-icons-png.flaticon.com https://*.noaa.gov https://api.knackwx.com https://*.maptiler.com https://realearth.ssec.wisc.edu https://gibs.earthdata.nasa.gov https://services.geoplatform.gov https://cdn.jsdelivr.net https://mesonet.agron.iastate.edu https://nowcoast.noaa.gov https://api.spoonacular.com https://img.spoonacular.com ;
       media-src 'self' blob: data:;
       worker-src 'self' blob:;
       frame-src 'none';
@@ -186,17 +186,17 @@
             (function () {
                 var readonlySuppressCount = 0;
                 window.addEventListener('error', function (e) {
-                    if (
-                        e.error instanceof TypeError &&
-                        e.message &&
-                        e.message.indexOf('readonly property') !== -1
-                    ) {
+                    if (e.error instanceof TypeError && e.message && e.message.indexOf('readonly property') !== -1) {
                         readonlySuppressCount++;
                         if (readonlySuppressCount <= 5 || readonlySuppressCount % 100 === 0) {
-                            console.debug('[SecurityGuard] Suppressed iOS readonly TypeError #' + readonlySuppressCount);
+                            console.debug(
+                                '[SecurityGuard] Suppressed iOS readonly TypeError #' + readonlySuppressCount,
+                            );
                         }
                         if (readonlySuppressCount === 100) {
-                            console.warn('[SecurityGuard] 100+ readonly TypeErrors suppressed this session — investigate.');
+                            console.warn(
+                                '[SecurityGuard] 100+ readonly TypeErrors suppressed this session — investigate.',
+                            );
                         }
                         e.preventDefault();
                         e.stopPropagation();
