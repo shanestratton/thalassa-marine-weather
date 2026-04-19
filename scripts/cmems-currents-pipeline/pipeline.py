@@ -111,12 +111,9 @@ def fetch_cmems(start: datetime, end: datetime) -> Path:
 
 
 def netcdf_to_geotiffs(nc_path: Path) -> list[Path]:
-    """Slice the multi-hour NetCDF into per-hour single-time NetCDFs.
-
-    Returning .nc files (not .tif) because MTS raster-array reliably
-    exposes `NETCDF_VARNAME` on NetCDF source bands — GeoTIFF band
-    metadata is effectively invisible to the recipe expression engine,
-    which made it impossible to name the two output bands distinctly.
+    """Slice the multi-hour NetCDF into per-hour single-time NetCDFs,
+    each with a single variable `velocity` indexed by a `component` dim
+    so GDAL/MTS see 2 bands in one source (not 2 subdatasets).
     """
     import numpy as np  # noqa: F401
     import xarray as xr
@@ -125,27 +122,31 @@ def netcdf_to_geotiffs(nc_path: Path) -> list[Path]:
     if "depth" in ds.dims:
         ds = ds.squeeze("depth", drop=True)
 
-    # Fill NaN land pixels with a finite sentinel — MTS fails on NaN.
-    # Declare the sentinel via encoding (not attrs) — xarray refuses to
-    # let attrs and encoding both set _FillValue.
     NODATA = -9999.0
-    ds["uo"] = ds["uo"].fillna(NODATA)
-    ds["vo"] = ds["vo"].fillna(NODATA)
-    for var in ("uo", "vo"):
-        ds[var].attrs.pop("_FillValue", None)
-        ds[var].attrs.pop("missing_value", None)
 
     out_paths: list[Path] = []
     for i, t in enumerate(ds.time.values):
         slice_path = nc_path.parent / f"currents-hour-{i:02d}.nc"
         single = ds.sel(time=slice(t, t))  # keep time dim with length 1
+
+        # Stack uo+vo along a new `component` dim → a single variable
+        # called `velocity` with shape (component=2, time=1, lat, lon).
+        # GDAL then presents this as a 2-band source (one per component)
+        # with NETCDF_DIM_component = 0 / 1 at the band level, which MTS
+        # can filter on.
+        u = single["uo"].fillna(NODATA)
+        v = single["vo"].fillna(NODATA)
+        velocity = xr.concat([u, v], dim="component").assign_coords(component=[0, 1])
+        velocity.attrs = {}  # strip inherited attrs — we set fresh below
+        ds_out = xr.Dataset({"velocity": velocity})
+
         encoding = {
-            "uo": {"dtype": "float32", "_FillValue": NODATA, "zlib": True},
-            "vo": {"dtype": "float32", "_FillValue": NODATA, "zlib": True},
+            "velocity": {"dtype": "float32", "_FillValue": NODATA, "zlib": True},
         }
-        single.to_netcdf(slice_path, encoding=encoding)
+        ds_out.to_netcdf(slice_path, encoding=encoding)
         out_paths.append(slice_path)
-        log.info("Wrote %s (time=%s, vars=[uo,vo], nodata=%s)", slice_path, t, NODATA)
+        log.info("Wrote %s (time=%s, var=velocity[component=0|1 → uo|vo], nodata=%s)",
+                 slice_path, t, NODATA)
 
         # On the first slice, enumerate per-band metadata via rasterio.
         # MTS sees the same band-level metadata when evaluating filter
