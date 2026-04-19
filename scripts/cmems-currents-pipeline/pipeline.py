@@ -147,39 +147,34 @@ def netcdf_to_geotiffs(nc_path: Path) -> list[Path]:
         out_paths.append(slice_path)
         log.info("Wrote %s (time=%s, vars=[uo,vo], nodata=%s)", slice_path, t, NODATA)
 
-        # On the first slice, open via GDAL and enumerate per-band
-        # metadata — this is exactly what MTS sees when it evaluates
-        # the recipe filter expressions. If `NETCDF_VARNAME` isn't
-        # listed here, filtering on it can't match.
+        # On the first slice, enumerate per-band metadata via rasterio.
+        # MTS sees the same band-level metadata when evaluating filter
+        # expressions. If NETCDF_VARNAME isn't present here, it can't
+        # match in the recipe either.
         if i == 0:
             try:
-                from osgeo import gdal
-                gdal.UseExceptions()
-                gds = gdal.Open(str(slice_path))
-                if gds is None:
-                    log.warning("GDAL could not open %s directly", slice_path)
-                else:
-                    sub = gds.GetSubDatasets()
-                    log.info("GDAL raster count=%d, subdatasets=%s",
-                             gds.RasterCount, [s[0] for s in sub[:4]])
-                    # If subdatasets exist, MTS likely reads via them —
-                    # enumerate one level down.
-                    if sub:
-                        for sd_uri, _sd_desc in sub[:3]:
-                            sdds = gdal.Open(sd_uri)
-                            if sdds is None:
-                                continue
-                            log.info("  subds %s: bands=%d", sd_uri, sdds.RasterCount)
-                            for bi in range(1, min(sdds.RasterCount, 3) + 1):
-                                b = sdds.GetRasterBand(bi)
-                                log.info("    band %d metadata=%s",
-                                         bi, b.GetMetadata())
-                    else:
-                        for bi in range(1, gds.RasterCount + 1):
-                            b = gds.GetRasterBand(bi)
-                            log.info("  band %d metadata=%s", bi, b.GetMetadata())
+                import rasterio
+                from rasterio.env import Env
+                with Env():
+                    with rasterio.open(str(slice_path)) as src:
+                        log.info("rasterio open: count=%d subdatasets=%s",
+                                 src.count, src.subdatasets[:4] if src.subdatasets else [])
+                        # Enumerate subdatasets — NetCDF multi-var files
+                        # typically expose one subdataset per variable.
+                        for sd_uri in (src.subdatasets or []):
+                            try:
+                                with rasterio.open(sd_uri) as sd:
+                                    log.info("  subds %s: bands=%d", sd_uri, sd.count)
+                                    for bi in range(1, sd.count + 1):
+                                        log.info("    band %d tags=%s",
+                                                 bi, sd.tags(bi))
+                            except Exception as ie:  # noqa: BLE001
+                                log.warning("  subds %s: open failed %s", sd_uri, ie)
+                        if not src.subdatasets:
+                            for bi in range(1, src.count + 1):
+                                log.info("  band %d tags=%s", bi, src.tags(bi))
             except Exception as e:  # noqa: BLE001
-                log.warning("GDAL probe failed: %s", e)
+                log.warning("rasterio probe failed: %s", e)
 
     return out_paths
 
