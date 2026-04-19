@@ -1,25 +1,37 @@
 #!/usr/bin/env python3
 """
-CMEMS ocean-currents → Mapbox Tiling Service pipeline.
+CMEMS ocean-currents → GitHub Release binary pipeline.
 
 Runs daily via GitHub Action. Pulls the Copernicus Marine global physics
 forecast (GLOBAL_ANALYSISFORECAST_PHY_001_024), surface currents only,
-and uploads the result to Mapbox MTS as a `raster-array` tileset with
-two bands (uo = east velocity m/s, vo = north velocity m/s).
+subsamples to a grid suitable for client-side WebGL particle rendering,
+encodes each hour as a compact binary blob, and attaches the blobs to
+a rolling GitHub release so the Thalassa web client can fetch them
+directly (no third-party tile server dependency).
 
-The Mapbox GL JS `raster-particle` layer then reads this tileset on the
-client and renders animated particle flow, GPU-side, zero custom WebGL.
+Binary file format (little-endian):
+    bytes  0..3   magic 'THCU' (Thalassa Currents)
+    byte   4      version (1)
+    byte   5      reserved (0)
+    u16    6..7   width
+    u16    8..9   height
+    f32   10..13  north (decimal degrees)
+    f32   14..17  south
+    f32   18..21  west
+    f32   22..25  east
+    u16   26..27  hours  (always 1 per file — one file per forecast hour)
+    u16   28..29  reserved (0)
+    // pixel data, row-major, north-to-south, west-to-east:
+    f32[width*height] u  (east velocity, m/s)
+    f32[width*height] v  (north velocity, m/s)
 
-Environment variables (from GitHub Actions secrets):
-    COPERNICUS_MARINE_USERNAME
-    COPERNICUS_MARINE_PASSWORD
-    MAPBOX_UPLOAD_TOKEN     - secret token with tilesets:write scope
-    MAPBOX_USERNAME         - Mapbox account slug (e.g. "shanestratton")
+One file per forecast hour, named `h00.bin` through `h<H-1>.bin`.
 """
 from __future__ import annotations
 
 import logging
 import os
+import struct
 import subprocess
 import sys
 import time
@@ -33,32 +45,30 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 DATASET_ID = "cmems_mod_glo_phy_anfc_merged-uv_PT1H-i"
 VARIABLES = ["uo", "vo"]
-# 12-hour forecast window, surface only. Mapbox MTS rate limits mean
-# we can only publish ~12-15 tilesets per run without hitting sustained
-# 429s — so ship a useful near-term horizon now and chunk longer-range
-# forecasts across multiple workflow runs later.
+# 12h forecast horizon — near-term passage-planning window.
 FORECAST_HOURS = 12
-DEPTH_M = 0.494
+# Subsample to this resolution (degrees). 0.5° = 720×320 ≈ 230k points per
+# hour × 8 bytes (u+v float32) = ~1.8 MB/hour uncompressed, well under
+# GitHub Release's 2 GB asset cap and fast to transfer.
+SUBSAMPLE_DEG = 0.5
 
-# Mapbox tileset naming. One tileset-per-hour keeps each upload bounded
-# and lets the client scrub through time by switching source URLs.
-MAPBOX_TILESET_PREFIX = "thalassa-currents"
-MAPBOX_RECIPE_PATH = Path(__file__).parent / "recipe.json"
+# GitHub Release tag to update daily. Must exist before first run — the
+# workflow step creates it if missing.
+RELEASE_TAG = "cmems-currents-latest"
 
 OUT_DIR = Path(os.environ.get("CMEMS_OUT_DIR", "/tmp/cmems-currents"))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
+BINARY_MAGIC = b"THCU"
+BINARY_VERSION = 1
+
 
 # ── Steps ─────────────────────────────────────────────────────────────────
 
-def fetch_cmems(start: datetime, end: datetime) -> Path:
-    """Download surface currents for the forecast window as a single NetCDF.
 
-    Copernicus's auth.marine.copernicus.eu endpoint is intermittently
-    unreachable from GitHub's us-east-1 runners, so we retry the whole
-    download on transient connection failures.
-    """
-    import copernicusmarine  # lazy import — keeps the script importable without creds
+def fetch_cmems(start: datetime, end: datetime) -> Path:
+    """Download surface currents for the forecast window as a single NetCDF."""
+    import copernicusmarine  # lazy import
 
     out_path = OUT_DIR / f"cmems-currents-{start:%Y%m%dT%H}.nc"
     username = require_env("COPERNICUS_MARINE_USERNAME")
@@ -66,15 +76,11 @@ def fetch_cmems(start: datetime, end: datetime) -> Path:
 
     max_attempts = 3
     for attempt in range(1, max_attempts + 1):
-        log.info("Fetching %s → %s into %s (attempt %d/%d)",
-                 start.isoformat(), end.isoformat(), out_path, attempt, max_attempts)
+        log.info(
+            "Fetching %s → %s into %s (attempt %d/%d)",
+            start.isoformat(), end.isoformat(), out_path, attempt, max_attempts,
+        )
         try:
-            # copernicusmarine 2.x notes:
-            # - `force_download` was removed entirely (no-prompt download is now default)
-            # - `overwrite_output_data` → `overwrite`
-            # - The toolbox does NOT auto-read `COPERNICUS_MARINE_USERNAME`/`_PASSWORD`
-            #   env vars; it looks for a login config file or explicit kwargs.
-            # `merged-uv_PT1H-i` is a surface-only dataset, so no depth kwargs.
             copernicusmarine.subset(
                 dataset_id=DATASET_ID,
                 variables=VARIABLES,
@@ -91,192 +97,126 @@ def fetch_cmems(start: datetime, end: datetime) -> Path:
                 password=password,
             )
             return out_path
-        except Exception as exc:  # noqa: BLE001 — we look at the class name
+        except Exception as exc:  # noqa: BLE001
             msg = f"{type(exc).__name__}: {exc}"
             is_transient = any(
                 sig in msg
-                for sig in [
+                for sig in (
                     "CouldNotConnectToAuthenticationSystem",
-                    "ConnectTimeout",
-                    "ReadTimeout",
-                    "ConnectionError",
-                ]
+                    "ConnectTimeout", "ReadTimeout", "ConnectionError",
+                )
             )
             if is_transient and attempt < max_attempts:
-                wait_s = 90 * attempt  # 90s, 180s — give the auth system time to recover
+                wait_s = 90 * attempt
                 log.warning("Transient CMEMS auth failure: %s — retrying in %ds", msg, wait_s)
                 time.sleep(wait_s)
                 continue
             raise
 
 
-def netcdf_to_geotiffs(nc_path: Path) -> list[tuple[Path, Path]]:
-    """Slice the multi-hour NetCDF into per-hour pairs (u.nc, v.nc).
-
-    Each component goes in its own single-variable NetCDF so MTS sees
-    unambiguous 1-source-1-band semantics. The recipe then references
-    BOTH files as `sources[]` and filters on sourceindex — no band-
-    metadata guessing needed.
-    """
-    import numpy as np  # noqa: F401
+def encode_hourly_binaries(nc_path: Path) -> list[Path]:
+    """Subsample the multi-hour NetCDF and write one .bin per forecast hour."""
+    import numpy as np
     import xarray as xr
 
     ds = xr.open_dataset(nc_path)
     if "depth" in ds.dims:
         ds = ds.squeeze("depth", drop=True)
 
-    NODATA = -9999.0
+    # Subsample to SUBSAMPLE_DEG resolution to cap file size.
+    lat_step = max(1, int(round(SUBSAMPLE_DEG / abs(float(ds.latitude[1] - ds.latitude[0])))))
+    lon_step = max(1, int(round(SUBSAMPLE_DEG / abs(float(ds.longitude[1] - ds.longitude[0])))))
+    ds = ds.isel(latitude=slice(None, None, lat_step),
+                 longitude=slice(None, None, lon_step))
+    # Ensure lat goes north→south in the output (matches client expectation
+    # of row-major north-to-south). CMEMS native is south→north.
+    ds = ds.reindex(latitude=ds.latitude[::-1])
 
-    out_pairs: list[tuple[Path, Path]] = []
+    height = ds.sizes["latitude"]
+    width = ds.sizes["longitude"]
+    north = float(ds.latitude[0])
+    south = float(ds.latitude[-1])
+    west = float(ds.longitude[0])
+    east = float(ds.longitude[-1])
+
+    out_paths: list[Path] = []
     for i, t in enumerate(ds.time.values):
-        single = ds.sel(time=slice(t, t))
-        u_path = nc_path.parent / f"currents-hour-{i:02d}-u.nc"
-        v_path = nc_path.parent / f"currents-hour-{i:02d}-v.nc"
+        u = ds["uo"].isel(time=i).fillna(0.0).astype(np.float32).values  # ravel() applied below
+        v = ds["vo"].isel(time=i).fillna(0.0).astype(np.float32).values
 
-        u = single["uo"].fillna(NODATA)
-        v = single["vo"].fillna(NODATA)
-        u.attrs.pop("_FillValue", None)
-        v.attrs.pop("_FillValue", None)
-
-        xr.Dataset({"u": u}).to_netcdf(
-            u_path,
-            encoding={"u": {"dtype": "float32", "_FillValue": NODATA, "zlib": True}},
+        bin_path = OUT_DIR / f"h{i:02d}.bin"
+        header = struct.pack(
+            "<4sBBHHffffHH",
+            BINARY_MAGIC,
+            BINARY_VERSION,
+            0,
+            width, height,
+            north, south, west, east,
+            1,  # hours in this file
+            0,  # reserved
         )
-        xr.Dataset({"v": v}).to_netcdf(
-            v_path,
-            encoding={"v": {"dtype": "float32", "_FillValue": NODATA, "zlib": True}},
-        )
-        out_pairs.append((u_path, v_path))
+        with bin_path.open("wb") as f:
+            f.write(header)
+            f.write(u.astype(np.float32).tobytes())
+            f.write(v.astype(np.float32).tobytes())
+        out_paths.append(bin_path)
         log.info(
-            "Wrote pair h%02d: %s + %s (time=%s, nodata=%s)",
-            i, u_path.name, v_path.name, t, NODATA,
+            "Wrote %s (%dx%d, time=%s, size=%d bytes)",
+            bin_path.name, width, height, t, bin_path.stat().st_size,
         )
+    return out_paths
 
-    return out_pairs
 
+def upload_to_github_release(paths: list[Path]) -> None:
+    """Attach binary files to the rolling `cmems-currents-latest` release.
 
-def run_with_retry(cmd: list[str], env: dict, step_label: str, max_attempts: int = 6) -> subprocess.CompletedProcess:
-    """Run a tilesets CLI command, retrying on 429 Too Many Requests.
-
-    MTS enforces ~40 API calls/min per endpoint. With 49 tilesets ×
-    ~4 calls each (upload --replace = delete+upload, create, publish,
-    optional update-recipe) that's ~200 calls, so we need generous
-    backoff to stay ahead of the bucket.
+    Requires `GH_TOKEN` or `GITHUB_TOKEN` in env (automatic in Actions).
+    Uses `gh release upload --clobber` to replace files in place so the
+    URL stays stable day-over-day.
     """
-    for attempt in range(1, max_attempts + 1):
-        result = subprocess.run(cmd, env=env, capture_output=True, text=True)
-        combined = (result.stdout or "") + (result.stderr or "")
-        if "Too Many Requests" in combined or "429" in combined:
-            wait_s = 30 * attempt  # 30, 60, 90, 120, 150, 180s — ~10 min worst-case budget
-            log.warning("%s hit 429 (attempt %d/%d) — sleeping %ds",
-                        step_label, attempt, max_attempts, wait_s)
-            time.sleep(wait_s)
-            continue
-        if result.returncode != 0:
-            # Non-rate-limit failure — let the caller decide.
-            log.error("%s failed rc=%d stdout=%s stderr=%s",
-                      step_label, result.returncode,
-                      result.stdout.strip() or "(empty)",
-                      result.stderr.strip() or "(empty)")
-            return result
-        return result
-    raise RuntimeError(f"{step_label} still rate-limited after {max_attempts} attempts")
+    repo = require_env("GITHUB_REPOSITORY")  # e.g. shanestratton/thalassa-marine-weather
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if not token:
+        log.error("Neither GH_TOKEN nor GITHUB_TOKEN set — cannot upload release assets")
+        sys.exit(2)
+    env = {**os.environ, "GH_TOKEN": token}
 
-
-def upload_to_mts(tif_paths: list[Path]) -> None:
-    """Upload each hourly GeoTIFF to Mapbox as a raster-array tileset.
-
-    For MTS raster-array, the recipe must reference the uploaded raster-
-    source by its mapbox:// URI. We generate a per-hour recipe on the fly
-    from the base recipe.json in this dir.
-    """
-    import json
-
-    username = require_env("MAPBOX_USERNAME")
-    token = require_env("MAPBOX_UPLOAD_TOKEN")
-    base_recipe = json.loads(MAPBOX_RECIPE_PATH.read_text())
-
-    env = {**os.environ, "MAPBOX_ACCESS_TOKEN": token}
-
-    for i, pair in enumerate(tif_paths):
-        u_path, v_path = pair
-        u_source_id = f"{MAPBOX_TILESET_PREFIX}-h{i:02d}-u"
-        v_source_id = f"{MAPBOX_TILESET_PREFIX}-h{i:02d}-v"
-        source_id = f"{MAPBOX_TILESET_PREFIX}-h{i:02d}"
-        tileset_id = f"{username}.{source_id}"
-        u_source_uri = f"mapbox://tileset-source/{username}/{u_source_id}"
-        v_source_uri = f"mapbox://tileset-source/{username}/{v_source_id}"
-        log.info("Uploading pair h%02d → %s", i, tileset_id)
-
-        # 1. Upload both source files. --replace cleans up previous uploads.
-        up_u = run_with_retry(
-            ["tilesets", "upload-raster-source", "--replace", username, u_source_id, str(u_path)],
-            env, f"upload h{i:02d}-u",
+    # Ensure the release exists — create with a placeholder note if missing.
+    create = subprocess.run(
+        ["gh", "release", "view", RELEASE_TAG, "--repo", repo],
+        env=env, capture_output=True, text=True,
+    )
+    if create.returncode != 0:
+        log.info("Release %s missing — creating", RELEASE_TAG)
+        subprocess.run(
+            ["gh", "release", "create", RELEASE_TAG,
+             "--repo", repo,
+             "--title", "CMEMS currents (rolling latest)",
+             "--notes", "Updated daily. Binary u/v current fields for the WebGL client."],
+            env=env, check=True,
         )
-        up_u.check_returncode()
-        up_v = run_with_retry(
-            ["tilesets", "upload-raster-source", "--replace", username, v_source_id, str(v_path)],
-            env, f"upload h{i:02d}-v",
-        )
-        up_v.check_returncode()
 
-        # 2. Write a per-hour recipe referencing BOTH sources — tagged so
-        #    the `sourcetag` filter operator can tell them apart.
-        recipe_with_sources = {
-            **base_recipe,
-            "sources": [
-                {"uri": u_source_uri, "tag": "u"},
-                {"uri": v_source_uri, "tag": "v"},
-            ],
-        }
-        recipe_path = u_path.parent / f"recipe-h{i:02d}.json"
-        recipe_path.write_text(json.dumps(recipe_with_sources, indent=2))
+    # Write a manifest that lists the files + their forecast hours
+    # so the client can discover them without a directory listing.
+    manifest_path = OUT_DIR / "manifest.json"
+    manifest = {
+        "version": 1,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "hours": [
+            {"hour": i, "file": p.name, "bytes": p.stat().st_size}
+            for i, p in enumerate(paths)
+        ],
+    }
+    import json as _json
+    manifest_path.write_text(_json.dumps(manifest, indent=2))
 
-        # 3. Create the tileset. `create` fails with "already exists" on the
-        #    second-day run — then we `update-recipe` to keep it idempotent.
-        create = run_with_retry(
-            ["tilesets", "create", tileset_id, "--recipe", str(recipe_path),
-             "--name", f"Thalassa Currents h{i:02d}"],
-            env, f"create h{i:02d}",
-        )
-        log.info("create rc=%d stdout=%s stderr=%s",
-                 create.returncode,
-                 create.stdout.strip() or "(empty)",
-                 create.stderr.strip() or "(empty)")
-        combined = (create.stderr or "") + (create.stdout or "")
-
-        # The tilesets CLI returns rc=0 for BOTH successful creation AND
-        # "already exists" — we have to string-match to distinguish. If the
-        # tileset already existed we MUST push update-recipe, otherwise the
-        # stale recipe stays in place and publish runs against it.
-        already_exists = "already exists" in combined.lower()
-        if already_exists:
-            log.info("Tileset exists — updating recipe")
-            up2 = run_with_retry(
-                ["tilesets", "update-recipe", tileset_id, str(recipe_path)],
-                env, f"update-recipe h{i:02d}",
-            )
-            up2.check_returncode()
-        elif create.returncode != 0:
-            create.check_returncode()
-        elif '"errors"' in combined:
-            log.error("create returned 0 but response contains an errors array — aborting")
-            raise RuntimeError(f"tilesets create reported an error: {combined}")
-
-        # 4. Publish — kicks off the MTS processing job. This is the most
-        #    rate-limited endpoint so the retry wrapper earns its keep here.
-        pub = run_with_retry(
-            ["tilesets", "publish", tileset_id],
-            env, f"publish h{i:02d}",
-        )
-        pub.check_returncode()
-
-        # Courtesy delay — stay well under MTS's ~40 calls/min limit.
-        # With --replace, upload alone costs 2 calls (delete+upload), plus
-        # create/update-recipe and publish = 4–5 calls per hour. 4s between
-        # iterations = 15 requests/min ceiling, comfortably under limit,
-        # without which we saw sustained 429s even after 10min of retries.
-        time.sleep(4)
+    # Upload all .bin files + manifest in one CLI call (faster, fewer 429 risks)
+    cmd = ["gh", "release", "upload", RELEASE_TAG,
+           "--repo", repo,
+           "--clobber"] + [str(p) for p in paths] + [str(manifest_path)]
+    log.info("$ %s", " ".join(cmd[:5] + ["<%d files>" % (len(paths) + 1)]))
+    subprocess.run(cmd, env=env, check=True)
+    log.info("✓ Uploaded %d binaries + manifest to %s release", len(paths), RELEASE_TAG)
 
 
 def require_env(name: str) -> str:
@@ -293,13 +233,13 @@ def main() -> int:
 
     try:
         nc_path = fetch_cmems(now, end)
-        tifs = netcdf_to_geotiffs(nc_path)
-        upload_to_mts(tifs)
-    except Exception:  # noqa: BLE001 — we want the traceback in the Action log
+        bins = encode_hourly_binaries(nc_path)
+        upload_to_github_release(bins)
+    except Exception:  # noqa: BLE001
         log.exception("Pipeline failed")
         return 1
 
-    log.info("✓ Pipeline complete — %d hourly tilesets published", len(tifs))
+    log.info("✓ Pipeline complete — %d hourly binaries on %s", len(bins), RELEASE_TAG)
     return 0
 
 
