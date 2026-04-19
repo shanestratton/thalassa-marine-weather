@@ -111,58 +111,40 @@ def fetch_cmems(start: datetime, end: datetime) -> Path:
 
 
 def netcdf_to_geotiffs(nc_path: Path) -> list[Path]:
-    """Slice the multi-hour NetCDF into per-hour 2-band GeoTIFFs."""
-    import numpy as np
-    import rioxarray  # noqa: F401  (registers .rio accessor)
+    """Slice the multi-hour NetCDF into per-hour single-time NetCDFs.
+
+    Returning .nc files (not .tif) because MTS raster-array reliably
+    exposes `NETCDF_VARNAME` on NetCDF source bands — GeoTIFF band
+    metadata is effectively invisible to the recipe expression engine,
+    which made it impossible to name the two output bands distinctly.
+    """
+    import numpy as np  # noqa: F401
     import xarray as xr
 
     ds = xr.open_dataset(nc_path)
-    # Surface-only dataset has no `depth` dim; older products did, so
-    # squeeze defensively.
     if "depth" in ds.dims:
         ds = ds.squeeze("depth", drop=True)
-    ds = ds.rio.write_crs("EPSG:4326")
+
+    # Fill NaN land pixels with a finite sentinel — MTS fails on NaN.
+    NODATA = -9999.0
+    ds["uo"] = ds["uo"].fillna(NODATA)
+    ds["vo"] = ds["vo"].fillna(NODATA)
+    # Declare the nodata in the var attributes so MTS recipe input_no_data_value
+    # matches up and per-pixel encoding treats -9999 as sentinel.
+    ds["uo"].attrs["_FillValue"] = NODATA
+    ds["vo"].attrs["_FillValue"] = NODATA
 
     out_paths: list[Path] = []
     for i, t in enumerate(ds.time.values):
-        hour_slice = ds.sel(time=t)
-        tif_path = nc_path.parent / f"currents-hour-{i:02d}.tif"
-        # 2-band stack: band 1 = uo, band 2 = vo
-        stacked = xr.concat(
-            [hour_slice["uo"], hour_slice["vo"]],
-            dim="band",
-        ).assign_coords(band=[1, 2])
-
-        # Mapbox MTS raster-array doesn't accept NaN nodata — the job
-        # fails with a generic "error during processing". Replace NaN
-        # with a finite sentinel (-9999) and declare it explicitly.
-        NODATA = -9999.0
-        filled = stacked.fillna(NODATA)
-
-        # LZW compression (MTS-friendly) — deflate is hit-or-miss.
-        filled.rio.to_raster(
-            tif_path,
-            driver="GTiff",
-            compress="lzw",
-            dtype="float32",
-            nodata=NODATA,
-            tiled=True,  # cloud-optimized block layout, faster MTS reads
-        )
-
-        # MTS raster-array needs a stable way to tell the two bands apart
-        # in the source_rules.name expression. The bandindex operator
-        # doesn't cleanly differentiate per-filter-output, so we also
-        # stamp explicit band descriptions into the GeoTIFF — MTS can
-        # then filter/name via ["get", "description"].
-        import rasterio
-        with rasterio.open(tif_path, "r+") as dst:
-            dst.set_band_description(1, "u")
-            dst.set_band_description(2, "v")
-            dst.update_tags(1, STANDARD_NAME="eastward_sea_water_velocity", UNITS="m/s")
-            dst.update_tags(2, STANDARD_NAME="northward_sea_water_velocity", UNITS="m/s")
-
-        out_paths.append(tif_path)
-        log.info("Wrote %s (shape=%s, nodata=%s, bands=[u,v])", tif_path, filled.shape, NODATA)
+        slice_path = nc_path.parent / f"currents-hour-{i:02d}.nc"
+        single = ds.sel(time=slice(t, t))  # keep time dim with length 1
+        encoding = {
+            "uo": {"dtype": "float32", "_FillValue": NODATA, "zlib": True},
+            "vo": {"dtype": "float32", "_FillValue": NODATA, "zlib": True},
+        }
+        single.to_netcdf(slice_path, encoding=encoding)
+        out_paths.append(slice_path)
+        log.info("Wrote %s (time=%s, vars=[uo,vo], nodata=%s)", slice_path, t, NODATA)
 
     return out_paths
 
