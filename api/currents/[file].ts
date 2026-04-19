@@ -38,7 +38,6 @@ export default async function handler(req: Request): Promise<Response> {
 
     const upstream = await fetch(`${RELEASE_BASE}/${file}`, {
         redirect: 'follow',
-        cf: { cacheEverything: true } as unknown as RequestInit['cache'],
     });
 
     if (!upstream.ok) {
