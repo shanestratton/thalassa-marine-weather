@@ -190,6 +190,11 @@ export function useWeatherLayers(
     /** Index where radar frames end and forecast frames begin */
     const rainNowIdxRef = useRef(0);
 
+    // Currents scrubber (CMEMS hourly forecast, h00..h47)
+    const [currentsHour, setCurrentsHour] = useState(0);
+    const [currentsPlaying, setCurrentsPlaying] = useState(false);
+    const currentsTotalHours = 12;
+
     // Wind scrubber
     const [windHour, setWindHourInternal] = useState(0);
     const [windTotalHours, setWindTotalHours] = useState(48);
@@ -469,6 +474,23 @@ export function useWeatherLayers(
         return () => clearInterval(timer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [windPlaying, activeKey, windTotalHours]);
+
+    // ── Currents play/pause auto-advance (one tileset per forecast hour) ──
+    useEffect(() => {
+        if (!currentsPlaying || !activeLayers.has('currents')) return;
+        const timer = setInterval(() => {
+            setCurrentsHour((prev) => {
+                const next = prev + 1;
+                if (next >= currentsTotalHours) {
+                    setCurrentsPlaying(false);
+                    return 0;
+                }
+                return next;
+            });
+        }, 800);
+        return () => clearInterval(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentsPlaying, activeKey, currentsTotalHours]);
 
     // ── Wind forecast data loading (for scrubber — rendering handled by MapboxVelocityOverlay) ──
     useEffect(() => {
@@ -1268,6 +1290,12 @@ export function useWeatherLayers(
         setWindMaxSpeed,
         windForecastHoursRef,
         windNowIdxRef,
+        // Currents (CMEMS hourly forecast, gated by VITE_CMEMS_CURRENTS_ENABLED)
+        currentsHour,
+        setCurrentsHour,
+        currentsTotalHours,
+        currentsPlaying,
+        setCurrentsPlaying,
         // Rain (unified radar + forecast)
         unifiedFramesRef,
         rainFrameIndex,

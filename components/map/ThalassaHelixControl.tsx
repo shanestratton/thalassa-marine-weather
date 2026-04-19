@@ -16,7 +16,16 @@ import React, { useRef, useCallback, useEffect, memo, useState } from 'react';
 import { triggerHaptic } from '../../utils/system';
 
 // ── Layer definitions for the generic legend ──
-export type HelixLayer = 'wind' | 'rain' | 'temperature' | 'clouds' | 'pressure' | 'velocity' | 'traffic' | null;
+export type HelixLayer =
+    | 'wind'
+    | 'rain'
+    | 'temperature'
+    | 'clouds'
+    | 'pressure'
+    | 'velocity'
+    | 'traffic'
+    | 'currents'
+    | null;
 
 interface LayerConfig {
     icon: string;
@@ -43,6 +52,15 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
         highLabel: 'Storm',
         gradient: 'linear-gradient(to top, #8ca5c7, #a8b08c, #d9bf80, #d9a060, #cc6650, #e05a50)',
         accentColor: '#38bdf8',
+    },
+    currents: {
+        icon: '🌊',
+        label: 'Currents',
+        lowLabel: 'Slack',
+        highLabel: 'Rip',
+        // Matches the raster-particle color ramp in useOceanCurrentParticleLayer.ts
+        gradient: 'linear-gradient(to top, #cffafe, #22d3ee, #eab308, #f97316, #ef4444)',
+        accentColor: '#06b6d4',
     },
     rain: {
         icon: '🌧️',

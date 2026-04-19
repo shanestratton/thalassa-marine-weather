@@ -674,7 +674,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // no-ops and the existing Xweather raster-currents tile layer renders
     // instead (managed by useWeatherLayers via the 'currents' WeatherLayer).
     const currentsVisible = weather.activeLayers.has('currents');
-    useOceanCurrentParticleLayer(mapRef, mapReady, currentsVisible, 0);
+    useOceanCurrentParticleLayer(mapRef, mapReady, currentsVisible, weather.currentsHour);
 
     // ── Hide OpenSeaMap raster overlay when o-charts provide native icons ──
     // The openseamap-overlay (PNG tiles) is baked into the map style and shows
@@ -1262,7 +1262,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                     weather.activeLayers.size > 0 &&
                     (() => {
                         // Identify active weather layers (only scrubble types)
-                        const WEATHER_KEYS: HelixLayer[] = ['pressure', 'wind', 'rain', 'temperature', 'clouds'];
+                        const WEATHER_KEYS: HelixLayer[] = [
+                            'pressure',
+                            'wind',
+                            'rain',
+                            'temperature',
+                            'clouds',
+                            // Currents only gets the scrubber when the CMEMS pipeline is on.
+                            // Under Xweather raster the tile is just a static heatmap.
+                            ...(isCmemsCurrentsEnabled() ? (['currents'] as HelixLayer[]) : []),
+                        ];
                         const activeWeatherLayers = WEATHER_KEYS.filter((k) =>
                             k === 'wind'
                                 ? weather.activeLayers.has('wind' as WeatherLayer) ||
@@ -1417,6 +1426,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                             onScrub = (idx: number) => weather.setWindHour(idx);
                             onPlayToggle = () => weather.setWindPlaying(!weather.windPlaying);
                             onScrubStart = () => weather.setWindPlaying(false);
+                        } else if (activeLayerKey === 'currents' && isCmemsCurrentsEnabled()) {
+                            frameIndex = weather.currentsHour;
+                            totalFrames = weather.currentsTotalHours;
+                            const relH = Math.round(frameIndex);
+                            frameLabel = relH === 0 ? 'Now' : `+${relH}h`;
+                            sublabel = relH === 0 ? 'Nowcast' : 'Forecast';
+                            isPlaying = weather.currentsPlaying;
+                            onScrub = (h: number) => weather.setCurrentsHour(Math.round(h));
+                            onPlayToggle = () => weather.setCurrentsPlaying(!weather.currentsPlaying);
+                            onScrubStart = () => weather.setCurrentsPlaying(false);
                         } else if (activeLayerKey === 'rain') {
                             if (weather.rainLoading) {
                                 isLoading = true;
