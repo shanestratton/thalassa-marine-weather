@@ -126,13 +126,14 @@ def netcdf_to_geotiffs(nc_path: Path) -> list[Path]:
         ds = ds.squeeze("depth", drop=True)
 
     # Fill NaN land pixels with a finite sentinel — MTS fails on NaN.
+    # Declare the sentinel via encoding (not attrs) — xarray refuses to
+    # let attrs and encoding both set _FillValue.
     NODATA = -9999.0
     ds["uo"] = ds["uo"].fillna(NODATA)
     ds["vo"] = ds["vo"].fillna(NODATA)
-    # Declare the nodata in the var attributes so MTS recipe input_no_data_value
-    # matches up and per-pixel encoding treats -9999 as sentinel.
-    ds["uo"].attrs["_FillValue"] = NODATA
-    ds["vo"].attrs["_FillValue"] = NODATA
+    for var in ("uo", "vo"):
+        ds[var].attrs.pop("_FillValue", None)
+        ds[var].attrs.pop("missing_value", None)
 
     out_paths: list[Path] = []
     for i, t in enumerate(ds.time.values):
