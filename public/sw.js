@@ -1,7 +1,12 @@
-const CACHE_NAME = 'thalassa-v2-core';
-const TILE_CACHE = 'thalassa-v2-tiles';
-const DATA_CACHE = 'thalassa-v2-data';
-const LAN_TILE_CACHE = 'thalassa-v2-lan-tiles';
+// Bump these version numbers when shipping a change that must invalidate
+// clients' local SW caches — otherwise users stay on the previous bundle
+// indefinitely because the SW's stale-while-revalidate keeps serving it.
+// v3: currents route moved from /currents/* to /api/currents/* (the old
+// path 403s behind Vercel's Attack Challenge Mode).
+const CACHE_NAME = 'thalassa-v3-core';
+const TILE_CACHE = 'thalassa-v3-tiles';
+const DATA_CACHE = 'thalassa-v3-data';
+const LAN_TILE_CACHE = 'thalassa-v3-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
 

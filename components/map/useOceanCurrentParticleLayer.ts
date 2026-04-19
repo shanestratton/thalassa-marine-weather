@@ -42,16 +42,18 @@ export function useOceanCurrentParticleLayer(
     forecastHour: number = 0,
 ) {
     const layerRef = useRef<WindParticleLayer | null>(null);
-    const gridRef = useRef<WindGrid | null>(null);
     const currentHourRef = useRef(-1);
-    // Refs (not state) for the fetch lifecycle: mutating state inside the
-    // effect's callback was re-firing the effect on every failure, producing
-    // a 403 retry storm in prod. Using refs keeps re-renders out of the
-    // equation. `attempted` becomes the one-shot latch; the user can retry
-    // by toggling the layer off then back on.
+    // Refs (not state) for the fetch *lifecycle* — state churn inside the
+    // effect callback was re-firing the effect on every failure, producing
+    // a 403 retry storm in prod. `attempted` becomes the one-shot latch;
+    // the user can retry by toggling the layer off then back on.
     const inflightRef = useRef(false);
     const attemptedRef = useRef(false);
-    const [, forceRender] = useState(0);
+    // Grid itself DOES go in state so the mount-effect below re-fires the
+    // moment it loads — otherwise the effect's static dep list means the
+    // layer only mounts after some unrelated re-render (scrub, toggle),
+    // producing a "flashes on interaction then vanishes" bug.
+    const [grid, setGrid] = useState<WindGrid | null>(null);
 
     // Lazy-load the grid the first time currents becomes visible. Reset the
     // latch when visibility goes false→true so the user can retry manually.
@@ -62,24 +64,22 @@ export function useOceanCurrentParticleLayer(
             attemptedRef.current = false;
             return;
         }
-        if (gridRef.current || inflightRef.current || attemptedRef.current) return;
+        if (grid || inflightRef.current || attemptedRef.current) return;
 
         let cancelled = false;
         inflightRef.current = true;
         attemptedRef.current = true;
         fetchCurrentsGrid()
-            .then((grid) => {
+            .then((g) => {
                 inflightRef.current = false;
                 if (cancelled) return;
-                if (!grid) {
+                if (!g) {
                     log.warn('Currents grid unavailable — giving up until next toggle');
                     return;
                 }
-                gridRef.current = grid;
+                log.info(`Currents grid cached (${g.totalHours}h × ${g.width}×${g.height})`);
                 currentHourRef.current = -1;
-                log.info(`Currents grid cached (${grid.totalHours}h × ${grid.width}×${grid.height})`);
-                // Trigger the mount-effect below to pick up the new grid.
-                forceRender((n) => n + 1);
+                setGrid(g);
             })
             .catch((err) => {
                 inflightRef.current = false;
@@ -88,7 +88,7 @@ export function useOceanCurrentParticleLayer(
         return () => {
             cancelled = true;
         };
-    }, [visible]);
+    }, [visible, grid]);
 
     // Mount / update / unmount the custom layer based on visibility.
     useEffect(() => {
@@ -99,8 +99,6 @@ export function useOceanCurrentParticleLayer(
             if (visible) log.info('gated off — VITE_CMEMS_CURRENTS_ENABLED=false');
             return;
         }
-
-        const grid = gridRef.current;
 
         // Tear down when hidden.
         if (!visible) {
@@ -149,7 +147,7 @@ export function useOceanCurrentParticleLayer(
                 log.warn('Failed to set currents data', err);
             }
         }
-    }, [mapRef, mapReady, visible, forecastHour]);
+    }, [mapRef, mapReady, visible, forecastHour, grid]);
 
     // Unmount cleanup
     useEffect(() => {
@@ -164,7 +162,6 @@ export function useOceanCurrentParticleLayer(
                 /* best effort */
             }
             layerRef.current = null;
-            gridRef.current = null;
         };
     }, [mapRef]);
 }
