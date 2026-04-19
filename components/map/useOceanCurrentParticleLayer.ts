@@ -44,33 +44,51 @@ export function useOceanCurrentParticleLayer(
     const layerRef = useRef<WindParticleLayer | null>(null);
     const gridRef = useRef<WindGrid | null>(null);
     const currentHourRef = useRef(-1);
-    const [loading, setLoading] = useState(false);
+    // Refs (not state) for the fetch lifecycle: mutating state inside the
+    // effect's callback was re-firing the effect on every failure, producing
+    // a 403 retry storm in prod. Using refs keeps re-renders out of the
+    // equation. `attempted` becomes the one-shot latch; the user can retry
+    // by toggling the layer off then back on.
+    const inflightRef = useRef(false);
+    const attemptedRef = useRef(false);
+    const [, forceRender] = useState(0);
 
-    // Lazy-load the grid the first time currents becomes visible.
+    // Lazy-load the grid the first time currents becomes visible. Reset the
+    // latch when visibility goes false→true so the user can retry manually.
     useEffect(() => {
-        if (!FEATURE_ENABLED || !visible || gridRef.current || loading) return;
+        if (!FEATURE_ENABLED) return;
+        if (!visible) {
+            // Hidden again — allow a fresh attempt next time we turn on.
+            attemptedRef.current = false;
+            return;
+        }
+        if (gridRef.current || inflightRef.current || attemptedRef.current) return;
+
         let cancelled = false;
-        setLoading(true);
+        inflightRef.current = true;
+        attemptedRef.current = true;
         fetchCurrentsGrid()
             .then((grid) => {
-                if (cancelled || !grid) {
-                    setLoading(false);
+                inflightRef.current = false;
+                if (cancelled) return;
+                if (!grid) {
+                    log.warn('Currents grid unavailable — giving up until next toggle');
                     return;
                 }
                 gridRef.current = grid;
-                log.info(`Currents grid cached (${grid.totalHours}h × ${grid.width}×${grid.height})`);
-                setLoading(false);
-                // Force re-render of the effect below so the layer picks up the new grid
                 currentHourRef.current = -1;
+                log.info(`Currents grid cached (${grid.totalHours}h × ${grid.width}×${grid.height})`);
+                // Trigger the mount-effect below to pick up the new grid.
+                forceRender((n) => n + 1);
             })
             .catch((err) => {
+                inflightRef.current = false;
                 log.warn('Failed to load currents grid', err);
-                setLoading(false);
             });
         return () => {
             cancelled = true;
         };
-    }, [visible, loading]);
+    }, [visible]);
 
     // Mount / update / unmount the custom layer based on visibility.
     useEffect(() => {

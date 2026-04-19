@@ -5,10 +5,6 @@
             "destination": "/terms.html"
         },
         {
-            "source": "/currents/:file",
-            "destination": "/api/currents/:file"
-        },
-        {
             "source": "/((?!.*\\..*).*)",
             "destination": "/index.html"
         }

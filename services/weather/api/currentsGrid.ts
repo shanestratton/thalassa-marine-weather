@@ -4,10 +4,17 @@
  *
  * The pipeline attaches binaries to a rolling GitHub Release but the
  * release URLs 302 to objects.githubusercontent.com which lacks CORS
- * headers, so the client fetches through a same-origin rewrite:
- *   /currents/manifest.json  →  github.com release asset
- *   /currents/h00.bin        →  github.com release asset
- * The rewrite is defined in vite.config.ts (dev) and vercel.json (prod).
+ * headers, so the client fetches through a same-origin proxy:
+ *   /api/currents/manifest.json  →  Vercel edge fn → GitHub Release asset
+ *   /api/currents/h00.bin        →  Vercel edge fn → GitHub Release asset
+ * The edge function lives at `api/currents/[file].ts`; dev uses the
+ * matching `/api/currents` proxy in vite.config.ts.
+ *
+ * Why `/api/currents` and not `/currents`: Vercel's Attack Challenge Mode
+ * (bot mitigation) fires on non-API paths and returns HTTP 403 with an
+ * `x-vercel-mitigated: challenge` header for fetches made without a
+ * solved-challenge cookie. `/api/*` is exempt, so we use it directly and
+ * skip the rewrite entirely.
  *
  * Binary layout (see scripts/cmems-currents-pipeline/pipeline.py):
  *   bytes  0..3   magic 'THCU'
@@ -29,8 +36,10 @@ const log = createLogger('currentsGrid');
 const MAGIC = 0x55434854; // 'THCU' little-endian u32
 const HEADER_SIZE = 30;
 
-/** Same-origin base — the Vite/Vercel rewrite proxies these to the GitHub Release. */
-const BASE = '/currents';
+/** Same-origin base — the Vite/Vercel proxy forwards to the GitHub Release.
+ *  Must be `/api/currents` not `/currents`: Vercel Attack Challenge Mode
+ *  challenges non-API paths and 403s fetches without a challenge cookie. */
+const BASE = '/api/currents';
 
 export interface CurrentsManifest {
     version: number;
@@ -52,11 +61,31 @@ export async function fetchCurrentsManifest(): Promise<CurrentsManifest | null> 
     }
 }
 
+/** Session-scoped caches. The pipeline updates once a day, so once we
+ *  have a grid there's no reason to refetch within a session — and the
+ *  inflight coalescer prevents stampedes if multiple callers race on
+ *  first paint. */
+let cachedGrid: WindGrid | null = null;
+let inflight: Promise<WindGrid | null> | null = null;
+
 /**
  * Fetch every hour's binary and assemble a WindGrid-shaped result so
  * the existing WebGL particle layer consumes it without changes.
+ *
+ * Coalesces concurrent callers and caches success for the session.
  */
 export async function fetchCurrentsGrid(): Promise<WindGrid | null> {
+    if (cachedGrid) return cachedGrid;
+    if (inflight) return inflight;
+    inflight = doFetchCurrentsGrid().finally(() => {
+        inflight = null;
+    });
+    const grid = await inflight;
+    if (grid) cachedGrid = grid;
+    return grid;
+}
+
+async function doFetchCurrentsGrid(): Promise<WindGrid | null> {
     const manifest = await fetchCurrentsManifest();
     if (!manifest || manifest.hours.length === 0) return null;
 
