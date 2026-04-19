@@ -35,7 +35,8 @@ const PREFETCH_LAYER_ID = 'cmems-currents-prefetch';
 // One tileset per forecast hour — pipeline.py publishes h00..h47.
 const MAPBOX_USERNAME = import.meta.env.VITE_MAPBOX_USERNAME ?? 'thalassa';
 const TILESET_PREFIX = 'thalassa-currents';
-const MAX_FORECAST_HOUR = 47;
+// Keep in sync with FORECAST_HOURS in scripts/cmems-currents-pipeline/pipeline.py
+const MAX_FORECAST_HOUR = 11;
 
 const FEATURE_ENABLED = String(import.meta.env.VITE_CMEMS_CURRENTS_ENABLED ?? 'false').toLowerCase() === 'true';
 

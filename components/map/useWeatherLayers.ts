@@ -193,7 +193,7 @@ export function useWeatherLayers(
     // Currents scrubber (CMEMS hourly forecast, h00..h47)
     const [currentsHour, setCurrentsHour] = useState(0);
     const [currentsPlaying, setCurrentsPlaying] = useState(false);
-    const currentsTotalHours = 48;
+    const currentsTotalHours = 12;
 
     // Wind scrubber
     const [windHour, setWindHourInternal] = useState(0);
