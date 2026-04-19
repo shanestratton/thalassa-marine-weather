@@ -220,10 +220,14 @@ def upload_to_mts(tif_paths: list[Path]) -> None:
         )
         up_v.check_returncode()
 
-        # 2. Write a per-hour recipe referencing BOTH sources.
+        # 2. Write a per-hour recipe referencing BOTH sources — tagged so
+        #    the `sourcetag` filter operator can tell them apart.
         recipe_with_sources = {
             **base_recipe,
-            "sources": [{"uri": u_source_uri}, {"uri": v_source_uri}],
+            "sources": [
+                {"uri": u_source_uri, "tag": "u"},
+                {"uri": v_source_uri, "tag": "v"},
+            ],
         }
         recipe_path = u_path.parent / f"recipe-h{i:02d}.json"
         recipe_path.write_text(json.dumps(recipe_with_sources, indent=2))
