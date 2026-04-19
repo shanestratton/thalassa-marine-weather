@@ -27,6 +27,55 @@ const log = createLogger('CurrentParticleLayer');
 const LAYER_ID = 'cmems-currents-particles';
 const FEATURE_ENABLED = String(import.meta.env.VITE_CMEMS_CURRENTS_ENABLED ?? 'false').toLowerCase() === 'true';
 
+// ── Live-debug state mirror ────────────────────────────────────────────
+// Production builds strip `console.*` via esbuild.drop, so any log path
+// we add is silently gone. Instead, mirror lifecycle events onto window
+// so a human in DevTools can read back exactly what the hook did. Runs
+// in all environments — tiny cost, pays for itself the first time prod
+// misbehaves in a way that doesn't repro locally.
+interface CurrentsDebugMirror {
+    featureEnabled: boolean;
+    visible: boolean;
+    hasGrid: boolean;
+    gridDims: string | null;
+    currentHour: number;
+    layerMounted: boolean;
+    mountCount: number;
+    teardownCount: number;
+    setDataCount: number;
+    fetchCount: number;
+    fetchErrors: number;
+    lastEvent: string;
+    lastEventAt: number;
+}
+const getDebug = (): CurrentsDebugMirror => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const g = globalThis as any;
+    if (!g.__thalassaDebug) g.__thalassaDebug = {};
+    if (!g.__thalassaDebug.currents) {
+        g.__thalassaDebug.currents = {
+            featureEnabled: FEATURE_ENABLED,
+            visible: false,
+            hasGrid: false,
+            gridDims: null,
+            currentHour: -1,
+            layerMounted: false,
+            mountCount: 0,
+            teardownCount: 0,
+            setDataCount: 0,
+            fetchCount: 0,
+            fetchErrors: 0,
+            lastEvent: 'init',
+            lastEventAt: Date.now(),
+        } satisfies CurrentsDebugMirror;
+    }
+    return g.__thalassaDebug.currents as CurrentsDebugMirror;
+};
+const noteEvent = (ev: string, patch: Partial<CurrentsDebugMirror> = {}) => {
+    const d = getDebug();
+    Object.assign(d, patch, { lastEvent: ev, lastEventAt: Date.now() });
+};
+
 /**
  * Mount a CMEMS ocean-currents particle layer.
  *
@@ -58,6 +107,7 @@ export function useOceanCurrentParticleLayer(
     // Lazy-load the grid the first time currents becomes visible. Reset the
     // latch when visibility goes false→true so the user can retry manually.
     useEffect(() => {
+        noteEvent('fetch-effect-enter', { visible });
         if (!FEATURE_ENABLED) return;
         if (!visible) {
             // Hidden again — allow a fresh attempt next time we turn on.
@@ -69,20 +119,31 @@ export function useOceanCurrentParticleLayer(
         let cancelled = false;
         inflightRef.current = true;
         attemptedRef.current = true;
+        const d = getDebug();
+        d.fetchCount += 1;
+        noteEvent('fetch-start');
         fetchCurrentsGrid()
             .then((g) => {
                 inflightRef.current = false;
-                if (cancelled) return;
+                if (cancelled) {
+                    noteEvent('fetch-cancelled');
+                    return;
+                }
                 if (!g) {
+                    noteEvent('fetch-null-grid');
+                    getDebug().fetchErrors += 1;
                     log.warn('Currents grid unavailable — giving up until next toggle');
                     return;
                 }
                 log.info(`Currents grid cached (${g.totalHours}h × ${g.width}×${g.height})`);
                 currentHourRef.current = -1;
+                noteEvent('fetch-success', { hasGrid: true, gridDims: `${g.totalHours}h × ${g.width}×${g.height}` });
                 setGrid(g);
             })
             .catch((err) => {
                 inflightRef.current = false;
+                getDebug().fetchErrors += 1;
+                noteEvent('fetch-error');
                 log.warn('Failed to load currents grid', err);
             });
         return () => {
@@ -93,18 +154,25 @@ export function useOceanCurrentParticleLayer(
     // Mount / update / unmount the custom layer based on visibility.
     useEffect(() => {
         const map = mapRef.current;
-        if (!map || !mapReady) return;
+        if (!map || !mapReady) {
+            noteEvent('mount-effect-skip-no-map');
+            return;
+        }
 
         if (!FEATURE_ENABLED) {
             if (visible) log.info('gated off — VITE_CMEMS_CURRENTS_ENABLED=false');
             return;
         }
 
+        noteEvent('mount-effect-enter', { visible, hasGrid: !!grid });
+
         // Tear down when hidden.
         if (!visible) {
             if (layerRef.current && map.getLayer(LAYER_ID)) {
                 try {
                     map.removeLayer(LAYER_ID);
+                    getDebug().teardownCount += 1;
+                    noteEvent('layer-torn-down', { layerMounted: false });
                 } catch {
                     /* best effort */
                 }
@@ -125,8 +193,11 @@ export function useOceanCurrentParticleLayer(
                 map.addLayer(layer);
                 layerRef.current = layer;
                 currentHourRef.current = -1;
+                getDebug().mountCount += 1;
+                noteEvent('layer-mounted', { layerMounted: true });
                 log.info(`Mounted currents particle layer (id=${LAYER_ID})`);
             } catch (err) {
+                noteEvent('layer-mount-failed');
                 log.warn('Failed to mount particle layer', err);
                 return;
             }
@@ -141,9 +212,12 @@ export function useOceanCurrentParticleLayer(
                     west: grid.west,
                 });
                 currentHourRef.current = wantsHour;
+                getDebug().setDataCount += 1;
+                noteEvent('set-data', { currentHour: wantsHour });
                 map.triggerRepaint();
                 log.info(`Currents hour swapped to h+${wantsHour}`);
             } catch (err) {
+                noteEvent('set-data-failed');
                 log.warn('Failed to set currents data', err);
             }
         }
