@@ -110,10 +110,13 @@ def fetch_cmems(start: datetime, end: datetime) -> Path:
             raise
 
 
-def netcdf_to_geotiffs(nc_path: Path) -> list[Path]:
-    """Slice the multi-hour NetCDF into per-hour single-time NetCDFs,
-    each with a single variable `velocity` indexed by a `component` dim
-    so GDAL/MTS see 2 bands in one source (not 2 subdatasets).
+def netcdf_to_geotiffs(nc_path: Path) -> list[tuple[Path, Path]]:
+    """Slice the multi-hour NetCDF into per-hour pairs (u.nc, v.nc).
+
+    Each component goes in its own single-variable NetCDF so MTS sees
+    unambiguous 1-source-1-band semantics. The recipe then references
+    BOTH files as `sources[]` and filters on sourceindex — no band-
+    metadata guessing needed.
     """
     import numpy as np  # noqa: F401
     import xarray as xr
@@ -124,60 +127,32 @@ def netcdf_to_geotiffs(nc_path: Path) -> list[Path]:
 
     NODATA = -9999.0
 
-    out_paths: list[Path] = []
+    out_pairs: list[tuple[Path, Path]] = []
     for i, t in enumerate(ds.time.values):
-        slice_path = nc_path.parent / f"currents-hour-{i:02d}.nc"
-        single = ds.sel(time=slice(t, t))  # keep time dim with length 1
+        single = ds.sel(time=slice(t, t))
+        u_path = nc_path.parent / f"currents-hour-{i:02d}-u.nc"
+        v_path = nc_path.parent / f"currents-hour-{i:02d}-v.nc"
 
-        # Stack uo+vo along a new `component` dim → a single variable
-        # called `velocity` with shape (component=2, time=1, lat, lon).
-        # GDAL then presents this as a 2-band source (one per component)
-        # with NETCDF_DIM_component = 0 / 1 at the band level, which MTS
-        # can filter on.
         u = single["uo"].fillna(NODATA)
         v = single["vo"].fillna(NODATA)
-        velocity = xr.concat([u, v], dim="component").assign_coords(component=[0, 1])
-        velocity.attrs = {}  # strip inherited attrs — we set fresh below
-        ds_out = xr.Dataset({"velocity": velocity})
+        u.attrs.pop("_FillValue", None)
+        v.attrs.pop("_FillValue", None)
 
-        encoding = {
-            "velocity": {"dtype": "float32", "_FillValue": NODATA, "zlib": True},
-        }
-        ds_out.to_netcdf(slice_path, encoding=encoding)
-        out_paths.append(slice_path)
-        log.info("Wrote %s (time=%s, var=velocity[component=0|1 → uo|vo], nodata=%s)",
-                 slice_path, t, NODATA)
+        xr.Dataset({"u": u}).to_netcdf(
+            u_path,
+            encoding={"u": {"dtype": "float32", "_FillValue": NODATA, "zlib": True}},
+        )
+        xr.Dataset({"v": v}).to_netcdf(
+            v_path,
+            encoding={"v": {"dtype": "float32", "_FillValue": NODATA, "zlib": True}},
+        )
+        out_pairs.append((u_path, v_path))
+        log.info(
+            "Wrote pair h%02d: %s + %s (time=%s, nodata=%s)",
+            i, u_path.name, v_path.name, t, NODATA,
+        )
 
-        # On the first slice, enumerate per-band metadata via rasterio.
-        # MTS sees the same band-level metadata when evaluating filter
-        # expressions. If NETCDF_VARNAME isn't present here, it can't
-        # match in the recipe either.
-        if i == 0:
-            try:
-                import rasterio
-                from rasterio.env import Env
-                with Env():
-                    with rasterio.open(str(slice_path)) as src:
-                        log.info("rasterio open: count=%d subdatasets=%s",
-                                 src.count, src.subdatasets[:4] if src.subdatasets else [])
-                        # Enumerate subdatasets — NetCDF multi-var files
-                        # typically expose one subdataset per variable.
-                        for sd_uri in (src.subdatasets or []):
-                            try:
-                                with rasterio.open(sd_uri) as sd:
-                                    log.info("  subds %s: bands=%d", sd_uri, sd.count)
-                                    for bi in range(1, sd.count + 1):
-                                        log.info("    band %d tags=%s",
-                                                 bi, sd.tags(bi))
-                            except Exception as ie:  # noqa: BLE001
-                                log.warning("  subds %s: open failed %s", sd_uri, ie)
-                        if not src.subdatasets:
-                            for bi in range(1, src.count + 1):
-                                log.info("  band %d tags=%s", bi, src.tags(bi))
-            except Exception as e:  # noqa: BLE001
-                log.warning("rasterio probe failed: %s", e)
-
-    return out_paths
+    return out_pairs
 
 
 def run_with_retry(cmd: list[str], env: dict, step_label: str, max_attempts: int = 6) -> subprocess.CompletedProcess:
@@ -223,27 +198,35 @@ def upload_to_mts(tif_paths: list[Path]) -> None:
 
     env = {**os.environ, "MAPBOX_ACCESS_TOKEN": token}
 
-    for i, tif in enumerate(tif_paths):
+    for i, pair in enumerate(tif_paths):
+        u_path, v_path = pair
+        u_source_id = f"{MAPBOX_TILESET_PREFIX}-h{i:02d}-u"
+        v_source_id = f"{MAPBOX_TILESET_PREFIX}-h{i:02d}-v"
         source_id = f"{MAPBOX_TILESET_PREFIX}-h{i:02d}"
         tileset_id = f"{username}.{source_id}"
-        source_uri = f"mapbox://tileset-source/{username}/{source_id}"
-        log.info("Uploading %s → %s", tif, tileset_id)
+        u_source_uri = f"mapbox://tileset-source/{username}/{u_source_id}"
+        v_source_uri = f"mapbox://tileset-source/{username}/{v_source_id}"
+        log.info("Uploading pair h%02d → %s", i, tileset_id)
 
-        # 1. Upload the raster-source file.
-        #    --replace deletes any previously uploaded files for this source.
-        #    Without it, every daily run APPENDS another copy, and MTS then
-        #    fails processing with "error during processing" when it tries
-        #    to merge the conflicting files.
-        up = run_with_retry(
-            ["tilesets", "upload-raster-source", "--replace", username, source_id, str(tif)],
-            env, f"upload h{i:02d}",
+        # 1. Upload both source files. --replace cleans up previous uploads.
+        up_u = run_with_retry(
+            ["tilesets", "upload-raster-source", "--replace", username, u_source_id, str(u_path)],
+            env, f"upload h{i:02d}-u",
         )
-        up.check_returncode()
+        up_u.check_returncode()
+        up_v = run_with_retry(
+            ["tilesets", "upload-raster-source", "--replace", username, v_source_id, str(v_path)],
+            env, f"upload h{i:02d}-v",
+        )
+        up_v.check_returncode()
 
-        # 2. Write a per-hour recipe that points at this source.
-        recipe_with_source = {**base_recipe, "sources": [{"uri": source_uri}]}
-        recipe_path = tif.parent / f"recipe-h{i:02d}.json"
-        recipe_path.write_text(json.dumps(recipe_with_source, indent=2))
+        # 2. Write a per-hour recipe referencing BOTH sources.
+        recipe_with_sources = {
+            **base_recipe,
+            "sources": [{"uri": u_source_uri}, {"uri": v_source_uri}],
+        }
+        recipe_path = u_path.parent / f"recipe-h{i:02d}.json"
+        recipe_path.write_text(json.dumps(recipe_with_sources, indent=2))
 
         # 3. Create the tileset. `create` fails with "already exists" on the
         #    second-day run — then we `update-recipe` to keep it idempotent.
