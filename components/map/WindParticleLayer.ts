@@ -284,6 +284,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     private heatmapUOpacity: WebGLUniformLocation | null = null;
     private heatmapGridW: number = 0;
     private heatmapGridH: number = 0;
+    private landMask: Uint8Array | null = null;
 
     // Wind textures: pair for current interpolation (GPU path, future use)
     private windTexture0: WebGLTexture | null = null;
@@ -686,12 +687,26 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         this.setForecastHour(hour);
     }
 
-    /** Set wind data for a single timestep (backward compat). */
-    setWindData(uData: Float32Array, vData: Float32Array, width: number, height: number, bounds: WindBounds): void {
+    /** Set wind data for a single timestep (backward compat).
+     *
+     *  Optional landMask is a u8[width*height] plane (1=land, 0=ocean).
+     *  When supplied, randomWithinBounds rejects land cells so particles
+     *  don't spawn over land and sit there as static dots — a real
+     *  problem for ocean-currents data where land cells are filled with
+     *  zero velocity and cause stalled-particle artifacts. */
+    setWindData(
+        uData: Float32Array,
+        vData: Float32Array,
+        width: number,
+        height: number,
+        bounds: WindBounds,
+        landMask?: Uint8Array,
+    ): void {
         this.dataBounds = this.sanitizeBounds(bounds);
         this.gridBounds = { ...this.dataBounds };
         this.windGridWidth = width;
         this.windGridHeight = height;
+        this.landMask = landMask && landMask.length === width * height ? landMask : null;
 
         // Detect global mode: lon span ≥ 359° means full-earth coverage
         this.globalMode = Math.abs(bounds.east - bounds.west) >= 359;
@@ -816,10 +831,34 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         // Constrain to ±70° latitude to avoid polar degenerate zones
         const safeNorth = Math.min(b.north, 70);
         const safeSouth = Math.max(b.south, -70);
-        const lon = b.west + Math.random() * (b.east - b.west);
-        const lat = safeSouth + Math.random() * (safeNorth - safeSouth);
         const gbLonRange = gb.east - gb.west;
         const gbLatRange = gb.north - gb.south;
+
+        const mask = this.landMask;
+        const w = this.windGridWidth;
+        const h = this.windGridHeight;
+        // Up to 8 rejection-sample tries to land on an ocean cell. Tries
+        // capped to keep this O(1) — for grids that are mostly land near
+        // the bounds (e.g. tropical Pacific plus PNG), 8 is enough to find
+        // ocean ~99.9% of the time without degrading first-paint cost.
+        const maxTries = mask && w > 0 && h > 0 ? 8 : 1;
+        for (let attempt = 0; attempt < maxTries; attempt++) {
+            const lon = b.west + Math.random() * (b.east - b.west);
+            const lat = safeSouth + Math.random() * (safeNorth - safeSouth);
+            const nx = gbLonRange > 0 ? (lon - gb.west) / gbLonRange : Math.random();
+            const ny = gbLatRange > 0 ? (lat - gb.south) / gbLatRange : Math.random();
+            if (mask && w > 0 && h > 0) {
+                // Mask is row-major north→south; ny=0 is south, ny=1 is north
+                // (matches gridBounds south/north normalization).
+                const col = Math.min(w - 1, Math.max(0, Math.floor(nx * w)));
+                const row = Math.min(h - 1, Math.max(0, Math.floor((1 - ny) * h)));
+                if (mask[row * w + col] === 1) continue; // land — try again
+            }
+            return [nx, ny];
+        }
+        // Exhausted — fall back to wherever we landed last (rare, <0.1%).
+        const lon = b.west + Math.random() * (b.east - b.west);
+        const lat = safeSouth + Math.random() * (safeNorth - safeSouth);
         const nx = gbLonRange > 0 ? (lon - gb.west) / gbLonRange : Math.random();
         const ny = gbLatRange > 0 ? (lat - gb.south) / gbLatRange : Math.random();
         return [nx, ny];
@@ -1023,21 +1062,28 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     private _renderLogCount = 0;
 
     render(gl: WebGLRenderingContext, matrixOrOptions: unknown): void {
-        // PERF: Throttle to ~15fps — skip frames closer than 66ms apart.
-        // Wind particles don't need 60fps; this cuts GPU load by ~75%.
+        // PERF: Throttle to ~15fps when the map is idle. Wind particles
+        // don't need 60fps; this cuts GPU load by ~75%.
+        //
+        // EXCEPTION: while Mapbox is animating its own camera (panning,
+        // easeTo on zoom, fitBounds, etc.) it's already calling render()
+        // every RAF tick whether we want it to or not. If we throttle in
+        // that state, every Mapbox frame paints the base layer but skips
+        // our particles → severe flashing while the camera moves.
+        // Detection: map.isMoving()/isZooming()/isEasing() — draw every
+        // frame while any is true.
         //
         // CRITICAL: when we bail on a throttled frame we must NOT request
-        // an immediate repaint. Mapbox would call render() again on the
-        // next RAF (~16ms), we'd bail again, ...4 bail-cycles per draw.
+        // an immediate repaint. Mapbox would call render() back on the
+        // next RAF (~16ms), we'd bail again, → 4 bail cycles per draw.
         // Each bail still triggers a full Mapbox frame: framebuffer clear
-        // + base-tile redraw + (no particles). Result: particles visible
-        // ~25% of frames = visible flashing across the whole layer.
-        //
-        // Schedule the next repaint at the throttle deadline so Mapbox
-        // pauses its render loop until we actually have new data to draw.
+        // + base-tile redraw + (no particles). Schedule next repaint at
+        // the throttle deadline so Mapbox pauses until we're ready.
+        const map = this.map;
+        const mapAnimating = map ? map.isMoving() || map.isZooming() || map.isEasing() : false;
         const now = performance.now();
         const elapsed = now - this._lastRenderTime;
-        if (elapsed < 66) {
+        if (!mapAnimating && elapsed < 66) {
             if (!document.hidden) {
                 const remaining = 66 - elapsed;
                 setTimeout(() => this.map?.triggerRepaint(), remaining);
@@ -1257,17 +1303,14 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         if (prevDepthTest) gl.enable(gl.DEPTH_TEST);
         else gl.disable(gl.DEPTH_TEST);
 
-        // Continue animation — schedule the NEXT repaint at the throttle
-        // deadline, not immediately. If we call triggerRepaint() now,
-        // Mapbox's RAF fires ~16ms later, our render() bails (still inside
-        // the 66ms throttle window), and we end up rendering only every
-        // other Mapbox frame ⇒ 50% duty cycle ⇒ visible flashing.
-        // Schedule at the throttle interval instead so Mapbox repaints
-        // exactly when we're ready to draw, no bail frames, no flashing.
-        // Guard !document.hidden to avoid GPU drain when backgrounded.
-        if (!document.hidden) {
-            setTimeout(() => this.map?.triggerRepaint(), 66);
-        }
+        // Continue animation. If Mapbox is already driving its own RAF
+        // loop (camera animating), do NOTHING — it'll call us next frame
+        // anyway, and adding our timer would just queue redundant
+        // repaints. When idle, schedule the next paint at the throttle
+        // deadline so Mapbox pauses its loop until we're ready.
+        if (document.hidden) return;
+        if (mapAnimating) return; // Mapbox will RAF us anyway during animation
+        setTimeout(() => this.map?.triggerRepaint(), 66);
     }
 
     // ── Cleanup ────────────────────────────────────────────────

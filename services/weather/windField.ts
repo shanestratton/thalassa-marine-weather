@@ -36,6 +36,11 @@ export interface WindGrid {
     totalHours: number;
     /** GFS model run reference time (ISO string), if available */
     refTime?: string;
+    /** Optional u8[width*height] land mask: 1=land, 0=ocean. Currently
+     *  populated only by the CMEMS currents pipeline (binary v2+) — wind
+     *  grids from Open-Meteo don't include it (over-ocean wind is fine to
+     *  spawn particles on land for, since wind doesn't care). */
+    landMask?: Uint8Array;
 }
 
 /**

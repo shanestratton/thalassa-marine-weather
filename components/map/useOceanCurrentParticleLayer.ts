@@ -260,12 +260,19 @@ export function useOceanCurrentParticleLayer(
                     uAmp[i] = srcU[i] * gain;
                     vAmp[i] = srcV[i] * gain;
                 }
-                layerRef.current.setWindData(uAmp, vAmp, grid.width, grid.height, {
-                    north: grid.north,
-                    south: grid.south,
-                    east: grid.east,
-                    west: grid.west,
-                });
+                layerRef.current.setWindData(
+                    uAmp,
+                    vAmp,
+                    grid.width,
+                    grid.height,
+                    {
+                        north: grid.north,
+                        south: grid.south,
+                        east: grid.east,
+                        west: grid.west,
+                    },
+                    grid.landMask,
+                );
                 currentHourRef.current = wantsHour;
                 getDebug().setDataCount += 1;
                 noteEvent('set-data', { currentHour: wantsHour }, eventMeta);
