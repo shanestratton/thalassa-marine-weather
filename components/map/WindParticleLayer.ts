@@ -987,6 +987,22 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
             }
             const wind0 = hasWind ? this.sampleWind(data[0], data[1]) : [0, 0];
 
+            // Snapshot camera state so we can tell if Mapbox is animating
+            // the view continuously (which forces the layer to re-render
+            // each frame and can present as flashing).
+            const m = this.map;
+            const cam = m
+                ? {
+                      zoom: m.getZoom(),
+                      center: m.getCenter().toArray(),
+                      bearing: m.getBearing(),
+                      pitch: m.getPitch(),
+                      isMoving: m.isMoving(),
+                      isZooming: m.isZooming(),
+                      isEasing: m.isEasing(),
+                  }
+                : null;
+
             window.__windDebug = {
                 frame: this._debugFrame,
                 hasWind,
@@ -997,6 +1013,7 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
                 trail0,
                 sample,
                 wind0: { u: wind0[0], v: wind0[1] },
+                cam,
             };
         }
     }
@@ -1240,11 +1257,16 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         if (prevDepthTest) gl.enable(gl.DEPTH_TEST);
         else gl.disable(gl.DEPTH_TEST);
 
-        // Continue animation — but ONLY if the page is visible.
-        // Without this guard, the GPU runs continuously even when the app
-        // is backgrounded, causing severe battery drain on mobile.
+        // Continue animation — schedule the NEXT repaint at the throttle
+        // deadline, not immediately. If we call triggerRepaint() now,
+        // Mapbox's RAF fires ~16ms later, our render() bails (still inside
+        // the 66ms throttle window), and we end up rendering only every
+        // other Mapbox frame ⇒ 50% duty cycle ⇒ visible flashing.
+        // Schedule at the throttle interval instead so Mapbox repaints
+        // exactly when we're ready to draw, no bail frames, no flashing.
+        // Guard !document.hidden to avoid GPU drain when backgrounded.
         if (!document.hidden) {
-            this.map?.triggerRepaint();
+            setTimeout(() => this.map?.triggerRepaint(), 66);
         }
     }
 
