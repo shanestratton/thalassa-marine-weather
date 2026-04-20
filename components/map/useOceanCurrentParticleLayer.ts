@@ -1,14 +1,21 @@
 /**
  * useOceanCurrentParticleLayer — Custom WebGL particle layer for CMEMS
  * ocean-currents data, fetched as binary blobs from a daily GitHub
- * Release asset. Reuses the existing WindParticleLayer engine so the
- * render pipeline, camera projection and GPU memory management match
- * the battle-tested wind layer — only the data source differs.
+ * Release asset.
+ *
+ * Backed by CurrentParticleLayer (NOT WindParticleLayer) — the wind
+ * layer's tuning made narrow western-boundary currents like the EAC
+ * invisible. The dedicated currents layer:
+ *   - Speed-weights particle spawn so the EAC / Gulf Stream / ACC
+ *     get particle density proportional to flow strength.
+ *   - Uses a native m/s SPEED_FACTOR (no amplification hack).
+ *   - Renders with a RIP/SLACK colour ramp (0.1 → 1.5 m/s).
+ *   - Requires the v2 land mask so particles don't spawn on land.
  *
  * Design notes:
  *   - Binary blobs are produced by scripts/cmems-currents-pipeline/pipeline.py
  *     and attached to release `cmems-currents-latest` (one .bin per hour).
- *   - The first-use fetch loads 13 hours × ~2 MB = ~25 MB upfront; the
+ *   - The first-use fetch loads 13 hours × ~9 MB = ~117 MB upfront; the
  *     scrubber then swaps the layer's single-timestep data on each hour
  *     change (no further network traffic).
  *   - Gated by VITE_CMEMS_CURRENTS_ENABLED so the existing Xweather
@@ -18,7 +25,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
-import { WindParticleLayer } from './WindParticleLayer';
+import { CurrentParticleLayer } from './CurrentParticleLayer';
 import { fetchCurrentsGrid } from '../../services/weather/api/currentsGrid';
 import type { WindGrid } from '../../services/weather/windField';
 
@@ -26,33 +33,6 @@ const log = createLogger('CurrentParticleLayer');
 
 const LAYER_ID = 'cmems-currents-particles';
 const FEATURE_ENABLED = String(import.meta.env.VITE_CMEMS_CURRENTS_ENABLED ?? 'false').toLowerCase() === 'true';
-
-/**
- * WindParticleLayer is calibrated for wind (5–30 m/s) via three baked-in
- * constants in its render loop:
- *   SPEED_FACTOR = 0.00025          → displacement per frame ∝ m/s
- *   VELOCITY_KILL_THRESHOLD = 0.3   → knots; "stalled" particles respawn
- *
- * Ocean currents are ~0.1–2 m/s — well below those thresholds. Without
- * scaling, every particle stalls every frame and respawns at random,
- * producing a 15-Hz teleport storm. We pre-scale u/v here so the engine's
- * wind-grade physics treat currents as wind-grade flows.
- *
- * Tuning knob: too low → particles still flash from stall-respawn;
- * too high → particles zoom across the map and slam into polar kill,
- * respawning anyway. ~20–30× is the sweet spot for global ocean data.
- *
- * Hot-overridable via window.__thalassaDebug.currentsGain — change in
- * DevTools, toggle the layer off+on, see the new value applied without
- * a redeploy. Production default is 25.
- */
-const CURRENT_VISUAL_GAIN_DEFAULT = 25;
-const getCurrentsGain = (): number => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const g = globalThis as any;
-    const override = g.__thalassaDebug?.currentsGain;
-    return typeof override === 'number' && override > 0 ? override : CURRENT_VISUAL_GAIN_DEFAULT;
-};
 
 // ── Live-debug state mirror ────────────────────────────────────────────
 // Production builds strip `console.*` via esbuild.drop, so any log path
@@ -129,7 +109,7 @@ export function useOceanCurrentParticleLayer(
     visible: boolean,
     forecastHour: number = 0,
 ) {
-    const layerRef = useRef<WindParticleLayer | null>(null);
+    const layerRef = useRef<CurrentParticleLayer | null>(null);
     const currentHourRef = useRef(-1);
     // Refs (not state) for the fetch *lifecycle* — state churn inside the
     // effect callback was re-firing the effect on every failure, producing
@@ -231,7 +211,7 @@ export function useOceanCurrentParticleLayer(
 
         if (!layerRef.current) {
             try {
-                const layer = new WindParticleLayer(LAYER_ID);
+                const layer = new CurrentParticleLayer(LAYER_ID);
                 map.addLayer(layer);
                 layerRef.current = layer;
                 currentHourRef.current = -1;
@@ -247,22 +227,20 @@ export function useOceanCurrentParticleLayer(
 
         if (currentHourRef.current !== wantsHour) {
             try {
-                // Amplify u/v for the wind-calibrated engine. See doc above
-                // for why this is necessary; getCurrentsGain() reads a live
-                // override off window for tuning without redeploys.
-                const gain = getCurrentsGain();
-                const srcU = grid.u[wantsHour];
-                const srcV = grid.v[wantsHour];
-                const n = srcU.length;
-                const uAmp = new Float32Array(n);
-                const vAmp = new Float32Array(n);
-                for (let i = 0; i < n; i++) {
-                    uAmp[i] = srcU[i] * gain;
-                    vAmp[i] = srcV[i] * gain;
+                // CurrentParticleLayer is tuned for native m/s — no
+                // amplification or scratch-buffer copy needed. The land
+                // mask is required (rejection-sampled spawn AND advection
+                // kill) so currents from a v1 binary (no mask) won't draw
+                // anything useful — that's intentional, the v1 fallback is
+                // only there to avoid hard-failing during the first deploy
+                // before the pipeline has run.
+                if (!grid.landMask) {
+                    log.warn('Currents grid has no land mask (v1 binary?) — skipping draw');
+                    return;
                 }
-                layerRef.current.setWindData(
-                    uAmp,
-                    vAmp,
+                layerRef.current.setCurrents(
+                    grid.u[wantsHour],
+                    grid.v[wantsHour],
                     grid.width,
                     grid.height,
                     {
