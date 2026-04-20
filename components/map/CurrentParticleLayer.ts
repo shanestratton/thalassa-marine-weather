@@ -99,9 +99,12 @@ void main() {
     v_alpha = a_particle_alpha;
     vec2 merc = toMercator(lon, lat);
     gl_Position = u_matrix * vec4(merc, 0.0, 1.0);
-    // 2.5px at zoom ≤3, growing to 5px at zoom ≥10. Matches user expectation
-    // that zooming in shows finer detail.
-    gl_PointSize = mix(2.5, 5.0, clamp((u_zoom - 3.0) / 7.0, 0.0, 1.0));
+    // Size scaled by alpha so head points (bright, alpha≈1) are big and
+    // tail points (dim, alpha→0) shrink to 1px. Produces a clear
+    // head-to-tail streak that reads as a direction arrow even in a
+    // still screenshot — not a uniform blur.
+    float baseSize = mix(2.0, 5.0, clamp((u_zoom - 3.0) / 7.0, 0.0, 1.0));
+    gl_PointSize = baseSize * mix(0.25, 1.4, a_particle_alpha);
 }`;
 
 const PARTICLE_FRAG = `
@@ -562,7 +565,7 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
                 data[offset + 2] = 0;
                 data[offset + 3] = 0;
             }
-            data[base + 3] = 0.9; // head alpha
+            data[base + 3] = 1.0; // head alpha — full brightness for "comet head"
             ages[i] = Math.floor(Math.random() * MAX_AGE_FRAMES);
         }
     }
@@ -662,7 +665,7 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
                     data[offset + 2] = 0;
                     data[offset + 3] = 0;
                 }
-                data[base + 3] = 0.9;
+                data[base + 3] = 1.0; // head alpha — full brightness for "comet head"
                 ages[i] = 0;
                 continue;
             }
@@ -672,11 +675,14 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
             data[base + 1] = y;
             data[base + 2] = speedMS;
 
-            // Trail alpha fade — head bright, tail nearly invisible.
+            // Trail alpha fade — quadratic (not linear) so the head is
+            // MUCH brighter than the tail. Combined with size-scales-with-
+            // alpha in the vertex shader, this makes each trail look like
+            // a comet: solid bright head, shrinking fading tail.
             for (let t = 0; t < TRAIL_LENGTH; t++) {
                 const offset = base + t * FLOATS_PER_TRAIL_PT;
-                const fadeRatio = 1 - t / TRAIL_LENGTH;
-                data[offset + 3] = 0.92 * fadeRatio;
+                const linFade = 1 - t / TRAIL_LENGTH;
+                data[offset + 3] = linFade * linFade; // quadratic
             }
         }
     }
