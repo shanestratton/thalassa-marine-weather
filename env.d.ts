@@ -45,6 +45,15 @@ interface ThalassaWindow {
         trail0: Array<{ x: number; y: number; spd: number; a: number }>;
         sample: Array<{ x: number; y: number; age: number }>;
         wind0: { u: number; v: number };
+        cam?: {
+            zoom: number;
+            center: number[];
+            bearing: number;
+            pitch: number;
+            isMoving: boolean;
+            isZooming: boolean;
+            isEasing: boolean;
+        } | null;
         particleCount?: number;
         fps?: number;
         dataPoints?: number;
