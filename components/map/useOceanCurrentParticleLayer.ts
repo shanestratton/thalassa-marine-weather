@@ -27,6 +27,29 @@ const log = createLogger('CurrentParticleLayer');
 const LAYER_ID = 'cmems-currents-particles';
 const FEATURE_ENABLED = String(import.meta.env.VITE_CMEMS_CURRENTS_ENABLED ?? 'false').toLowerCase() === 'true';
 
+/**
+ * WindParticleLayer is calibrated for wind (5–30 m/s) via three constants
+ * that are hard-coded into its render loop:
+ *   SPEED_FACTOR = 0.00025          → displacement per frame ∝ m/s
+ *   VELOCITY_KILL_THRESHOLD = 0.3   → knots; "stalled" particles respawn
+ *   (implicit) visible flow at ~15 m/s wind ≈ 30 knots
+ *
+ * Ocean currents are ~0.1–2 m/s (0.2–4 knots) — two orders of magnitude
+ * slower. Without scaling, every particle sits below the kill threshold
+ * every frame, triggering a global respawn → the viewer sees 30k particles
+ * teleport to fresh random positions 15× per second = violent flashing.
+ *
+ * The cleanest fix would be constructor options on WindParticleLayer, but
+ * we want to close this today: pre-scale u/v here so the layer's existing
+ * wind-grade thresholds apply sensibly to currents. 75× maps:
+ *    1 m/s real current ≈ 75 m/s apparent ≈ typical wind display speed
+ *    0.01 m/s real       ≈ 0.75 m/s ≈ 1.5 kt → above kill threshold
+ * Scaling is VISUAL ONLY — the Copernicus legend (RIP/SLACK) is drawn
+ * from the un-amplified grid elsewhere in MapHub, so the displayed speed
+ * scale stays physically correct.
+ */
+const CURRENT_VISUAL_GAIN = 75;
+
 // ── Live-debug state mirror ────────────────────────────────────────────
 // Production builds strip `console.*` via esbuild.drop, so any log path
 // we add is silently gone. Instead, mirror lifecycle events onto window
@@ -205,7 +228,21 @@ export function useOceanCurrentParticleLayer(
 
         if (currentHourRef.current !== wantsHour) {
             try {
-                layerRef.current.setWindData(grid.u[wantsHour], grid.v[wantsHour], grid.width, grid.height, {
+                // Amplify u/v for the wind-calibrated engine. See
+                // CURRENT_VISUAL_GAIN doc above for why this is necessary.
+                // Allocates a scratch pair per hour swap (~2MB each for the
+                // default grid); runs once per scrub tick, not per frame, so
+                // the cost is negligible.
+                const srcU = grid.u[wantsHour];
+                const srcV = grid.v[wantsHour];
+                const n = srcU.length;
+                const uAmp = new Float32Array(n);
+                const vAmp = new Float32Array(n);
+                for (let i = 0; i < n; i++) {
+                    uAmp[i] = srcU[i] * CURRENT_VISUAL_GAIN;
+                    vAmp[i] = srcV[i] * CURRENT_VISUAL_GAIN;
+                }
+                layerRef.current.setWindData(uAmp, vAmp, grid.width, grid.height, {
                     north: grid.north,
                     south: grid.south,
                     east: grid.east,
