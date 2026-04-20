@@ -103,10 +103,19 @@ async function doFetchCurrentsGrid(): Promise<WindGrid | null> {
     let west = 0;
     let east = 0;
 
+    // Cache-bust the bin URLs with the manifest's generated_at timestamp.
+    // The bin filenames (h00.bin etc) are stable across pipeline runs, so
+    // without this the browser HTTP cache happily serves stale binaries
+    // from a previous data version (e.g. v1 0.5° even though the release
+    // now has v2 0.25°). The query string makes each pipeline-run-version
+    // a distinct cache key while costing nothing on the server side
+    // (the edge function ignores query params).
+    const cacheBust = manifest.generated_at ? `?t=${encodeURIComponent(manifest.generated_at)}` : '';
+
     // Fetch all hours in parallel — user pays once when currents toggles on.
     const parsed = await Promise.all(
         manifest.hours.map(async (entry) => {
-            const res = await fetch(`${BASE}/${entry.file}`, { cache: 'default' });
+            const res = await fetch(`${BASE}/${entry.file}${cacheBust}`, { cache: 'default' });
             if (!res.ok) throw new Error(`hour ${entry.hour}: HTTP ${res.status}`);
             const buf = await res.arrayBuffer();
             return { hour: entry.hour, buf };
