@@ -115,16 +115,78 @@ void main() {
     // Speed bucket: 0..1 mapping from SLACK to STRONG.
     float t = clamp((v_speed - u_speed_slack) / (u_speed_strong - u_speed_slack), 0.0, 1.0);
 
-    // RIP/SLACK gradient: deep cyan/blue (slack) → cyan → amber → red (rip).
-    vec3 slack = vec3(0.30, 0.55, 0.85);    // calm cyan-blue
-    vec3 mid   = vec3(0.95, 0.85, 0.50);    // warm amber
-    vec3 rip   = vec3(0.95, 0.35, 0.30);    // coral red
-    vec3 color = t < 0.5
-        ? mix(slack, mid, t * 2.0)
-        : mix(mid, rip, (t - 0.5) * 2.0);
+    // White particle on top of the heatmap reads cleanest — let the
+    // heatmap underlay carry the colour-magnitude story; particles
+    // carry the direction story. Match the alpha to speed so fast
+    // particles are bright streamlines and slack ones fade out.
+    vec3 color = vec3(0.97, 0.99, 1.00);
+    float alpha = v_alpha * mix(0.5, 1.0, t);
+    gl_FragColor = vec4(color, alpha);
+}`;
 
-    // Alpha boosted with speed — slow particles dimmer, fast more visible.
-    float alpha = v_alpha * mix(0.45, 0.9, t);
+// Heatmap shaders — render a coloured speed-magnitude raster underneath
+// the particles. This is what makes the EAC visible as a coherent ribbon
+// of orange/red rather than a few sparse white particles.
+const HEATMAP_VERT = `
+precision highp float;
+attribute vec2 a_quad_pos;       // a unit quad: (0,0) to (1,1)
+uniform mat4 u_matrix;
+uniform vec4 u_grid_bounds;      // [south, north, west, east]
+uniform float u_lon_offset;
+varying vec2 v_uv;
+
+const float PI = 3.14159265359;
+
+vec2 toMercator(float lon, float lat) {
+    float x = (lon + 180.0) / 360.0;
+    float y = 0.5 - log(tan(PI / 4.0 + lat * PI / 360.0)) / (2.0 * PI);
+    return vec2(x, y);
+}
+
+void main() {
+    float lon = u_grid_bounds.z + a_quad_pos.x * (u_grid_bounds.w - u_grid_bounds.z) + u_lon_offset;
+    float lat = u_grid_bounds.x + a_quad_pos.y * (u_grid_bounds.y - u_grid_bounds.x);
+    vec2 merc = toMercator(lon, lat);
+    gl_Position = u_matrix * vec4(merc, 0.0, 1.0);
+    // UV: x = nx, y = 1 - ny (texture is row-major north→south, but our
+    // quad is bottom-up because nyBase=0 maps to south)
+    v_uv = vec2(a_quad_pos.x, 1.0 - a_quad_pos.y);
+}`;
+
+const HEATMAP_FRAG = `
+precision highp float;
+uniform sampler2D u_speed_tex;   // R = speed encoded as u8 over [0, SPEED_STRONG*1.5], G = land flag
+uniform float u_speed_strong;    // unused — kept for parity with particle shader
+uniform float u_opacity;
+varying vec2 v_uv;
+
+void main() {
+    vec4 sample = texture2D(u_speed_tex, v_uv);
+    if (sample.g > 0.5) discard;     // land — skip
+    float vRaw = sample.r;           // [0,1], represents real speed * (1 / (SPEED_STRONG * 1.5))
+    if (vRaw < 0.01) discard;        // ~0.02 m/s — don't paint pure-slack ocean
+
+    // Decode: speed-as-fraction-of-STRONG is vRaw * 1.5 (since the encode
+    // range was SPEED_STRONG * 1.5). t > 1 = "rip" zones above STRONG.
+    float t = clamp(vRaw * 1.5, 0.0, 1.0);
+    vec3 c0 = vec3(0.10, 0.30, 0.55);   // deep blue (slack)
+    vec3 c1 = vec3(0.20, 0.65, 0.85);   // cyan
+    vec3 c2 = vec3(0.55, 0.80, 0.55);   // sea green
+    vec3 c3 = vec3(0.95, 0.80, 0.40);   // amber
+    vec3 c4 = vec3(0.95, 0.45, 0.30);   // coral
+    vec3 c5 = vec3(0.85, 0.25, 0.30);   // deep coral (rip)
+
+    vec3 color;
+    if (t < 0.2)       color = mix(c0, c1, t / 0.2);
+    else if (t < 0.4)  color = mix(c1, c2, (t - 0.2) / 0.2);
+    else if (t < 0.6)  color = mix(c2, c3, (t - 0.4) / 0.2);
+    else if (t < 0.8)  color = mix(c3, c4, (t - 0.6) / 0.2);
+    else               color = mix(c4, c5, (t - 0.8) / 0.2);
+
+    // Speed-graded alpha — slow flows are hinted, fast ones are bold.
+    // Adds enough contrast that the EAC ribbon pops out without smothering
+    // the satellite base in the open ocean.
+    float alpha = u_opacity * mix(0.35, 0.85, t);
     gl_FragColor = vec4(color, alpha);
 }`;
 
@@ -180,7 +242,19 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
     private particleBuffer: WebGLBuffer | null = null;
     private particleVAO: WebGLVertexArrayObject | null = null;
 
-    // Attribute / uniform locations
+    // Heatmap underlay (the colour-coded speed magnitude raster)
+    private heatmapProgram: WebGLProgram | null = null;
+    private heatmapQuadBuffer: WebGLBuffer | null = null;
+    private speedTexture: WebGLTexture | null = null;
+    private hAQuadPosLoc = -1;
+    private hUMatrixLoc: WebGLUniformLocation | null = null;
+    private hUGridBoundsLoc: WebGLUniformLocation | null = null;
+    private hULonOffsetLoc: WebGLUniformLocation | null = null;
+    private hUSpeedTexLoc: WebGLUniformLocation | null = null;
+    private hUSpeedStrongLoc: WebGLUniformLocation | null = null;
+    private hUOpacityLoc: WebGLUniformLocation | null = null;
+
+    // Attribute / uniform locations (particle program)
     private aPosLoc = -1;
     private aSpeedLoc = -1;
     private aAlphaLoc = -1;
@@ -256,6 +330,26 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
             gl2.bindVertexArray(null);
         }
 
+        // ── Heatmap underlay ─────────────────────────────────────────
+        const hvs = compileShader(gl, gl.VERTEX_SHADER, HEATMAP_VERT, 'heatmap vert');
+        const hfs = compileShader(gl, gl.FRAGMENT_SHADER, HEATMAP_FRAG, 'heatmap frag');
+        this.heatmapProgram = linkProgram(gl, hvs, hfs);
+        this.hAQuadPosLoc = gl.getAttribLocation(this.heatmapProgram, 'a_quad_pos');
+        this.hUMatrixLoc = gl.getUniformLocation(this.heatmapProgram, 'u_matrix');
+        this.hUGridBoundsLoc = gl.getUniformLocation(this.heatmapProgram, 'u_grid_bounds');
+        this.hULonOffsetLoc = gl.getUniformLocation(this.heatmapProgram, 'u_lon_offset');
+        this.hUSpeedTexLoc = gl.getUniformLocation(this.heatmapProgram, 'u_speed_tex');
+        this.hUSpeedStrongLoc = gl.getUniformLocation(this.heatmapProgram, 'u_speed_strong');
+        this.hUOpacityLoc = gl.getUniformLocation(this.heatmapProgram, 'u_opacity');
+
+        // Quad covering [0,1]×[0,1] in grid space — gets projected to merc
+        // by the heatmap vert shader.
+        this.heatmapQuadBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.heatmapQuadBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+
+        this.speedTexture = gl.createTexture();
+
         // Resume render loop when the page becomes visible again — render()
         // gates triggerRepaint behind !document.hidden so the loop dies on
         // backgrounding without this hook.
@@ -290,9 +384,15 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
             this._onVisibilityChange = null;
         }
         if (this.program) gl.deleteProgram(this.program);
+        if (this.heatmapProgram) gl.deleteProgram(this.heatmapProgram);
         if (this.particleBuffer) gl.deleteBuffer(this.particleBuffer);
+        if (this.heatmapQuadBuffer) gl.deleteBuffer(this.heatmapQuadBuffer);
+        if (this.speedTexture) gl.deleteTexture(this.speedTexture);
         const gl2 = gl as WebGL2RenderingContext;
         if (this.particleVAO && gl2.deleteVertexArray) gl2.deleteVertexArray(this.particleVAO);
+        this.heatmapProgram = null;
+        this.heatmapQuadBuffer = null;
+        this.speedTexture = null;
         this.program = null;
         this.particleBuffer = null;
         this.particleVAO = null;
@@ -335,8 +435,46 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         this.gridSpeed = speed;
 
         this.buildSpawnCDF();
+        this.uploadSpeedTexture();
         this.respawnAllParticles();
         this.map?.triggerRepaint();
+    }
+
+    /** Pack speed (R) + land flag (G) into a 2-channel RGBA8 texture for
+     *  the heatmap shader. R = speed/SPEED_STRONG clamped to [0,1] then
+     *  encoded as u8; G = 255 if land else 0. */
+    private uploadSpeedTexture(): void {
+        const gl = this.gl;
+        const tex = this.speedTexture;
+        const speed = this.gridSpeed;
+        const mask = this.landMask;
+        if (!gl || !tex || !speed || !mask) return;
+
+        const w = this.gridW;
+        const h = this.gridH;
+        const size = w * h;
+        const rgba = new Uint8Array(size * 4);
+        // Encode speed as u8 across [0, SPEED_STRONG_M_S * 1.5] to give
+        // some headroom for the few cells that exceed STRONG. Decoded in
+        // the shader as: real_speed = R/255 * (SPEED_STRONG * 1.5).
+        const ENCODE_RANGE = SPEED_STRONG_M_S * 1.5;
+        const inv = 255.0 / ENCODE_RANGE;
+        for (let i = 0; i < size; i++) {
+            const off = i * 4;
+            const s = Math.min(255, Math.round(speed[i] * inv));
+            rgba[off] = s;
+            rgba[off + 1] = mask[i] === 1 ? 255 : 0;
+            rgba[off + 2] = 0;
+            rgba[off + 3] = 255;
+        }
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        // LINEAR filtering smooths out the cell-grid step pattern at zoom.
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, this.globalMode ? gl.REPEAT : gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+        gl.bindTexture(gl.TEXTURE_2D, null);
     }
 
     // ── Speed-weighted spawn ──────────────────────────────────────────
@@ -592,12 +730,52 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         const prevBuffer = gl.getParameter(gl.ARRAY_BUFFER_BINDING);
         const prevBlend = gl.isEnabled(gl.BLEND);
         const prevDepthTest = gl.isEnabled(gl.DEPTH_TEST);
+        const prevActiveTex = gl.getParameter(gl.ACTIVE_TEXTURE);
 
         this.advectParticles();
 
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
         gl.disable(gl.DEPTH_TEST);
+
+        // ── Heatmap pass — colour magnitude underlay ─────────────────
+        // Draws a quad covering the data bounds, sampling the speed texture
+        // through a perceptual ramp so the EAC / ACC / Gulf Stream show as
+        // coherent ribbons of colour even before particles tell direction.
+        if (this.heatmapProgram && this.heatmapQuadBuffer && this.speedTexture) {
+            gl.useProgram(this.heatmapProgram);
+            if (this.hUMatrixLoc) gl.uniformMatrix4fv(this.hUMatrixLoc, false, mat);
+            if (this.hUGridBoundsLoc) {
+                gl.uniform4f(
+                    this.hUGridBoundsLoc,
+                    this.gridBounds.south,
+                    this.gridBounds.north,
+                    this.gridBounds.west,
+                    this.gridBounds.east,
+                );
+            }
+            if (this.hUSpeedStrongLoc) gl.uniform1f(this.hUSpeedStrongLoc, SPEED_STRONG_M_S);
+            if (this.hUOpacityLoc) gl.uniform1f(this.hUOpacityLoc, 0.6);
+
+            gl.activeTexture(gl.TEXTURE0);
+            gl.bindTexture(gl.TEXTURE_2D, this.speedTexture);
+            if (this.hUSpeedTexLoc) gl.uniform1i(this.hUSpeedTexLoc, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, this.heatmapQuadBuffer);
+            if (this.hAQuadPosLoc >= 0) {
+                gl.enableVertexAttribArray(this.hAQuadPosLoc);
+                gl.vertexAttribPointer(this.hAQuadPosLoc, 2, gl.FLOAT, false, 0, 0);
+            }
+
+            const heatmapOffsets = this.globalMode ? [-360, 0, 360] : [0];
+            for (const offset of heatmapOffsets) {
+                if (this.hULonOffsetLoc) gl.uniform1f(this.hULonOffsetLoc, offset);
+                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+            }
+
+            if (this.hAQuadPosLoc >= 0) gl.disableVertexAttribArray(this.hAQuadPosLoc);
+            gl.bindTexture(gl.TEXTURE_2D, null);
+        }
 
         gl.useProgram(this.program);
         if (this.uMatrixLoc) gl.uniformMatrix4fv(this.uMatrixLoc, false, mat);
@@ -642,6 +820,7 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         else gl.disable(gl.BLEND);
         if (prevDepthTest) gl.enable(gl.DEPTH_TEST);
         else gl.disable(gl.DEPTH_TEST);
+        gl.activeTexture(prevActiveTex);
 
         // Mirror state for diagnostics.
         this._debugFrame++;
