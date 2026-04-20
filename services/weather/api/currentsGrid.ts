@@ -18,7 +18,7 @@
  *
  * Binary layout (see scripts/cmems-currents-pipeline/pipeline.py):
  *   bytes  0..3   magic 'THCU'
- *   byte   4      version (1)
+ *   byte   4      version (1 or 2 — v2 adds land mask plane)
  *   byte   5      reserved
  *   u16    6..7   width
  *   u16    8..9   height
@@ -27,6 +27,7 @@
  *   u16   28..29  reserved
  *   f32[w*h]      u  (east velocity m/s)
  *   f32[w*h]      v  (north velocity m/s)
+ *   u8 [w*h]      land_mask (1=land, 0=ocean) — v2 only
  */
 import type { WindGrid } from '../windField';
 import { createLogger } from '../../../utils/createLogger';
@@ -93,6 +94,7 @@ async function doFetchCurrentsGrid(): Promise<WindGrid | null> {
     const us: Float32Array[] = new Array(hourCount);
     const vs: Float32Array[] = new Array(hourCount);
     const speeds: Float32Array[] = new Array(hourCount);
+    let landMask: Uint8Array | undefined;
 
     let width = 0;
     let height = 0;
@@ -101,8 +103,7 @@ async function doFetchCurrentsGrid(): Promise<WindGrid | null> {
     let west = 0;
     let east = 0;
 
-    // Fetch all hours in parallel — each file is ~2 MB, user pays this
-    // once when currents toggles on.
+    // Fetch all hours in parallel — user pays once when currents toggles on.
     const parsed = await Promise.all(
         manifest.hours.map(async (entry) => {
             const res = await fetch(`${BASE}/${entry.file}`, { cache: 'default' });
@@ -117,6 +118,7 @@ async function doFetchCurrentsGrid(): Promise<WindGrid | null> {
         if (dv.getUint32(0, true) !== MAGIC) {
             throw new Error(`hour ${hour}: bad magic`);
         }
+        const version = dv.getUint8(4);
         const w = dv.getUint16(6, true);
         const h = dv.getUint16(8, true);
         const n = dv.getFloat32(10, true);
@@ -137,8 +139,16 @@ async function doFetchCurrentsGrid(): Promise<WindGrid | null> {
         // is 30 bytes — copy instead of view to sidestep RangeError.
         const uOffset = HEADER_SIZE;
         const vOffset = uOffset + w * h * 4;
+        const maskOffset = vOffset + w * h * 4;
         const u = new Float32Array(buf.slice(uOffset, uOffset + w * h * 4));
         const v = new Float32Array(buf.slice(vOffset, vOffset + w * h * 4));
+
+        // v2+: land mask plane follows v. Take it from the first hour we
+        // see (mask is hour-invariant — land doesn't move overnight).
+        if (version >= 2 && landMask === undefined && buf.byteLength >= maskOffset + w * h) {
+            landMask = new Uint8Array(buf.slice(maskOffset, maskOffset + w * h));
+        }
+
         const speed = new Float32Array(w * h);
         for (let i = 0; i < w * h; i++) {
             speed[i] = Math.hypot(u[i], v[i]);
@@ -156,7 +166,11 @@ async function doFetchCurrentsGrid(): Promise<WindGrid | null> {
     for (let r = 0; r < height; r++) lats[r] = north + r * latStep;
     for (let c = 0; c < width; c++) lons[c] = west + c * lonStep;
 
-    log.info(`Loaded currents: ${hourCount}h × ${width}×${height}, bounds n=${north} s=${south} w=${west} e=${east}`);
+    const oceanCells = landMask ? width * height - landMask.reduce((a, b) => a + b, 0) : null;
+    log.info(
+        `Loaded currents: ${hourCount}h × ${width}×${height}, bounds n=${north} s=${south} w=${west} e=${east}` +
+            (oceanCells !== null ? `, ocean cells=${oceanCells}` : ', no land mask (v1 binary)'),
+    );
 
     return {
         u: us,
@@ -171,5 +185,6 @@ async function doFetchCurrentsGrid(): Promise<WindGrid | null> {
         west,
         east,
         totalHours: hourCount,
+        landMask,
     };
 }

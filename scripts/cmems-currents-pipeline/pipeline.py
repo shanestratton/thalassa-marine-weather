@@ -11,7 +11,7 @@ directly (no third-party tile server dependency).
 
 Binary file format (little-endian):
     bytes  0..3   magic 'THCU' (Thalassa Currents)
-    byte   4      version (1)
+    byte   4      version (2 — v1 was identical sans land mask plane)
     byte   5      reserved (0)
     u16    6..7   width
     u16    8..9   height
@@ -22,8 +22,9 @@ Binary file format (little-endian):
     u16   26..27  hours  (always 1 per file — one file per forecast hour)
     u16   28..29  reserved (0)
     // pixel data, row-major, north-to-south, west-to-east:
-    f32[width*height] u  (east velocity, m/s)
-    f32[width*height] v  (north velocity, m/s)
+    f32[width*height] u           (east velocity, m/s)
+    f32[width*height] v           (north velocity, m/s)
+    u8 [width*height] land_mask   (1=land, 0=ocean) — v2+ only
 
 One file per forecast hour, named `h00.bin` through `h<H-1>.bin`.
 """
@@ -47,10 +48,13 @@ DATASET_ID = "cmems_mod_glo_phy_anfc_merged-uv_PT1H-i"
 VARIABLES = ["uo", "vo"]
 # 12h forecast horizon — near-term passage-planning window.
 FORECAST_HOURS = 12
-# Subsample to this resolution (degrees). 0.5° = 720×320 ≈ 230k points per
-# hour × 8 bytes (u+v float32) = ~1.8 MB/hour uncompressed, well under
-# GitHub Release's 2 GB asset cap and fast to transfer.
-SUBSAMPLE_DEG = 0.5
+# Subsample to this resolution (degrees). 0.25° = 1440×681 ≈ 980k cells per
+# hour × 9 bytes (u+v float32 + land u8) = ~9 MB/hour uncompressed.
+# 13 hours total ≈ 117 MB, within GitHub Release's 2 GB asset cap.
+# Was 0.5° but at that resolution the East Australian Current and other
+# narrow western-boundary currents alias to ~1 cell wide and disappear
+# under nearest-neighbor downsampling.
+SUBSAMPLE_DEG = 0.25
 
 # GitHub Release tag to update daily. Must exist before first run — the
 # workflow step creates it if missing.
@@ -60,7 +64,7 @@ OUT_DIR = Path(os.environ.get("CMEMS_OUT_DIR", "/tmp/cmems-currents"))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 BINARY_MAGIC = b"THCU"
-BINARY_VERSION = 1
+BINARY_VERSION = 2  # v1 = no land-mask plane; v2 adds u8[w*h] mask after v
 
 
 # ── Steps ─────────────────────────────────────────────────────────────────
@@ -115,7 +119,7 @@ def fetch_cmems(start: datetime, end: datetime) -> Path:
 
 
 def encode_hourly_binaries(nc_path: Path) -> list[Path]:
-    """Subsample the multi-hour NetCDF and write one .bin per forecast hour."""
+    """Coarsen the multi-hour NetCDF and write one .bin per forecast hour."""
     import numpy as np
     import xarray as xr
 
@@ -123,14 +127,29 @@ def encode_hourly_binaries(nc_path: Path) -> list[Path]:
     if "depth" in ds.dims:
         ds = ds.squeeze("depth", drop=True)
 
-    # Subsample to SUBSAMPLE_DEG resolution to cap file size.
-    lat_step = max(1, int(round(SUBSAMPLE_DEG / abs(float(ds.latitude[1] - ds.latitude[0])))))
-    lon_step = max(1, int(round(SUBSAMPLE_DEG / abs(float(ds.longitude[1] - ds.longitude[0])))))
-    ds = ds.isel(latitude=slice(None, None, lat_step),
-                 longitude=slice(None, None, lon_step))
-    # Ensure lat goes north→south in the output (matches client expectation
-    # of row-major north-to-south). CMEMS native is south→north.
+    # Build a NATIVE-resolution land mask BEFORE filling NaNs. CMEMS marks
+    # land cells as NaN — that's our source of truth.
+    lat_block = max(1, int(round(SUBSAMPLE_DEG / abs(float(ds.latitude[1] - ds.latitude[0])))))
+    lon_block = max(1, int(round(SUBSAMPLE_DEG / abs(float(ds.longitude[1] - ds.longitude[0])))))
+
+    land_native = ds["uo"].isel(time=0).isnull().astype("float32")  # 1=land, 0=ocean
+
+    # Area-average (coarsen+mean) instead of nearest-neighbor subsampling.
+    # Critical for narrow western-boundary currents (EAC, Gulf Stream,
+    # Kuroshio): nearest-neighbor at 0.25° picks every Nth native cell and
+    # frequently grabs the edge of the current rather than its peak,
+    # quantizing the visible flow away. Area-averaging preserves it.
+    ds = ds.coarsen(latitude=lat_block, longitude=lon_block, boundary="trim").mean()
+    land_frac = land_native.coarsen(latitude=lat_block, longitude=lon_block, boundary="trim").mean()
+    # Cell is "land" if more than half of its contributing native cells were
+    # land. Threshold means coastal cells (mixed) lean ocean — we'd rather
+    # paint slightly into the coast than not show the EAC at all.
+    land_da = (land_frac >= 0.5).astype("uint8")
+
+    # Ensure lat goes north→south in output (client expects row-major
+    # north-to-south). CMEMS native is south→north.
     ds = ds.reindex(latitude=ds.latitude[::-1])
+    land_da = land_da.reindex(latitude=land_da.latitude[::-1])
 
     height = ds.sizes["latitude"]
     width = ds.sizes["longitude"]
@@ -139,9 +158,12 @@ def encode_hourly_binaries(nc_path: Path) -> list[Path]:
     west = float(ds.longitude[0])
     east = float(ds.longitude[-1])
 
+    land_mask = np.ascontiguousarray(land_da.values, dtype=np.uint8)  # (h, w)
+    land_count = int(land_mask.sum())
+
     out_paths: list[Path] = []
     for i, t in enumerate(ds.time.values):
-        u = ds["uo"].isel(time=i).fillna(0.0).astype(np.float32).values  # ravel() applied below
+        u = ds["uo"].isel(time=i).fillna(0.0).astype(np.float32).values
         v = ds["vo"].isel(time=i).fillna(0.0).astype(np.float32).values
 
         bin_path = OUT_DIR / f"h{i:02d}.bin"
@@ -157,12 +179,14 @@ def encode_hourly_binaries(nc_path: Path) -> list[Path]:
         )
         with bin_path.open("wb") as f:
             f.write(header)
-            f.write(u.astype(np.float32).tobytes())
-            f.write(v.astype(np.float32).tobytes())
+            f.write(np.ascontiguousarray(u, dtype=np.float32).tobytes())
+            f.write(np.ascontiguousarray(v, dtype=np.float32).tobytes())
+            f.write(land_mask.tobytes())
         out_paths.append(bin_path)
         log.info(
-            "Wrote %s (%dx%d, time=%s, size=%d bytes)",
+            "Wrote %s (%dx%d, time=%s, %d bytes, %d land cells / %d total)",
             bin_path.name, width, height, t, bin_path.stat().st_size,
+            land_count, width * height,
         )
     return out_paths
 
