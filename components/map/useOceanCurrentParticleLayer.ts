@@ -70,6 +70,10 @@ interface CurrentsDebugMirror {
     fetchErrors: number;
     lastEvent: string;
     lastEventAt: number;
+    /** Ring buffer of the last 40 effect runs + outcomes with timestamps.
+     *  Readable via window.__thalassaDebug.currents.events to diagnose
+     *  which upstream dep is flipping. */
+    events: Array<{ t: number; ev: string; visible?: boolean; grid?: boolean; mapReady?: boolean }>;
 }
 const getDebug = (): CurrentsDebugMirror => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -90,13 +94,21 @@ const getDebug = (): CurrentsDebugMirror => {
             fetchErrors: 0,
             lastEvent: 'init',
             lastEventAt: Date.now(),
+            events: [],
         } satisfies CurrentsDebugMirror;
     }
     return g.__thalassaDebug.currents as CurrentsDebugMirror;
 };
-const noteEvent = (ev: string, patch: Partial<CurrentsDebugMirror> = {}) => {
+const noteEvent = (
+    ev: string,
+    patch: Partial<CurrentsDebugMirror> = {},
+    extra: { visible?: boolean; grid?: boolean; mapReady?: boolean } = {},
+) => {
     const d = getDebug();
     Object.assign(d, patch, { lastEvent: ev, lastEventAt: Date.now() });
+    d.events.push({ t: Date.now(), ev, ...extra });
+    // Cap ring size — keep most recent 40 events.
+    if (d.events.length > 40) d.events.splice(0, d.events.length - 40);
 };
 
 /**
@@ -130,7 +142,7 @@ export function useOceanCurrentParticleLayer(
     // Lazy-load the grid the first time currents becomes visible. Reset the
     // latch when visibility goes false→true so the user can retry manually.
     useEffect(() => {
-        noteEvent('fetch-effect-enter', { visible });
+        noteEvent('fetch-effect-enter', { visible }, { visible, grid: !!grid });
         if (!FEATURE_ENABLED) return;
         if (!visible) {
             // Hidden again — allow a fresh attempt next time we turn on.
@@ -177,8 +189,9 @@ export function useOceanCurrentParticleLayer(
     // Mount / update / unmount the custom layer based on visibility.
     useEffect(() => {
         const map = mapRef.current;
+        const eventMeta = { visible, grid: !!grid, mapReady };
         if (!map || !mapReady) {
-            noteEvent('mount-effect-skip-no-map');
+            noteEvent('mount-skip-no-map', {}, eventMeta);
             return;
         }
 
@@ -187,7 +200,7 @@ export function useOceanCurrentParticleLayer(
             return;
         }
 
-        noteEvent('mount-effect-enter', { visible, hasGrid: !!grid });
+        noteEvent('mount-effect-enter', { visible, hasGrid: !!grid }, eventMeta);
 
         // Tear down when hidden.
         if (!visible) {
@@ -195,10 +208,12 @@ export function useOceanCurrentParticleLayer(
                 try {
                     map.removeLayer(LAYER_ID);
                     getDebug().teardownCount += 1;
-                    noteEvent('layer-torn-down', { layerMounted: false });
+                    noteEvent('layer-torn-down', { layerMounted: false }, eventMeta);
                 } catch {
-                    /* best effort */
+                    noteEvent('layer-teardown-threw', {}, eventMeta);
                 }
+            } else {
+                noteEvent('teardown-noop', {}, eventMeta);
             }
             layerRef.current = null;
             currentHourRef.current = -1;
@@ -217,10 +232,10 @@ export function useOceanCurrentParticleLayer(
                 layerRef.current = layer;
                 currentHourRef.current = -1;
                 getDebug().mountCount += 1;
-                noteEvent('layer-mounted', { layerMounted: true });
+                noteEvent('layer-mounted', { layerMounted: true }, eventMeta);
                 log.info(`Mounted currents particle layer (id=${LAYER_ID})`);
             } catch (err) {
-                noteEvent('layer-mount-failed');
+                noteEvent('layer-mount-failed', {}, eventMeta);
                 log.warn('Failed to mount particle layer', err);
                 return;
             }
@@ -250,11 +265,11 @@ export function useOceanCurrentParticleLayer(
                 });
                 currentHourRef.current = wantsHour;
                 getDebug().setDataCount += 1;
-                noteEvent('set-data', { currentHour: wantsHour });
+                noteEvent('set-data', { currentHour: wantsHour }, eventMeta);
                 map.triggerRepaint();
                 log.info(`Currents hour swapped to h+${wantsHour}`);
             } catch (err) {
-                noteEvent('set-data-failed');
+                noteEvent('set-data-failed', {}, eventMeta);
                 log.warn('Failed to set currents data', err);
             }
         }
