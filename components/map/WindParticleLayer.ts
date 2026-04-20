@@ -1008,11 +1008,23 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     render(gl: WebGLRenderingContext, matrixOrOptions: unknown): void {
         // PERF: Throttle to ~15fps — skip frames closer than 66ms apart.
         // Wind particles don't need 60fps; this cuts GPU load by ~75%.
+        //
+        // CRITICAL: when we bail on a throttled frame we must NOT request
+        // an immediate repaint. Mapbox would call render() again on the
+        // next RAF (~16ms), we'd bail again, ...4 bail-cycles per draw.
+        // Each bail still triggers a full Mapbox frame: framebuffer clear
+        // + base-tile redraw + (no particles). Result: particles visible
+        // ~25% of frames = visible flashing across the whole layer.
+        //
+        // Schedule the next repaint at the throttle deadline so Mapbox
+        // pauses its render loop until we actually have new data to draw.
         const now = performance.now();
-        if (now - this._lastRenderTime < 66) {
-            // Schedule another frame but don't draw this one
-            // Guard: only request repaint if page is visible to avoid battery drain
-            if (!document.hidden) this.map?.triggerRepaint();
+        const elapsed = now - this._lastRenderTime;
+        if (elapsed < 66) {
+            if (!document.hidden) {
+                const remaining = 66 - elapsed;
+                setTimeout(() => this.map?.triggerRepaint(), remaining);
+            }
             return;
         }
         this._lastRenderTime = now;
