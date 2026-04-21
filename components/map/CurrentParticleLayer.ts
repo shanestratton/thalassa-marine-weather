@@ -313,6 +313,11 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
     // animations (which call render() at 60fps) don't 4× particle
     // motion speed and re-upload the 36 MB trail buffer 60 times/s.
     private _lastAdvectTime = 0;
+    // Fallback timer so the layer keeps animating even when Mapbox is
+    // idle (no camera motion, no other dirty layers). Cancelled and
+    // reset every time render() runs, so it only fires when no one
+    // else has triggered a repaint in ~66ms.
+    private _keepaliveTimer: ReturnType<typeof setTimeout> | null = null;
     private _onVisibilityChange: (() => void) | null = null;
 
     // Diagnostic counters mirrored to window for debugging.
@@ -485,6 +490,10 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         if (this._onVisibilityChange) {
             document.removeEventListener('visibilitychange', this._onVisibilityChange);
             this._onVisibilityChange = null;
+        }
+        if (this._keepaliveTimer !== null) {
+            clearTimeout(this._keepaliveTimer);
+            this._keepaliveTimer = null;
         }
         if (this.program) gl.deleteProgram(this.program);
         if (this.heatmapProgram) gl.deleteProgram(this.heatmapProgram);
@@ -794,21 +803,22 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
     // ── Render ────────────────────────────────────────────────────────
 
     render(gl: WebGLRenderingContext, matrixOrOptions: unknown): void {
-        // Throttle to ~15fps when the map is idle. While Mapbox is animating
-        // its own camera we draw every frame to avoid bail-frame flashing.
-        // (See WindParticleLayer for the long version of this logic.)
-        const map = this.map;
-        const animating = map ? map.isMoving() || map.isZooming() || map.isEasing() : false;
+        // ALWAYS draw every frame Mapbox calls us. If we bail on a render
+        // call, Mapbox has already cleared the framebuffer and redrawn the
+        // base layer — so "bail without draw" = a frame without particles,
+        // which reads as flashing any time anything else on the map is
+        // animating (scrubber UI, vessel marker, other layers, etc).
+        //
+        // To keep particle motion at a fixed ~15fps (not 60fps during
+        // Mapbox camera animations), throttle ADVECTION, not DRAW. And
+        // schedule a keepalive repaint 66ms out so the loop keeps running
+        // even when Mapbox is fully idle — cancelled each time render()
+        // runs, so it only fires when nobody else has triggered us first.
         const now = performance.now();
-        const elapsed = now - this._lastRenderTime;
-        if (!animating && elapsed < 66) {
-            if (!document.hidden) setTimeout(() => this.map?.triggerRepaint(), 66 - elapsed);
-            return;
-        }
         this._lastRenderTime = now;
 
         if (!this.program || !this.particleBuffer || !this.gridU || !matrixOrOptions) {
-            if (!document.hidden && !animating) setTimeout(() => this.map?.triggerRepaint(), 66);
+            this._scheduleKeepalive();
             return;
         }
 
@@ -989,8 +999,18 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
             };
         }
 
-        // Schedule next paint (skipped while Mapbox is RAF-ing us anyway).
-        if (document.hidden || animating) return;
-        setTimeout(() => this.map?.triggerRepaint(), 66);
+        // Keep the animation loop alive in case nothing else is painting.
+        // Cancelled + rescheduled every render(), so if Mapbox is already
+        // calling us for another reason we don't queue duplicates.
+        this._scheduleKeepalive();
+    }
+
+    private _scheduleKeepalive(): void {
+        if (document.hidden) return;
+        if (this._keepaliveTimer !== null) clearTimeout(this._keepaliveTimer);
+        this._keepaliveTimer = setTimeout(() => {
+            this._keepaliveTimer = null;
+            this.map?.triggerRepaint();
+        }, 66);
     }
 }
