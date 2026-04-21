@@ -54,6 +54,7 @@ import { useSeamarkLayer } from './useSeamarkLayer';
 import { useTideStationLayer } from './useTideStationLayer';
 import { useLightningLayer } from './useLightningLayer';
 import { useOceanCurrentParticleLayer, isCmemsCurrentsEnabled } from './useOceanCurrentParticleLayer';
+import { useOceanWaveParticleLayer, isCmemsWavesEnabled } from './useOceanWaveParticleLayer';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
@@ -676,6 +677,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     const currentsVisible = weather.activeLayers.has('currents');
     useOceanCurrentParticleLayer(mapRef, mapReady, currentsVisible, weather.currentsHour);
 
+    // ── Ocean Waves (CMEMS WAM forecast via the particle-layer engine) ──
+    // Same pattern as currents: gated by VITE_CMEMS_WAVES_ENABLED, pulls
+    // from /api/waves, replaces the Xweather wave-height raster when the
+    // flag is on. Waves use their own scrubber step (3-hourly, 17 frames)
+    // separate from currents' 13-hourly.
+    const wavesVisible = weather.activeLayers.has('waves');
+    useOceanWaveParticleLayer(mapRef, mapReady, wavesVisible, weather.wavesHour);
+
     // ── Hide OpenSeaMap raster overlay when o-charts provide native icons ──
     // The openseamap-overlay (PNG tiles) is baked into the map style and shows
     // its own seamark icons. When o-charts are active they render their own
@@ -1268,9 +1277,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                             'rain',
                             'temperature',
                             'clouds',
-                            // Currents only gets the scrubber when the CMEMS pipeline is on.
-                            // Under Xweather raster the tile is just a static heatmap.
+                            // Currents + waves only get the scrubber when their CMEMS
+                            // pipeline is on. Under Xweather raster the tiles are just
+                            // static heatmaps.
                             ...(isCmemsCurrentsEnabled() ? (['currents'] as HelixLayer[]) : []),
+                            ...(isCmemsWavesEnabled() ? (['waves'] as HelixLayer[]) : []),
                         ];
                         const activeWeatherLayers = WEATHER_KEYS.filter((k) =>
                             k === 'wind'
@@ -1436,6 +1447,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                             onScrub = (h: number) => weather.setCurrentsHour(Math.round(h));
                             onPlayToggle = () => weather.setCurrentsPlaying(!weather.currentsPlaying);
                             onScrubStart = () => weather.setCurrentsPlaying(false);
+                        } else if (activeLayerKey === 'waves' && isCmemsWavesEnabled()) {
+                            frameIndex = weather.wavesHour;
+                            totalFrames = weather.wavesTotalHours;
+                            // Waves are 3-hourly — each step = +3h of forecast.
+                            const relH = Math.round(frameIndex) * 3;
+                            frameLabel = relH === 0 ? 'Now' : `+${relH}h`;
+                            sublabel = relH === 0 ? 'Nowcast' : 'Forecast';
+                            isPlaying = weather.wavesPlaying;
+                            onScrub = (h: number) => weather.setWavesHour(Math.round(h));
+                            onPlayToggle = () => weather.setWavesPlaying(!weather.wavesPlaying);
+                            onScrubStart = () => weather.setWavesPlaying(false);
                         } else if (activeLayerKey === 'rain') {
                             if (weather.rainLoading) {
                                 isLoading = true;
