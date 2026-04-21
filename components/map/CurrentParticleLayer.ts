@@ -309,6 +309,10 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
     private spawnIndexMap: Int32Array | null = null;
 
     private _lastRenderTime = 0;
+    // Advection runs on a separate timer from render() so camera
+    // animations (which call render() at 60fps) don't 4× particle
+    // motion speed and re-upload the 36 MB trail buffer 60 times/s.
+    private _lastAdvectTime = 0;
     private _onVisibilityChange: (() => void) | null = null;
 
     // Diagnostic counters mirrored to window for debugging.
@@ -838,7 +842,19 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         const prevDepthTest = gl.isEnabled(gl.DEPTH_TEST);
         const prevActiveTex = gl.getParameter(gl.ACTIVE_TEXTURE);
 
-        this.advectParticles();
+        // Decouple advection from render cadence. During camera animation
+        // Mapbox calls render() at 60fps, but we want particles to advect
+        // at ~15fps regardless so motion speed stays constant and we
+        // don't re-upload the 36 MB trail buffer 60×/s. Track whether
+        // we advected this frame so the buffer upload below can be
+        // skipped when data hasn't changed.
+        let didAdvect = false;
+        const ADVECT_INTERVAL_MS = 66;
+        if (now - this._lastAdvectTime >= ADVECT_INTERVAL_MS) {
+            this.advectParticles();
+            this._lastAdvectTime = now;
+            didAdvect = true;
+        }
 
         gl.enable(gl.BLEND);
         gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -908,9 +924,13 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
             this.bindAttributes(gl);
         }
 
-        // Re-upload particle buffer (positions changed via advectParticles).
+        // Re-upload particle buffer ONLY on frames where advection ran.
+        // Saves ~35 MB/frame of CPU→GPU bandwidth on camera-animation
+        // frames where positions haven't changed since the last advect.
         gl.bindBuffer(gl.ARRAY_BUFFER, this.particleBuffer);
-        gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.trailData);
+        if (didAdvect) {
+            gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.trailData);
+        }
 
         // Draw 3 world copies in global mode for seamless antimeridian.
         // LINES draws continuous streaks between adjacent trail points —
