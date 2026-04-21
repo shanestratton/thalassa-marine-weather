@@ -810,9 +810,31 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
             y += v * SPEED_FACTOR * cosLat;
 
             // Global wrap on longitude (we span -180 to 180 in globalMode).
+            // CRITICAL: if we wrap here, the head just teleported from
+            // x≈0.99 to x≈0.01 (or vice versa). Trail[1] still holds the
+            // pre-wrap position. Drawing a line between trail[0] and
+            // trail[1] produces a streak that crosses the ENTIRE visible
+            // world at this particle's latitude — with 80k particles,
+            // this was the origin of the evenly-spaced horizontal stripes
+            // the user reported. Reset the whole trail on wrap so the
+            // post-wrap position is the only live trail point.
             if (this.globalMode) {
+                const prevX = data[base];
+                const wrapped = x > 1 || x < 0;
                 if (x > 1) x -= 1;
                 if (x < 0) x += 1;
+                if (wrapped || Math.abs(x - prevX) > 0.5) {
+                    for (let t = 0; t < TRAIL_LENGTH; t++) {
+                        const offset = base + t * FLOATS_PER_TRAIL_PT;
+                        data[offset] = x;
+                        data[offset + 1] = y;
+                        data[offset + 2] = 0;
+                        data[offset + 3] = 0;
+                    }
+                    data[base + 3] = 1.0;
+                    ages[i] = 0;
+                    continue;
+                }
             }
 
             ages[i]++;
