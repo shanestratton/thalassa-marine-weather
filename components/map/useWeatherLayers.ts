@@ -201,6 +201,12 @@ export function useWeatherLayers(
     const [wavesPlaying, setWavesPlaying] = useState(false);
     const wavesTotalHours = 17;
 
+    // SST scrubber (CMEMS daily-mean, 5-day forecast = 5 frames).
+    // sstStep is a STEP index (0..4); each step is +1 day.
+    const [sstStep, setSstStep] = useState(0);
+    const [sstPlaying, setSstPlaying] = useState(false);
+    const sstTotalSteps = 5;
+
     // Wind scrubber
     const [windHour, setWindHourInternal] = useState(0);
     const [windTotalHours, setWindTotalHours] = useState(48);
@@ -515,6 +521,23 @@ export function useWeatherLayers(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [wavesPlaying, activeKey, wavesTotalHours]);
 
+    // ── SST play/pause auto-advance (daily cadence, 5 frames) ──
+    useEffect(() => {
+        if (!sstPlaying || !activeLayers.has('sst')) return;
+        const timer = setInterval(() => {
+            setSstStep((prev) => {
+                const next = prev + 1;
+                if (next >= sstTotalSteps) {
+                    setSstPlaying(false);
+                    return 0;
+                }
+                return next;
+            });
+        }, 1200);
+        return () => clearInterval(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [sstPlaying, activeKey, sstTotalSteps]);
+
     // ── Wind forecast data loading (for scrubber — rendering handled by MapboxVelocityOverlay) ──
     useEffect(() => {
         if ((!activeLayers.has('wind') && !activeLayers.has('velocity')) || !mapReady) return;
@@ -818,13 +841,14 @@ export function useWeatherLayers(
         const cmemsCurrentsEnabled =
             String(import.meta.env.VITE_CMEMS_CURRENTS_ENABLED ?? 'false').toLowerCase() === 'true';
         const cmemsWavesEnabled = String(import.meta.env.VITE_CMEMS_WAVES_ENABLED ?? 'false').toLowerCase() === 'true';
+        const cmemsSstEnabled = String(import.meta.env.VITE_CMEMS_SST_ENABLED ?? 'false').toLowerCase() === 'true';
         const TILE_LAYERS: WeatherLayer[] = [
             'sea',
             'temperature',
             'clouds',
             ...(cmemsWavesEnabled ? [] : (['waves'] as WeatherLayer[])),
             ...(cmemsCurrentsEnabled ? [] : (['currents'] as WeatherLayer[])),
-            'sst',
+            ...(cmemsSstEnabled ? [] : (['sst'] as WeatherLayer[])),
             'wind-gusts',
             'visibility',
             'cape',
@@ -870,6 +894,19 @@ export function useWeatherLayers(
                 if (map.getSource('tiles-waves')) map.removeSource('tiles-waves');
             } catch (_) {
                 log.warn('[useWeatherLayers] tiles-waves source cleanup', _);
+            }
+        }
+        // Same for CMEMS SST — replaces the Xweather sst raster.
+        if (cmemsSstEnabled) {
+            try {
+                if (map.getLayer('tiles-sst')) map.removeLayer('tiles-sst');
+            } catch (_) {
+                log.warn('[useWeatherLayers] tiles-sst layer cleanup', _);
+            }
+            try {
+                if (map.getSource('tiles-sst')) map.removeSource('tiles-sst');
+            } catch (_) {
+                log.warn('[useWeatherLayers] tiles-sst source cleanup', _);
             }
         }
 
@@ -1339,6 +1376,12 @@ export function useWeatherLayers(
         wavesTotalHours,
         wavesPlaying,
         setWavesPlaying,
+        // SST (CMEMS daily-mean 5-day forecast, gated by VITE_CMEMS_SST_ENABLED)
+        sstStep,
+        setSstStep,
+        sstTotalSteps,
+        sstPlaying,
+        setSstPlaying,
         // Rain (unified radar + forecast)
         unifiedFramesRef,
         rainFrameIndex,

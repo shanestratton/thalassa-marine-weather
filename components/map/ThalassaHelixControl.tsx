@@ -26,6 +26,7 @@ export type HelixLayer =
     | 'traffic'
     | 'currents'
     | 'waves'
+    | 'sst'
     | null;
 
 interface LayerConfig {
@@ -71,6 +72,15 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
         // Matches the speed heatmap in WaveParticleLayer.ts (shared with currents).
         gradient: 'linear-gradient(to top, #cffafe, #22d3ee, #eab308, #f97316, #ef4444)',
         accentColor: '#06b6d4',
+    },
+    sst: {
+        icon: '🌡️',
+        label: 'SST',
+        lowLabel: 'Cold',
+        highLabel: 'Warm',
+        // Matches the thermal ramp in SstRasterLayer.ts.
+        gradient: 'linear-gradient(to top, #1f1466, #2659bf, #40b2d9, #66cc73, #f2eb66, #f28c4d, #d93333)',
+        accentColor: '#fbbf24',
     },
     rain: {
         icon: '🌧️',

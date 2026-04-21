@@ -55,6 +55,7 @@ import { useTideStationLayer } from './useTideStationLayer';
 import { useLightningLayer } from './useLightningLayer';
 import { useOceanCurrentParticleLayer, isCmemsCurrentsEnabled } from './useOceanCurrentParticleLayer';
 import { useOceanWaveParticleLayer, isCmemsWavesEnabled } from './useOceanWaveParticleLayer';
+import { useSstRasterLayer, isCmemsSstEnabled } from './useSstRasterLayer';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
@@ -685,6 +686,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     const wavesVisible = weather.activeLayers.has('waves');
     useOceanWaveParticleLayer(mapRef, mapReady, wavesVisible, weather.wavesHour);
 
+    // ── Sea-surface temperature (CMEMS daily P1D-m raster heatmap) ──
+    // Scalar field — no particles. Gated by VITE_CMEMS_SST_ENABLED.
+    // 5-day forecast, daily cadence = 5 scrubber steps.
+    const sstVisible = weather.activeLayers.has('sst');
+    useSstRasterLayer(mapRef, mapReady, sstVisible, weather.sstStep);
+
     // ── Hide OpenSeaMap raster overlay when o-charts provide native icons ──
     // The openseamap-overlay (PNG tiles) is baked into the map style and shows
     // its own seamark icons. When o-charts are active they render their own
@@ -1277,11 +1284,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                             'rain',
                             'temperature',
                             'clouds',
-                            // Currents + waves only get the scrubber when their CMEMS
-                            // pipeline is on. Under Xweather raster the tiles are just
-                            // static heatmaps.
+                            // Currents + waves + SST only get the scrubber when their
+                            // CMEMS pipeline is on. Under Xweather raster the tiles are
+                            // just static heatmaps.
                             ...(isCmemsCurrentsEnabled() ? (['currents'] as HelixLayer[]) : []),
                             ...(isCmemsWavesEnabled() ? (['waves'] as HelixLayer[]) : []),
+                            ...(isCmemsSstEnabled() ? (['sst'] as HelixLayer[]) : []),
                         ];
                         const activeWeatherLayers = WEATHER_KEYS.filter((k) =>
                             k === 'wind'
@@ -1458,6 +1466,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                             onScrub = (h: number) => weather.setWavesHour(Math.round(h));
                             onPlayToggle = () => weather.setWavesPlaying(!weather.wavesPlaying);
                             onScrubStart = () => weather.setWavesPlaying(false);
+                        } else if (activeLayerKey === 'sst' && isCmemsSstEnabled()) {
+                            frameIndex = weather.sstStep;
+                            totalFrames = weather.sstTotalSteps;
+                            // SST is daily — each step = +1 day of forecast.
+                            const relD = Math.round(frameIndex);
+                            frameLabel = relD === 0 ? 'Today' : `+${relD}d`;
+                            sublabel = relD === 0 ? 'Daily mean' : 'Forecast';
+                            isPlaying = weather.sstPlaying;
+                            onScrub = (h: number) => weather.setSstStep(Math.round(h));
+                            onPlayToggle = () => weather.setSstPlaying(!weather.sstPlaying);
+                            onScrubStart = () => weather.setSstPlaying(false);
                         } else if (activeLayerKey === 'rain') {
                             if (weather.rainLoading) {
                                 isLoading = true;
