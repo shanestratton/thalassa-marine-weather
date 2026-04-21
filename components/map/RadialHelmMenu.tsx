@@ -258,6 +258,14 @@ function buildCategories(
                     groupExclusive: true,
                     group: SEA_STATE_LAYERS,
                 },
+                {
+                    id: 'chl',
+                    label: 'Chlorophyll',
+                    icon: <ChlIcon />,
+                    layerKey: 'chl',
+                    groupExclusive: true,
+                    group: SEA_STATE_LAYERS,
+                },
             ],
         },
         {
@@ -1115,6 +1123,18 @@ const SstIcon = () => (
             strokeLinecap="round"
             strokeLinejoin="round"
             d="M12 9a3 3 0 100 6M12 3v2M12 19v2M5.636 5.636l1.414 1.414M16.95 16.95l1.414 1.414M3 12h2M19 12h2M5.636 18.364l1.414-1.414M16.95 7.05l1.414-1.414"
+        />
+    </svg>
+);
+
+// Leaf/algae glyph — chlorophyll. Stylised phytoplankton cell with
+// a midrib (chloroplast) and an outer membrane.
+const ChlIcon = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M7 20c0-6 3-12 10-14-1 8-5 13-10 14zM7 20l10-14M7 20s1-3 4-5M13 13s-1 1-2 3"
         />
     </svg>
 );
