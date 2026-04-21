@@ -856,6 +856,17 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
             return;
         }
 
+        // Debug toggles so we can A/B which pass produces the horizontal
+        // stripes. Set in DevTools via:
+        //   window.__cmemsShowHeatmap = false  // hide speed-magnitude raster
+        //   window.__cmemsShowLines   = false  // hide particle streaks
+        // Default: both true. Requires a repaint after setting (zoom 1 px
+        // or toggle the layer off+on).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const dbg = globalThis as any;
+        const showHeatmap = dbg.__cmemsShowHeatmap !== false;
+        const showLines = dbg.__cmemsShowLines !== false;
+
         // Extract matrix — handle both Mapbox (flat) and MapLibre v3 (object).
         let rawMatrix = matrixOrOptions;
         if (
@@ -908,7 +919,7 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         // Draws a quad covering the data bounds, sampling the speed texture
         // through a perceptual ramp so the EAC / ACC / Gulf Stream show as
         // coherent ribbons of colour even before particles tell direction.
-        if (this.heatmapProgram && this.heatmapQuadBuffer && this.speedTexture) {
+        if (showHeatmap && this.heatmapProgram && this.heatmapQuadBuffer && this.speedTexture) {
             gl.useProgram(this.heatmapProgram);
             if (this.hUMatrixLoc) gl.uniformMatrix4fv(this.hUMatrixLoc, false, mat);
             if (this.hUGridBoundsLoc) {
@@ -942,6 +953,20 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
 
             if (this.hAQuadPosLoc >= 0) gl.disableVertexAttribArray(this.hAQuadPosLoc);
             gl.bindTexture(gl.TEXTURE_2D, null);
+        }
+
+        if (!showLines) {
+            // Skip entire particle-lines pass. Advection still ran, so data
+            // is consistent when we re-enable. Restore state and exit early.
+            gl.useProgram(prevProgram);
+            gl.bindBuffer(gl.ARRAY_BUFFER, prevBuffer);
+            if (prevBlend) gl.enable(gl.BLEND);
+            else gl.disable(gl.BLEND);
+            if (prevDepthTest) gl.enable(gl.DEPTH_TEST);
+            else gl.disable(gl.DEPTH_TEST);
+            gl.activeTexture(prevActiveTex);
+            this._scheduleKeepalive();
+            return;
         }
 
         gl.useProgram(this.program);
