@@ -84,40 +84,42 @@ void main() {
     vec4 sample = texture2D(u_data_tex, vec2(u, v));
     if (sample.g > 0.2) discard;
 
-    // Ultra-oligotrophic gyre centres (South Pacific, South Atlantic,
-    // North Pacific) hover around chl ~0.02 mg/m³ which maps to t ≈
-    // 0.06 — let those fade to the satellite base rather than
-    // painting a flat indigo wash over 40% of the ocean. Productive
-    // regions start showing around chl ≥ 0.1 mg/m³ (t ≈ 0.27).
+    // Discard open-ocean gyres entirely so the satellite base shows
+    // clean dark-blue water where there's essentially no productivity
+    // (the "ocean deserts" are a visual story in themselves). Revised
+    // threshold t<0.20 ≈ 0.05 mg/m³ — above the hard mid-gyre floor
+    // but below any real shelf productivity.
     float t = clamp(sample.r, 0.0, 1.0);
-    if (t < 0.08) discard;
+    if (t < 0.20) discard;
 
-    // NASA Ocean Color / SeaDAS chlorophyll ramp (log-scale):
-    //   t≈0.08  (~0.03 mg/m³)  deep indigo          — near-oligotrophic
-    //   t≈0.25  (~0.1 mg/m³)   violet/blue          — mesotrophic shelf
-    //   t≈0.45  (~0.6 mg/m³)   cyan                 — productive edge
-    //   t≈0.60  (~2 mg/m³)     green                — upwelling / bloom
-    //   t≈0.80  (~10 mg/m³)    yellow-green         — strong bloom
-    //   t≈1.00  (~50 mg/m³)    orange-red           — coastal bloom peak
-    vec3 c0 = vec3(0.05, 0.02, 0.22);   // deep indigo
-    vec3 c1 = vec3(0.18, 0.10, 0.50);   // violet
-    vec3 c2 = vec3(0.15, 0.35, 0.75);   // blue
-    vec3 c3 = vec3(0.20, 0.65, 0.80);   // cyan
-    vec3 c4 = vec3(0.25, 0.75, 0.35);   // green
-    vec3 c5 = vec3(0.80, 0.85, 0.20);   // yellow-green
-    vec3 c6 = vec3(0.95, 0.50, 0.15);   // orange
+    // Green-centric ramp so chlorophyll reads as "plant life in the
+    // ocean" at a glance for fishing-focused users. Earlier ramp went
+    // indigo→violet→blue for t<0.6, which blended invisibly into the
+    // dark-blue satellite base. Now every rendered pixel is clearly
+    // green-family:
+    //   t≈0.20 (~0.05 mg/m³)  dark teal          — low shelf background
+    //   t≈0.40 (~0.3 mg/m³)   forest green       — mesotrophic
+    //   t≈0.55 (~1 mg/m³)     lime green         — productive
+    //   t≈0.70 (~3 mg/m³)     yellow-green       — active bloom
+    //   t≈0.85 (~10 mg/m³)    yellow             — strong bloom
+    //   t≈1.00 (~50 mg/m³)    orange             — peak coastal bloom
+    vec3 c0 = vec3(0.10, 0.35, 0.40);   // dark teal
+    vec3 c1 = vec3(0.15, 0.55, 0.35);   // forest green
+    vec3 c2 = vec3(0.35, 0.75, 0.30);   // lime green
+    vec3 c3 = vec3(0.75, 0.85, 0.25);   // yellow-green
+    vec3 c4 = vec3(0.95, 0.80, 0.15);   // yellow
+    vec3 c5 = vec3(0.95, 0.50, 0.15);   // orange
 
     vec3 color;
-    if      (t < 0.25) color = mix(c0, c1, (t - 0.08) / 0.17);
-    else if (t < 0.45) color = mix(c1, c2, (t - 0.25) / 0.20);
-    else if (t < 0.60) color = mix(c2, c3, (t - 0.45) / 0.15);
-    else if (t < 0.75) color = mix(c3, c4, (t - 0.60) / 0.15);
-    else if (t < 0.90) color = mix(c4, c5, (t - 0.75) / 0.15);
-    else               color = mix(c5, c6, (t - 0.90) / 0.10);
+    if      (t < 0.40) color = mix(c0, c1, (t - 0.20) / 0.20);
+    else if (t < 0.55) color = mix(c1, c2, (t - 0.40) / 0.15);
+    else if (t < 0.70) color = mix(c2, c3, (t - 0.55) / 0.15);
+    else if (t < 0.85) color = mix(c3, c4, (t - 0.70) / 0.15);
+    else               color = mix(c4, c5, (t - 0.85) / 0.15);
 
-    // Higher productivity → brighter alpha. Gyre cells already
-    // discarded, so remaining pixels all earn meaningful visibility.
-    float alpha = u_opacity * mix(0.55, 0.85, (t - 0.08) / 0.92);
+    // Higher-opacity floor so even low-shelf chl shows through the
+    // dark satellite base. Was 0.55→0.85; now 0.70→0.95.
+    float alpha = u_opacity * mix(0.70, 0.95, (t - 0.20) / 0.80);
     gl_FragColor = vec4(color, alpha);
 }`;
 
