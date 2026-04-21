@@ -250,6 +250,17 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
     private particleBuffer: WebGLBuffer | null = null;
     private particleVAO: WebGLVertexArrayObject | null = null;
 
+    // Trail-line rendering — replaces per-trail-point gl.POINTS so streaks
+    // stay continuous at any zoom level. Uses gl.LINES primitive: each
+    // pair of indices in this buffer connects two adjacent trail points.
+    // Built once in onAdd (static — the indices never change; what
+    // changes is the trail-point positions in the particle buffer).
+    // 80k particles × 27 segments × 2 indices = 4.32M Uint32 indices
+    // = 16.5 MB of GPU memory, uploaded once.
+    private lineIndexBuffer: WebGLBuffer | null = null;
+    private lineIndexCount = 0;
+    private lineIndexType: number = 0; // UNSIGNED_INT or UNSIGNED_SHORT (fallback)
+
     // Heatmap underlay (the colour-coded speed magnitude raster)
     private heatmapProgram: WebGLProgram | null = null;
     private heatmapQuadBuffer: WebGLBuffer | null = null;
@@ -338,6 +349,39 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
             gl2.bindVertexArray(this.particleVAO);
             this.bindAttributes(gl);
             gl2.bindVertexArray(null);
+        }
+
+        // ── Line index buffer for trail-segment rendering ──
+        // Each particle has (TRAIL_LENGTH - 1) line segments. Each segment
+        // needs 2 indices (start, end). Total: 80k × 27 × 2 = 4.32M idx.
+        // Uint32 needed to address >65k vertices (TOTAL_POINTS = 2.24M).
+        // WebGL2 supports gl.UNSIGNED_INT natively; WebGL1 needs the
+        // OES_element_index_uint extension.
+        const uint32Ext = 'drawElementsInstanced' in gl || gl.getExtension('OES_element_index_uint');
+        if (uint32Ext) {
+            this.lineIndexType = gl.UNSIGNED_INT;
+            const segmentsPerParticle = TRAIL_LENGTH - 1;
+            const indexCount = NUM_PARTICLES * segmentsPerParticle * 2;
+            const idx = new Uint32Array(indexCount);
+            let k = 0;
+            for (let p = 0; p < NUM_PARTICLES; p++) {
+                const base = p * TRAIL_LENGTH;
+                for (let t = 0; t < segmentsPerParticle; t++) {
+                    idx[k++] = base + t;
+                    idx[k++] = base + t + 1;
+                }
+            }
+            this.lineIndexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.lineIndexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+            this.lineIndexCount = indexCount;
+            log.info(
+                `line index buffer: ${indexCount.toLocaleString()} indices (${(idx.byteLength / 1024 / 1024).toFixed(1)} MB)`,
+            );
+        } else {
+            // Very old GPU — fall back to point rendering without lines.
+            log.warn('OES_element_index_uint unavailable — falling back to POINTS rendering');
+            this.lineIndexCount = 0;
         }
 
         // ── Heatmap underlay ─────────────────────────────────────────
@@ -443,12 +487,14 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         if (this.particleBuffer) gl.deleteBuffer(this.particleBuffer);
         if (this.heatmapQuadBuffer) gl.deleteBuffer(this.heatmapQuadBuffer);
         if (this.heatmapIndexBuffer) gl.deleteBuffer(this.heatmapIndexBuffer);
+        if (this.lineIndexBuffer) gl.deleteBuffer(this.lineIndexBuffer);
         if (this.speedTexture) gl.deleteTexture(this.speedTexture);
         const gl2 = gl as WebGL2RenderingContext;
         if (this.particleVAO && gl2.deleteVertexArray) gl2.deleteVertexArray(this.particleVAO);
         this.heatmapProgram = null;
         this.heatmapQuadBuffer = null;
         this.heatmapIndexBuffer = null;
+        this.lineIndexBuffer = null;
         this.speedTexture = null;
         this.program = null;
         this.particleBuffer = null;
@@ -867,10 +913,24 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.trailData);
 
         // Draw 3 world copies in global mode for seamless antimeridian.
+        // LINES draws continuous streaks between adjacent trail points —
+        // every zoom shows unbroken lines instead of per-point dots. Fall
+        // back to POINTS if the index buffer couldn't be built.
         const worldOffsets = this.globalMode ? [-360, 0, 360] : [0];
+        const useLines = this.lineIndexBuffer !== null && this.lineIndexCount > 0;
+        if (useLines) {
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.lineIndexBuffer);
+            // Most WebGL impls cap gl.lineWidth at 1; we call it anyway
+            // for browsers that honour 2-3 px (e.g. Safari/iOS).
+            gl.lineWidth(2.0);
+        }
         for (const offset of worldOffsets) {
             if (this.uLonOffsetLoc) gl.uniform1f(this.uLonOffsetLoc, offset);
-            gl.drawArrays(gl.POINTS, 0, TOTAL_POINTS);
+            if (useLines) {
+                gl.drawElements(gl.LINES, this.lineIndexCount, this.lineIndexType, 0);
+            } else {
+                gl.drawArrays(gl.POINTS, 0, TOTAL_POINTS);
+            }
         }
 
         if (gl2.bindVertexArray) gl2.bindVertexArray(prevVAO);
