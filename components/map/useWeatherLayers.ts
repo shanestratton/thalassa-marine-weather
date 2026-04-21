@@ -190,10 +190,16 @@ export function useWeatherLayers(
     /** Index where radar frames end and forecast frames begin */
     const rainNowIdxRef = useRef(0);
 
-    // Currents scrubber (CMEMS hourly forecast, h00..h47)
+    // Currents scrubber (CMEMS hourly forecast, h00..h12)
     const [currentsHour, setCurrentsHour] = useState(0);
     const [currentsPlaying, setCurrentsPlaying] = useState(false);
     const currentsTotalHours = 12;
+
+    // Waves scrubber (CMEMS WAM, 3-hourly native, 48h window = 17 frames).
+    // wavesHour is a STEP index (0..16); each step is +3h of forecast.
+    const [wavesHour, setWavesHour] = useState(0);
+    const [wavesPlaying, setWavesPlaying] = useState(false);
+    const wavesTotalHours = 17;
 
     // Wind scrubber
     const [windHour, setWindHourInternal] = useState(0);
@@ -491,6 +497,23 @@ export function useWeatherLayers(
         return () => clearInterval(timer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentsPlaying, activeKey, currentsTotalHours]);
+
+    // ── Waves play/pause auto-advance (mirrors currents) ──
+    useEffect(() => {
+        if (!wavesPlaying || !activeLayers.has('waves')) return;
+        const timer = setInterval(() => {
+            setWavesHour((prev) => {
+                const next = prev + 1;
+                if (next >= wavesTotalHours) {
+                    setWavesPlaying(false);
+                    return 0;
+                }
+                return next;
+            });
+        }, 800);
+        return () => clearInterval(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [wavesPlaying, activeKey, wavesTotalHours]);
 
     // ── Wind forecast data loading (for scrubber — rendering handled by MapboxVelocityOverlay) ──
     useEffect(() => {
@@ -794,11 +817,12 @@ export function useWeatherLayers(
         // useOceanCurrentParticleLayer instead of the Xweather raster tile.
         const cmemsCurrentsEnabled =
             String(import.meta.env.VITE_CMEMS_CURRENTS_ENABLED ?? 'false').toLowerCase() === 'true';
+        const cmemsWavesEnabled = String(import.meta.env.VITE_CMEMS_WAVES_ENABLED ?? 'false').toLowerCase() === 'true';
         const TILE_LAYERS: WeatherLayer[] = [
             'sea',
             'temperature',
             'clouds',
-            'waves',
+            ...(cmemsWavesEnabled ? [] : (['waves'] as WeatherLayer[])),
             ...(cmemsCurrentsEnabled ? [] : (['currents'] as WeatherLayer[])),
             'sst',
             'wind-gusts',
@@ -833,6 +857,19 @@ export function useWeatherLayers(
                 if (map.getSource('tiles-currents')) map.removeSource('tiles-currents');
             } catch (_) {
                 log.warn('[useWeatherLayers] tiles-currents source cleanup', _);
+            }
+        }
+        // Same for CMEMS waves — replaces the Xweather wave-height raster.
+        if (cmemsWavesEnabled) {
+            try {
+                if (map.getLayer('tiles-waves')) map.removeLayer('tiles-waves');
+            } catch (_) {
+                log.warn('[useWeatherLayers] tiles-waves layer cleanup', _);
+            }
+            try {
+                if (map.getSource('tiles-waves')) map.removeSource('tiles-waves');
+            } catch (_) {
+                log.warn('[useWeatherLayers] tiles-waves source cleanup', _);
             }
         }
 
@@ -1296,6 +1333,12 @@ export function useWeatherLayers(
         currentsTotalHours,
         currentsPlaying,
         setCurrentsPlaying,
+        // Waves (CMEMS WAM 3-hourly, gated by VITE_CMEMS_WAVES_ENABLED)
+        wavesHour,
+        setWavesHour,
+        wavesTotalHours,
+        wavesPlaying,
+        setWavesPlaying,
         // Rain (unified radar + forecast)
         unifiedFramesRef,
         rainFrameIndex,

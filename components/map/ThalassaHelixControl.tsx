@@ -25,6 +25,7 @@ export type HelixLayer =
     | 'velocity'
     | 'traffic'
     | 'currents'
+    | 'waves'
     | null;
 
 interface LayerConfig {
@@ -59,6 +60,15 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
         lowLabel: 'Slack',
         highLabel: 'Rip',
         // Matches the raster-particle color ramp in useOceanCurrentParticleLayer.ts
+        gradient: 'linear-gradient(to top, #cffafe, #22d3ee, #eab308, #f97316, #ef4444)',
+        accentColor: '#06b6d4',
+    },
+    waves: {
+        icon: '🌊',
+        label: 'Waves',
+        lowLabel: 'Calm',
+        highLabel: 'Rough',
+        // Matches the speed heatmap in WaveParticleLayer.ts (shared with currents).
         gradient: 'linear-gradient(to top, #cffafe, #22d3ee, #eab308, #f97316, #ef4444)',
         accentColor: '#06b6d4',
     },
