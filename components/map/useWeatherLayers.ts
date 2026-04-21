@@ -207,6 +207,11 @@ export function useWeatherLayers(
     const [sstPlaying, setSstPlaying] = useState(false);
     const sstTotalSteps = 5;
 
+    // Chlorophyll scrubber (CMEMS BGC daily, 5-day forecast = 5 frames).
+    const [chlStep, setChlStep] = useState(0);
+    const [chlPlaying, setChlPlaying] = useState(false);
+    const chlTotalSteps = 5;
+
     // Wind scrubber
     const [windHour, setWindHourInternal] = useState(0);
     const [windTotalHours, setWindTotalHours] = useState(48);
@@ -538,6 +543,23 @@ export function useWeatherLayers(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sstPlaying, activeKey, sstTotalSteps]);
 
+    // ── Chlorophyll play/pause auto-advance (daily, 5 frames) ──
+    useEffect(() => {
+        if (!chlPlaying || !activeLayers.has('chl')) return;
+        const timer = setInterval(() => {
+            setChlStep((prev) => {
+                const next = prev + 1;
+                if (next >= chlTotalSteps) {
+                    setChlPlaying(false);
+                    return 0;
+                }
+                return next;
+            });
+        }, 1200);
+        return () => clearInterval(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [chlPlaying, activeKey, chlTotalSteps]);
+
     // ── Wind forecast data loading (for scrubber — rendering handled by MapboxVelocityOverlay) ──
     useEffect(() => {
         if ((!activeLayers.has('wind') && !activeLayers.has('velocity')) || !mapReady) return;
@@ -842,6 +864,8 @@ export function useWeatherLayers(
             String(import.meta.env.VITE_CMEMS_CURRENTS_ENABLED ?? 'false').toLowerCase() === 'true';
         const cmemsWavesEnabled = String(import.meta.env.VITE_CMEMS_WAVES_ENABLED ?? 'false').toLowerCase() === 'true';
         const cmemsSstEnabled = String(import.meta.env.VITE_CMEMS_SST_ENABLED ?? 'false').toLowerCase() === 'true';
+        // Note: chlorophyll isn't in this gate — it's a net-new CMEMS
+        // layer with no Xweather tile equivalent to replace.
         const TILE_LAYERS: WeatherLayer[] = [
             'sea',
             'temperature',
@@ -1382,6 +1406,12 @@ export function useWeatherLayers(
         sstTotalSteps,
         sstPlaying,
         setSstPlaying,
+        // Chlorophyll (CMEMS BGC daily, gated by VITE_CMEMS_CHL_ENABLED)
+        chlStep,
+        setChlStep,
+        chlTotalSteps,
+        chlPlaying,
+        setChlPlaying,
         // Rain (unified radar + forecast)
         unifiedFramesRef,
         rainFrameIndex,
