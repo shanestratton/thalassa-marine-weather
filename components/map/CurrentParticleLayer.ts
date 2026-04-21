@@ -136,7 +136,14 @@ attribute vec2 a_quad_pos;       // a unit quad: (0,0) to (1,1)
 uniform mat4 u_matrix;
 uniform vec4 u_grid_bounds;      // [south, north, west, east]
 uniform float u_lon_offset;
-varying vec2 v_uv;
+// Output the ACTUAL un-offset longitude and the Mercator-Y of this vertex.
+// Both are LINEAR IN CLIP SPACE (mercator → clip is a linear u_matrix
+// transform) so interpolated varyings are linear in mercator too. The
+// fragment shader then inverts Mercator to get true per-pixel latitude —
+// eliminating the linear-in-screen-space vs linear-in-lat mismatch that
+// shows up as horizontal seams at triangle-row boundaries.
+varying float v_lon;
+varying float v_mercY;
 
 const float PI = 3.14159265359;
 
@@ -150,10 +157,9 @@ void main() {
     float lon = u_grid_bounds.z + a_quad_pos.x * (u_grid_bounds.w - u_grid_bounds.z) + u_lon_offset;
     float lat = u_grid_bounds.x + a_quad_pos.y * (u_grid_bounds.y - u_grid_bounds.x);
     vec2 merc = toMercator(lon, lat);
+    v_lon = lon - u_lon_offset; // un-offset — we sample the single global texture
+    v_mercY = merc.y;
     gl_Position = u_matrix * vec4(merc, 0.0, 1.0);
-    // UV: x = nx, y = 1 - ny (texture is row-major north→south, but our
-    // quad is bottom-up because nyBase=0 maps to south)
-    v_uv = vec2(a_quad_pos.x, 1.0 - a_quad_pos.y);
 }`;
 
 const HEATMAP_FRAG = `
@@ -161,18 +167,40 @@ precision highp float;
 uniform sampler2D u_speed_tex;   // R = speed encoded as u8 over [0, SPEED_STRONG*1.5], G = land flag
 uniform float u_speed_strong;    // unused — kept for parity with particle shader
 uniform float u_opacity;
-varying vec2 v_uv;
+uniform vec4 u_grid_bounds;      // [south, north, west, east]
+varying float v_lon;
+varying float v_mercY;
+
+const float PI = 3.14159265359;
+
+// Inverse Web-Mercator Y → latitude. v_mercY is interpolated linearly in
+// mercator space (correct), so recovering lat per-pixel here sidesteps
+// the linear-in-screen-space vs linear-in-lat mismatch that caused
+// horizontal banding at heatmap-mesh triangle rows.
+float mercToLat(float mercY) {
+    float y = (0.5 - mercY) * 2.0 * PI;
+    return (2.0 * atan(exp(y)) - PI * 0.5) * 180.0 / PI;
+}
 
 void main() {
+    float lat = mercToLat(v_mercY);
+    float south = u_grid_bounds.x;
+    float north = u_grid_bounds.y;
+    float west = u_grid_bounds.z;
+    float east = u_grid_bounds.w;
+
+    // Compute UV from TRUE per-pixel geography. The only interpolation
+    // across a triangle is mercY (and lon), both linear-in-mercator which
+    // matches the GPU's interpolation semantics exactly.
+    float u = (v_lon - west) / (east - west);
+    float v = 1.0 - (lat - south) / (north - south);
+    if (u < 0.0 || u > 1.0 || v < 0.0 || v > 1.0) discard;
+    vec2 v_uv = vec2(u, v);
+
     vec4 sample = texture2D(u_speed_tex, v_uv);
-    // Tight land-discard threshold. With LINEAR filtering, coastal texels
-    // bleed into neighbours — G gets averaged down to ~0.5 at boundaries
-    // and even lower a few texels inland. Discard anything ≥0.2 to trim
-    // that halo aggressively; risk of clipping some ocean at the coast
-    // edge is worth the gain of never seeing heatmap over mid-continent.
     if (sample.g > 0.2) discard;
-    float vRaw = sample.r;           // [0,1], represents real speed * (1 / (SPEED_STRONG * 1.5))
-    if (vRaw < 0.01) discard;        // ~0.02 m/s — don't paint pure-slack ocean
+    float vRaw = sample.r;
+    if (vRaw < 0.01) discard;
 
     // Decode: speed-as-fraction-of-STRONG is vRaw * 1.5 (since the encode
     // range was SPEED_STRONG * 1.5). t > 1 = "rip" zones above STRONG.
