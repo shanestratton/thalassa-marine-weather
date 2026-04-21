@@ -88,12 +88,18 @@ void main() {
     float lat = u_grid_bounds.x + a_particle_pos.y * (u_grid_bounds.y - u_grid_bounds.x);
     float lon = u_grid_bounds.z + a_particle_pos.x * (u_grid_bounds.w - u_grid_bounds.z) + u_lon_offset;
 
-    // Cull polar-degenerate zones and zero-alpha particles.
-    if (lat < -85.0 || lat > 85.0 || a_particle_alpha <= 0.0) {
-        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
-        gl_PointSize = 0.0;
-        return;
-    }
+    // CRITICAL: do NOT push zero-alpha vertices off-screen via
+    //   gl_Position = vec4(2.0, 2.0, 2.0, 1.0)
+    // When LINES-primitive draws a segment from a valid on-screen
+    // vertex (alpha=1 head) to a pushed-off-screen vertex (alpha=0
+    // freshly-reset tail), the GPU rasterises a line from the on-
+    // screen position all the way to the clip boundary before
+    // clipping — and with 80k particles all respawning toward the
+    // same clip corner you get thousands of stray lines piling up at
+    // specific Y-positions = visible horizontal bands. Clamp lat to
+    // stay inside Mercator's valid range instead, and rely on
+    // v_alpha in the fragment shader to make alpha=0 segments invisible.
+    lat = clamp(lat, -85.0, 85.0);
 
     v_speed = a_particle_speed;
     v_alpha = a_particle_alpha;
