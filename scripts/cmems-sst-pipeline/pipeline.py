@@ -32,7 +32,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 # ── Config ────────────────────────────────────────────────────────────────
 
-DATASET_ID = "cmems_mod_glo_phy_anfc_0.083deg_P1D-m"
+DATASET_ID = "cmems_mod_glo_phy-thetao_anfc_0.083deg_P1D-m"
 # thetao = sea water potential temperature (°C). Has a depth dim; we
 # select the surface level (index 0 = ~0.494m).
 VARIABLES = ["thetao"]
