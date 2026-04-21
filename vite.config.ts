@@ -65,6 +65,17 @@ export default defineConfig(({ mode }) => {
                             '/shanestratton/thalassa-marine-weather/releases/download/cmems-currents-latest',
                         ),
                 },
+                // Same pattern for waves (sister pipeline, sister release).
+                '/api/waves': {
+                    target: 'https://github.com',
+                    changeOrigin: true,
+                    followRedirects: true,
+                    rewrite: (path: string) =>
+                        path.replace(
+                            /^\/api\/waves/,
+                            '/shanestratton/thalassa-marine-weather/releases/download/cmems-waves-latest',
+                        ),
+                },
                 // Proxy Signal K mock server (dev only) — avoids CORS for localhost:3100
                 '/signalk': {
                     target: 'http://localhost:3100',
