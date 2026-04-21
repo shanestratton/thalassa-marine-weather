@@ -41,7 +41,7 @@ const TOTAL_POINTS = NUM_PARTICLES * TRAIL_LENGTH;
  *  equator → particle crosses a 360° span in ~2 minutes at 15fps.
  *  This is 20× the WindParticleLayer factor (0.00025) which was tuned
  *  for 15 m/s wind. */
-const SPEED_FACTOR = 0.005;
+const SPEED_FACTOR = 0.0025;
 
 /** m/s threshold below which a particle is considered stalled and gets
  *  respawned. 0.01 m/s ≈ 0.02 kt — orders of magnitude lower than the
@@ -103,8 +103,8 @@ void main() {
     // tail points (dim, alpha→0) shrink to 1px. Produces a clear
     // head-to-tail streak that reads as a direction arrow even in a
     // still screenshot — not a uniform blur.
-    float baseSize = mix(2.0, 5.0, clamp((u_zoom - 3.0) / 7.0, 0.0, 1.0));
-    gl_PointSize = baseSize * mix(0.25, 1.4, a_particle_alpha);
+    float baseSize = mix(3.5, 7.5, clamp((u_zoom - 3.0) / 7.0, 0.0, 1.0));
+    gl_PointSize = baseSize * mix(0.35, 1.2, a_particle_alpha);
 }`;
 
 const PARTICLE_FRAG = `
@@ -165,7 +165,12 @@ varying vec2 v_uv;
 
 void main() {
     vec4 sample = texture2D(u_speed_tex, v_uv);
-    if (sample.g > 0.5) discard;     // land — skip
+    // Tight land-discard threshold. With LINEAR filtering, coastal texels
+    // bleed into neighbours — G gets averaged down to ~0.5 at boundaries
+    // and even lower a few texels inland. Discard anything ≥0.2 to trim
+    // that halo aggressively; risk of clipping some ocean at the coast
+    // edge is worth the gain of never seeing heatmap over mid-continent.
+    if (sample.g > 0.2) discard;
     float vRaw = sample.r;           // [0,1], represents real speed * (1 / (SPEED_STRONG * 1.5))
     if (vRaw < 0.01) discard;        // ~0.02 m/s — don't paint pure-slack ocean
 
@@ -248,6 +253,8 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
     // Heatmap underlay (the colour-coded speed magnitude raster)
     private heatmapProgram: WebGLProgram | null = null;
     private heatmapQuadBuffer: WebGLBuffer | null = null;
+    private heatmapIndexBuffer: WebGLBuffer | null = null;
+    private heatmapIndexCount = 0;
     private speedTexture: WebGLTexture | null = null;
     private hAQuadPosLoc = -1;
     private hUMatrixLoc: WebGLUniformLocation | null = null;
@@ -345,11 +352,56 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         this.hUSpeedStrongLoc = gl.getUniformLocation(this.heatmapProgram, 'u_speed_strong');
         this.hUOpacityLoc = gl.getUniformLocation(this.heatmapProgram, 'u_opacity');
 
-        // Quad covering [0,1]×[0,1] in grid space — gets projected to merc
-        // by the heatmap vert shader.
+        // Subdivided quad covering [0,1]×[0,1] in grid space — a 32×32
+        // mesh (33² = 1089 verts, 2048 tris). Subdivision is critical:
+        // the GPU interpolates v_uv linearly in SCREEN space, but the
+        // quad's geographic coords map to screen via Mercator (non-
+        // linear in latitude). A 4-vertex world-spanning quad produced
+        // catastrophic UV errors in the middle — sampling far-away
+        // texels and bleeding heatmap colours deep over land. With 32
+        // subdivisions each sub-triangle covers ~11° × ~5° at most,
+        // where linear interpolation error is sub-texel.
+        const SUBDIV = 32;
+        const vCount = (SUBDIV + 1) * (SUBDIV + 1);
+        const positions = new Float32Array(vCount * 2);
+        {
+            let p = 0;
+            for (let y = 0; y <= SUBDIV; y++) {
+                for (let x = 0; x <= SUBDIV; x++) {
+                    positions[p++] = x / SUBDIV;
+                    positions[p++] = y / SUBDIV;
+                }
+            }
+        }
+        const indexCount = SUBDIV * SUBDIV * 6;
+        const indices = new Uint16Array(indexCount);
+        {
+            let ix = 0;
+            for (let y = 0; y < SUBDIV; y++) {
+                for (let x = 0; x < SUBDIV; x++) {
+                    const v0 = y * (SUBDIV + 1) + x;
+                    const v1 = v0 + 1;
+                    const v2 = v0 + (SUBDIV + 1);
+                    const v3 = v2 + 1;
+                    // Two triangles per quad cell.
+                    indices[ix++] = v0;
+                    indices[ix++] = v1;
+                    indices[ix++] = v2;
+                    indices[ix++] = v1;
+                    indices[ix++] = v3;
+                    indices[ix++] = v2;
+                }
+            }
+        }
+
         this.heatmapQuadBuffer = gl.createBuffer();
         gl.bindBuffer(gl.ARRAY_BUFFER, this.heatmapQuadBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+
+        this.heatmapIndexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.heatmapIndexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
+        this.heatmapIndexCount = indexCount;
 
         this.speedTexture = gl.createTexture();
 
@@ -390,11 +442,13 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
         if (this.heatmapProgram) gl.deleteProgram(this.heatmapProgram);
         if (this.particleBuffer) gl.deleteBuffer(this.particleBuffer);
         if (this.heatmapQuadBuffer) gl.deleteBuffer(this.heatmapQuadBuffer);
+        if (this.heatmapIndexBuffer) gl.deleteBuffer(this.heatmapIndexBuffer);
         if (this.speedTexture) gl.deleteTexture(this.speedTexture);
         const gl2 = gl as WebGL2RenderingContext;
         if (this.particleVAO && gl2.deleteVertexArray) gl2.deleteVertexArray(this.particleVAO);
         this.heatmapProgram = null;
         this.heatmapQuadBuffer = null;
+        this.heatmapIndexBuffer = null;
         this.speedTexture = null;
         this.program = null;
         this.particleBuffer = null;
@@ -675,14 +729,14 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
             data[base + 1] = y;
             data[base + 2] = speedMS;
 
-            // Trail alpha fade — quadratic (not linear) so the head is
-            // MUCH brighter than the tail. Combined with size-scales-with-
-            // alpha in the vertex shader, this makes each trail look like
-            // a comet: solid bright head, shrinking fading tail.
+            // Trail alpha fade — slight quadratic bias so the head is
+            // brighter than the tail, but not so aggressive that the
+            // tail vanishes completely. Floor at 0.12 guarantees tail
+            // pixels remain visible as thin streaks.
             for (let t = 0; t < TRAIL_LENGTH; t++) {
                 const offset = base + t * FLOATS_PER_TRAIL_PT;
                 const linFade = 1 - t / TRAIL_LENGTH;
-                data[offset + 3] = linFade * linFade; // quadratic
+                data[offset + 3] = 0.12 + 0.88 * linFade * linFade;
             }
         }
     }
@@ -773,10 +827,11 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
                 gl.vertexAttribPointer(this.hAQuadPosLoc, 2, gl.FLOAT, false, 0, 0);
             }
 
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.heatmapIndexBuffer);
             const heatmapOffsets = this.globalMode ? [-360, 0, 360] : [0];
             for (const offset of heatmapOffsets) {
                 if (this.hULonOffsetLoc) gl.uniform1f(this.hULonOffsetLoc, offset);
-                gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+                gl.drawElements(gl.TRIANGLES, this.heatmapIndexCount, gl.UNSIGNED_SHORT, 0);
             }
 
             if (this.hAQuadPosLoc >= 0) gl.disableVertexAttribArray(this.hAQuadPosLoc);
