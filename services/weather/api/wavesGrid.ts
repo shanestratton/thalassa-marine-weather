@@ -113,19 +113,31 @@ async function doFetchWavesGrid(): Promise<WindGrid | null> {
     const cacheBust = manifest.generated_at ? `?t=${encodeURIComponent(manifest.generated_at)}` : '';
 
     // Fetch all hours in parallel — user pays once when waves toggles on.
+    // NOTE: unlike the currents pipeline (1-hour cadence), waves are 3-
+    // hourly so entry.hour is the ACTUAL forecast-hour offset (0, 3, 6,
+    // …, 48) rather than a step index. The particle-layer hook indexes
+    // u[] by step-index (0..N-1), so we key into u/v/speed by step index
+    // and stash the manifest's real-hour offsets separately for UI use
+    // (see WindGrid.hourOffsets, added for this).
+    //
+    // Sort by hour ascending so step-index 0 is always the freshest
+    // timestep regardless of manifest order.
+    const sortedEntries = [...manifest.hours].sort((a, b) => a.hour - b.hour);
     const parsed = await Promise.all(
-        manifest.hours.map(async (entry) => {
+        sortedEntries.map(async (entry, stepIdx) => {
             const res = await fetch(`${BASE}/${entry.file}${cacheBust}`, { cache: 'default' });
-            if (!res.ok) throw new Error(`hour ${entry.hour}: HTTP ${res.status}`);
+            if (!res.ok) throw new Error(`step ${stepIdx} (T+${entry.hour}h): HTTP ${res.status}`);
             const buf = await res.arrayBuffer();
-            return { hour: entry.hour, buf };
+            return { stepIdx, hourOffset: entry.hour, buf };
         }),
     );
 
-    for (const { hour, buf } of parsed) {
+    const hourOffsets: number[] = new Array(hourCount);
+    for (const { stepIdx, hourOffset, buf } of parsed) {
+        hourOffsets[stepIdx] = hourOffset;
         const dv = new DataView(buf);
         if (dv.getUint32(0, true) !== MAGIC) {
-            throw new Error(`hour ${hour}: bad magic`);
+            throw new Error(`step ${stepIdx}: bad magic`);
         }
         const version = dv.getUint8(4);
         const w = dv.getUint16(6, true);
@@ -162,9 +174,9 @@ async function doFetchWavesGrid(): Promise<WindGrid | null> {
         for (let i = 0; i < w * h; i++) {
             speed[i] = Math.hypot(u[i], v[i]);
         }
-        us[hour] = u;
-        vs[hour] = v;
-        speeds[hour] = speed;
+        us[stepIdx] = u;
+        vs[stepIdx] = v;
+        speeds[stepIdx] = speed;
     }
 
     // Build lat/lon axes. Pipeline writes rows north→south, cols west→east.
@@ -195,5 +207,8 @@ async function doFetchWavesGrid(): Promise<WindGrid | null> {
         east,
         totalHours: hourCount,
         landMask,
+        // Real forecast-hour offsets per step-index (waves are 3-hourly;
+        // currents are 1-hourly, so this equals [0,1,...] for them).
+        hourOffsets,
     };
 }

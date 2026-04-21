@@ -41,6 +41,11 @@ export interface WindGrid {
      *  grids from Open-Meteo don't include it (over-ocean wind is fine to
      *  spawn particles on land for, since wind doesn't care). */
     landMask?: Uint8Array;
+    /** Actual forecast-hour offset per step-index (0-based). For
+     *  hourly-cadence sources (currents, wind) this is [0,1,2,…]; for
+     *  3-hourly (waves) this is [0,3,6,…]. UI scrubber uses this to
+     *  render "T+Xh" labels instead of step indices. */
+    hourOffsets?: number[];
 }
 
 /**
