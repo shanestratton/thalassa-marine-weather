@@ -30,8 +30,8 @@ const log = createLogger('CurrentParticleLayer');
 // ── Tunable constants ─────────────────────────────────────────────────
 //
 // Each is a deliberate departure from WindParticleLayer's wind defaults.
-const NUM_PARTICLES = 50000;
-const TRAIL_LENGTH = 20;
+const NUM_PARTICLES = 80000;
+const TRAIL_LENGTH = 28;
 const FLOATS_PER_TRAIL_PT = 4; // x, y, speed (m/s), alpha
 const FLOATS_PER_PARTICLE = TRAIL_LENGTH * FLOATS_PER_TRAIL_PT;
 const TOTAL_POINTS = NUM_PARTICLES * TRAIL_LENGTH;
@@ -41,7 +41,7 @@ const TOTAL_POINTS = NUM_PARTICLES * TRAIL_LENGTH;
  *  equator → particle crosses a 360° span in ~2 minutes at 15fps.
  *  This is 20× the WindParticleLayer factor (0.00025) which was tuned
  *  for 15 m/s wind. */
-const SPEED_FACTOR = 0.0025;
+const SPEED_FACTOR = 0.0018;
 
 /** m/s threshold below which a particle is considered stalled and gets
  *  respawned. 0.01 m/s ≈ 0.02 kt — orders of magnitude lower than the
@@ -103,8 +103,8 @@ void main() {
     // tail points (dim, alpha→0) shrink to 1px. Produces a clear
     // head-to-tail streak that reads as a direction arrow even in a
     // still screenshot — not a uniform blur.
-    float baseSize = mix(3.5, 7.5, clamp((u_zoom - 3.0) / 7.0, 0.0, 1.0));
-    gl_PointSize = baseSize * mix(0.35, 1.2, a_particle_alpha);
+    float baseSize = mix(4.0, 8.0, clamp((u_zoom - 3.0) / 7.0, 0.0, 1.0));
+    gl_PointSize = baseSize * mix(0.35, 1.25, a_particle_alpha);
 }`;
 
 const PARTICLE_FRAG = `
@@ -815,7 +815,7 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
                 );
             }
             if (this.hUSpeedStrongLoc) gl.uniform1f(this.hUSpeedStrongLoc, SPEED_STRONG_M_S);
-            if (this.hUOpacityLoc) gl.uniform1f(this.hUOpacityLoc, 0.6);
+            if (this.hUOpacityLoc) gl.uniform1f(this.hUOpacityLoc, 0.72);
 
             gl.activeTexture(gl.TEXTURE0);
             gl.bindTexture(gl.TEXTURE_2D, this.speedTexture);
