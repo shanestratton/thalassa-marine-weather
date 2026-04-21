@@ -669,10 +669,29 @@ export class CurrentParticleLayer implements mapboxgl.CustomLayerInterface {
 
     /** Sample a (nx, ny) position weighted by speed^1.4. */
     private weightedSpawn(): [number, number] {
-        const cdf = this.spawnCDF;
-        const indexMap = this.spawnIndexMap;
+        const mask = this.landMask;
         const w = this.gridW;
         const h = this.gridH;
+
+        // Diagnostic: window.__cmemsUniformSpawn = true → skip the
+        // speed-weighted CDF and spawn particles uniformly across the
+        // ocean. If THAT kills the stripes, they're caused by the CDF
+        // over-concentrating particles at specific fast-current latitudes.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const dbg = globalThis as any;
+        if (dbg.__cmemsUniformSpawn === true && mask && w > 0 && h > 0) {
+            for (let attempt = 0; attempt < 8; attempt++) {
+                const nx = Math.random();
+                const ny = Math.random();
+                const col = Math.min(w - 1, Math.max(0, Math.floor(nx * w)));
+                const row = Math.min(h - 1, Math.max(0, Math.floor((1 - ny) * h)));
+                if (mask[row * w + col] === 1) continue;
+                return [nx, ny];
+            }
+        }
+
+        const cdf = this.spawnCDF;
+        const indexMap = this.spawnIndexMap;
         if (!cdf || !indexMap || cdf.length === 0 || w === 0 || h === 0) {
             return [Math.random(), Math.random()];
         }
