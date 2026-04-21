@@ -27,6 +27,7 @@ export type HelixLayer =
     | 'currents'
     | 'waves'
     | 'sst'
+    | 'chl'
     | null;
 
 interface LayerConfig {
@@ -81,6 +82,15 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
         // Matches the thermal ramp in SstRasterLayer.ts.
         gradient: 'linear-gradient(to top, #1f1466, #2659bf, #40b2d9, #66cc73, #f2eb66, #f28c4d, #d93333)',
         accentColor: '#fbbf24',
+    },
+    chl: {
+        icon: '🌱',
+        label: 'Chlorophyll',
+        lowLabel: 'Clear',
+        highLabel: 'Bloom',
+        // Matches the algal log-scale ramp in ChlRasterLayer.ts.
+        gradient: 'linear-gradient(to top, #0d0538, #2e1a80, #265abf, #34a6cc, #40bf59, #ccd933, #f28c26)',
+        accentColor: '#40bf59',
     },
     rain: {
         icon: '🌧️',
