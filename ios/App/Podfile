@@ -42,13 +42,45 @@ post_install do |installer|
     target.build_configurations.each do |config|
       config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
       config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
-      
+
       # FIX: Xcode "Update to recommended settings" warnings
       config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
       config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
-      
+
       # FIX: SwiftSocket ships with SWIFT_VERSION=3 which is unsupported
       config.build_settings['SWIFT_VERSION'] = '5.0'
     end
   end
+
+  # FIX: Silence the "will be run during every build because it does not
+  # specify any outputs" warnings for CocoaPods' [CP] script phases.
+  # Our Podfile sets :disable_input_output_paths => true (to dodge a
+  # file-system limit with many resource bundles), which means CocoaPods
+  # can't generate the output paths Xcode uses for dependency analysis.
+  # Setting alwaysOutOfDate = 1 on each [CP] phase tells Xcode "yes, we
+  # know — run it every build, stop warning". Also silences the
+  # "Ignoring duplicate libraries -lc++ -lsqlite3 -lz" linker warning
+  # by opting out of the new duplicate-library detection.
+  app_project_path = File.join(__dir__, 'App.xcodeproj')
+  app_project = Xcodeproj::Project.open(app_project_path)
+  app_project.targets.each do |target|
+    # Script phases (CocoaPods)
+    target.build_phases.each do |phase|
+      next unless phase.respond_to?(:name) && phase.name
+      phase.always_out_of_date = '1' if phase.name.start_with?('[CP]')
+    end
+
+    # Linker: opt out of "duplicate library" warnings. The new ld64
+    # emits these for -lc++/-lsqlite3/-lz appearing across system + Pods.
+    # Harmless; the symbols are dedup'd. `-no_warn_duplicate_libraries`
+    # asks the linker to stop reporting them.
+    target.build_configurations.each do |config|
+      ldflags = config.build_settings['OTHER_LDFLAGS'] || '$(inherited)'
+      ldflags = ldflags.join(' ') if ldflags.is_a?(Array)
+      unless ldflags.include?('-no_warn_duplicate_libraries')
+        config.build_settings['OTHER_LDFLAGS'] = ldflags + ' -Xlinker -no_warn_duplicate_libraries'
+      end
+    end
+  end
+  app_project.save
 end
