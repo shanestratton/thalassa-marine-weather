@@ -25,11 +25,23 @@ const slides = [
         subtitle: 'Wind, waves, and weather right on the map',
         features: [
             '💨 Real-time wind particle overlay (NOAA GFS)',
-            '📍 Pin locations and share with crew',
+            '🌊 Ocean currents, waves, SST, and sea state',
             '⛵ Track your vessel live with GPS',
         ],
         accent: 'from-emerald-500/20 to-teal-500/10',
-        tab: 'MAP',
+        tab: 'Charts',
+    },
+    {
+        icon: '💬',
+        title: 'The Scuttlebutt',
+        subtitle: 'Where sailors gather, share, and swap tales',
+        features: [
+            '💬 Channels and DMs with sailors worldwide',
+            '📍 Drop pins to share anchorages, POIs, and tracks',
+            "🍳 The Captain's Table — community recipes",
+        ],
+        accent: 'from-indigo-500/20 to-violet-500/10',
+        tab: 'Scuttlebutt',
     },
     {
         icon: '⛵',
@@ -37,11 +49,11 @@ const slides = [
         subtitle: 'Everything about your boat in one place',
         features: [
             '📓 Logbook, diary, and voyage tracking',
-            '🔧 Maintenance scheduling and reminders',
-            '💬 Crew Talk — chat with sailors worldwide',
+            "🔧 Maintenance, equipment, and ship's stores",
+            '⚓ Anchor watch + MOB safety systems',
         ],
         accent: 'from-amber-500/20 to-orange-500/10',
-        tab: 'VESSEL',
+        tab: 'Nav Station',
     },
 ];
 
