@@ -78,7 +78,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
         // On native: use ML Kit scanner instead of camera stream
         if (Capacitor.isNativePlatform()) {
             try {
-                const { BarcodeScanner, BarcodeFormat } = await import('@capacitor-mlkit/barcode-scanning');
+                const { BarcodeScanner, BarcodeFormat } = await import('../../services/native/dataScanner');
 
                 const { camera } = await BarcodeScanner.checkPermissions();
                 if (camera !== 'granted') {
@@ -151,7 +151,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
         // Native platform: use Capacitor ML Kit barcode scanner
         if (Capacitor.isNativePlatform()) {
             try {
-                const { BarcodeScanner, BarcodeFormat } = await import('@capacitor-mlkit/barcode-scanning');
+                const { BarcodeScanner, BarcodeFormat } = await import('../../services/native/dataScanner');
 
                 // Check & request camera permission
                 const { camera } = await BarcodeScanner.checkPermissions();

@@ -504,7 +504,7 @@ export const InventoryList: React.FC<InventoryListProps> = ({ onBack }) => {
                                         if (Capacitor.isNativePlatform()) {
                                             try {
                                                 const { BarcodeScanner, BarcodeFormat } =
-                                                    await import('@capacitor-mlkit/barcode-scanning');
+                                                    await import('../../services/native/dataScanner');
                                                 const { camera } = await BarcodeScanner.checkPermissions();
                                                 if (camera !== 'granted') {
                                                     const r = await BarcodeScanner.requestPermissions();
