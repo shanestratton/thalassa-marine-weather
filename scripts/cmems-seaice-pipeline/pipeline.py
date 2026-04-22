@@ -40,10 +40,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 # ── Config ────────────────────────────────────────────────────────────────
 
-# Per-variable physics dataset for sea-ice concentration. CMEMS split
-# the combined glo_phy_anfc dataset into per-variable variants — siconc
-# follows the same convention as thetao (SST).
-DATASET_ID = "cmems_mod_glo_phy-siconc_anfc_0.083deg_P1D-m"
+# Sea-ice variables live in the COMBINED daily-mean physics dataset
+# (unlike thetao, which CMEMS split into a per-variable variant). The
+# per-variable -siconc variant doesn't exist (DatasetNotFound).
+# Per Google Earth Engine's catalog, the combined daily 18-band product
+# `cmems_mod_glo_phy_anfc_0.083deg_P1D-m` carries all 9 sea-ice
+# variables (siconc, sithick, sialb, siage, ist, sivelo, usi, vsi,
+# sisnthick) plus zos / mlotst / tob / sob / pbo / etc.
+DATASET_ID = "cmems_mod_glo_phy_anfc_0.083deg_P1D-m"
 VARIABLES = ["siconc"]  # sea-ice concentration, dimensionless [0, 1]
 
 FORECAST_DAYS = 5
