@@ -109,6 +109,17 @@ export default defineConfig(({ mode }) => {
                             '/shanestratton/thalassa-marine-weather/releases/download/cmems-seaice-latest',
                         ),
                 },
+                // Mixed-layer depth (scalar metres, log10-encoded into u-channel).
+                '/api/mld': {
+                    target: 'https://github.com',
+                    changeOrigin: true,
+                    followRedirects: true,
+                    rewrite: (path: string) =>
+                        path.replace(
+                            /^\/api\/mld/,
+                            '/shanestratton/thalassa-marine-weather/releases/download/cmems-mld-latest',
+                        ),
+                },
                 // Marine Protected Areas (CAPAD GeoJSON polygons).
                 '/api/mpa': {
                     target: 'https://github.com',

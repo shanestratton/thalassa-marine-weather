@@ -11,7 +11,7 @@ const RELEASE_BASE = 'https://github.com/shanestratton/thalassa-marine-weather/r
 
 const ALLOWED = new Set<string>([
     'manifest.json',
-    ...Array.from({ length: 5 }, (_, i) => `h${String(i).padStart(2, '0')}.bin`),
+    ...Array.from({ length: 6 }, (_, i) => `h${String(i).padStart(2, '0')}.bin`),
 ]);
 
 export default async function handler(req: Request): Promise<Response> {

@@ -1,16 +1,13 @@
 /**
- * Vercel serverless proxy for CMEMS-sst binary assets.
- *
- * Same pattern as api/currents and api/waves. 5-day forecast at daily
- * cadence = today + 5 forecast days (CMEMS includes both endpoints) =
- * 6 allowed files (h00..h05.bin) + manifest.json.
+ * Vercel serverless proxy for CMEMS mixed-layer depth binaries.
+ * Sister to api/currents, api/waves, api/sst, api/chl, api/seaice.
  */
 
 export const config = {
     runtime: 'edge',
 };
 
-const RELEASE_BASE = 'https://github.com/shanestratton/thalassa-marine-weather/releases/download/cmems-sst-latest';
+const RELEASE_BASE = 'https://github.com/shanestratton/thalassa-marine-weather/releases/download/cmems-mld-latest';
 
 const ALLOWED = new Set<string>([
     'manifest.json',
