@@ -77,8 +77,35 @@ function buildPopupHtml(props: MpaProps): string {
             font-family: system-ui, -apple-system, sans-serif;
             min-width: 220px;
             max-width: 280px;
+            padding-right: 22px;
             color: #f3f4f6;
+            position: relative;
         ">
+            <button
+                type="button"
+                class="mpa-popup-close"
+                aria-label="Close"
+                style="
+                    position: absolute;
+                    top: -4px;
+                    right: -8px;
+                    width: 26px;
+                    height: 26px;
+                    border-radius: 999px;
+                    border: 1px solid rgba(255,255,255,0.18);
+                    background: rgba(15,23,42,0.85);
+                    color: #d1d5db;
+                    font-size: 16px;
+                    line-height: 1;
+                    font-weight: 600;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    padding: 0;
+                    transition: background 120ms, color 120ms;
+                "
+            >&times;</button>
             <div style="font-weight: 600; font-size: 14px; line-height: 1.3; margin-bottom: 4px;">
                 ${escape(props.name ?? 'Marine reserve')}
             </div>
@@ -164,8 +191,13 @@ export function useMpaLayer(mapRef: React.MutableRefObject<mapboxgl.Map | null>,
                     const props = (feat.properties ?? {}) as MpaProps;
 
                     if (popupRef.current) popupRef.current.remove();
-                    popupRef.current = new mapboxgl.Popup({
-                        closeButton: true,
+                    // Mapbox's default close button gets visually swallowed
+                    // by our dark glassmorphic content (low contrast, sits
+                    // on top of the title) — disable it and render our own
+                    // styled X inside the popup HTML, then wire the click
+                    // by querying the rendered DOM after .addTo().
+                    const popup = new mapboxgl.Popup({
+                        closeButton: false,
                         maxWidth: '320px',
                         className: 'mpa-popup',
                         offset: 8,
@@ -173,6 +205,22 @@ export function useMpaLayer(mapRef: React.MutableRefObject<mapboxgl.Map | null>,
                         .setLngLat(e.lngLat)
                         .setHTML(buildPopupHtml(props))
                         .addTo(map);
+                    popupRef.current = popup;
+
+                    const closeBtn = popup.getElement()?.querySelector<HTMLButtonElement>('.mpa-popup-close');
+                    if (closeBtn) {
+                        closeBtn.addEventListener('click', () => popup.remove());
+                        // Subtle hover affordance — works on cursor devices
+                        // without breaking the touch-target sizing.
+                        closeBtn.addEventListener('mouseenter', () => {
+                            closeBtn.style.background = 'rgba(220, 38, 38, 0.85)';
+                            closeBtn.style.color = '#ffffff';
+                        });
+                        closeBtn.addEventListener('mouseleave', () => {
+                            closeBtn.style.background = 'rgba(15, 23, 42, 0.85)';
+                            closeBtn.style.color = '#d1d5db';
+                        });
+                    }
                 };
 
                 const onEnter = () => {
