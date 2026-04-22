@@ -108,6 +108,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     const [prefDist, setPrefDist] = useState<DistanceUnit>(defaults.distance);
     const [prefLength, setPrefLength] = useState<LengthUnit>(defaults.length);
     const [prefWaveHeight, setPrefWaveHeight] = useState<LengthUnit>('m'); // Default to Meters per user request
+    const [prefVolume, setPrefVolume] = useState<VolumeUnit>(defaults.volume || 'gal');
     const [preferredModel, _setPreferredModel] = useState<WeatherModel>('best_match');
     const [offshoreModel, setOffshoreModel] = useState<OffshoreModel>('sg');
 
@@ -134,6 +135,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     // Tankage Data - Initialize as strings to avoid persistent '0'
     const [fuel, setFuel] = useState<string>('');
     const [water, setWater] = useState<string>('');
+    // volUnit mirrors prefVolume at init; sync'd on transition out of the
+    // Unit Prefs step so any user preference choice flows through to the
+    // vessel-tankage toggle.
     const [volUnit, setVolUnit] = useState<VolumeUnit>(defaults.volume || 'gal');
     const [crewCount, setCrewCount] = useState<string>('2');
 
@@ -167,9 +171,22 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                 });
         }
 
-        // Conditional step routing: non-Skippers skip vessel details (4) + offshore model (5)
-        if (step === 3 && subscriptionTier !== 'owner') {
-            setStep(6); // Jump to unit preferences
+        // Leaving the Unit Preferences step (4) — seed vessel unit toggles
+        // with the user's prefs so Vessel Details fields default correctly.
+        // The per-field toggles in VesselDetailsStep still let them override
+        // (e.g. length in ft but beam in m) if they want.
+        if (step === 4) {
+            setLengthUnit(prefLength);
+            setBeamUnit(prefLength);
+            setDraftUnit(prefLength);
+            setAirDraftUnit(prefLength);
+            setDispUnit(prefLength === 'ft' ? 'lbs' : 'kg');
+            setVolUnit(prefVolume);
+        }
+
+        // Conditional step routing: non-Skippers skip vessel details (5) + offshore model (6)
+        if (step === 4 && subscriptionTier !== 'owner') {
+            setStep(7); // Jump to display preferences
             return;
         }
 
@@ -177,9 +194,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     };
 
     const handleBack = () => {
-        // If going back from step 6 and non-Skipper, jump to step 3 (skip vessel + offshore model)
-        if (step === 6 && subscriptionTier !== 'owner') {
-            setStep(3);
+        // If going back from step 7 and non-Skipper, jump to step 4 (skip offshore + vessel)
+        if (step === 7 && subscriptionTier !== 'owner') {
+            setStep(4);
             return;
         }
         setStep((s) => Math.max(1, s - 1));
@@ -473,7 +490,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     };
 
     return (
-        <div className="fixed inset-0 z-[100] bg-slate-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0f172a] to-black flex items-center justify-center p-4 overflow-hidden">
+        <div
+            className="fixed inset-0 z-[100] bg-slate-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0f172a] to-black flex items-start md:items-center justify-center px-4 overflow-y-auto"
+            style={{
+                paddingTop: 'max(1rem, calc(env(safe-area-inset-top) + 3.5rem))',
+                paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+            }}
+        >
             {/* Ambient Background Glow */}
             <div className="absolute top-[-20%] left-[-10%] w-[600px] h-[600px] bg-sky-500/10 rounded-full blur-[120px] pointer-events-none"></div>
             <div className="absolute bottom-[-10%] right-[-5%] w-[500px] h-[500px] bg-purple-500/10 rounded-full blur-[100px] pointer-events-none"></div>
@@ -528,8 +551,28 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                     />
                 )}
 
-                {/* STEP 4: VESSEL DETAILS (Skipper only) */}
+                {/* STEP 4: UNIT PREFERENCES — moved ahead of Vessel Details so
+                    those fields inherit the user's chosen length/volume units */}
                 {step === 4 && (
+                    <UnitPreferencesStep
+                        prefSpeed={prefSpeed}
+                        onSpeedChange={setPrefSpeed}
+                        prefWaveHeight={prefWaveHeight}
+                        onWaveHeightChange={setPrefWaveHeight}
+                        prefLength={prefLength}
+                        onLengthChange={setPrefLength}
+                        prefTemp={prefTemp}
+                        onTempChange={setPrefTemp}
+                        prefDist={prefDist}
+                        onDistChange={setPrefDist}
+                        prefVolume={prefVolume}
+                        onVolumeChange={setPrefVolume}
+                        onNext={handleNext}
+                    />
+                )}
+
+                {/* STEP 5: VESSEL DETAILS (Skipper only) */}
+                {step === 5 && (
                     <VesselDetailsStep
                         vesselType={vesselType}
                         onVesselTypeChange={setVesselType}
@@ -580,26 +623,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                     />
                 )}
 
-                {/* STEP 5: OFFSHORE MODEL (Skipper only) */}
-                {step === 5 && (
-                    <OffshoreModelStep selected={offshoreModel} onChange={setOffshoreModel} onNext={handleNext} />
-                )}
-
-                {/* STEP 6: UNIT PREFERENCES */}
+                {/* STEP 6: OFFSHORE MODEL (Skipper only) */}
                 {step === 6 && (
-                    <UnitPreferencesStep
-                        prefSpeed={prefSpeed}
-                        onSpeedChange={setPrefSpeed}
-                        prefWaveHeight={prefWaveHeight}
-                        onWaveHeightChange={setPrefWaveHeight}
-                        prefLength={prefLength}
-                        onLengthChange={setPrefLength}
-                        prefTemp={prefTemp}
-                        onTempChange={setPrefTemp}
-                        prefDist={prefDist}
-                        onDistChange={setPrefDist}
-                        onNext={handleNext}
-                    />
+                    <OffshoreModelStep selected={offshoreModel} onChange={setOffshoreModel} onNext={handleNext} />
                 )}
 
                 {/* STEP 7: DISPLAY PREFERENCES */}
