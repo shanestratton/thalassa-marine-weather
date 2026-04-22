@@ -119,14 +119,26 @@ def fetch_capad_marine() -> dict[str, Any]:
     session = requests.Session()
     session.headers["User-Agent"] = USER_AGENT
 
-    base_params: dict[str, str | int] = {
-        # MapServer/1 is already the marine slice — `1=1` returns all rows.
-        "where": "1=1",
+    base_params: dict[str, str | int | float] = {
+        # MapServer/1 is the marine slice. We additionally exclude
+        # negligible polygons (<0.1 km² = <10 ha) — single rocks,
+        # tiny coves, harbour-mouth fragments — which would bloat
+        # the bundle without contributing anything visible at marine
+        # routing zoom (4-10).
+        "where": "GIS_AREA>0.1",
         "outFields": ",".join(KEEP_FIELDS),
         "outSR": 4326,
         "f": "geojson",
         "returnGeometry": "true",
-        "geometryPrecision": 4,  # ~11m precision — plenty for a 2km-zoom-out overlay
+        # Server-side Douglas-Peucker simplification. 0.005° ≈ 550 m
+        # at the equator — invisible at marine routing zoom, drops
+        # the bundle size from ~110 MB raw to ~1-2 MB gzipped while
+        # keeping every park visually identifiable. Without this,
+        # park boundaries with detailed coastlines (think hundreds
+        # of vertices for a single estuary) make the GeoJSON
+        # impossibly large for a one-shot fetch.
+        "maxAllowableOffset": 0.005,
+        "geometryPrecision": 4,  # ~11m post-simplification precision
     }
 
     all_features: list[dict[str, Any]] = []
