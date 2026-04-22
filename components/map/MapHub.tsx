@@ -1129,6 +1129,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                         }}
                         tideStationCount={tideStations.stationCount}
                         tideStationLoading={tideStations.loading}
+                        {...(isMpaEnabled()
+                            ? {
+                                  mpaVisible: weather.mpaVisible,
+                                  onToggleMpa: () => weather.setMpaVisible(!weather.mpaVisible),
+                              }
+                            : {})}
                         chartCatalogSources={chartCatalog.sources}
                         onToggleChartSource={chartCatalog.toggleSource}
                         onChartSourceOpacity={chartCatalog.setOpacity}

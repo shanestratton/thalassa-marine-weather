@@ -348,6 +348,12 @@ export const LayerFABMenu: React.FC<{
     onToggleTideStations?: () => void;
     tideStationCount?: number;
     tideStationLoading?: boolean;
+    /** Marine Protected Areas (CAPAD vector overlay). Static toggle —
+     *  only surfaces when MapHub passes a callback (gated on
+     *  VITE_MPA_ENABLED). */
+    mpaVisible?: boolean;
+    onToggleMpa?: () => void;
+    mpaFeatureCount?: number;
     chartCatalogSources?: ChartSource[];
     onToggleChartSource?: (id: ChartSourceId) => void;
     onChartSourceOpacity?: (id: ChartSourceId, opacity: number) => void;
@@ -409,6 +415,9 @@ export const LayerFABMenu: React.FC<{
     onToggleTideStations,
     tideStationCount = 0,
     tideStationLoading = false,
+    mpaVisible = false,
+    onToggleMpa,
+    mpaFeatureCount = 0,
     chartCatalogSources = [],
     onToggleChartSource,
     onChartSourceOpacity,
@@ -433,7 +442,8 @@ export const LayerFABMenu: React.FC<{
         (vesselTrackingVisible ? 1 : 0) +
         (seamarkVisible ? 1 : 0) +
         (tideStationsVisible ? 1 : 0) +
-        (chokepointVisible ? 1 : 0);
+        (chokepointVisible ? 1 : 0) +
+        (mpaVisible ? 1 : 0);
 
     const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [stormMenuOpen, setStormMenuOpen] = useState(false);
@@ -1010,6 +1020,33 @@ export const LayerFABMenu: React.FC<{
                                 </span>
                             ) : (
                                 <span className="text-[10px] text-gray-500">Tap for predictions</span>
+                            )}
+                        </button>
+                    )}
+
+                    {/* Marine Protected Areas (No-Go zones) — CAPAD overlay */}
+                    {onToggleMpa && (
+                        <button
+                            aria-label="Toggle marine reserves / no-go zones"
+                            onClick={() => {
+                                onToggleMpa();
+                                triggerHaptic('light');
+                            }}
+                            className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
+                                mpaVisible ? 'bg-rose-500/10 text-rose-300' : 'text-gray-400 hover:bg-white/5'
+                            }`}
+                        >
+                            <span className="text-lg">🛇</span>
+                            <span className="text-[13px] font-bold flex-1">No-Go Zones</span>
+                            {mpaVisible ? (
+                                <span className="flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shadow-lg shadow-rose-400/50" />
+                                    <span className="text-[10px] font-bold text-rose-300 uppercase tracking-wider">
+                                        {mpaFeatureCount > 0 ? `${mpaFeatureCount}` : 'Active'}
+                                    </span>
+                                </span>
+                            ) : (
+                                <span className="text-[10px] text-gray-500">Marine reserves</span>
                             )}
                         </button>
                     )}
