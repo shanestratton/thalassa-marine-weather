@@ -28,6 +28,7 @@ export type HelixLayer =
     | 'waves'
     | 'sst'
     | 'chl'
+    | 'seaice'
     | null;
 
 interface LayerConfig {
@@ -91,6 +92,17 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
         // Matches the algal log-scale ramp in ChlRasterLayer.ts.
         gradient: 'linear-gradient(to top, #0d0538, #2e1a80, #265abf, #34a6cc, #40bf59, #ccd933, #f28c26)',
         accentColor: '#40bf59',
+    },
+    seaice: {
+        icon: '❄️',
+        label: 'Sea Ice',
+        lowLabel: 'Edge',
+        highLabel: 'Pack',
+        // Matches the white-pack ramp in SeaIceRasterLayer.ts: pale
+        // cyan at the 15% ice edge → cool white-blue → near-white →
+        // pure white for consolidated pack ice.
+        gradient: 'linear-gradient(to top, #8cbfd9, #c7e0eb, #ebf2f5, #ffffff)',
+        accentColor: '#e0f0fa',
     },
     rain: {
         icon: '🌧️',

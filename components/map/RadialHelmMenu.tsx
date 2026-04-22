@@ -279,6 +279,14 @@ function buildCategories(
                     groupExclusive: true,
                     group: SEA_STATE_LAYERS,
                 },
+                {
+                    id: 'seaice',
+                    label: 'Sea Ice',
+                    icon: <SeaIceIcon />,
+                    layerKey: 'seaice',
+                    groupExclusive: true,
+                    group: SEA_STATE_LAYERS,
+                },
             ],
         },
         {
@@ -1149,6 +1157,19 @@ const ChlIcon = () => (
             strokeLinecap="round"
             strokeLinejoin="round"
             d="M7 20c0-6 3-12 10-14-1 8-5 13-10 14zM7 20l10-14M7 20s1-3 4-5M13 13s-1 1-2 3"
+        />
+    </svg>
+);
+
+// Six-pointed snowflake glyph — sea ice. Three crossing axes give
+// the canonical winter snowflake silhouette without spiky branches
+// crowding the 16px box.
+const SeaIceIcon = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 3v18M5.2 7l13.6 10M5.2 17 18.8 7M9 5l3-2 3 2M9 19l3 2 3-2M5 9.5 3 12l2 2.5M19 9.5l2 2.5-2 2.5"
         />
     </svg>
 );
