@@ -1,8 +1,12 @@
 /**
- * UnitPreferencesStep — Onboarding Step 6: measurement unit selection.
+ * UnitPreferencesStep — Onboarding Step 4: measurement unit selection.
+ *
+ * Moved ahead of Vessel Details 2026-04-23 so the length/beam/draft/
+ * fuel/water fields in Vessel Details default to the user's chosen
+ * units rather than the locale guess.
  */
 import React from 'react';
-import type { SpeedUnit, TempUnit, DistanceUnit, LengthUnit } from '../../types';
+import type { SpeedUnit, TempUnit, DistanceUnit, LengthUnit, VolumeUnit } from '../../types';
 
 interface UnitPreferencesStepProps {
     prefSpeed: SpeedUnit;
@@ -15,6 +19,8 @@ interface UnitPreferencesStepProps {
     onTempChange: (v: TempUnit) => void;
     prefDist: DistanceUnit;
     onDistChange: (v: DistanceUnit) => void;
+    prefVolume: VolumeUnit;
+    onVolumeChange: (v: VolumeUnit) => void;
     onNext: () => void;
 }
 
@@ -53,10 +59,13 @@ export const UnitPreferencesStep: React.FC<UnitPreferencesStepProps> = React.mem
         onTempChange,
         prefDist,
         onDistChange,
+        prefVolume,
+        onVolumeChange,
         onNext,
     }) => (
         <div className="animate-in fade-in slide-in-from-right-8 duration-500">
-            <h2 className="text-2xl font-bold text-white mb-6 text-center">Unit Preferences</h2>
+            <h2 className="text-2xl font-bold text-white mb-2 text-center">Unit Preferences</h2>
+            <p className="text-xs text-gray-400 text-center mb-6">Defaults from your phone locale — change anytime.</p>
 
             <div className="space-y-4 mb-8">
                 <UnitRow
@@ -88,6 +97,12 @@ export const UnitPreferencesStep: React.FC<UnitPreferencesStepProps> = React.mem
                     options={['nm', 'mi', 'km']}
                     current={prefDist}
                     onChange={(v) => onDistChange(v as DistanceUnit)}
+                />
+                <UnitRow
+                    label="Fuel / Water"
+                    options={['l', 'gal']}
+                    current={prefVolume}
+                    onChange={(v) => onVolumeChange(v as VolumeUnit)}
                 />
             </div>
 
