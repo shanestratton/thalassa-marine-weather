@@ -43,13 +43,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 # ── Config ────────────────────────────────────────────────────────────────
 
-# DCCEEW's public CAPAD FeatureServer. ENVIRON='MPA' filters to the
-# marine slice (excludes terrestrial reserves which would bloat the
-# tile bundle 10× with no marine value). outSR=4326 = WGS84 lat/lon
-# which Mapbox consumes natively without a reproject step.
+# DCCEEW's public CAPAD MapServer layer 1 — the marine-only slice.
+# (FeatureServer/0 is the integrated terrestrial+marine layer where
+# the ENVIRON column only takes 'T' / 'B' values, neither of which
+# isolates pure MPAs. MapServer/1 ships the marine parks + zoning
+# directly without further filtering.)
+# outSR=4326 = WGS84 lat/lon which Mapbox consumes natively without
+# a reproject step.
 FEATURE_SERVER = (
     "https://gis.environment.gov.au/gispubmap/rest/services/"
-    "ogc_services/CAPAD/FeatureServer/0/query"
+    "ogc_services/CAPAD/MapServer/1/query"
 )
 
 # Fields we keep — the rest are noise for our use case.
@@ -117,7 +120,8 @@ def fetch_capad_marine() -> dict[str, Any]:
     session.headers["User-Agent"] = USER_AGENT
 
     base_params: dict[str, str | int] = {
-        "where": "ENVIRON='MPA'",
+        # MapServer/1 is already the marine slice — `1=1` returns all rows.
+        "where": "1=1",
         "outFields": ",".join(KEEP_FIELDS),
         "outSR": 4326,
         "f": "geojson",
