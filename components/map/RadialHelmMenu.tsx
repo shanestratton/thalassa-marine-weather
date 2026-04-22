@@ -287,6 +287,14 @@ function buildCategories(
                     groupExclusive: true,
                     group: SEA_STATE_LAYERS,
                 },
+                {
+                    id: 'mld',
+                    label: 'MLD',
+                    icon: <MldIcon />,
+                    layerKey: 'mld',
+                    groupExclusive: true,
+                    group: SEA_STATE_LAYERS,
+                },
             ],
         },
         {
@@ -1171,6 +1179,15 @@ const SeaIceIcon = () => (
             strokeLinejoin="round"
             d="M12 3v18M5.2 7l13.6 10M5.2 17 18.8 7M9 5l3-2 3 2M9 19l3 2 3-2M5 9.5 3 12l2 2.5M19 9.5l2 2.5-2 2.5"
         />
+    </svg>
+);
+
+// Stacked-strata glyph — mixed-layer depth. Three horizontal layers
+// with a downward arrow on the right edge: surface mixed pool above,
+// thermocline boundary, deeper water below. Reads as "depth profile".
+const MldIcon = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h14M3 12h12M3 17h10M19 5v14M16 16l3 3 3-3" />
     </svg>
 );
 
