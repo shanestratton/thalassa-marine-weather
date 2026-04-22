@@ -12,12 +12,12 @@ const slides = [
         title: 'Your Weather',
         subtitle: 'Real-time marine forecasts at your fingertips',
         features: [
-            '🌡️ Live conditions with multi-model AI blending',
+            '🌤️ Multi-model forecasts offshore',
             '🌊 Tide charts, wave height, and swell periods',
-            '📡 NMEA instrument gauges from your backbone',
+            '🧠 AI-generated tactical advice for your vessel',
         ],
         accent: 'from-sky-500/20 to-cyan-500/10',
-        tab: 'WX',
+        tab: 'The Glass',
     },
     {
         icon: '🗺️',
