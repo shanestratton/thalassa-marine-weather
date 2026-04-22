@@ -39,13 +39,17 @@ public class DataScannerPlugin: CAPPlugin {
     private var delegateProxy: ScannerDelegateProxy?
 
     // MARK: - Permissions
+    // `checkPermissions` / `requestPermissions` are declared on `CAPPlugin`
+    // itself so Capacitor can wire generic permission-plumbing calls to any
+    // plugin. We override both with our camera-specific implementation —
+    // `override public` is required because the base methods are public.
 
-    @objc func checkPermissions(_ call: CAPPluginCall) {
+    @objc override public func checkPermissions(_ call: CAPPluginCall) {
         let state = AVCaptureDevice.authorizationStatus(for: .video)
         call.resolve(["camera": permissionString(for: state)])
     }
 
-    @objc func requestPermissions(_ call: CAPPluginCall) {
+    @objc override public func requestPermissions(_ call: CAPPluginCall) {
         let state = AVCaptureDevice.authorizationStatus(for: .video)
         if state == .notDetermined {
             AVCaptureDevice.requestAccess(for: .video) { granted in
