@@ -42,13 +42,14 @@ export type WeatherLayer =
     | 'sst'
     | 'chl'
     | 'seaice'
+    | 'mld'
     // Atmosphere (Xweather)
     | 'wind-gusts'
     | 'visibility'
     | 'cape';
 
 /** Sea State layers — mutual exclusion within group */
-export const SEA_STATE_LAYERS: WeatherLayer[] = ['waves', 'currents', 'sst', 'chl', 'seaice'];
+export const SEA_STATE_LAYERS: WeatherLayer[] = ['waves', 'currents', 'sst', 'chl', 'seaice', 'mld'];
 /** Atmosphere layers — mutual exclusion within group */
 export const ATMOSPHERE_LAYERS: WeatherLayer[] = [
     'rain',

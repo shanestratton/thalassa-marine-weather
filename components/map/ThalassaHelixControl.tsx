@@ -29,6 +29,7 @@ export type HelixLayer =
     | 'sst'
     | 'chl'
     | 'seaice'
+    | 'mld'
     | null;
 
 interface LayerConfig {
@@ -103,6 +104,17 @@ const LAYER_CONFIGS: Record<string, LayerConfig> = {
         // pure white for consolidated pack ice.
         gradient: 'linear-gradient(to top, #8cbfd9, #c7e0eb, #ebf2f5, #ffffff)',
         accentColor: '#e0f0fa',
+    },
+    mld: {
+        icon: '📐',
+        label: 'MLD',
+        lowLabel: 'Shallow',
+        highLabel: 'Deep',
+        // Matches the plasma ramp in MldRasterLayer.ts: pale yellow at
+        // ~2m (sunlit shallow stratified) → orange → red → magenta →
+        // purple → deep navy at 1000m+ (deep convective sites).
+        gradient: 'linear-gradient(to top, #f5ebcc, #fa9f33, #eb4d4d, #c72e80, #73198c, #1a0d4d)',
+        accentColor: '#c72e80',
     },
     rain: {
         icon: '🌧️',

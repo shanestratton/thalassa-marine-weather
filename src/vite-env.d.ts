@@ -29,6 +29,7 @@ interface ImportMetaEnv {
     readonly VITE_CMEMS_SST_ENABLED: string;
     readonly VITE_CMEMS_CHL_ENABLED: string;
     readonly VITE_CMEMS_SEAICE_ENABLED: string;
+    readonly VITE_CMEMS_MLD_ENABLED: string;
     readonly VITE_MPA_ENABLED: string;
 
     // Standard Vite Environment Variables

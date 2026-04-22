@@ -217,6 +217,11 @@ export function useWeatherLayers(
     const [seaicePlaying, setSeaicePlaying] = useState(false);
     const seaiceTotalSteps = 6;
 
+    // Mixed-layer depth scrubber (CMEMS physics daily, today + 5d = 6 frames).
+    const [mldStep, setMldStep] = useState(0);
+    const [mldPlaying, setMldPlaying] = useState(false);
+    const mldTotalSteps = 6;
+
     // Marine Protected Areas (CAPAD vector tiles). Static overlay —
     // not time-scrubbed, can co-exist with any weather layer (a user
     // wants to see currents AND know where they can fish). Persisted
@@ -603,6 +608,23 @@ export function useWeatherLayers(
         return () => clearInterval(timer);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [seaicePlaying, activeKey, seaiceTotalSteps]);
+
+    // ── Mixed-layer depth play/pause auto-advance (daily, 6 frames) ──
+    useEffect(() => {
+        if (!mldPlaying || !activeLayers.has('mld')) return;
+        const timer = setInterval(() => {
+            setMldStep((prev) => {
+                const next = prev + 1;
+                if (next >= mldTotalSteps) {
+                    setMldPlaying(false);
+                    return 0;
+                }
+                return next;
+            });
+        }, 1200);
+        return () => clearInterval(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mldPlaying, activeKey, mldTotalSteps]);
 
     // ── Wind forecast data loading (for scrubber — rendering handled by MapboxVelocityOverlay) ──
     useEffect(() => {
@@ -1462,6 +1484,12 @@ export function useWeatherLayers(
         seaiceTotalSteps,
         seaicePlaying,
         setSeaicePlaying,
+        // Mixed-layer depth (CMEMS physics daily, gated by VITE_CMEMS_MLD_ENABLED)
+        mldStep,
+        setMldStep,
+        mldTotalSteps,
+        mldPlaying,
+        setMldPlaying,
         // Marine Protected Areas (CAPAD, gated by VITE_MPA_ENABLED)
         mpaVisible,
         setMpaVisible,
