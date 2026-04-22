@@ -1,6 +1,10 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { CompassIcon, MapIcon, MapPinIcon, SearchIcon, XIcon } from '../Icons';
-import { WeatherMap } from '../WeatherMap';
+import { lazyRetry } from '../../utils/lazyRetry';
+
+// Lazy-load the modern Mapbox-GL map so we don't ship it to first-paint.
+// Matches the App.tsx loading pattern used for the main map view.
+const MapHub = lazyRetry(() => import('../map/MapHub').then((m) => ({ default: m.MapHub })), 'HomePortMapHub');
 
 interface HomePortStepProps {
     homePort: string;
@@ -36,46 +40,70 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
     onNext,
 }) => (
     <>
-        {/* Map Modal */}
+        {/* Map Modal — MapHub in pickerMode: tap anywhere drops a pin
+            and auto-reverse-geocodes the coord into a human-readable
+            name, which flows through onMapSelect into tempLocation. */}
         {showMap && (
-            <div className="fixed inset-0 z-[150] bg-slate-900 animate-in fade-in zoom-in-95 flex flex-col">
+            <div className="fixed inset-0 z-[150] bg-slate-950 animate-in fade-in duration-200 flex flex-col">
                 <div className="flex-1 relative">
-                    <WeatherMap
-                        locationName={tempLocation?.name || 'Select Home Port'}
-                        lat={tempLocation?.lat}
-                        lon={tempLocation?.lon}
-                        onLocationSelect={onMapSelect}
-                        enableZoom={true}
-                        minimal={false}
-                        initialLayer="buoys"
-                        hideLayerControls={true}
-                        mapboxToken={process.env.MAPBOX_ACCESS_TOKEN}
-                        restrictBounds={false}
-                    />
-                    <div className="absolute top-4 right-4 z-[160]">
+                    <Suspense
+                        fallback={
+                            <div className="absolute inset-0 flex items-center justify-center bg-slate-950">
+                                <div className="flex flex-col items-center gap-3 text-white/60">
+                                    <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+                                    <span className="text-xs font-medium">Loading chart…</span>
+                                </div>
+                            </div>
+                        }
+                    >
+                        <MapHub
+                            mapboxToken={import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string}
+                            pickerMode={true}
+                            pickerLabel="Select Home Port"
+                            onLocationSelect={onMapSelect}
+                            lat={tempLocation?.lat}
+                            lon={tempLocation?.lon}
+                            initialZoom={tempLocation ? 10 : 4}
+                            minimalLabels={true}
+                        />
+                    </Suspense>
+
+                    {/* Close button — top-right, glassy */}
+                    <div className="absolute top-[max(1rem,env(safe-area-inset-top))] right-4 z-[160]">
                         <button
-                            aria-label="Close Map"
+                            aria-label="Close map"
                             onClick={() => onShowMap(false)}
-                            className="p-3 bg-slate-900/90 text-white rounded-full shadow-xl border border-white/20 hover:bg-slate-800 transition-colors"
+                            className="p-3 bg-slate-900/80 backdrop-blur text-white rounded-full shadow-xl border border-white/15 hover:bg-slate-800 active:scale-95 transition-all"
                         >
-                            <XIcon className="w-6 h-6" />
+                            <XIcon className="w-5 h-5" />
                         </button>
                     </div>
-                    <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-[160] w-full max-w-sm px-4">
+
+                    {/* Title pill — top-center, reinforces intent */}
+                    <div className="absolute top-[max(1.25rem,env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-[160] pointer-events-none">
+                        <div className="bg-slate-900/80 backdrop-blur text-white/80 text-xs font-bold uppercase tracking-wider px-4 py-2 rounded-full border border-white/10 shadow-lg">
+                            Tap the chart to pick your home port
+                        </div>
+                    </div>
+
+                    {/* Confirm bar — bottom, only appears once a pin exists */}
+                    <div className="absolute bottom-[max(1.5rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-[160] w-full max-w-sm px-4">
                         {tempLocation ? (
                             <button
-                                aria-label="Map Selection"
+                                aria-label={`Confirm ${tempLocation.name} as home port`}
                                 onClick={onConfirmMapSelection}
-                                className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-3 px-6 rounded-xl shadow-2xl flex items-center justify-center gap-2 animate-in slide-in-from-bottom-4 transition-all hover:scale-105"
+                                className="w-full bg-sky-500 hover:bg-sky-400 text-white font-bold py-4 px-6 rounded-2xl shadow-2xl flex items-center justify-center gap-2 animate-in slide-in-from-bottom-4 duration-300 active:scale-[0.98] transition-all"
                             >
                                 <MapPinIcon className="w-5 h-5" />
-                                {tempLocation.name === 'Identifying...'
-                                    ? 'Resolving Location...'
-                                    : `Confirm: ${tempLocation.name}`}
+                                <span className="truncate">
+                                    {tempLocation.name === 'Identifying...'
+                                        ? 'Resolving location…'
+                                        : `Confirm: ${tempLocation.name}`}
+                                </span>
                             </button>
                         ) : (
-                            <div className="bg-slate-900/90 text-white text-xs px-4 py-2 rounded-full border border-white/10 pointer-events-none shadow-lg text-center">
-                                Tap any location or buoy to select
+                            <div className="bg-slate-900/80 backdrop-blur text-white/70 text-xs px-4 py-2.5 rounded-full border border-white/10 pointer-events-none shadow-lg text-center">
+                                Tap any location on the chart to drop a pin
                             </div>
                         )}
                     </div>
