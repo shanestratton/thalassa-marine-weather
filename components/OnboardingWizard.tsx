@@ -479,12 +479,16 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
             <div className="absolute bottom-[-10%] right-[-5%] w-[500px] h-[500px] bg-purple-500/10 rounded-full blur-[100px] pointer-events-none"></div>
 
             <div className="w-full max-w-lg relative">
-                {/* BACK BUTTON */}
+                {/* BACK BUTTON — fixed to the viewport with safe-area padding
+                    so it sits below the Dynamic Island / notch on iPhone rather
+                    than (a) going off-screen on tall devices or (b) hiding under
+                    the status bar. */}
                 {step > 1 && (
                     <button
                         aria-label="Go back"
                         onClick={handleBack}
-                        className="absolute -top-12 left-0 p-2 text-gray-400 hover:text-white transition-colors flex items-center gap-2 group z-20"
+                        style={{ top: 'max(1rem, calc(env(safe-area-inset-top) + 0.5rem))' }}
+                        className="fixed left-4 p-2 text-gray-400 hover:text-white transition-colors flex items-center gap-2 group z-20"
                     >
                         <ArrowRightIcon className="w-5 h-5 rotate-180 group-hover:-translate-x-1 transition-transform" />
                         <span className="text-sm font-medium">Back</span>
