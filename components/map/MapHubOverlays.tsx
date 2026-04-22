@@ -798,9 +798,17 @@ export const LayerFABMenu: React.FC<{
                     <SectionHeader label="Sea State" color="cyan" />
 
                     {[
-                        { key: 'waves' as WeatherLayer, label: 'Wave Heights', icon: '🌊', hint: 'Xweather' },
-                        { key: 'currents' as WeatherLayer, label: 'Ocean Currents', icon: '🔄', hint: 'Xweather' },
-                        { key: 'sst' as WeatherLayer, label: 'Sea Surface Temp', icon: '🌡️', hint: 'Xweather' },
+                        { key: 'waves' as WeatherLayer, label: 'Wave Heights', icon: '🌊', hint: 'CMEMS' },
+                        { key: 'currents' as WeatherLayer, label: 'Ocean Currents', icon: '🔄', hint: 'CMEMS' },
+                        { key: 'sst' as WeatherLayer, label: 'Sea Surface Temp', icon: '🌡️', hint: 'CMEMS' },
+                        { key: 'chl' as WeatherLayer, label: 'Chlorophyll', icon: '🌱', hint: 'CMEMS' },
+                        { key: 'seaice' as WeatherLayer, label: 'Sea Ice', icon: '❄️', hint: 'CMEMS · polar' },
+                        {
+                            key: 'mld' as WeatherLayer,
+                            label: 'Mixed Layer Depth',
+                            icon: '📐',
+                            hint: 'CMEMS · thermocline',
+                        },
                     ].map((layer) => {
                         const isActive = activeLayers.has(layer.key);
                         return (
