@@ -1,0 +1,45 @@
+name: MPA (CAPAD) → GitHub Release
+
+# CAPAD updates ~twice a year. Weekly polling is overkill but cheap
+# and keeps the rolling release fresh in case of off-cycle corrections.
+on:
+    schedule:
+        - cron: '0 17 * * 1' # Mondays 17:00 UTC = Tue 03:00 AEST
+    workflow_dispatch:
+
+permissions:
+    contents: write
+
+jobs:
+    publish:
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/master'
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Set up Python
+              uses: actions/setup-python@v5
+              with:
+                  python-version: '3.11'
+                  cache: 'pip'
+                  cache-dependency-path: scripts/mpa-pipeline/requirements.txt
+
+            - name: Install Python deps
+              run: pip install -r scripts/mpa-pipeline/requirements.txt
+
+            - name: Run pipeline
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+              run: python scripts/mpa-pipeline/pipeline.py
+
+            - name: Upload GeoJSON artifact on failure (for debugging)
+              if: failure()
+              uses: actions/upload-artifact@v4
+              with:
+                  name: mpa-debug-${{ github.run_id }}
+                  path: /tmp/mpa-pipeline/
+                  if-no-files-found: ignore
+                  retention-days: 7
