@@ -57,6 +57,7 @@ import { useOceanCurrentParticleLayer, isCmemsCurrentsEnabled } from './useOcean
 import { useOceanWaveParticleLayer, isCmemsWavesEnabled } from './useOceanWaveParticleLayer';
 import { useSstRasterLayer, isCmemsSstEnabled } from './useSstRasterLayer';
 import { useChlRasterLayer, isCmemsChlEnabled } from './useChlRasterLayer';
+import { useSeaIceRasterLayer, isCmemsSeaIceEnabled } from './useSeaIceRasterLayer';
 import { useMpaLayer, isMpaEnabled } from './useMpaLayer';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
@@ -700,6 +701,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     const chlVisible = weather.activeLayers.has('chl');
     useChlRasterLayer(mapRef, mapReady, chlVisible, weather.chlStep);
 
+    // ── Sea-ice concentration (CMEMS physics daily raster heatmap) ──
+    // Scalar field. Polar-only by definition (shader discards <15%).
+    // Net-new — unlocks high-latitude routing (Baltic winter, Alaska,
+    // Svalbard, Antarctic). Gated by VITE_CMEMS_SEAICE_ENABLED.
+    const seaiceVisible = weather.activeLayers.has('seaice');
+    useSeaIceRasterLayer(mapRef, mapReady, seaiceVisible, weather.seaiceStep);
+
     // ── Marine Protected Areas (CAPAD GeoJSON overlay) ──
     // Independent toggle — co-exists with any weather layer because
     // "where can I fish?" is orthogonal to "what's the weather doing?".
@@ -1321,6 +1329,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             ...(isCmemsWavesEnabled() ? (['waves'] as HelixLayer[]) : []),
                             ...(isCmemsSstEnabled() ? (['sst'] as HelixLayer[]) : []),
                             ...(isCmemsChlEnabled() ? (['chl'] as HelixLayer[]) : []),
+                            ...(isCmemsSeaIceEnabled() ? (['seaice'] as HelixLayer[]) : []),
                         ];
                         const activeWeatherLayers = WEATHER_KEYS.filter((k) =>
                             k === 'wind'
@@ -1518,6 +1527,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                             onScrub = (h: number) => weather.setChlStep(Math.round(h));
                             onPlayToggle = () => weather.setChlPlaying(!weather.chlPlaying);
                             onScrubStart = () => weather.setChlPlaying(false);
+                        } else if (activeLayerKey === 'seaice' && isCmemsSeaIceEnabled()) {
+                            frameIndex = weather.seaiceStep;
+                            totalFrames = weather.seaiceTotalSteps;
+                            const relD = Math.round(frameIndex);
+                            frameLabel = relD === 0 ? 'Today' : `+${relD}d`;
+                            sublabel = relD === 0 ? 'Daily mean' : 'Forecast';
+                            isPlaying = weather.seaicePlaying;
+                            onScrub = (h: number) => weather.setSeaiceStep(Math.round(h));
+                            onPlayToggle = () => weather.setSeaicePlaying(!weather.seaicePlaying);
+                            onScrubStart = () => weather.setSeaicePlaying(false);
                         } else if (activeLayerKey === 'rain') {
                             if (weather.rainLoading) {
                                 isLoading = true;
