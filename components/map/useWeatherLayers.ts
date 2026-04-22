@@ -201,21 +201,21 @@ export function useWeatherLayers(
     const [wavesPlaying, setWavesPlaying] = useState(false);
     const wavesTotalHours = 17;
 
-    // SST scrubber (CMEMS daily-mean, 5-day forecast = 5 frames).
-    // sstStep is a STEP index (0..4); each step is +1 day.
+    // SST scrubber (CMEMS daily-mean, today + 5 forecast days = 6 frames
+    // because the pipeline's start→end range is inclusive on both ends).
     const [sstStep, setSstStep] = useState(0);
     const [sstPlaying, setSstPlaying] = useState(false);
-    const sstTotalSteps = 5;
+    const sstTotalSteps = 6;
 
-    // Chlorophyll scrubber (CMEMS BGC daily, 5-day forecast = 5 frames).
+    // Chlorophyll scrubber (CMEMS BGC daily, today + 5d = 6 frames).
     const [chlStep, setChlStep] = useState(0);
     const [chlPlaying, setChlPlaying] = useState(false);
-    const chlTotalSteps = 5;
+    const chlTotalSteps = 6;
 
-    // Sea-ice scrubber (CMEMS physics daily, 5-day forecast = 5 frames).
+    // Sea-ice scrubber (CMEMS physics daily, today + 5d = 6 frames).
     const [seaiceStep, setSeaiceStep] = useState(0);
     const [seaicePlaying, setSeaicePlaying] = useState(false);
-    const seaiceTotalSteps = 5;
+    const seaiceTotalSteps = 6;
 
     // Marine Protected Areas (CAPAD vector tiles). Static overlay —
     // not time-scrubbed, can co-exist with any weather layer (a user
