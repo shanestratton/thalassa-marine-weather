@@ -91,7 +91,7 @@ export const RoleSelectionStep: React.FC<RoleSelectionStepProps> = ({
         <div className="animate-in fade-in slide-in-from-right-8 duration-500">
             <h2 className="text-2xl font-bold text-white mb-2 text-center">What brings you to the water?</h2>
             <p className="text-sm text-gray-400 text-center mb-6">
-                Choose your role — you can change this anytime in Settings.
+                Choose your role — you can change this anytime in Nav Station → Settings.
             </p>
             <div className="grid grid-cols-1 gap-3 mb-8">
                 {ROLE_OPTIONS.map((opt) => {
