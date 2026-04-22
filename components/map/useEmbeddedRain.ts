@@ -22,16 +22,13 @@ export function useEmbeddedRain(
         const mapForCleanup = mapRef.current;
         (async () => {
             try {
-                const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
-                const data = await res.json();
-                const past = (data?.radar?.past ?? []).map((f: { path: string; time: number }) => ({
-                    path: f.path,
-                    time: f.time,
-                }));
-                const forecast = (data?.radar?.nowcast ?? []).map((f: { path: string; time: number }) => ({
-                    path: f.path,
-                    time: f.time,
-                }));
+                // Shared module — coalesces with the rain scrubber +
+                // dashboard preview so we don't triple-fetch the index.
+                const { fetchRainviewerIndex } = await import('../../services/weather/api/rainviewerIndex');
+                const data = await fetchRainviewerIndex();
+                if (!data) return;
+                const past = (data.radar?.past ?? []).map((f) => ({ path: f.path, time: f.time }));
+                const forecast = (data.radar?.nowcast ?? []).map((f) => ({ path: f.path, time: f.time }));
                 const allFrames = [...past, ...forecast];
                 embeddedRainFrames.current = allFrames;
                 setEmbRainCount(allFrames.length);

@@ -77,25 +77,20 @@ export const EssentialMapSlide: React.FC<EssentialMapSlideProps> = ({
 
         (async () => {
             try {
-                // 1. RainViewer radar + nowcast
-                const rvResp = await fetch('https://api.rainviewer.com/public/weather-maps.json', {
-                    cache: 'no-store',
-                });
-                const data = await rvResp.json();
-                if (cancelled) return;
+                // 1. RainViewer radar + nowcast — via shared cache so we
+                // dedup with useEmbeddedRain + useWeatherLayers (rain
+                // scrubber). Avoids hitting the free-tier API three times
+                // when the user navigates Dashboard → Map.
+                const { fetchRainviewerIndex } = await import('../../../services/weather/api/rainviewerIndex');
+                const data = await fetchRainviewerIndex();
+                if (cancelled || !data) return;
 
                 const nowSec = Date.now() / 1000;
                 const maxAge = 3 * 60 * 60;
-                const allPast = (data?.radar?.past ?? []).map((f: { path: string; time: number }) => ({
-                    path: f.path,
-                    time: f.time,
-                }));
-                const fresh = allPast.filter((f: { time: number }) => nowSec - f.time < maxAge);
+                const allPast = (data.radar?.past ?? []).map((f) => ({ path: f.path, time: f.time }));
+                const fresh = allPast.filter((f) => nowSec - f.time < maxAge);
                 const past = fresh.length > 0 ? fresh : allPast;
-                const nowcast = (data?.radar?.nowcast ?? []).map((f: { path: string; time: number }) => ({
-                    path: f.path,
-                    time: f.time,
-                }));
+                const nowcast = (data.radar?.nowcast ?? []).map((f) => ({ path: f.path, time: f.time }));
 
                 const all: EssentialFrame[] = [
                     ...past.map((f: { path: string; time: number }) => ({ ...f, type: 'radar' as const })),

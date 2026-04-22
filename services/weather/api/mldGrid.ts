@@ -25,7 +25,10 @@ export interface MldManifest {
 
 export async function fetchMldManifest(): Promise<MldManifest | null> {
     try {
-        const res = await fetch(`${BASE}/manifest.json`, { cache: 'no-cache' });
+        // 'default' lets the browser reuse the manifest within the edge
+        // proxy's max-age=600 window — pipeline updates once daily so a
+        // 10min reuse is safe and saves a round-trip on every layer toggle.
+        const res = await fetch(`${BASE}/manifest.json`, { cache: 'default' });
         if (!res.ok) {
             log.warn(`Manifest fetch failed: ${res.status}`);
             return null;
