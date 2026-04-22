@@ -9,13 +9,16 @@
  */
 import type { WindGrid } from '../windField';
 import { createLogger } from '../../../utils/createLogger';
+import { API_BASE } from '../../native/apiBase';
 
 const log = createLogger('mldGrid');
 
 const MAGIC = 0x55434854; // 'THCU' little-endian u32
 const HEADER_SIZE = 30;
 
-const BASE = '/api/mld';
+// Resolves to '/api/mld' on web and to the configured production URL
+// on native (Capacitor has no proxy for relative /api paths).
+const BASE = `${API_BASE}/mld`;
 
 export interface MldManifest {
     version: number;

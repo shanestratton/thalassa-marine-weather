@@ -31,6 +31,7 @@
  */
 import type { WindGrid } from '../windField';
 import { createLogger } from '../../../utils/createLogger';
+import { API_BASE } from '../../native/apiBase';
 
 const log = createLogger('sstGrid');
 
@@ -40,7 +41,9 @@ const HEADER_SIZE = 30;
 /** Same-origin base — the Vite/Vercel proxy forwards to the GitHub Release.
  *  Must be `/api/sst` not `/sst`: Vercel Attack Challenge Mode
  *  challenges non-API paths and 403s fetches without a challenge cookie. */
-const BASE = '/api/sst';
+// Resolves to '/api/sst' on web (Vite proxy / Vercel) and to the
+// configured production URL on native (no proxy in front of Capacitor).
+const BASE = `${API_BASE}/sst`;
 
 export interface SstManifest {
     version: number;

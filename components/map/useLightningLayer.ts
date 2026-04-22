@@ -9,6 +9,7 @@
 import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
+import { API_BASE } from '../../services/native/apiBase';
 
 const log = createLogger('LightningLayer');
 
@@ -31,7 +32,7 @@ const XW_ENABLED = Boolean(import.meta.env.VITE_XWEATHER_CLIENT_ID);
 // injects the secret server-side; see api/xweather/[...path].ts.
 function buildLightningTileUrl(cacheBust?: number): string {
     const suffix = cacheBust ? `?_ts=${cacheBust}` : '';
-    return `/api/xweather/lightning-strikes:15/{z}/{x}/{y}/current.png${suffix}`;
+    return `${API_BASE}/xweather/lightning-strikes:15/{z}/{x}/{y}/current.png${suffix}`;
 }
 
 export function useLightningLayer(
