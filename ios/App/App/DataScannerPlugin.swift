@@ -72,9 +72,23 @@ public class DataScannerPlugin: CAPPlugin {
     }
 
     // MARK: - Support check
+    //
+    // `DataScannerViewController.isSupported` / `.isAvailable` are
+    // main-actor-isolated under Swift 6 strict concurrency, so every
+    // access must happen on the main thread. We dispatch explicitly
+    // rather than annotating the plugin methods @MainActor — Capacitor
+    // invokes plugin entry points off the main thread and we don't want
+    // to deadlock the bridge.
 
     @objc func isSupported(_ call: CAPPluginCall) {
-        if #available(iOS 16.0, *) {
+        guard #available(iOS 16.0, *) else {
+            call.resolve([
+                "supported": false,
+                "reason": "iOS 16.0 or later required."
+            ])
+            return
+        }
+        DispatchQueue.main.async {
             let supported = DataScannerViewController.isSupported
             let available = DataScannerViewController.isAvailable
             if !supported {
@@ -92,11 +106,6 @@ public class DataScannerPlugin: CAPPlugin {
                 return
             }
             call.resolve(["supported": true])
-        } else {
-            call.resolve([
-                "supported": false,
-                "reason": "iOS 16.0 or later required."
-            ])
         }
     }
 
@@ -105,11 +114,6 @@ public class DataScannerPlugin: CAPPlugin {
     @objc func scan(_ call: CAPPluginCall) {
         guard #available(iOS 16.0, *) else {
             call.reject("iOS 16.0 or later required for DataScannerViewController")
-            return
-        }
-        guard DataScannerViewController.isSupported,
-              DataScannerViewController.isAvailable else {
-            call.reject("DataScannerViewController is not supported or available on this device.")
             return
         }
 
@@ -129,6 +133,14 @@ public class DataScannerPlugin: CAPPlugin {
 
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
+
+            // Check support/availability inside the main-thread block —
+            // both properties are main-actor-isolated under Swift 6.
+            guard DataScannerViewController.isSupported,
+                  DataScannerViewController.isAvailable else {
+                call.reject("DataScannerViewController is not supported or available on this device.")
+                return
+            }
 
             let recognizedTypes: [DataScannerViewController.RecognizedDataType] = [
                 .barcode(symbologies: symbologies.isEmpty ? [] : symbologies)
