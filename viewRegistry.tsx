@@ -14,6 +14,7 @@
  */
 import React from 'react';
 import { lazyRetry } from './utils/lazyRetry';
+import type { Feature } from './services/SubscriptionService';
 
 // ── Lazy-loaded components ───────────────────────────────────────────────────
 const GalleyPage = lazyRetry(
@@ -135,6 +136,12 @@ export interface ViewConfig {
     showSearchBar?: boolean;
     /** Build the props object for this view. */
     getProps?: (ctx: ViewContext) => Record<string, unknown>;
+    /**
+     * If set, the view is gated behind this entitlement. App.tsx wraps
+     * the rendered component with <PaywallGate feature={gatedFeature}>
+     * which shows an upsell card to non-entitled users.
+     */
+    gatedFeature?: Feature;
 }
 
 // ── Registry ─────────────────────────────────────────────────────────────────
@@ -276,6 +283,7 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: DiaryPage,
         boundaryName: 'Diary',
         group: 'vessel',
+        gatedFeature: 'diary',
         getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
     },
     route: {
@@ -328,6 +336,7 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: GalleyPage,
         boundaryName: 'Galley',
         group: 'vessel',
+        gatedFeature: 'galley',
         getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
     },
 };

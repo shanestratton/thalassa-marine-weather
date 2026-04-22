@@ -68,7 +68,9 @@ export type Feature =
     | 'shipLogRead' // Read-only logbook
     | 'vesselProfile' // Vessel setup & management
     | 'castOff' // Voyage start/end
-    | 'galley' // Meal planning
+    | 'galley' // Meal planning (Skipper+ — gated at the page level)
+    | 'marketplace' // Gear Exchange marketplace (Skipper+)
+    | 'diary' // Gemini-AI sailing diary (Skipper+)
     | 'gpsTracking' // GPS track logging
     | 'crewTalkWrite' // Send messages in Crew Talk
     | 'chandleryPost' // Post listings in Chandlery
@@ -96,6 +98,8 @@ const FEATURE_GATES: Record<Feature, SubscriptionTier> = {
     vesselProfile: 'owner',
     castOff: 'owner',
     galley: 'owner',
+    marketplace: 'owner',
+    diary: 'owner',
     gpsTracking: 'crew',
     crewTalkWrite: 'crew',
     chandleryPost: 'crew',
