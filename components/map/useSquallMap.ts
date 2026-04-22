@@ -13,6 +13,7 @@ import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
+import { API_BASE } from '../../services/native/apiBase';
 
 const log = createLogger('SquallMap');
 
@@ -38,7 +39,7 @@ const XW_ENABLED = Boolean(import.meta.env.VITE_XWEATHER_CLIENT_ID);
  * Mapbox follows the redirect automatically.
  */
 function buildXweatherTileUrl(): string {
-    return `/api/xweather/${XWEATHER_LAYERS}/{z}/{x}/{y}/current.png`;
+    return `${API_BASE}/xweather/${XWEATHER_LAYERS}/{z}/{x}/{y}/current.png`;
 }
 
 // ── Hook ──

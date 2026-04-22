@@ -2,6 +2,8 @@
  * Map constants and types used across MapHub sub-modules.
  */
 
+import { API_BASE } from '../../services/native/apiBase';
+
 // ── Types ──────────────────────────────────────────────────────
 
 export interface MapHubProps {
@@ -105,8 +107,11 @@ export function getTileUrl(layer: string): string | undefined {
 
     // Xweather tile layers — always proxied through `/api/xweather/`
     // so the client_secret stays server-side. See api/xweather/[...path].ts.
+    // API_BASE resolves to '/api/xweather' on web (Vercel proxies it)
+    // and to the absolute Vercel URL on native iOS (Mapbox-GL hits it
+    // directly since Capacitor has no proxy for relative URLs).
     if (isXweatherEnabled()) {
-        const xwBase = '/api/xweather';
+        const xwBase = `${API_BASE}/xweather`;
         // Sea State
         if (layer === 'waves') return `${xwBase}/wave-heights/{z}/{x}/{y}/current.png`;
         if (layer === 'currents') return `${xwBase}/ocean-currents/{z}/{x}/{y}/current.png`;

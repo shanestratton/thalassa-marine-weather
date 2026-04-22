@@ -31,6 +31,7 @@
  */
 import type { WindGrid } from '../windField';
 import { createLogger } from '../../../utils/createLogger';
+import { API_BASE } from '../../native/apiBase';
 
 const log = createLogger('chlGrid');
 
@@ -40,7 +41,9 @@ const HEADER_SIZE = 30;
 /** Same-origin base — the Vite/Vercel proxy forwards to the GitHub Release.
  *  Must be `/api/chl` not `/sst`: Vercel Attack Challenge Mode
  *  challenges non-API paths and 403s fetches without a challenge cookie. */
-const BASE = '/api/chl';
+// Resolves to '/api/chl' on web and to the configured production URL
+// on native (Capacitor has no proxy for relative /api paths).
+const BASE = `${API_BASE}/chl`;
 
 export interface ChlManifest {
     version: number;

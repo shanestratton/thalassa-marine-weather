@@ -24,6 +24,7 @@
 
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
+import { API_BASE } from '../../services/native/apiBase';
 
 const log = createLogger('MpaLayer');
 
@@ -31,7 +32,11 @@ export const MPA_SOURCE_ID = 'mpa-aus-source';
 export const MPA_FILL_ID = 'mpa-aus-fill';
 export const MPA_OUTLINE_ID = 'mpa-aus-outline';
 
-const GEOJSON_URL = '/api/mpa/mpa.geojson';
+// Resolves to '/api/mpa/mpa.geojson' on web (Vite proxy / Vercel) and
+// to the configured production URL on native iOS (Capacitor has no
+// proxy for relative /api paths). Mapbox's GeoJSON source loader
+// handles both relative and absolute URLs identically.
+const GEOJSON_URL = `${API_BASE}/mpa/mpa.geojson`;
 
 /**
  * Find the right "before" layer to insert MPA fills under so they
