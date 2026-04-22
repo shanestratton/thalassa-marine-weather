@@ -28,11 +28,13 @@ const XW_ENABLED = Boolean(import.meta.env.VITE_XWEATHER_CLIENT_ID);
 // the 15-minute aggregation — don't drop it, the account isn't entitled to
 // the plain `lightning-strikes` layer and it will 403.
 //
-// Tiles route through our `/api/xweather/` Vercel edge proxy which
-// injects the secret server-side; see api/xweather/[...path].ts.
+// Tiles route through our /api/xweather/tile?... Vercel edge proxy which
+// injects the secret server-side; see api/xweather/tile.ts. We use the
+// query-string variant (not the [...path] catch-all) because Vercel's
+// route detection skipped the multi-segment dynamic file in production.
 function buildLightningTileUrl(cacheBust?: number): string {
-    const suffix = cacheBust ? `?_ts=${cacheBust}` : '';
-    return `${API_BASE}/xweather/lightning-strikes:15/{z}/{x}/{y}/current.png${suffix}`;
+    const tsParam = cacheBust ? `&_ts=${cacheBust}` : '';
+    return `${API_BASE}/xweather/tile?layer=lightning-strikes:15&z={z}&x={x}&y={y}${tsParam}`;
 }
 
 export function useLightningLayer(
