@@ -5,6 +5,13 @@ import { useFocusTrap } from '../hooks/useAccessibility';
 import { TIER_INFO, type Feature as _Feature } from '../services/SubscriptionService';
 import type { SubscriptionTier } from '../types/settings';
 
+/** Format an annual price tightly: whole-dollar prices skip the .00
+ *  (so $149 not $149.00), prices with cents keep two decimals
+ *  ($49.95 stays as $49.95). */
+function fmtPrice(annual: number): string {
+    return annual % 1 === 0 ? `$${annual}` : `$${annual.toFixed(2)}`;
+}
+
 interface UpgradeModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -73,7 +80,7 @@ const PlanCard: React.FC<{
                     <p className="text-[11px] text-gray-500 mt-0.5">{info.badge} Plan</p>
                 </div>
                 <div className="text-right">
-                    <p className="text-xl font-black text-white">${info.priceAnnual.toFixed(2)}</p>
+                    <p className="text-xl font-black text-white">{fmtPrice(info.priceAnnual)}</p>
                     <p className="text-[11px] text-gray-500">/year</p>
                 </div>
             </div>
@@ -155,7 +162,9 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                         <h2 id="upgrade-title" className="text-xl font-bold text-white tracking-tight">
                             Upgrade Thalassa
                         </h2>
-                        <p className="text-[11px] text-gray-400 mt-0.5">Annual subscription • Cancel anytime</p>
+                        <p className="text-[11px] text-gray-400 mt-0.5">
+                            The marine platform sailors plan passages on — together
+                        </p>
                     </div>
 
                     <button
@@ -183,10 +192,14 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                         onSelect={() => setSelectedTier('crew')}
                     />
 
-                    {/* Free tier note */}
-                    <div className="text-center py-2">
+                    {/* Free tier note + competitive context */}
+                    <div className="text-center py-2 space-y-1.5">
                         <p className="text-[11px] text-gray-500">
                             Deckhand (Free) includes basic 3-day weather, map, and Chandlery browsing.
+                        </p>
+                        <p className="text-[10px] text-gray-600 italic">
+                            Skipper is half the price of PredictWind ($228/yr) and competitive with Orca CORE ($129/yr)
+                            — with crew-talk, marketplace, and AI passage diary none of them ship.
                         </p>
                     </div>
 
@@ -208,7 +221,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                     </button>
 
                     <p className="text-center text-[11px] text-gray-500 pb-1">
-                        ${selectedInfo.priceAnnual.toFixed(2)}/year after trial • {selectedInfo.priceMonthly}/month
+                        {fmtPrice(selectedInfo.priceAnnual)}/year after trial • {selectedInfo.priceMonthly}/month
                     </p>
 
                     <button

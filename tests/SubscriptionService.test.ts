@@ -19,7 +19,8 @@ describe('SubscriptionService', () => {
         it('has correct pricing for all tiers', () => {
             expect(TIER_INFO.free.priceAnnual).toBe(0);
             expect(TIER_INFO.crew.priceAnnual).toBe(49.95);
-            expect(TIER_INFO.owner.priceAnnual).toBe(79.95);
+            // Skipper bumped 2026-04-22 — see SubscriptionService docstring.
+            expect(TIER_INFO.owner.priceAnnual).toBe(149);
         });
 
         it('has labels for all tiers', () => {

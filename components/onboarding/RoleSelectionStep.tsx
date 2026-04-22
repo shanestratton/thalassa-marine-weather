@@ -5,6 +5,19 @@
 import React from 'react';
 import { CheckIcon } from '../Icons';
 import type { SubscriptionTier } from '../../types/settings';
+import { TIER_INFO } from '../../services/SubscriptionService';
+
+/** Format a tier's annual price for the onboarding chips. Reads from
+ *  TIER_INFO so changes to pricing in SubscriptionService propagate
+ *  here automatically — no need to update copy in two places. */
+function tierPriceLabel(tier: SubscriptionTier): string {
+    const annual = TIER_INFO[tier].priceAnnual;
+    if (annual <= 0) return 'Free';
+    // Show whole dollars when there are no cents (e.g. $149/yr) to keep
+    // the price chip tight; show 2dp when there are cents (e.g. $49.95/yr).
+    const formatted = annual % 1 === 0 ? `$${annual}` : `$${annual.toFixed(2)}`;
+    return `${formatted}/yr`;
+}
 
 interface RoleSelectionStepProps {
     selectedTier: SubscriptionTier;
@@ -35,7 +48,7 @@ const ROLE_OPTIONS: {
         color: 'text-amber-400',
         borderColor: 'border-amber-500',
         bgColor: 'bg-amber-500/15',
-        price: '$79.95/yr',
+        price: tierPriceLabel('owner'),
     },
     {
         tier: 'crew',
@@ -47,7 +60,7 @@ const ROLE_OPTIONS: {
         color: 'text-cyan-400',
         borderColor: 'border-cyan-500',
         bgColor: 'bg-cyan-500/15',
-        price: '$49.95/yr',
+        price: tierPriceLabel('crew'),
     },
     {
         tier: 'free',
