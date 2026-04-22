@@ -2,10 +2,15 @@
  * SubscriptionService — Central subscription tier & feature gating.
  *
  * Three tiers (annual billing):
- *   - Deckhand     ($0)      — basic weather, browse chandlery, crew finder
+ *   - Deckhand     ($0)      — basic weather, full chandlery access, crew finder
  *   - First Mate   ($49.95)  — GPS tracking, DMs, AI advice, full weather
  *   - Skipper      ($149)    — full feature set inc. route planning, passage
- *                              legs, galley, marketplace, AI diary, Apple Watch
+ *                              legs, galley, AI diary, Apple Watch
+ *
+ * Chandlery (formerly gated to Skipper) is open to all tiers. The pivot
+ * from peer-to-peer used-gear marketplace to a B2B drop-ship storefront
+ * (see roadmap entry "Chandlery B-pivot") makes restricted access the
+ * wrong play — the business wants every user able to browse and buy.
  *
  * Pricing rationale (set 2026-04-22): Skipper is positioned alongside
  * Orca CORE ($129/yr) — the de-facto "serious offshore nav" benchmark —
@@ -106,11 +111,11 @@ const FEATURE_GATES: Record<Feature, SubscriptionTier> = {
     vesselProfile: 'owner',
     castOff: 'owner',
     galley: 'owner',
-    marketplace: 'owner',
+    marketplace: 'free', // Open to all — see roadmap Chandlery B-pivot
     diary: 'owner',
     gpsTracking: 'crew',
     crewTalkWrite: 'crew',
-    chandleryPost: 'crew',
+    chandleryPost: 'free', // Open to all — see roadmap Chandlery B-pivot
     crewFinderCaptain: 'owner',
     directMessages: 'crew',
     communityDownload: 'crew',
