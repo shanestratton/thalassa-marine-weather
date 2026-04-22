@@ -679,60 +679,10 @@ export const LayerFABMenu: React.FC<{
                         </div>
                     )}
 
-                    {/* Squall Radar */}
-                    {onToggleSquall && (
-                        <button
-                            aria-label="Toggle squall radar"
-                            onClick={() => {
-                                onToggleSquall();
-                                triggerHaptic('light');
-                                setShowLayerMenu(false);
-                            }}
-                            className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
-                                squallVisible ? 'bg-cyan-500/10 text-cyan-400' : 'text-gray-400 hover:bg-white/5'
-                            }`}
-                        >
-                            <span className="text-lg">⛈️</span>
-                            <span className="text-[13px] font-bold flex-1">Squall Radar</span>
-                            {squallVisible ? (
-                                <span className="flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 shadow-lg shadow-cyan-400/50 animate-pulse" />
-                                    <span className="text-[10px] font-bold text-cyan-400 uppercase tracking-wider">
-                                        Live IR
-                                    </span>
-                                </span>
-                            ) : (
-                                <span className="text-[10px] text-gray-500">Xweather IR</span>
-                            )}
-                        </button>
-                    )}
-
-                    {/* Lightning Strikes */}
-                    {onToggleLightning && (
-                        <button
-                            aria-label="Toggle lightning strikes"
-                            onClick={() => {
-                                onToggleLightning();
-                                triggerHaptic('light');
-                            }}
-                            className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
-                                lightningVisible ? 'bg-yellow-500/10 text-yellow-400' : 'text-gray-400 hover:bg-white/5'
-                            }`}
-                        >
-                            <span className="text-lg">⚡</span>
-                            <span className="text-[13px] font-bold flex-1">Lightning Strikes</span>
-                            {lightningVisible ? (
-                                <span className="flex items-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 shadow-lg shadow-yellow-400/50 animate-pulse" />
-                                    <span className="text-[10px] font-bold text-yellow-400 uppercase tracking-wider">
-                                        GLD360
-                                    </span>
-                                </span>
-                            ) : (
-                                <span className="text-[10px] text-gray-500">Xweather GLD360</span>
-                            )}
-                        </button>
-                    )}
+                    {/* Squall Radar + Lightning Strikes hidden 2026-04-23 —
+                        Xweather gone, Blitzortung needs a server-side relay,
+                        NOAA GOES IR + RainViewer squall replacement not wired yet.
+                        Props still plumbed through so re-enable is a one-block uncomment. */}
 
                     {/* Weather Here */}
                     {onToggleWeatherInspect && (
