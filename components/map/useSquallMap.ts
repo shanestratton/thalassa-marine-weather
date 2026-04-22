@@ -25,17 +25,20 @@ const SQUALL_HUD_ID = 'squall-map-hud';
 const XWEATHER_LAYERS = 'satellite-infrared-color,radar-global';
 const SQUALL_MAX_ZOOM = 8;
 
-// ── Xweather credentials from env ──
-const XW_ID = import.meta.env.VITE_XWEATHER_CLIENT_ID ?? '';
-const XW_SECRET = import.meta.env.VITE_XWEATHER_CLIENT_SECRET ?? '';
+// ── Xweather feature gate ──
+// Credentials live server-side only; the client just needs to know
+// whether the proxy is wired up. See api/xweather/[...path].ts.
+const XW_ENABLED = Boolean(import.meta.env.VITE_XWEATHER_CLIENT_ID);
 
 /**
- * Build Xweather tile URL template.
- * Format: https://maps.api.xweather.com/{id}_{secret}/{layers}/{z}/{x}/{y}/current.png
- * The API 302-redirects to timestamped tiles; browser fetch follows automatically.
+ * Build Xweather tile URL template via our edge proxy.
+ * Format: /api/xweather/{layers}/{z}/{x}/{y}/current.png
+ * The edge fn injects the secret server-side and forwards to
+ * maps.api.xweather.com. The API 302-redirects to timestamped tiles;
+ * Mapbox follows the redirect automatically.
  */
 function buildXweatherTileUrl(): string {
-    return `https://maps.api.xweather.com/${XW_ID}_${XW_SECRET}` + `/${XWEATHER_LAYERS}/{z}/{x}/{y}/current.png`;
+    return `/api/xweather/${XWEATHER_LAYERS}/{z}/{x}/{y}/current.png`;
 }
 
 // ── Hook ──
@@ -80,9 +83,9 @@ export function useSquallMap(
             return;
         }
 
-        // ── Guard: need credentials ──
-        if (!XW_ID || !XW_SECRET) {
-            log.warn('Xweather credentials missing — squall map disabled');
+        // ── Guard: need Xweather configured server-side ──
+        if (!XW_ENABLED) {
+            log.warn('Xweather not configured (VITE_XWEATHER_CLIENT_ID missing) — squall map disabled');
             return;
         }
 

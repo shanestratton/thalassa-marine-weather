@@ -74,16 +74,20 @@ function getOwmKey(): string {
     return '';
 }
 
-function getXweatherCreds(): { id: string; secret: string } | null {
+/** Whether Xweather tile layers are wired up. The actual creds live
+ *  server-side and never reach the client — this flag just gates
+ *  whether the URL builder returns proxied paths. */
+function isXweatherEnabled(): boolean {
     try {
-        const env = import.meta.env;
-        const id = env?.VITE_XWEATHER_CLIENT_ID;
-        const secret = env?.VITE_XWEATHER_CLIENT_SECRET;
-        if (id && secret) return { id, secret };
+        // VITE_XWEATHER_CLIENT_ID is fine to keep public — it's just an
+        // identifier, no auth power on its own. Use it as the gate so
+        // existing dev configs keep working without an additional env var.
+        const id = import.meta.env?.VITE_XWEATHER_CLIENT_ID;
+        return Boolean(id);
     } catch {
         /* SSR / non-Vite context */
+        return false;
     }
-    return null;
 }
 
 export const STATIC_TILES: Record<string, string> = {
@@ -99,10 +103,10 @@ export function getTileUrl(layer: string): string | undefined {
     if (layer === 'temperature') return `https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${owmKey}`;
     if (layer === 'clouds') return `https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmKey}`;
 
-    // Xweather tile layers
-    const xw = getXweatherCreds();
-    if (xw) {
-        const xwBase = `https://maps.api.xweather.com/${xw.id}_${xw.secret}`;
+    // Xweather tile layers — always proxied through `/api/xweather/`
+    // so the client_secret stays server-side. See api/xweather/[...path].ts.
+    if (isXweatherEnabled()) {
+        const xwBase = '/api/xweather';
         // Sea State
         if (layer === 'waves') return `${xwBase}/wave-heights/{z}/{x}/{y}/current.png`;
         if (layer === 'currents') return `${xwBase}/ocean-currents/{z}/{x}/{y}/current.png`;
