@@ -700,7 +700,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const chlVisible = weather.activeLayers.has('chl');
     useChlRasterLayer(mapRef, mapReady, chlVisible, weather.chlStep);
 
-    // ── Marine Protected Areas (CAPAD vector overlay, PMTiles) ──
+    // ── Marine Protected Areas (CAPAD GeoJSON overlay) ──
     // Independent toggle — co-exists with any weather layer because
     // "where can I fish?" is orthogonal to "what's the weather doing?".
     // Gated by VITE_MPA_ENABLED.
