@@ -16,18 +16,22 @@ const log = createLogger('LightningLayer');
 const LIGHTNING_SOURCE = 'lightning-xweather-source';
 const LIGHTNING_LAYER = 'lightning-xweather-layer';
 
-// ── Xweather credentials ──
-const XW_ID = import.meta.env.VITE_XWEATHER_CLIENT_ID ?? '';
-const XW_SECRET = import.meta.env.VITE_XWEATHER_CLIENT_SECRET ?? '';
+// ── Xweather feature gate ──
+// Credentials live server-side only (XWEATHER_CLIENT_ID / _SECRET on
+// Vercel). The client just needs to know whether the proxy is wired
+// up — the public CLIENT_ID env var is fine for that since it has no
+// auth power on its own.
+const XW_ENABLED = Boolean(import.meta.env.VITE_XWEATHER_CLIENT_ID);
 
 // Xweather raster layer code. The `:15` suffix is the valid modifier for
 // the 15-minute aggregation — don't drop it, the account isn't entitled to
 // the plain `lightning-strikes` layer and it will 403.
+//
+// Tiles route through our `/api/xweather/` Vercel edge proxy which
+// injects the secret server-side; see api/xweather/[...path].ts.
 function buildLightningTileUrl(cacheBust?: number): string {
     const suffix = cacheBust ? `?_ts=${cacheBust}` : '';
-    return (
-        `https://maps.api.xweather.com/${XW_ID}_${XW_SECRET}` + `/lightning-strikes:15/{z}/{x}/{y}/current.png${suffix}`
-    );
+    return `/api/xweather/lightning-strikes:15/{z}/{x}/{y}/current.png${suffix}`;
 }
 
 export function useLightningLayer(
@@ -43,9 +47,9 @@ export function useLightningLayer(
         const map = mapRef.current;
         if (!map || !mapReady) return;
 
-        // ── Guard: need Xweather credentials ──
-        if (!XW_ID || !XW_SECRET) {
-            log.warn('Missing Xweather credentials — lightning layer disabled');
+        // ── Guard: need Xweather credentials configured server-side ──
+        if (!XW_ENABLED) {
+            log.warn('Xweather not configured (VITE_XWEATHER_CLIENT_ID missing) — lightning layer disabled');
             return;
         }
 

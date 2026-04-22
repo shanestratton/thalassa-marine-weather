@@ -120,6 +120,24 @@ export default defineConfig(({ mode }) => {
                             '/shanestratton/thalassa-marine-weather/releases/download/cmems-mld-latest',
                         ),
                 },
+                // Xweather tile proxy — dev mode only. Production uses
+                // the api/xweather/[...path].ts Vercel edge function.
+                // Injects the CLIENT_SECRET into the URL path server-side
+                // so the secret never reaches the browser.
+                ...(getKey('XWEATHER_CLIENT_ID') && getKey('XWEATHER_CLIENT_SECRET')
+                    ? {
+                          '/api/xweather': {
+                              target: 'https://maps.api.xweather.com',
+                              changeOrigin: true,
+                              followRedirects: true,
+                              rewrite: (urlPath: string) => {
+                                  const id = getKey('XWEATHER_CLIENT_ID');
+                                  const secret = getKey('XWEATHER_CLIENT_SECRET');
+                                  return urlPath.replace(/^\/api\/xweather/, `/${id}_${secret}`);
+                              },
+                          },
+                      }
+                    : {}),
                 // Marine Protected Areas (CAPAD GeoJSON polygons).
                 '/api/mpa': {
                     target: 'https://github.com',
