@@ -2,9 +2,17 @@
  * SubscriptionService — Central subscription tier & feature gating.
  *
  * Three tiers (annual billing):
- *   - Free Crew    ($0)      — basic weather, browse chandlery, crew finder
+ *   - Deckhand     ($0)      — basic weather, browse chandlery, crew finder
  *   - First Mate   ($49.95)  — GPS tracking, DMs, AI advice, full weather
- *   - Skipper      ($79.95)  — full feature set inc. route planning, passage legs, galley
+ *   - Skipper      ($149)    — full feature set inc. route planning, passage
+ *                              legs, galley, marketplace, AI diary, Apple Watch
+ *
+ * Pricing rationale (set 2026-04-22): Skipper is positioned alongside
+ * Orca CORE ($129/yr) — the de-facto "serious offshore nav" benchmark —
+ * and well below PredictWind ($228/yr). The earlier $79.95 signal-priced
+ * the platform as a hobbyist tool; bluewater customers expect to pay
+ * $100-200/yr for nav-quality data. The $99 gap above First Mate keeps
+ * the upgrade ladder obvious.
  *
  * Usage:
  *   import { canAccess } from '../services/SubscriptionService';
@@ -45,8 +53,8 @@ export const TIER_INFO: Record<
     owner: {
         label: 'Skipper',
         shortLabel: 'Skipper',
-        priceAnnual: 79.95,
-        priceMonthly: '$6.66',
+        priceAnnual: 149,
+        priceMonthly: '$12.42',
         color: '#f59e0b', // amber-500
         badge: 'SKIPPER',
     },

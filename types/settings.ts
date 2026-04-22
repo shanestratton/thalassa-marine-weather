@@ -21,7 +21,10 @@ export interface ComfortParams {
  *
  *  - `free`  — Deckhand (Free): basic weather, read-only chat/chandlery
  *  - `crew`  — First Mate ($49.95/yr): GPS tracking, DMs, AI advice, full weather
- *  - `owner` — Skipper ($79.95/yr): full feature set inc. route planning, passage legs, galley
+ *  - `owner` — Skipper ($149/yr): full feature set inc. route planning, passage
+ *              legs, galley, marketplace, AI diary, Apple Watch companion
+ *
+ * Single source of truth for prices is `TIER_INFO` in services/SubscriptionService.
  */
 export type SubscriptionTier = 'free' | 'crew' | 'owner';
 
