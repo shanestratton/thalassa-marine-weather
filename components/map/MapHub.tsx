@@ -57,6 +57,7 @@ import { useOceanCurrentParticleLayer, isCmemsCurrentsEnabled } from './useOcean
 import { useOceanWaveParticleLayer, isCmemsWavesEnabled } from './useOceanWaveParticleLayer';
 import { useSstRasterLayer, isCmemsSstEnabled } from './useSstRasterLayer';
 import { useChlRasterLayer, isCmemsChlEnabled } from './useChlRasterLayer';
+import { useMpaLayer, isMpaEnabled } from './useMpaLayer';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
@@ -699,6 +700,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     const chlVisible = weather.activeLayers.has('chl');
     useChlRasterLayer(mapRef, mapReady, chlVisible, weather.chlStep);
 
+    // ── Marine Protected Areas (CAPAD vector overlay, PMTiles) ──
+    // Independent toggle — co-exists with any weather layer because
+    // "where can I fish?" is orthogonal to "what's the weather doing?".
+    // Gated by VITE_MPA_ENABLED.
+    useMpaLayer(mapRef, mapReady, weather.mpaVisible);
+
     // ── Hide OpenSeaMap raster overlay when o-charts provide native icons ──
     // The openseamap-overlay (PNG tiles) is baked into the map style and shows
     // its own seamark icons. When o-charts are active they render their own
@@ -910,6 +917,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     return !v;
                                 });
                             },
+                            // Marine Protected Areas — only surface in the
+                            // radial menu when the feature flag is on, so
+                            // the button doesn't taunt users on builds
+                            // without the data pipeline live yet.
+                            ...(isMpaEnabled()
+                                ? {
+                                      mpaVisible: weather.mpaVisible,
+                                      onToggleMpa: () => weather.setMpaVisible(!weather.mpaVisible),
+                                  }
+                                : {}),
                         }}
                         chartsState={{
                             // Compose chart sources from AvNav (o-charts) + free chart

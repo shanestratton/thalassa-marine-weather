@@ -212,6 +212,28 @@ export function useWeatherLayers(
     const [chlPlaying, setChlPlaying] = useState(false);
     const chlTotalSteps = 5;
 
+    // Marine Protected Areas (CAPAD vector tiles). Static overlay —
+    // not time-scrubbed, can co-exist with any weather layer (a user
+    // wants to see currents AND know where they can fish). Persisted
+    // separately from the WeatherLayer set since it isn't mutually
+    // exclusive with anything.
+    const MPA_STORAGE_KEY = 'thalassa_mpa_visible';
+    const [mpaVisible, setMpaVisibleState] = useState<boolean>(() => {
+        try {
+            return localStorage.getItem(MPA_STORAGE_KEY) === '1';
+        } catch {
+            return false;
+        }
+    });
+    const setMpaVisible = useCallback((next: boolean) => {
+        setMpaVisibleState(next);
+        try {
+            localStorage.setItem(MPA_STORAGE_KEY, next ? '1' : '0');
+        } catch {
+            /* private mode / quota — ignore */
+        }
+    }, []);
+
     // Wind scrubber
     const [windHour, setWindHourInternal] = useState(0);
     const [windTotalHours, setWindTotalHours] = useState(48);
@@ -1412,6 +1434,9 @@ export function useWeatherLayers(
         chlTotalSteps,
         chlPlaying,
         setChlPlaying,
+        // Marine Protected Areas (CAPAD, gated by VITE_MPA_ENABLED)
+        mpaVisible,
+        setMpaVisible,
         // Rain (unified radar + forecast)
         unifiedFramesRef,
         rainFrameIndex,

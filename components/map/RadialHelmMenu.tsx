@@ -62,6 +62,9 @@ export interface RadialHelmMenuProps {
         onToggleSeamark?: () => void;
         tideStationsVisible?: boolean;
         onToggleTideStations?: () => void;
+        /** Marine Protected Areas (CAPAD vector overlay). */
+        mpaVisible?: boolean;
+        onToggleMpa?: () => void;
     };
     /** Nautical chart sources — populated by MapHub from the chart catalog +
      *  SignalK/AvNav + local MBTiles. Each entry renders as a toggle in the
@@ -215,6 +218,16 @@ function buildCategories(
             label: 'Tides',
             icon: <TideIcon />,
             action: tacticalState.onToggleTideStations,
+        });
+    }
+    // Marine Protected Areas — sits in Tactical because the question
+    // "is it legal to fish/anchor here?" is operational, not weather.
+    if (tacticalState?.onToggleMpa) {
+        tactical.push({
+            id: 'mpa',
+            label: 'No-Go',
+            icon: <MpaIcon />,
+            action: tacticalState.onToggleMpa,
         });
     }
 
@@ -586,6 +599,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (item.id === 'inspect') return tacticalState?.weatherInspectMode ?? false;
             if (item.id === 'seamark') return tacticalState?.seamarkVisible ?? false;
             if (item.id === 'tides') return tacticalState?.tideStationsVisible ?? false;
+            if (item.id === 'mpa') return tacticalState?.mpaVisible ?? false;
             // Charts — items are id'd as chart-<sourceId>; match against chartsState.
             if (item.id.startsWith('chart-')) {
                 const srcId = item.id.slice('chart-'.length);
@@ -1135,6 +1149,23 @@ const ChlIcon = () => (
             strokeLinecap="round"
             strokeLinejoin="round"
             d="M7 20c0-6 3-12 10-14-1 8-5 13-10 14zM7 20l10-14M7 20s1-3 4-5M13 13s-1 1-2 3"
+        />
+    </svg>
+);
+
+// "No-go" / marine reserve glyph — fish silhouette inside a slashed
+// circle. Reads at-a-glance as "fishing restricted here".
+const MpaIcon = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        {/* Outer prohibition circle */}
+        <circle cx="12" cy="12" r="9" />
+        {/* Diagonal slash */}
+        <path strokeLinecap="round" d="M5.5 5.5l13 13" />
+        {/* Fish body — simple oval with tail wedge */}
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M8.5 12c1.5-2 4-2.6 6-1.6 0.8 0.4 1.4 1 1.6 1.6-0.2 0.6-0.8 1.2-1.6 1.6-2 1-4.5 0.4-6-1.6zM16.1 12l1.7-1v2l-1.7-1z"
         />
     </svg>
 );
