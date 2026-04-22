@@ -180,22 +180,27 @@ function buildCategories(
             action: tacticalState.onToggleCyclones,
         });
     }
-    if (tacticalState?.onToggleSquall) {
-        tactical.push({
-            id: 'squall',
-            label: 'Squall',
-            icon: <SquallIcon />,
-            action: tacticalState.onToggleSquall,
-        });
-    }
-    if (tacticalState?.onToggleLightning) {
-        tactical.push({
-            id: 'lightning',
-            label: 'Lightning',
-            icon: <LightningIcon />,
-            action: tacticalState.onToggleLightning,
-        });
-    }
+    // Squall + Lightning hidden from the menu 2026-04-23 — Xweather gone,
+    // Blitzortung needs a server-side relay (code 1006 rejection from
+    // browser-direct), NOAA GOES IR + RainViewer squall not wired yet.
+    // Keep the toggle wiring above intact so when the replacements ship
+    // we just uncomment these two blocks.
+    // if (tacticalState?.onToggleSquall) {
+    //     tactical.push({
+    //         id: 'squall',
+    //         label: 'Squall',
+    //         icon: <SquallIcon />,
+    //         action: tacticalState.onToggleSquall,
+    //     });
+    // }
+    // if (tacticalState?.onToggleLightning) {
+    //     tactical.push({
+    //         id: 'lightning',
+    //         label: 'Lightning',
+    //         icon: <LightningIcon />,
+    //         action: tacticalState.onToggleLightning,
+    //     });
+    // }
     if (tacticalState?.onToggleWeatherInspect) {
         tactical.push({
             id: 'inspect',
