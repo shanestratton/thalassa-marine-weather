@@ -795,6 +795,44 @@ class AnchorWatchServiceClass {
                 log.warn('notify: listener error', e);
             }
         });
+        // Forward a slim version of the snapshot to the paired Apple Watch
+        // (no-op on web/Android/missing watch). Lazy import keeps the
+        // capacitor plugin off the web bundle's critical path.
+        void this.pushToWatch(snapshot);
+    }
+
+    private pushToWatch(snapshot: AnchorWatchSnapshot): Promise<void> {
+        // Trim the snapshot — positionHistory + nested objects can balloon
+        // the payload, and WatchConnectivity has tight size limits. The
+        // watch only needs the live numbers + alarm state.
+        return import('./native/watchBridge')
+            .then(({ pushAnchorState }) =>
+                pushAnchorState({
+                    state: snapshot.state,
+                    anchor: snapshot.anchorPosition
+                        ? {
+                              lat: snapshot.anchorPosition.latitude,
+                              lon: snapshot.anchorPosition.longitude,
+                          }
+                        : null,
+                    vessel: snapshot.vesselPosition
+                        ? {
+                              lat: snapshot.vesselPosition.latitude,
+                              lon: snapshot.vesselPosition.longitude,
+                              accuracy: snapshot.vesselPosition.accuracy,
+                          }
+                        : null,
+                    swingRadius: snapshot.swingRadius,
+                    distanceFromAnchor: snapshot.distanceFromAnchor,
+                    maxDistanceRecorded: snapshot.maxDistanceRecorded,
+                    bearingFromAnchor: snapshot.bearingToAnchor,
+                    watchStartedAt: snapshot.watchStartedAt,
+                    alarmTriggeredAt: snapshot.alarmTriggeredAt,
+                }),
+            )
+            .catch(() => {
+                /* watchBridge missing or no watch paired — silent ok */
+            });
     }
 
     // ── Guardian Auto-Arm Bridge ──
