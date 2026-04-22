@@ -141,6 +141,25 @@ export const attemptGridSearch = async (
     return null;
 };
 
+// ── Inflight coalescer + short-lived session memo ─────────────────
+// Two motivations:
+//   1. The orchestrator (services/weather/index.ts) has two paths that
+//      can call fetchOpenMeteo for the same (lat, lon) within seconds —
+//      Promise.allSettled fallback (line 125) and the precision fast-fetch
+//      (line 425). Without dedup they hit Open-Meteo twice.
+//   2. piCache.fetch only protects users with a Pi on the LAN. Most
+//      users go direct → no client-side cache at all.
+// 5 min TTL is intentionally short — weather data still feels fresh, but
+// the user spamming "refresh" doesn't burn API quota. A Pi cache (if
+// present) is still preferred for cross-device sharing on a boat.
+const INMEM_TTL_MS = 5 * 60 * 1000;
+type CacheEntry = { at: number; data: MarineWeatherReport };
+const memo = new Map<string, CacheEntry>();
+const inflight = new Map<string, Promise<MarineWeatherReport>>();
+
+const cacheKey = (lat: number, lon: number, model: string, isFast: boolean) =>
+    `${lat.toFixed(3)},${lon.toFixed(3)},${model},${isFast ? 'F' : 'S'}`;
+
 export const fetchOpenMeteo = async (
     lat: number,
     lon: number,
@@ -148,7 +167,6 @@ export const fetchOpenMeteo = async (
     isFast: boolean,
     model: WeatherModel = 'best_match',
 ): Promise<MarineWeatherReport> => {
-    const now = new Date();
     const apiKey = getOpenMeteoKey();
     const isCommercial = !!apiKey && apiKey.length > 5;
 
@@ -157,6 +175,42 @@ export const fetchOpenMeteo = async (
             `STRICT MODE: Commercial Open-Meteo Key Missing. (Key: ${apiKey ? 'Present' : 'Missing'}, Len: ${apiKey ? apiKey.length : 0})`,
         );
     }
+
+    const key = cacheKey(lat, lon, model, isFast);
+
+    // 1. Fresh memo hit — return immediately, zero network.
+    const hit = memo.get(key);
+    if (hit && Date.now() - hit.at < INMEM_TTL_MS) {
+        return hit.data;
+    }
+
+    // 2. Inflight hit — share the in-progress promise so concurrent
+    //    callers don't each fire their own request.
+    const pending = inflight.get(key);
+    if (pending) return pending;
+
+    // 3. Cold path — issue the actual fetch and stash both promises.
+    const promise = doFetchOpenMeteo(lat, lon, locationName, isFast, model)
+        .then((data) => {
+            memo.set(key, { at: Date.now(), data });
+            return data;
+        })
+        .finally(() => {
+            inflight.delete(key);
+        });
+    inflight.set(key, promise);
+    return promise;
+};
+
+const doFetchOpenMeteo = async (
+    lat: number,
+    lon: number,
+    locationName: string,
+    isFast: boolean,
+    model: WeatherModel = 'best_match',
+): Promise<MarineWeatherReport> => {
+    const now = new Date();
+    const apiKey = getOpenMeteoKey();
 
     // normalize (wrap/clamp) - copied logic
     const safeLat = Math.max(-90, Math.min(90, lat));
@@ -178,7 +232,7 @@ export const fetchOpenMeteo = async (
         // actually standard OM API returns it.
     });
 
-    if (isCommercial) params.append('apikey', apiKey!);
+    if (apiKey) params.append('apikey', apiKey);
 
     // Fetch Weather — try Pi Cache combined endpoint first (instant if pre-fetched),
     // then fall back to direct API call

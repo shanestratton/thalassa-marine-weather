@@ -1116,26 +1116,17 @@ export function useWeatherLayers(
 
             (async () => {
                 try {
-                    // 1. Fetch RainViewer radar frames (past + short nowcast) — with retry
-                    let radarData: Record<string, unknown> | null = null;
-                    for (let attempt = 0; attempt < 3; attempt++) {
-                        try {
-                            const resp = await fetch('https://api.rainviewer.com/public/weather-maps.json', {
-                                signal: abortCtrl.signal,
-                            });
-                            radarData = await resp.json();
-                            break;
-                        } catch (fetchErr) {
-                            if (abortCtrl.signal.aborted) throw fetchErr;
-                            log.warn(`RainViewer fetch attempt ${attempt + 1} failed:`, fetchErr);
-                            if (attempt < 2) await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-                        }
-                    }
+                    // 1. Fetch RainViewer radar frames (past + short nowcast).
+                    // Goes through the shared rainviewerIndex module so we
+                    // coalesce with useEmbeddedRain + EssentialMapSlide
+                    // (5min memo + inflight dedup). Drops 2-3 duplicate
+                    // requests per session in the typical Dashboard → Map
+                    // navigation flow.
+                    const { fetchRainviewerIndex } = await import('../../services/weather/api/rainviewerIndex');
+                    const radarData = await fetchRainviewerIndex();
                     if (abortCtrl.signal.aborted) return;
-                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    const radar = (radarData as any)?.radar;
-                    const past: { path: string; time: number }[] = radar?.past ?? [];
-                    const nowcast: { path: string; time: number }[] = radar?.nowcast ?? [];
+                    const past = radarData?.radar?.past ?? [];
+                    const nowcast = radarData?.radar?.nowcast ?? [];
                     const allRadar = [...past, ...nowcast];
 
                     // 2. Rainbow Global forecast tiles (1km res, satellite+radar fusion) — via Supabase Edge Proxy
