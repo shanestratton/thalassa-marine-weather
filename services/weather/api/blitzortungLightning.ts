@@ -2,35 +2,55 @@
  * blitzortungLightning — Real-time global lightning strike feed via the
  * volunteer-operated Blitzortung.org detector network.
  *
- * Why we use it (replacing Xweather):
- *   - Free for non-commercial use (we email permission for commercial)
- *   - No daily quota — Xweather burnt 2026-04-22 with quota exhaustion
+ * ⚠️ CURRENTLY DISABLED (2026-04-22)
+ * ──────────────────────────────────
+ * Blitzortung's terms of service explicitly forbid browser-direct WebSocket
+ * connections from third-party apps. Their servers check Origin/Referer and
+ * close unknown clients with code 1006 before the first message arrives.
+ * Quote from their FAQ: "Third party apps must use their own servers."
+ *
+ * To ship this properly we need a small server-side relay:
+ *   - Thalassa backend (Cloudflare Worker Durable Object, Railway, or Pi)
+ *     holds the WebSocket upstream to Blitzortung
+ *   - Clients connect to wss://relay.thalassawx.com/lightning instead
+ *   - Relay multiplexes one upstream connection to N browser subscribers
+ *
+ * Until that relay exists, `subscribeLightningStrikes()` is a no-op. The
+ * previous code used exponential-backoff reconnect which flooded the console
+ * with `WebSocket closed: code=1006` every few seconds — now we fail once,
+ * log the architectural requirement, and stay quiet.
+ *
+ * Why we picked Blitzortung (replacing Xweather):
+ *   - Free for non-commercial use (email permission for commercial)
+ *   - No daily quota — Xweather exhausted its quota 2026-04-22
  *   - Strong Australian coverage (where most of our users are)
  *   - Real-time (sub-minute latency) vs Xweather's 15-min raster
  *   - Animated point markers > static raster tiles for visual impact
  *
- * Architecture:
- *   1. Browser opens WSS to one of Blitzortung's load-balanced servers
- *   2. Sends `{"time": 0}` to subscribe to live strikes
- *   3. Each incoming message is LZW-encoded JSON describing one strike
- *   4. Decoded strike = { lat, lon, time, polarity }
- *   5. We push it into a ring-buffer (last 16 min) and fire callbacks
- *
- * The LZW decoder is inline (~30 lines) — bundled rather than added as
- * a dependency since Blitzortung's spec is stable + small.
+ * Architecture (once relay ships):
+ *   1. Browser opens WSS to relay.thalassawx.com
+ *   2. Relay forwards JSON-stringified LightningStrike objects
+ *   3. Each strike fires listeners in the 16-min ring buffer
  *
  * License: data attribution required — render "⚡ Blitzortung.org" chip
- * somewhere in the UI when this layer is active. Commercial use needs
- * an emailed permission from them; safe for development.
+ * somewhere in the UI when this layer is active.
  */
 
 import { createLogger } from '../../../utils/createLogger';
 
 const log = createLogger('blitzortung');
 
+// ── Disabled flag ─────────────────────────────────────────────────────
+// Set to `true` once the server-side relay at relay.thalassawx.com ships.
+// Until then, we skip the connect entirely — Blitzortung's servers reject
+// third-party origins with code 1006 and auto-reconnect just floods the
+// console.
+const RELAY_AVAILABLE = false;
+
 // ── Server pool ───────────────────────────────────────────────────────
 // Blitzortung runs 4 known live-data servers. Pick one randomly to spread
-// load. If a connection drops we'll re-pick on retry.
+// load. If a connection drops we'll re-pick on retry. (Only used once we
+// have a relay; the browser can't hit these directly.)
 const SERVER_IDS = [1, 6, 5, 7];
 function pickServerUrl(): string {
     const id = SERVER_IDS[Math.floor(Math.random() * SERVER_IDS.length)];
@@ -185,8 +205,19 @@ function connect(): void {
 function scheduleReconnect(): void {
     if (state.closed) return;
     state.reconnectAttempts++;
-    // Capped exponential backoff: 2s, 4s, 8s, 16s, 30s, 30s…
-    const delay = Math.min(2000 * Math.pow(2, state.reconnectAttempts - 1), 30000);
+    // Only retry once — Blitzortung rejects non-whitelisted origins with
+    // 1006 and retrying just fills the console. If the first attempt fails,
+    // mark the feed permanently closed for this session and log the fix.
+    if (state.reconnectAttempts >= 2) {
+        log.warn(
+            'Blitzortung rejected the connection (code 1006). Their terms require ' +
+                'a server-side relay for third-party apps — the browser-direct feed ' +
+                'is off until relay.thalassawx.com ships. See blitzortungLightning.ts header.',
+        );
+        state.closed = true;
+        return;
+    }
+    const delay = 2000;
     log.info(`Reconnect in ${delay}ms (attempt ${state.reconnectAttempts})`);
     setTimeout(() => {
         if (!state.closed) connect();
@@ -218,6 +249,19 @@ function disconnect(): void {
  */
 export function subscribeLightningStrikes(cb: StrikeListener): () => void {
     state.listeners.add(cb);
+    if (!RELAY_AVAILABLE) {
+        // Relay not yet deployed — log once per session so we don't
+        // confuse future-us debugging an empty lightning layer.
+        if (state.listeners.size === 1) {
+            log.info(
+                'Lightning feed disabled (awaiting server relay). Toggle RELAY_AVAILABLE ' +
+                    'in blitzortungLightning.ts once the relay is live.',
+            );
+        }
+        return () => {
+            state.listeners.delete(cb);
+        };
+    }
     if (state.listeners.size === 1) connect();
     return () => {
         state.listeners.delete(cb);
