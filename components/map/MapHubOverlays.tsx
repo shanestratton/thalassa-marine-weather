@@ -152,17 +152,8 @@ export const LayerLegendStrip: React.FC<{
     windMaxSpeed: number;
 }> = ({ activeLayer, activeLayers, windMaxSpeed: _windMaxSpeed }) => {
     // Layers that have a legend definition
-    const LEGEND_ELIGIBLE: WeatherLayer[] = [
-        'temperature',
-        'clouds',
-        'pressure',
-        'waves',
-        'currents',
-        'sst',
-        'wind-gusts',
-        'visibility',
-        'cape',
-    ];
+    // wind-gusts/visibility/cape removed 2026-04-22 with the Xweather decommission.
+    const LEGEND_ELIGIBLE: WeatherLayer[] = ['temperature', 'clouds', 'pressure', 'waves', 'currents', 'sst'];
 
     // Determine which legend to show: prefer activeLayers Set, fallback to single activeLayer
     let legendLayer: WeatherLayer | null = null;
@@ -231,30 +222,8 @@ export const LayerLegendStrip: React.FC<{
             bottomArrow: '↓',
             icon: '🌡️',
         },
-        'wind-gusts': {
-            gradient: 'linear-gradient(to bottom, #be185d, #ef4444, #f97316, #eab308, #84cc16, #64748b)',
-            topLabel: '50kt+',
-            bottomLabel: 'CALM',
-            topArrow: '↑',
-            bottomArrow: '↓',
-            icon: '🌬️',
-        },
-        visibility: {
-            gradient: 'linear-gradient(to bottom, #22c55e, #84cc16, #eab308, #f97316, #94a3b8, #64748b)',
-            topLabel: 'CLEAR',
-            bottomLabel: 'FOG',
-            topArrow: '↑',
-            bottomArrow: '↓',
-            icon: '👁️',
-        },
-        cape: {
-            gradient: 'linear-gradient(to bottom, #c026d3, #ef4444, #f97316, #eab308, #22c55e, #1e3a5f)',
-            topLabel: '4000+',
-            bottomLabel: 'NONE',
-            topArrow: '↑',
-            bottomArrow: '↓',
-            icon: '⚡',
-        },
+        // wind-gusts/visibility/cape gradient defs removed 2026-04-22
+        // with the Xweather decommission.
     };
 
     const legend = legends[legendLayer];
@@ -855,13 +824,11 @@ export const LayerFABMenu: React.FC<{
 
                     {[
                         { key: 'velocity' as WeatherLayer, label: 'Wind', icon: '💨', hint: 'GFS particles' },
-                        { key: 'wind-gusts' as WeatherLayer, label: 'Wind Gusts', icon: '🌬️', hint: 'Xweather' },
                         { key: 'rain' as WeatherLayer, label: 'Precipitation', icon: '🌧️', hint: 'Rainbow Global' },
                         { key: 'clouds' as WeatherLayer, label: 'Cloud Cover', icon: '☁️', hint: 'OWM' },
                         { key: 'temperature' as WeatherLayer, label: 'Temperature', icon: '🌡️', hint: 'OWM' },
                         { key: 'pressure' as WeatherLayer, label: 'Synoptic', icon: '📊', hint: 'GFS isobars' },
-                        { key: 'visibility' as WeatherLayer, label: 'Visibility', icon: '👁️', hint: 'Xweather' },
-                        { key: 'cape' as WeatherLayer, label: 'CAPE', icon: '⚡', hint: 'Xweather' },
+                        // Wind Gusts / Visibility / CAPE removed 2026-04-22 with Xweather decommission.
                     ].map((layer) => {
                         const isActive = activeLayers.has(layer.key);
                         return (
