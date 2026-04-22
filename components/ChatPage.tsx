@@ -18,6 +18,7 @@
 import React, { useState, useRef, useEffect, useCallback, Suspense as _Suspense } from 'react';
 import { createLogger } from '../utils/createLogger';
 import { lazyRetry } from '../utils/lazyRetry';
+import { PaywallGate } from './PaywallGate';
 
 const log = createLogger('ChatPage');
 import { ChatService, ChatChannel, DEFAULT_CHANNELS } from '../services/ChatService';
@@ -707,13 +708,23 @@ export const ChatPage: React.FC = React.memo(() => {
                         />
                     )}
                     {/* ══════ MARKETPLACE ══════ */}
+                    {/* Gated to Skipper+ — non-entitled users see an upsell card.
+                        PaywallGate emits a window event ('thalassa:openUpgrade')
+                        that App.tsx listens to, since ChatPage doesn't have
+                        direct access to setIsUpgradeOpen. */}
                     {view === 'marketplace' && !loading && (
-                        <MarketplacePage
+                        <PaywallGate
+                            feature="marketplace"
+                            onUpgrade={() => window.dispatchEvent(new CustomEvent('thalassa:openUpgrade'))}
                             onBack={() => setView('channels')}
-                            onOpenDM={(sellerId, sellerName) => {
-                                openDMThread(sellerId, sellerName);
-                            }}
-                        />
+                        >
+                            <MarketplacePage
+                                onBack={() => setView('channels')}
+                                onOpenDM={(sellerId, sellerName) => {
+                                    openDMThread(sellerId, sellerName);
+                                }}
+                            />
+                        </PaywallGate>
                     )}
 
                     {/* ══════ FULL-PAGE PROFILE ══════ */}

@@ -9,6 +9,7 @@ import { SearchIcon, MapIcon, StarIcon } from './components/Icons';
 import { SkeletonDashboard } from './components/SkeletonLoader';
 import { NotificationManager } from './components/NotificationManager';
 import { ProcessOverlay } from './components/ProcessOverlay';
+import { PaywallGate } from './components/PaywallGate';
 import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
 import { NAV_ICON_MAP, NAV_ICON_CHAT, NAV_ICON_VESSEL } from './components/icons/NavIconAssets';
@@ -113,6 +114,15 @@ const App: React.FC = () => {
         window.addEventListener('thalassa:navigate', handler);
         return () => window.removeEventListener('thalassa:navigate', handler);
     }, [setPage]);
+
+    // Global "open upgrade modal" event — used by PaywallGate when it
+    // renders deep inside a tree that doesn't have direct access to
+    // setIsUpgradeOpen (e.g. MarketplacePage inside ChatPage).
+    useEffect(() => {
+        const handler = () => setIsUpgradeOpen(true);
+        window.addEventListener('thalassa:openUpgrade', handler);
+        return () => window.removeEventListener('thalassa:openUpgrade', handler);
+    }, [setIsUpgradeOpen]);
 
     // Loading State
     if (settingsLoading) {
@@ -439,9 +449,25 @@ const App: React.FC = () => {
                                                             weatherAlerts: weatherData?.alerts || [],
                                                         };
                                                         const viewProps = activeViewConfig.getProps?.(viewCtx) ?? {};
+                                                        const rendered = <ViewComponent {...viewProps} />;
+                                                        // If this view is gated, PaywallGate decides whether to
+                                                        // render the page or the upsell card based on the user's
+                                                        // subscription tier. See services/SubscriptionService for
+                                                        // the FEATURE_GATES table.
+                                                        const gated = activeViewConfig.gatedFeature ? (
+                                                            <PaywallGate
+                                                                feature={activeViewConfig.gatedFeature}
+                                                                onUpgrade={() => setIsUpgradeOpen(true)}
+                                                                onBack={() => setPage('vessel')}
+                                                            >
+                                                                {rendered}
+                                                            </PaywallGate>
+                                                        ) : (
+                                                            rendered
+                                                        );
                                                         return (
                                                             <ErrorBoundary boundaryName={activeViewConfig.boundaryName}>
-                                                                <ViewComponent {...viewProps} />
+                                                                {gated}
                                                             </ErrorBoundary>
                                                         );
                                                     })()}
