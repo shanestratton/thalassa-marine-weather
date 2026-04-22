@@ -7,7 +7,6 @@ import { toast } from './Toast';
 import { VesselDetailsStep } from './onboarding/VesselDetailsStep';
 import { UnitPreferencesStep } from './onboarding/UnitPreferencesStep';
 import { WelcomeStep } from './onboarding/WelcomeStep';
-import { QuickTipsStep } from './onboarding/QuickTipsStep';
 import { HomePortStep } from './onboarding/HomePortStep';
 import { RoleSelectionStep } from './onboarding/RoleSelectionStep';
 import { DisplayPrefsStep } from './onboarding/DisplayPrefsStep';
@@ -151,10 +150,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     };
 
     const handleNext = () => {
-        if (step === 3 && !homePort.trim()) return; // Require location
+        if (step === 2 && !homePort.trim()) return; // Require location
 
-        // If leaving step 3 with a manually-typed location (no coords yet), geocode + prefetch
-        if (step === 3 && !prefetchRef.current && homePort.trim()) {
+        // If leaving step 2 with a manually-typed location (no coords yet), geocode + prefetch
+        if (step === 2 && !prefetchRef.current && homePort.trim()) {
             // Fire-and-forget: geocode the text, then prefetch weather
             parseLocation(homePort.trim())
                 .then(({ lat, lon, name }) => {
@@ -168,9 +167,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                 });
         }
 
-        // Conditional step routing: non-Skippers skip vessel details (5) + offshore model (6)
-        if (step === 4 && subscriptionTier !== 'owner') {
-            setStep(7); // Jump to unit preferences
+        // Conditional step routing: non-Skippers skip vessel details (4) + offshore model (5)
+        if (step === 3 && subscriptionTier !== 'owner') {
+            setStep(6); // Jump to unit preferences
             return;
         }
 
@@ -178,9 +177,9 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     };
 
     const handleBack = () => {
-        // If going back from step 7 and non-Skipper, jump to step 4 (skip vessel + offshore model)
-        if (step === 7 && subscriptionTier !== 'owner') {
-            setStep(4);
+        // If going back from step 6 and non-Skipper, jump to step 3 (skip vessel + offshore model)
+        if (step === 6 && subscriptionTier !== 'owner') {
+            setStep(3);
             return;
         }
         setStep((s) => Math.max(1, s - 1));
@@ -495,11 +494,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                 {/* STEP 1: WELCOME */}
                 {step === 1 && <WelcomeStep onNext={handleNext} />}
 
-                {/* STEP 2: QUICK TIPS */}
-                {step === 2 && <QuickTipsStep onNext={handleNext} />}
-
-                {/* STEP 3: HOME PORT */}
-                {step === 3 && (
+                {/* STEP 2: HOME PORT */}
+                {step === 2 && (
                     <HomePortStep
                         homePort={homePort}
                         onHomePortChange={setHomePort}
@@ -518,8 +514,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                     />
                 )}
 
-                {/* STEP 4: ROLE & TIER SELECTION */}
-                {step === 4 && (
+                {/* STEP 3: ROLE & TIER SELECTION */}
+                {step === 3 && (
                     <RoleSelectionStep
                         selectedTier={subscriptionTier}
                         onTierChange={setSubscriptionTier}
@@ -528,7 +524,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                     />
                 )}
 
-                {step === 5 && (
+                {/* STEP 4: VESSEL DETAILS (Skipper only) */}
+                {step === 4 && (
                     <VesselDetailsStep
                         vesselType={vesselType}
                         onVesselTypeChange={setVesselType}
@@ -579,12 +576,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                     />
                 )}
 
-                {/* STEP 6: OFFSHORE MODEL (Skipper only) */}
-                {step === 6 && (
+                {/* STEP 5: OFFSHORE MODEL (Skipper only) */}
+                {step === 5 && (
                     <OffshoreModelStep selected={offshoreModel} onChange={setOffshoreModel} onNext={handleNext} />
                 )}
 
-                {step === 7 && (
+                {/* STEP 6: UNIT PREFERENCES */}
+                {step === 6 && (
                     <UnitPreferencesStep
                         prefSpeed={prefSpeed}
                         onSpeedChange={setPrefSpeed}
@@ -600,8 +598,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                     />
                 )}
 
-                {/* STEP 8: DISPLAY PREFERENCES */}
-                {step === 8 && (
+                {/* STEP 7: DISPLAY PREFERENCES */}
+                {step === 7 && (
                     <DisplayPrefsStep
                         prefAlwaysOn={prefAlwaysOn}
                         onAlwaysOnChange={setPrefAlwaysOn}
@@ -613,7 +611,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
 
                 {/* Progress Dots */}
                 <div className="flex justify-center gap-2 mt-8">
-                    {[1, 2, 3, 4, 5, 6, 7, 8].map((i) => (
+                    {[1, 2, 3, 4, 5, 6, 7].map((i) => (
                         <div
                             key={i}
                             className={`w-2 h-2 rounded-full transition-all ${step >= i ? 'bg-sky-500 w-4' : 'bg-gray-700'}`}
