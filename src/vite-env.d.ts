@@ -21,8 +21,7 @@ interface ImportMetaEnv {
     readonly VITE_SENTRY_DSN: string;
     readonly VITE_APP_VERSION: string;
     readonly VITE_LINZ_API_KEY: string;
-    readonly VITE_XWEATHER_CLIENT_ID: string;
-    readonly VITE_XWEATHER_CLIENT_SECRET: string;
+    // Xweather removed 2026-04-22 — see useLightningLayer / useSquallMap.
     readonly VITE_MAPBOX_USERNAME: string;
     readonly VITE_CMEMS_CURRENTS_ENABLED: string;
     readonly VITE_CMEMS_WAVES_ENABLED: string;

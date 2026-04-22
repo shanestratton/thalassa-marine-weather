@@ -86,6 +86,10 @@ const CmemsAttribution = lazyRetry(
     () => import('./CmemsAttribution').then((m) => ({ default: m.CmemsAttribution })),
     'CmemsAttribution',
 );
+const BlitzortungAttribution = lazyRetry(
+    () => import('./BlitzortungAttribution').then((m) => ({ default: m.BlitzortungAttribution })),
+    'BlitzortungAttribution',
+);
 const AisGuardAlert = lazyRetry(
     () => import('./AisGuardAlert').then((m) => ({ default: m.AisGuardAlert })),
     'AisGuardAlert',
@@ -1181,6 +1185,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                             <CmemsAttribution visible={currentsVisible} />
                         </React.Suspense>
                     )}
+                    <React.Suspense fallback={null}>
+                        <BlitzortungAttribution visible={lightningVisible} />
+                    </React.Suspense>
 
                     {/* ═══ VESSEL SEARCH BUTTON ═══ */}
                     {!passage.showPassage && !embedded && !isPinView && aisVisible && (

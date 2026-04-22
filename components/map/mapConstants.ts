@@ -2,8 +2,6 @@
  * Map constants and types used across MapHub sub-modules.
  */
 
-import { API_BASE } from '../../services/native/apiBase';
-
 // ── Types ──────────────────────────────────────────────────────
 
 export interface MapHubProps {
@@ -44,26 +42,14 @@ export type WeatherLayer =
     | 'sst'
     | 'chl'
     | 'seaice'
-    | 'mld'
-    // Atmosphere (Xweather)
-    | 'wind-gusts'
-    | 'visibility'
-    | 'cape';
+    | 'mld';
+// 'wind-gusts' / 'visibility' / 'cape' removed 2026-04-22 with the
+// Xweather decommission. Add back when GFS-derived replacements ship.
 
 /** Sea State layers — mutual exclusion within group */
 export const SEA_STATE_LAYERS: WeatherLayer[] = ['waves', 'currents', 'sst', 'chl', 'seaice', 'mld'];
 /** Atmosphere layers — mutual exclusion within group */
-export const ATMOSPHERE_LAYERS: WeatherLayer[] = [
-    'rain',
-    'wind',
-    'velocity',
-    'wind-gusts',
-    'temperature',
-    'clouds',
-    'pressure',
-    'visibility',
-    'cape',
-];
+export const ATMOSPHERE_LAYERS: WeatherLayer[] = ['rain', 'wind', 'velocity', 'temperature', 'clouds', 'pressure'];
 
 // ── Tile sources ──
 function getOwmKey(): string {
@@ -76,21 +62,19 @@ function getOwmKey(): string {
     return '';
 }
 
-/** Whether Xweather tile layers are wired up. The actual creds live
- *  server-side and never reach the client — this flag just gates
- *  whether the URL builder returns proxied paths. */
-function isXweatherEnabled(): boolean {
-    try {
-        // VITE_XWEATHER_CLIENT_ID is fine to keep public — it's just an
-        // identifier, no auth power on its own. Use it as the gate so
-        // existing dev configs keep working without an additional env var.
-        const id = import.meta.env?.VITE_XWEATHER_CLIENT_ID;
-        return Boolean(id);
-    } catch {
-        /* SSR / non-Vite context */
-        return false;
-    }
-}
+// Xweather decommissioned 2026-04-22. Quota economics didn't work out
+// (single dev session burnt through the daily allowance, next subscription
+// tier was extraordinarily expensive). Replacements:
+//   - Lightning  → Blitzortung WebSocket (services/weather/api/blitzortungLightning.ts)
+//   - Squall     → NOAA GOES IR + RainViewer radar (next iteration)
+//   - Sea state  → already on CMEMS pipelines (currents/waves/sst/chl/seaice/mld)
+//   - Atmosphere → wind-gusts/visibility/CAPE no longer surfaced; can derive
+//                  from GFS / Open-Meteo in a future session if needed
+//
+// Keeping a stub for backward compatibility with anything that still calls
+// getTileUrl('waves') etc. — returns undefined which the caller handles
+// (typically by skipping the layer mount). The CMEMS WebGL layers don't
+// route through getTileUrl at all so they keep working.
 
 export const STATIC_TILES: Record<string, string> = {
     sea: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
@@ -105,22 +89,15 @@ export function getTileUrl(layer: string): string | undefined {
     if (layer === 'temperature') return `https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${owmKey}`;
     if (layer === 'clouds') return `https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmKey}`;
 
-    // Xweather tile layers — always proxied through `/api/xweather/tile`
-    // (query-string variant, not the [...path] catch-all which Vercel
-    // didn't reliably route). See api/xweather/tile.ts. The proxy
-    // injects the client_secret server-side so the bundle stays clean.
-    if (isXweatherEnabled()) {
-        const tile = (xwLayer: string) => `${API_BASE}/xweather/tile?layer=${xwLayer}&z={z}&x={x}&y={y}`;
-        // Sea State
-        if (layer === 'waves') return tile('wave-heights');
-        if (layer === 'currents') return tile('ocean-currents');
-        if (layer === 'sst') return tile('sst');
-        // Atmosphere
-        if (layer === 'wind-gusts') return tile('wind-gusts');
-        if (layer === 'visibility') return tile('visibility');
-        if (layer === 'cape') return tile('cape');
-    }
-
+    // Sea State (waves/currents/sst/chl/seaice/mld) — these are NOT served
+    // via getTileUrl. They use dedicated WebGL custom layers fed by the
+    // CMEMS THCU binary pipelines (services/weather/api/{name}Grid.ts
+    // → components/map/{Name}RasterLayer.ts). Returning undefined here is
+    // correct — those layers mount themselves separately.
+    //
+    // Atmosphere (wind-gusts / visibility / cape) — no current backend.
+    // Xweather decommissioned; CMEMS doesn't include these. Returning
+    // undefined hides them from the layer-stack picker.
     return undefined;
 }
 

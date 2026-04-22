@@ -1,49 +1,39 @@
 /**
  * useSquallMap — Global IR Squall Detection Map
  *
- * Xweather combined overlay: satellite-infrared-color + radar-global
- *   — single tile request, CORS enabled, no proxy
- *   — global coverage, all zoom levels
- *   — auto-refreshes every 10 minutes
+ * STATUS (2026-04-22): Xweather decommissioned. The combined
+ * satellite-infrared-color + radar-global layer was Xweather-only
+ * and we ripped that dependency out (see project notes).
  *
- * Zoom: integer-only 3–8 for crisp tiles
+ * Until we replace this with NOAA GOES IR (via SSEC RealEarth, already
+ * in our CSP) layered with RainViewer radar, the squall view is
+ * disabled — toggling it on is a no-op apart from a console message.
+ *
+ * Replacement plan (next session):
+ *   - GOES-East/West satellite IR via realearth.ssec.wisc.edu tiles
+ *   - RainViewer radar (already integrated in the rain layer)
+ *   - Combine the two with reduced opacity
+ *
+ * Zoom: integer-only 3–8 (kept for the eventual replacement)
  */
 
 import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
-import { API_BASE } from '../../services/native/apiBase';
 
 const log = createLogger('SquallMap');
 
-// ── Layer/Source IDs ──
-const XWEATHER_SOURCE = 'squall-xweather-source';
-const XWEATHER_LAYER = 'squall-xweather-layer';
+// ── Layer/Source IDs ── (kept for the eventual NOAA replacement)
+const XWEATHER_SOURCE = 'squall-noaa-source';
+const XWEATHER_LAYER = 'squall-noaa-layer';
 const SQUALL_HUD_ID = 'squall-map-hud';
 
-// Xweather combined layer codes
-const XWEATHER_LAYERS = 'satellite-infrared-color,radar-global';
 const SQUALL_MAX_ZOOM = 8;
 
-// ── Xweather feature gate ──
-// Credentials live server-side only; the client just needs to know
-// whether the proxy is wired up. See api/xweather/[...path].ts.
-const XW_ENABLED = Boolean(import.meta.env.VITE_XWEATHER_CLIENT_ID);
-
-/**
- * Build Xweather tile URL template via our edge proxy.
- * Format: /api/xweather/tile?layer=...&z={z}&x={x}&y={y}
- * The edge fn injects the secret server-side and forwards to
- * maps.api.xweather.com. The API 302-redirects to timestamped tiles;
- * Mapbox follows the redirect automatically. We use query-string form
- * (not path segments) because Vercel didn't reliably route the
- * `[...path]` catch-all in subdirectories.
- */
-function buildXweatherTileUrl(): string {
-    const layer = encodeURIComponent(XWEATHER_LAYERS);
-    return `${API_BASE}/xweather/tile?layer=${layer}&z={z}&x={x}&y={y}`;
-}
+// ── Feature gate ──
+// Disabled until the NOAA GOES IR + RainViewer replacement ships.
+const SQUALL_ENABLED = false;
 
 // ── Hook ──
 
@@ -87,9 +77,9 @@ export function useSquallMap(
             return;
         }
 
-        // ── Guard: need Xweather configured server-side ──
-        if (!XW_ENABLED) {
-            log.warn('Xweather not configured (VITE_XWEATHER_CLIENT_ID missing) — squall map disabled');
+        // ── Disabled until NOAA replacement ships ──
+        if (!SQUALL_ENABLED) {
+            log.warn('Squall map temporarily disabled — NOAA GOES IR replacement in next iteration');
             return;
         }
 
@@ -121,17 +111,20 @@ export function useSquallMap(
             map.on('zoomend', onZoomEnd);
             zoomSnapRef.current = onZoomEnd;
 
-            // Single combined Xweather tile layer
-            addXweatherLayer(map);
+            // TODO(squall replacement): wire up NOAA GOES IR (via SSEC
+            // RealEarth) + RainViewer radar combined raster sources here.
+            // Until then, just mount the HUD so the user sees something
+            // and knows the layer is "on" — the satellite/radar imagery
+            // itself simply isn't there yet.
             addSquallHUD(map);
             isSetUp.current = true;
-            log.info('⛈️ Squall map activated — Xweather satellite-IR + radar');
+            log.info('⛈️ Squall map active — awaiting NOAA replacement');
         }
 
-        // Auto-refresh every 10 minutes (forces new "current" tiles)
-        if (!refreshTimer.current) {
-            refreshTimer.current = setInterval(() => refreshXweatherLayer(map), 10 * 60 * 1000);
-        }
+        // Auto-refresh disabled until NOAA layer ships.
+        // if (!refreshTimer.current) {
+        //     refreshTimer.current = setInterval(() => refreshNoaaLayer(map), 10 * 60 * 1000);
+        // }
 
         return () => {
             if (refreshTimer.current) {
@@ -171,53 +164,11 @@ export function useSquallMap(
     }, [visible, mapReady, allCyclones?.length]);
 }
 
-// ── Xweather Combined Layer ──
-
-function addXweatherLayer(map: mapboxgl.Map): void {
-    try {
-        if (map.getLayer(XWEATHER_LAYER)) map.removeLayer(XWEATHER_LAYER);
-        if (map.getSource(XWEATHER_SOURCE)) map.removeSource(XWEATHER_SOURCE);
-    } catch {
-        /* ignore */
-    }
-
-    map.addSource(XWEATHER_SOURCE, {
-        type: 'raster',
-        tiles: [buildXweatherTileUrl()],
-        tileSize: 256,
-        maxzoom: SQUALL_MAX_ZOOM,
-    });
-
-    const insertBefore = map.getLayer('route-line-layer') ? 'route-line-layer' : undefined;
-    map.addLayer(
-        {
-            id: XWEATHER_LAYER,
-            type: 'raster',
-            source: XWEATHER_SOURCE,
-            paint: {
-                'raster-opacity': 0.85,
-                'raster-fade-duration': 0,
-            },
-        },
-        insertBefore,
-    );
-    log.info('📡 Xweather satellite-IR + radar tiles added');
-    updateHudAge(map, 0); // Xweather "current" is always near-realtime
-}
-
-function refreshXweatherLayer(map: mapboxgl.Map): void {
-    try {
-        const src = map.getSource(XWEATHER_SOURCE) as mapboxgl.RasterTileSource | undefined;
-        if (src) {
-            // Re-set the same URL template — browser busts cache via 302 redirect to new timestamp
-            src.setTiles([buildXweatherTileUrl()]);
-            updateHudAge(map, 0);
-            log.info('🔄 Xweather tiles refreshed');
-        }
-    } catch (err) {
-        log.warn('Failed to refresh Xweather tiles:', err);
-    }
-}
+// ── Squall layer (placeholder until NOAA replacement) ──
+// The Xweather-backed implementation lived here until 2026-04-22.
+// When we ship NOAA GOES IR + RainViewer, the addXweatherLayer /
+// refreshXweatherLayer functions will get reinstated as
+// addNoaaLayer / refreshNoaaLayer.
 
 // ── Cleanup ──
 

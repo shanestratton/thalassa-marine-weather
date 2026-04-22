@@ -120,39 +120,10 @@ export default defineConfig(({ mode }) => {
                             '/shanestratton/thalassa-marine-weather/releases/download/cmems-mld-latest',
                         ),
                 },
-                // Xweather tile proxy — dev mode only. Production uses
-                // the api/xweather/tile.ts Vercel edge function.
-                // Injects the CLIENT_SECRET into the URL path server-side
-                // so the secret never reaches the browser.
-                //
-                // Translates the query-string client URL
-                //   /api/xweather/tile?layer=<L>&z=<Z>&x=<X>&y=<Y>
-                // into the Xweather upstream path form
-                //   /<id>_<secret>/<layer>/<z>/<x>/<y>/current.png
-                ...(getKey('XWEATHER_CLIENT_ID') && getKey('XWEATHER_CLIENT_SECRET')
-                    ? {
-                          '/api/xweather/tile': {
-                              target: 'https://maps.api.xweather.com',
-                              changeOrigin: true,
-                              followRedirects: true,
-                              rewrite: (urlPath: string) => {
-                                  const id = getKey('XWEATHER_CLIENT_ID');
-                                  const secret = getKey('XWEATHER_CLIENT_SECRET');
-                                  // urlPath is like '/api/xweather/tile?layer=...&z=...&x=...&y=...'
-                                  const qIdx = urlPath.indexOf('?');
-                                  if (qIdx === -1) return urlPath; // malformed — let it 404
-                                  const params = new URLSearchParams(urlPath.slice(qIdx + 1));
-                                  const layer = params.get('layer') ?? '';
-                                  const z = params.get('z') ?? '';
-                                  const x = params.get('x') ?? '';
-                                  const y = params.get('y') ?? '';
-                                  const ts = params.get('_ts');
-                                  const tsSuffix = ts ? `?_ts=${ts}` : '';
-                                  return `/${id}_${secret}/${layer}/${z}/${x}/${y}/current.png${tsSuffix}`;
-                              },
-                          },
-                      }
-                    : {}),
+                // Xweather proxy removed 2026-04-22 with the Xweather
+                // decommission. Lightning moved to Blitzortung WebSocket
+                // (no proxy needed, browser-direct WSS). Squall awaiting
+                // NOAA replacement.
                 // Marine Protected Areas (CAPAD GeoJSON polygons).
                 '/api/mpa': {
                     target: 'https://github.com',

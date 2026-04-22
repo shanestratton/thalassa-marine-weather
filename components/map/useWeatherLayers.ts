@@ -939,9 +939,7 @@ export function useWeatherLayers(
             ...(cmemsWavesEnabled ? [] : (['waves'] as WeatherLayer[])),
             ...(cmemsCurrentsEnabled ? [] : (['currents'] as WeatherLayer[])),
             ...(cmemsSstEnabled ? [] : (['sst'] as WeatherLayer[])),
-            'wind-gusts',
-            'visibility',
-            'cape',
+            // wind-gusts/visibility/cape removed 2026-04-22 with Xweather.
         ];
         for (const tl of TILE_LAYERS) {
             const tileId = `tiles-${tl}`;
@@ -1359,9 +1357,7 @@ export function useWeatherLayers(
                     waves: 0.65,
                     currents: 0.65,
                     sst: 0.65,
-                    'wind-gusts': 0.6,
-                    visibility: 0.6,
-                    cape: 0.6,
+                    // wind-gusts/visibility/cape opacities removed with Xweather decommission.
                 };
                 map.addLayer(
                     {
