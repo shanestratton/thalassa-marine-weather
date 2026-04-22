@@ -98,6 +98,17 @@ export default defineConfig(({ mode }) => {
                             '/shanestratton/thalassa-marine-weather/releases/download/cmems-chl-latest',
                         ),
                 },
+                // Sea ice concentration (scalar [0,1] direct into u-channel).
+                '/api/seaice': {
+                    target: 'https://github.com',
+                    changeOrigin: true,
+                    followRedirects: true,
+                    rewrite: (path: string) =>
+                        path.replace(
+                            /^\/api\/seaice/,
+                            '/shanestratton/thalassa-marine-weather/releases/download/cmems-seaice-latest',
+                        ),
+                },
                 // Marine Protected Areas (CAPAD GeoJSON polygons).
                 '/api/mpa': {
                     target: 'https://github.com',
