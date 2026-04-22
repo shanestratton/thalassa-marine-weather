@@ -21,6 +21,8 @@
 		AA000003AAAA000300000001 /* AlarmAudioPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000003AAAA000300000002 /* AlarmAudioPlugin.m */; };
 		AA000004AAAA000400000001 /* BackgroundLocationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000004AAAA000400000002 /* BackgroundLocationPlugin.swift */; };
 		AA000005AAAA000500000001 /* BackgroundLocationPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000005AAAA000500000002 /* BackgroundLocationPlugin.m */; };
+		AA000006AAAA000600000001 /* DataScannerPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000006AAAA000600000002 /* DataScannerPlugin.swift */; };
+		AA000007AAAA000700000001 /* DataScannerPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000007AAAA000700000002 /* DataScannerPlugin.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -67,6 +69,8 @@
 		AA000003AAAA000300000002 /* AlarmAudioPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AlarmAudioPlugin.m; sourceTree = "<group>"; };
 		AA000004AAAA000400000002 /* BackgroundLocationPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundLocationPlugin.swift; sourceTree = "<group>"; };
 		AA000005AAAA000500000002 /* BackgroundLocationPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = BackgroundLocationPlugin.m; sourceTree = "<group>"; };
+		AA000006AAAA000600000002 /* DataScannerPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataScannerPlugin.swift; sourceTree = "<group>"; };
+		AA000007AAAA000700000002 /* DataScannerPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DataScannerPlugin.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -133,6 +137,8 @@
 				AA000003AAAA000300000002 /* AlarmAudioPlugin.m */,
 				AA000004AAAA000400000002 /* BackgroundLocationPlugin.swift */,
 				AA000005AAAA000500000002 /* BackgroundLocationPlugin.m */,
+				AA000006AAAA000600000002 /* DataScannerPlugin.swift */,
+				AA000007AAAA000700000002 /* DataScannerPlugin.m */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -336,6 +342,8 @@
 				AA000003AAAA000300000001 /* AlarmAudioPlugin.m in Sources */,
 				AA000004AAAA000400000001 /* BackgroundLocationPlugin.swift in Sources */,
 				AA000005AAAA000500000001 /* BackgroundLocationPlugin.m in Sources */,
+				AA000006AAAA000600000001 /* DataScannerPlugin.swift in Sources */,
+				AA000007AAAA000700000001 /* DataScannerPlugin.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
