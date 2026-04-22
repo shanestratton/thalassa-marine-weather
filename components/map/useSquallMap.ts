@@ -33,13 +33,16 @@ const XW_ENABLED = Boolean(import.meta.env.VITE_XWEATHER_CLIENT_ID);
 
 /**
  * Build Xweather tile URL template via our edge proxy.
- * Format: /api/xweather/{layers}/{z}/{x}/{y}/current.png
+ * Format: /api/xweather/tile?layer=...&z={z}&x={x}&y={y}
  * The edge fn injects the secret server-side and forwards to
  * maps.api.xweather.com. The API 302-redirects to timestamped tiles;
- * Mapbox follows the redirect automatically.
+ * Mapbox follows the redirect automatically. We use query-string form
+ * (not path segments) because Vercel didn't reliably route the
+ * `[...path]` catch-all in subdirectories.
  */
 function buildXweatherTileUrl(): string {
-    return `${API_BASE}/xweather/${XWEATHER_LAYERS}/{z}/{x}/{y}/current.png`;
+    const layer = encodeURIComponent(XWEATHER_LAYERS);
+    return `${API_BASE}/xweather/tile?layer=${layer}&z={z}&x={x}&y={y}`;
 }
 
 // ── Hook ──

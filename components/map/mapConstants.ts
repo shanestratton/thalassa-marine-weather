@@ -105,21 +105,20 @@ export function getTileUrl(layer: string): string | undefined {
     if (layer === 'temperature') return `https://tile.openweathermap.org/map/temp_new/{z}/{x}/{y}.png?appid=${owmKey}`;
     if (layer === 'clouds') return `https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=${owmKey}`;
 
-    // Xweather tile layers — always proxied through `/api/xweather/`
-    // so the client_secret stays server-side. See api/xweather/[...path].ts.
-    // API_BASE resolves to '/api/xweather' on web (Vercel proxies it)
-    // and to the absolute Vercel URL on native iOS (Mapbox-GL hits it
-    // directly since Capacitor has no proxy for relative URLs).
+    // Xweather tile layers — always proxied through `/api/xweather/tile`
+    // (query-string variant, not the [...path] catch-all which Vercel
+    // didn't reliably route). See api/xweather/tile.ts. The proxy
+    // injects the client_secret server-side so the bundle stays clean.
     if (isXweatherEnabled()) {
-        const xwBase = `${API_BASE}/xweather`;
+        const tile = (xwLayer: string) => `${API_BASE}/xweather/tile?layer=${xwLayer}&z={z}&x={x}&y={y}`;
         // Sea State
-        if (layer === 'waves') return `${xwBase}/wave-heights/{z}/{x}/{y}/current.png`;
-        if (layer === 'currents') return `${xwBase}/ocean-currents/{z}/{x}/{y}/current.png`;
-        if (layer === 'sst') return `${xwBase}/sst/{z}/{x}/{y}/current.png`;
+        if (layer === 'waves') return tile('wave-heights');
+        if (layer === 'currents') return tile('ocean-currents');
+        if (layer === 'sst') return tile('sst');
         // Atmosphere
-        if (layer === 'wind-gusts') return `${xwBase}/wind-gusts/{z}/{x}/{y}/current.png`;
-        if (layer === 'visibility') return `${xwBase}/visibility/{z}/{x}/{y}/current.png`;
-        if (layer === 'cape') return `${xwBase}/cape/{z}/{x}/{y}/current.png`;
+        if (layer === 'wind-gusts') return tile('wind-gusts');
+        if (layer === 'visibility') return tile('visibility');
+        if (layer === 'cape') return tile('cape');
     }
 
     return undefined;
