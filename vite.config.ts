@@ -98,6 +98,17 @@ export default defineConfig(({ mode }) => {
                             '/shanestratton/thalassa-marine-weather/releases/download/cmems-chl-latest',
                         ),
                 },
+                // Marine Protected Areas (CAPAD GeoJSON polygons).
+                '/api/mpa': {
+                    target: 'https://github.com',
+                    changeOrigin: true,
+                    followRedirects: true,
+                    rewrite: (path: string) =>
+                        path.replace(
+                            /^\/api\/mpa/,
+                            '/shanestratton/thalassa-marine-weather/releases/download/mpa-aus-latest',
+                        ),
+                },
                 // Proxy Signal K mock server (dev only) — avoids CORS for localhost:3100
                 '/signalk': {
                     target: 'http://localhost:3100',
