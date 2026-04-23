@@ -622,49 +622,20 @@ export const MapHub: React.FC<MapHubProps> = ({
     // centres preserve the user's current zoom so we don't yank them out
     // of a harbour view they zoomed into.
     const lastFlownCoordsRef = useRef<{ lat: number; lon: number } | null>(null);
-    const [debugInfo, setDebugInfo] = useState<string>('mount');
     useEffect(() => {
         const map = mapRef.current;
-        const name = weatherData?.locationName;
-        const coordsStr = weatherCoords ? `${weatherCoords.lat.toFixed(2)},${weatherCoords.lon.toFixed(2)}` : 'null';
-        setDebugInfo(`ready=${mapReady} n=${name?.slice(0, 12) ?? 'null'} c=${coordsStr}`);
-        // console.warn always survives production; `log.info` is a no-op in prod builds.
-        console.warn(
-            `[MapCentre] tick mapReady=${mapReady} name=${name ?? 'null'} coords=${
-                weatherCoords ? `${weatherCoords.lat.toFixed(3)},${weatherCoords.lon.toFixed(3)}` : 'null'
-            } embedded=${embedded} picker=${pickerMode} passage=${passage.showPassage} pin=${isPinView}`,
-        );
-        if (!map) {
-            console.warn('[MapCentre] bail: no map ref');
-            return;
-        }
-        if (!mapReady) {
-            console.warn('[MapCentre] bail: mapReady=false');
-            return;
-        }
-        if (embedded || pickerMode || passage.showPassage || isPinView) {
-            console.warn(
-                `[MapCentre] bail: mode flag — embedded=${embedded} picker=${pickerMode} passage=${passage.showPassage} pin=${isPinView}`,
-            );
-            return;
-        }
-        if (!weatherCoords) {
-            console.warn('[MapCentre] bail: no weatherCoords');
-            return;
-        }
+        if (!map || !mapReady) return;
+        if (embedded || pickerMode || passage.showPassage || isPinView) return;
+        if (!weatherCoords) return;
 
         const last = lastFlownCoordsRef.current;
         if (last && Math.abs(last.lat - weatherCoords.lat) < 1e-6 && Math.abs(last.lon - weatherCoords.lon) < 1e-6) {
-            console.warn(`[MapCentre] bail: coords unchanged (${last.lat.toFixed(3)},${last.lon.toFixed(3)})`);
             return;
         }
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ausNzFitZoom = (map as any).__ausNzMinZoom ?? map.getMinZoom();
         const isFirst = last === null;
-        console.warn(
-            `[MapCentre] FLYING to ${name} lat=${weatherCoords.lat.toFixed(3)} lon=${weatherCoords.lon.toFixed(3)} first=${isFirst} zoom=${ausNzFitZoom.toFixed(2)}`,
-        );
         map.jumpTo({
             center: [weatherCoords.lon, weatherCoords.lat],
             zoom: isFirst ? ausNzFitZoom : Math.max(map.getZoom(), ausNzFitZoom),
@@ -673,13 +644,6 @@ export const MapHub: React.FC<MapHubProps> = ({
             map.easeTo({ center: [weatherCoords.lon, weatherCoords.lat], duration: 600 });
         }
         lastFlownCoordsRef.current = { lat: weatherCoords.lat, lon: weatherCoords.lon };
-        const c = map.getCenter();
-        console.warn(
-            `[MapCentre] after jumpTo — center=${c.lat.toFixed(3)},${c.lng.toFixed(3)} zoom=${map.getZoom().toFixed(2)}`,
-        );
-        setDebugInfo(
-            `FLEW to ${name?.slice(0, 12)} @ ${c.lat.toFixed(2)},${c.lng.toFixed(2)} z${map.getZoom().toFixed(1)}`,
-        );
     }, [
         mapReady,
         weatherCoords?.lat,
@@ -689,7 +653,6 @@ export const MapHub: React.FC<MapHubProps> = ({
         passage.showPassage,
         isPinView,
         weatherCoords,
-        weatherData?.locationName,
     ]);
 
     // ── GPS Vessel Tracker Layer ──
@@ -1346,16 +1309,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                     {/* ═══ AIS GUARD ZONE ALERT TOAST ═══ */}
                     <AisGuardAlert />
                 </Suspense>
-
-                {/* ═══ DIAGNOSTIC MAP-CENTRE BADGE (temporary) ═══ */}
-                {!embedded && !isPinView && (
-                    <div
-                        className="absolute z-[950] left-2 top-2 px-2 py-1 rounded bg-fuchsia-600/95 text-white font-mono text-[10px] leading-tight shadow-lg pointer-events-none"
-                        style={{ maxWidth: 'calc(100vw - 16px)' }}
-                    >
-                        DBG: {debugInfo}
-                    </div>
-                )}
 
                 {/* ═══ OFFLINE AREA DOWNLOAD — FAB + MODAL ═══
                     Below the ℹ button on the right rail. Opens a modal that
