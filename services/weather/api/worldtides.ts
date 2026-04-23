@@ -220,7 +220,13 @@ export const fetchWorldTides = async (
                 { lat, lon, days },
                 async () => null as unknown as WorldTidesResponse,
             );
-            if (result.source !== 'direct' && result.data?.extremes?.length) return result.data;
+            if (result.source !== 'direct' && result.data?.extremes?.length) {
+                // Normalize station info — Pi forwards raw WorldTides data where
+                // `station` is a bare string. processResponse turns it into
+                // `{ name, lat, lon }` so downstream consumers get a real name
+                // instead of the "WorldTides Station" fallback.
+                return processResponse(result.data as unknown as Record<string, unknown>, lat, lon);
+            }
         } catch {
             // Pi failed — fall through
         }
