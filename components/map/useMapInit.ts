@@ -32,6 +32,13 @@ interface UseMapInitOptions {
     center?: { lat: number; lon: number };
     location: { lat: number; lon: number };
     onLocationSelect?: (lat: number, lon: number, name?: string) => void;
+    /**
+     * Centre to use for the very first map render. Takes priority over `location`
+     * so the map opens on whatever the "location box" says (the selected weather
+     * location) instead of being dragged around by live GPS updates. If undefined,
+     * falls back to `location` (live GPS).
+     */
+    initialCenter?: { lat: number; lon: number };
     pickerMode?: boolean; // Kept as it's passed to usePickerMode
     settingPoint: 'departure' | 'arrival' | null;
     showPassage: boolean;
@@ -66,6 +73,7 @@ export function useMapInit(opts: UseMapInitOptions) {
         center,
         location,
         onLocationSelect,
+        initialCenter,
         pickerMode: _pickerMode,
         settingPoint,
         showPassage,
@@ -192,17 +200,30 @@ export function useMapInit(opts: UseMapInitOptions) {
             return Math.max(Math.min(zoomForWidth, zoomForHeight), 0.5);
         })();
 
-        // ── Default view: AU+NZ width, centred on user ──
-        // Use the user's current location as the centre so their area is
-        // visible on first load, but keep the AU+NZ fit zoom so the full
-        // width of both countries is still shown. Falls back to the AU+NZ
-        // midpoint if no GPS fix is available yet.
-        const hasUserLocation =
-            !embedded && isFinite(location.lat) && isFinite(location.lon) && (location.lat !== 0 || location.lon !== 0);
+        // ── Default view: AU+NZ width, centred on selected location ──
+        // Priority for the initial centre:
+        //   1. `initialCenter` — the "location box" value (selected weather
+        //      location). This is what the user actually cares about: if they
+        //      set a destination, that's where the map opens.
+        //   2. `location` — live LocationStore (GPS). Fallback only when no
+        //      weather location is selected.
+        //   3. AUS_NZ_CENTER — final fallback before any fix is available.
+        //
+        // The AU+NZ fit zoom stays regardless, so the user always sees the
+        // full width of both countries on first open.
+        const validCenter = (pt?: { lat: number; lon: number }): boolean =>
+            !!pt && isFinite(pt.lat) && isFinite(pt.lon) && (pt.lat !== 0 || pt.lon !== 0);
+
+        const preferredCenter = validCenter(initialCenter)
+            ? { lat: initialCenter!.lat, lon: initialCenter!.lon }
+            : validCenter(location)
+              ? { lat: location.lat, lon: location.lon }
+              : null;
+
         const startCenter: [number, number] = embedded
             ? [location.lon, location.lat]
-            : hasUserLocation
-              ? [location.lon, location.lat]
+            : preferredCenter
+              ? [preferredCenter.lon, preferredCenter.lat]
               : AUS_NZ_CENTER;
         const startZoom = embedded ? initialZoom : ausNzFitZoom;
 
