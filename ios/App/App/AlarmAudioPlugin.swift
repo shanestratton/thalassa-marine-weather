@@ -24,6 +24,16 @@ public class AlarmAudioPlugin: CAPPlugin {
     private var previousCategory: AVAudioSession.Category?
     private var previousVolume: Float?
 
+    // Diagnostic: confirm this plugin class gets loaded at app launch.
+    // If this NSLog fires but WeatherKitPlugin's doesn't, the issue is
+    // WeatherKit-specific (framework linking). If NEITHER fires, we
+    // have a broader build/link problem affecting all app-local
+    // Swift plugins.
+    public override init() {
+        super.init()
+        NSLog("[AlarmAudioPlugin] class init — plugin registered")
+    }
+
     // MARK: - Start Alarm
 
     @objc func startAlarm(_ call: CAPPluginCall) {
