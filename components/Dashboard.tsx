@@ -326,7 +326,23 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         return Date.now();
     }, [activeDay, activeHour, data?.forecast]);
 
-    const safeActive = activeDayData || current;
+    // Essential mode resets activeDayData to null so safeActive falls
+    // back to `current` (live hour metrics). But `current` doesn't carry
+    // daily high/low temps — those live on the forecast entries — so
+    // the hi/lo indicators in HeroHeader showed '--' whenever the user
+    // toggled to Essential mode. Merge today's high/low from the forecast
+    // so the header stays complete regardless of mode.
+    const safeActive = useMemo(() => {
+        if (activeDayData) return activeDayData;
+        if (!current) return current;
+        const today = data?.forecast?.[0];
+        if (!today) return current;
+        return {
+            ...current,
+            highTemp: current.highTemp ?? today.highTemp,
+            lowTemp: current.lowTemp ?? today.lowTemp,
+        };
+    }, [activeDayData, current, data?.forecast]);
 
     const widgetSources = useMemo(() => {
         return activeDay === 0 && activeHour === 0 ? current?.sources : safeActive?.sources;

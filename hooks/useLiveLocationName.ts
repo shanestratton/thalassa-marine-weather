@@ -11,15 +11,15 @@
  *     This is free — Transistorsoft's BgGeoManager is already running
  *     for anchor watch / ship log / MOB, so we're just adding a listener
  *     on the existing CLLocationManager instance.
- *   - Every 10 seconds, if the latest buffered position has moved > 50m
- *     from whatever we last reverse-geocoded, hits reverseGeocode() and
- *     returns the new name.
- *   - Gated on LocationStore.source === 'gps' so when the user has
- *     actively pinned a different spot on the map (source = 'map_pin'
- *     / 'favorite' / 'search') we stop overriding their choice.
+ *   - Fires a reverse-geocode IMMEDIATELY on the first GPS fix (so the
+ *     wrong-home-port label from onboarding gets corrected within a
+ *     second of app open, not the 10-30s the pure-interval approach
+ *     took). Subsequent fixes are debounced to the 10s polling cadence.
+ *   - Only honours LocationStore.source === 'map_pin' as a strict
+ *     override — everything else (gps / initial / search / favorite)
+ *     gets live-updated.
  *
- * Returns the current live name or null if the gate is closed or no
- * position is available yet.
+ * Returns the current live name or null if no position is available yet.
  */
 
 import { useEffect, useState, useRef } from 'react';
@@ -30,8 +30,8 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('useLiveLocationName');
 
-// Tuning constants. 10s cadence matches what the user asked for; 50m
-// movement threshold filters GPS jitter while still catching meaningful
+// Tuning constants. 10s cadence for normal polling; 50m movement
+// threshold filters GPS jitter while still catching meaningful
 // movement (e.g. motoring out of the marina).
 const POLL_INTERVAL_MS = 10_000;
 const MIN_MOVEMENT_M = 50;
@@ -69,28 +69,21 @@ export function useLiveLocationName(): string | null {
     const lastGeocodedRef = useRef<{ lat: number; lon: number } | null>(null);
 
     useEffect(() => {
-        // Subscribe to the GPS stream. watchPosition returns an
-        // unsubscribe fn; call it on cleanup.
-        const unsub = GpsService.watchPosition((pos) => {
-            latestPosRef.current = { lat: pos.latitude, lon: pos.longitude };
-        });
+        let cancelled = false;
 
-        // Poll the ref every 10s; reverse-geocode when it's worth doing.
-        const intervalId = setInterval(async () => {
-            // Gate: only honour a user-placed pin as a hard override.
-            // 'gps' / 'initial' / 'search' / 'favorite' sources all get
-            // live-updated — the home port from onboarding (stored as
-            // 'search') shouldn't pin the label to a possibly-wrong
-            // geocoding match when the user's phone is physically
-            // somewhere else. Only 'map_pin' (user explicitly tapped
-            // a point on the map) is treated as a strict override.
+        // Shared worker fn — called from the first-fix callback and
+        // from the 10s polling interval. Does the move-threshold check,
+        // hits the geocoder, updates state + LocationStore.
+        const tryReverseGeocode = async () => {
+            if (cancelled) return;
+
+            // Gate: only a user-placed map pin is a hard override.
             const storeSource = LocationStore.getState().source;
             if (storeSource === 'map_pin') return;
 
             const latest = latestPosRef.current;
             if (!latest) return;
 
-            // Skip if we haven't moved enough since the last geocode.
             const last = lastGeocodedRef.current;
             if (last && distanceMeters(last.lat, last.lon, latest.lat, latest.lon) < MIN_MOVEMENT_M) {
                 return;
@@ -98,29 +91,44 @@ export function useLiveLocationName(): string | null {
 
             try {
                 const resolved = await reverseGeocode(latest.lat, latest.lon);
-                // Offshore fallback: reverseGeocode returns null/empty over
-                // open ocean (Nominatim doesn't have a "Pacific Ocean" at
-                // 20°S 160°W in its admin hierarchy). Swap in formatted
-                // coords so the punter still sees a useful, updating label
-                // instead of being stuck on the last shore name.
+                if (cancelled) return;
                 const displayName = resolved || formatCoords(latest.lat, latest.lon);
                 lastGeocodedRef.current = { ...latest };
                 setName(displayName);
-                // Mirror into LocationStore so any other consumer that
-                // reads from there sees the fresh label too.
                 LocationStore.setFromGPS(latest.lat, latest.lon, displayName);
             } catch (err) {
-                // Even on network/API failure we can still show coords
-                // rather than leave the label stale.
+                if (cancelled) return;
                 log.warn('reverseGeocode failed — falling back to coords', err);
                 const fallback = formatCoords(latest.lat, latest.lon);
                 lastGeocodedRef.current = { ...latest };
                 setName(fallback);
                 LocationStore.setFromGPS(latest.lat, latest.lon, fallback);
             }
-        }, POLL_INTERVAL_MS);
+        };
+
+        // Track whether we've already fired the immediate-on-first-fix
+        // reverse-geocode. Subsequent fixes just update the ref — the
+        // 10s interval handles the debouncing from there.
+        let firstFixFired = false;
+
+        const unsub = GpsService.watchPosition((pos) => {
+            latestPosRef.current = { lat: pos.latitude, lon: pos.longitude };
+            // First fix ever this session → reverse-geocode immediately,
+            // don't wait for the interval. This is the bit that closes
+            // the 10-60s gap where the label sat on whatever the last
+            // cached weather report had (potentially a wrong geocoding
+            // result from onboarding, like 'Old Aust Road, England' for
+            // someone who typed 'Newport' and meant Newport QLD).
+            if (!firstFixFired) {
+                firstFixFired = true;
+                void tryReverseGeocode();
+            }
+        });
+
+        const intervalId = setInterval(tryReverseGeocode, POLL_INTERVAL_MS);
 
         return () => {
+            cancelled = true;
             unsub();
             clearInterval(intervalId);
         };
