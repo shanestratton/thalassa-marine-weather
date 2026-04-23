@@ -11,6 +11,7 @@ import { HeroSection } from './dashboard/Hero';
 import { CompactHeaderRow } from './dashboard/CompactHeaderRow';
 import { StatusBadges } from './dashboard/StatusBadges';
 import { StalenessBanner } from './dashboard/StalenessBanner';
+import { GlassTutorial } from './dashboard/GlassTutorial';
 import { OffshoreBoundaryToast } from './dashboard/OffshoreBoundaryToast';
 import { getMoonPhase } from './dashboard/WeatherHelpers';
 import { useOffshoreStatus } from '../hooks/useOffshoreStatus';
@@ -611,6 +612,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         <DashboardWidgetContext.Provider value={contextValue as DashboardWidgetContextType}>
             {/* ── OFFSHORE BOUNDARY TOAST ── */}
             <OffshoreBoundaryToast visible={offshore.justCrossed} modelName={offshore.offshoreModel} />
+
+            {/* First-time tutorial coach marks — shows once per install
+                (gated internally via localStorage) with 3 slides covering
+                chevron → Essential mode + horizontal hour swipe + vertical
+                day swipe gestures. */}
+            <GlassTutorial />
 
             <div className="h-[100dvh] w-full flex flex-col overflow-hidden relative bg-black">
                 {' '}
