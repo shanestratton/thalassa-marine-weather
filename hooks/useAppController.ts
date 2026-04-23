@@ -79,7 +79,15 @@ export const useAppController = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [settings.defaultLocation]);
 
-    // 1b. GPS Auto-Locate — update weather if user has moved significantly since last session
+    // 1b. GPS Auto-Locate — update weather ONLY if the current weather is the
+    // user's home port AND they've moved away from it. If the cached weather
+    // is a location they picked explicitly (favorite, search, map pin), we
+    // respect it — the user plans trips to distant ports and the app
+    // stomping on that selection is exactly what they don't want.
+    //
+    // Example: home port = New York, phone in California → cache shows a
+    // recent favorite (say, Denver) → DON'T override to California. The
+    // location box stays on Denver and the map centers on Denver.
     useEffect(() => {
         if (gpsBootRan.current) return;
         const onboarded = localStorage.getItem('thalassa_v3_onboarded');
@@ -93,14 +101,26 @@ export const useAppController = () => {
 
             const { latitude, longitude } = pos;
 
-            // Check distance from current weather/saved location
             const saved = weatherData?.coordinates;
             if (saved) {
                 const dist = haversineKm(saved.lat, saved.lon, latitude, longitude);
                 if (dist < 10) return; // Haven't moved significantly — keep current weather
+
+                // Only override if what's currently loaded is the home port.
+                // Anything else is an explicit selection the user made and
+                // expects to come back to.
+                const home = settings.defaultLocationCoords;
+                const isHomePort =
+                    home && Math.abs(saved.lat - home.lat) < 0.05 && Math.abs(saved.lon - home.lon) < 0.05;
+                if (!isHomePort) {
+                    log.info(
+                        `GPS boot: skipping auto-update — cached weather (${weatherData?.locationName}) is not the home port`,
+                    );
+                    return;
+                }
             }
 
-            // User has moved! Reverse geocode for a readable name
+            // User has moved and we're looking at home port — reverse geocode for a readable name
             let locationName = `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
             try {
                 const geoName = await reverseGeocode(latitude, longitude);
