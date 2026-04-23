@@ -1029,12 +1029,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     iconKind: 'avnav' as const,
                                     enabled: skChartIds.has(c.id),
                                     onToggle: () => {
+                                        const turningOn = !skChartIds.has(c.id);
                                         setSkChartIds((prev) => {
                                             const next = new Set(prev);
                                             if (next.has(c.id)) next.delete(c.id);
                                             else next.add(c.id);
                                             return next;
                                         });
+                                        if (turningOn) skCharts.flyToChart(c);
                                     },
                                 })),
                                 ...chartCatalog.sources.map((s) => ({
@@ -1057,7 +1059,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             ? 'linz'
                                             : 'generic') as 'noaa' | 'ecdis' | 'linz' | 'generic',
                                     enabled: s.enabled && !!s.tileUrl,
-                                    onToggle: () => chartCatalog.toggleSource(s.id),
+                                    onToggle: () => {
+                                        const turningOn = !s.enabled;
+                                        chartCatalog.toggleSource(s.id);
+                                        if (turningOn) chartCatalog.flyToSource(s);
+                                    },
                                 })),
                                 ...localCharts.availableCharts.map((c) => ({
                                     id: `local-${c.fileName}`,
@@ -1065,12 +1071,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     iconKind: 'local' as const,
                                     enabled: localChartIds.has(c.fileName),
                                     onToggle: () => {
+                                        const turningOn = !localChartIds.has(c.fileName);
                                         setLocalChartIds((prev) => {
                                             const next = new Set(prev);
                                             if (next.has(c.fileName)) next.delete(c.fileName);
                                             else next.add(c.fileName);
                                             return next;
                                         });
+                                        if (turningOn) localCharts.flyToChart(c);
                                     },
                                 })),
                             ],
@@ -1193,9 +1201,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                             });
                             if (turningOn) {
                                 const chart = skCharts.availableCharts.find((c) => c.id === id);
-                                console.warn(
-                                    `[ChartFly] sk toggle ${id} on → chart=${!!chart} bounds=${JSON.stringify(chart?.bounds)}`,
-                                );
                                 if (chart) skCharts.flyToChart(chart);
                             }
                         }}
@@ -1237,9 +1242,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onToggleChartSource={(id) => {
                             const src = chartCatalog.sources.find((s) => s.id === id);
                             const turningOn = src ? !src.enabled : false;
-                            console.warn(
-                                `[ChartFly] catalog toggle ${id} on=${turningOn} src=${!!src} bounds=${JSON.stringify(src?.bounds)}`,
-                            );
                             chartCatalog.toggleSource(id);
                             if (turningOn && src) chartCatalog.flyToSource(src);
                         }}
@@ -1260,11 +1262,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                             });
                             if (turningOn) {
                                 const chart = localCharts.availableCharts.find((c) => c.fileName === fileName);
-                                console.warn(
-                                    `[ChartFly] local toggle ${fileName} on → chart=${!!chart} bounds=${JSON.stringify(
-                                        chart?.metadata?.bounds,
-                                    )}`,
-                                );
                                 if (chart) localCharts.flyToChart(chart);
                             }
                         }}
