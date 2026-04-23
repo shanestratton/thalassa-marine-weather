@@ -37,13 +37,13 @@ const SLIDES: Slide[] = [
     },
     {
         title: 'Future Hours',
-        subtitle: 'Swipe the weather card left or right to step through the forecast hour by hour.',
+        subtitle: 'Swipe left or right on the tide chart to step through the forecast hour by hour.',
         visual: <HorizontalSwipeVisual />,
         gradient: 'from-emerald-500/20 to-teal-500/10',
     },
     {
         title: 'Future Days',
-        subtitle: 'Swipe up or down on the weather card to move through the 7-day forecast, day by day.',
+        subtitle: 'Swipe up or down on the tide chart to move through the 7-day forecast, day by day.',
         visual: <VerticalSwipeVisual />,
         gradient: 'from-amber-500/20 to-orange-500/10',
     },
@@ -139,70 +139,123 @@ export const GlassTutorial: React.FC = () => {
 
 /**
  * Mini mock of the HeroHeader with the tappable chevron highlighted.
- * The chevron pulses softly (pure CSS) to draw the eye.
+ * Layout mirrors the real component: big temp left, condition text
+ * centre, hi/lo temps **stacked vertically** on the right with the
+ * chevron pip next to them. The pip pulses to draw the eye.
  */
 function ChevronVisual() {
     return (
         <div className="relative flex items-center gap-3 px-4 py-3 rounded-xl bg-white/[0.08] border border-white/10 shadow-xl">
+            {/* LEFT: big temp */}
             <span className="text-4xl font-mono font-bold text-white leading-none">22°</span>
-            <div className="flex flex-col items-start gap-1">
+
+            {/* MIDDLE: condition label */}
+            <div className="flex flex-col items-start">
                 <span className="text-[10px] font-bold text-sky-400 uppercase tracking-widest">Sunny</span>
-                <div className="flex items-center gap-2 text-xs text-white/60">
-                    <span>↑25°</span>
-                    <span>↓18°</span>
-                </div>
             </div>
-            {/* Chevron pip — pulses to draw the eye */}
-            <div className="relative w-9 h-9 rounded-full bg-sky-500/20 border border-sky-400/50 flex items-center justify-center shrink-0">
-                <svg
-                    className="w-4 h-4 text-sky-300"
-                    viewBox="0 0 20 20"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth={2.5}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                >
-                    <path d="M5 8l5 5 5-5" />
-                </svg>
-                {/* Pulsing ring */}
-                <span className="absolute inset-0 rounded-full border-2 border-sky-400/60 animate-ping" />
+
+            {/* RIGHT: hi/lo stacked vertically + chevron pip */}
+            <div className="flex items-center gap-2 ml-auto">
+                <div className="flex flex-col items-end gap-0.5">
+                    <div className="flex items-center gap-0.5 text-[10px] text-white/70 font-mono font-bold">
+                        <svg className="w-2 h-2 text-amber-400" viewBox="0 0 8 8" fill="currentColor">
+                            <path d="M4 1L7 5H1L4 1Z" />
+                        </svg>
+                        <span>25°</span>
+                    </div>
+                    <div className="flex items-center gap-0.5 text-[10px] text-white/70 font-mono font-bold">
+                        <svg className="w-2 h-2 text-sky-400" viewBox="0 0 8 8" fill="currentColor">
+                            <path d="M4 7L1 3H7L4 7Z" />
+                        </svg>
+                        <span>18°</span>
+                    </div>
+                </div>
+
+                {/* Chevron pip — pulses to draw the eye */}
+                <div className="relative w-9 h-9 rounded-full bg-sky-500/20 border border-sky-400/50 flex items-center justify-center shrink-0">
+                    <svg
+                        className="w-4 h-4 text-sky-300"
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2.5}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    >
+                        <path d="M5 8l5 5 5-5" />
+                    </svg>
+                    {/* Pulsing ring */}
+                    <span className="absolute inset-0 rounded-full border-2 border-sky-400/60 animate-ping" />
+                </div>
             </div>
         </div>
     );
 }
 
 /**
- * Card + left↔right double-headed arrow + "hours" labels. A small
- * finger icon drifts across to suggest the swipe.
+ * Mini tide-graph mock with a horizontal swipe indicator. The actual
+ * hour-scrubbing gesture on The Glass happens on the tide chart (not
+ * the weather card) — swipe left/right to scrub through the day's
+ * hours. The wavy SVG path fakes a tide curve; the finger dot drifts
+ * horizontally along it to telegraph the gesture.
  */
 function HorizontalSwipeVisual() {
     return (
-        <div className="relative w-56 h-28 rounded-xl bg-white/[0.06] border border-white/10 shadow-xl flex items-center justify-center overflow-hidden">
-            {/* Mini hour strip */}
-            <div className="absolute inset-x-0 top-3 flex justify-around text-[10px] font-mono text-white/40 font-bold">
+        <div className="relative w-56 h-28 rounded-xl bg-white/[0.06] border border-white/10 shadow-xl overflow-hidden">
+            {/* Hour labels along the top */}
+            <div className="absolute inset-x-0 top-2 flex justify-around text-[9px] font-mono text-white/40 font-bold">
                 <span>09</span>
-                <span className="text-white">10</span>
-                <span>11</span>
+                <span>10</span>
+                <span className="text-sky-300">11</span>
                 <span>12</span>
                 <span>13</span>
             </div>
-            {/* Arrow */}
-            <svg className="w-32 h-8 text-sky-300 mt-4" viewBox="0 0 120 20" fill="none">
-                <path d="M10 10h100" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
-                <path d="M10 10l6-6m-6 6l6 6" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
-                <path d="M110 10l-6-6m6 6l-6 6" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+
+            {/* Tide curve — the actual scrubbable target */}
+            <svg
+                className="absolute inset-x-2 top-6 w-[calc(100%-16px)] h-14 text-sky-400/70"
+                viewBox="0 0 200 60"
+                fill="none"
+                preserveAspectRatio="none"
+            >
+                {/* Filled area under the curve */}
+                <path
+                    d="M 0 45 C 20 10 40 10 60 30 S 100 55 120 30 S 160 5 200 35 L 200 60 L 0 60 Z"
+                    fill="currentColor"
+                    opacity="0.15"
+                />
+                {/* Tide curve itself */}
+                <path
+                    d="M 0 45 C 20 10 40 10 60 30 S 100 55 120 30 S 160 5 200 35"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                />
+                {/* Current-position indicator */}
+                <line x1="100" y1="6" x2="100" y2="54" stroke="rgba(56,189,248,0.6)" strokeWidth="1" />
+                <circle cx="100" cy="42" r="3" fill="rgb(56,189,248)" />
             </svg>
-            {/* Finger hint */}
+
+            {/* Horizontal swipe arrow */}
+            <svg
+                className="absolute bottom-2 left-1/2 -translate-x-1/2 w-24 h-4 text-sky-300"
+                viewBox="0 0 120 16"
+                fill="none"
+            >
+                <path d="M10 8h100" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" />
+                <path d="M10 8l6-5m-6 5l6 5" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" />
+                <path d="M110 8l-6-5m6 5l-6 5" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" />
+            </svg>
+
+            {/* Finger hint drifting across the graph */}
             <div
-                className="absolute bottom-3 w-5 h-5 rounded-full bg-sky-400/80 shadow-[0_0_12px_rgba(56,189,248,0.6)]"
-                style={{ animation: 'swipe-x 2.2s ease-in-out infinite' }}
+                className="absolute top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-sky-400/80 shadow-[0_0_12px_rgba(56,189,248,0.6)]"
+                style={{ animation: 'tut-swipe-x 2.2s ease-in-out infinite' }}
             />
-            {/* Inline keyframes scoped via style tag so we don't bloat index.css for a one-off */}
             <style>{`
-                @keyframes swipe-x {
-                    0%, 100% { transform: translateX(-70px); opacity: 0.5; }
-                    50% { transform: translateX(70px); opacity: 1; }
+                @keyframes tut-swipe-x {
+                    0%, 100% { transform: translate(-60px, -50%); opacity: 0.4; }
+                    50% { transform: translate(60px, -50%); opacity: 1; }
                 }
             `}</style>
         </div>
@@ -210,32 +263,60 @@ function HorizontalSwipeVisual() {
 }
 
 /**
- * Card + up↕down arrow + day labels. Finger drifts vertically.
+ * Same tide-graph mock but with a vertical swipe indicator. Swiping
+ * the tide chart up or down steps through the 7-day forecast,
+ * with each day showing its own curve when the user settles.
  */
 function VerticalSwipeVisual() {
     return (
-        <div className="relative w-56 h-32 rounded-xl bg-white/[0.06] border border-white/10 shadow-xl flex items-center justify-center overflow-hidden">
-            {/* Mini day column */}
-            <div className="absolute left-4 inset-y-3 flex flex-col justify-between text-[10px] font-mono text-white/40 font-bold">
+        <div className="relative w-56 h-32 rounded-xl bg-white/[0.06] border border-white/10 shadow-xl overflow-hidden">
+            {/* Day labels down the left side */}
+            <div className="absolute left-2 inset-y-3 flex flex-col justify-between text-[9px] font-mono text-white/40 font-bold">
                 <span>MON</span>
-                <span className="text-white">TUE</span>
+                <span className="text-amber-300">TUE</span>
                 <span>WED</span>
                 <span>THU</span>
             </div>
-            {/* Arrow */}
-            <svg className="w-6 h-20 text-amber-300 ml-10" viewBox="0 0 20 80" fill="none">
-                <path d="M10 10v60" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
-                <path d="M10 10l-6 6m6-6l6 6" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
-                <path d="M10 70l-6-6m6 6l6-6" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+
+            {/* Tide curve */}
+            <svg
+                className="absolute right-2 top-3 w-[calc(100%-36px)] h-[calc(100%-24px)] text-amber-400/70"
+                viewBox="0 0 200 70"
+                fill="none"
+                preserveAspectRatio="none"
+            >
+                <path
+                    d="M 0 50 C 20 15 40 15 60 35 S 100 60 120 35 S 160 10 200 40 L 200 70 L 0 70 Z"
+                    fill="currentColor"
+                    opacity="0.15"
+                />
+                <path
+                    d="M 0 50 C 20 15 40 15 60 35 S 100 60 120 35 S 160 10 200 40"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                />
             </svg>
-            {/* Finger hint */}
+
+            {/* Vertical swipe arrow — centred on the graph */}
+            <svg
+                className="absolute top-1/2 right-6 -translate-y-1/2 w-4 h-20 text-amber-300"
+                viewBox="0 0 16 80"
+                fill="none"
+            >
+                <path d="M8 8v64" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" />
+                <path d="M8 8l-5 6m5-6l5 6" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" />
+                <path d="M8 72l-5-6m5 6l5-6" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" />
+            </svg>
+
+            {/* Finger hint drifting vertically */}
             <div
-                className="absolute right-8 w-5 h-5 rounded-full bg-amber-400/80 shadow-[0_0_12px_rgba(251,191,36,0.6)]"
-                style={{ animation: 'swipe-y 2.2s ease-in-out infinite' }}
+                className="absolute right-14 top-1/2 w-5 h-5 rounded-full bg-amber-400/80 shadow-[0_0_12px_rgba(251,191,36,0.6)]"
+                style={{ animation: 'tut-swipe-y 2.2s ease-in-out infinite' }}
             />
             <style>{`
-                @keyframes swipe-y {
-                    0%, 100% { transform: translateY(-40px); opacity: 0.5; }
+                @keyframes tut-swipe-y {
+                    0%, 100% { transform: translateY(-40px); opacity: 0.4; }
                     50% { transform: translateY(40px); opacity: 1; }
                 }
             `}</style>
