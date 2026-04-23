@@ -9,8 +9,18 @@
  * via the orchestrator — the unified endpoint only covers atmospheric + nowcast.
  *
  * Pi Cache integration: checks Pi first for instant offline loads.
+ *
+ * Native iOS fast path: on Capacitor iOS, we skip the Supabase hop
+ * entirely and call Apple's WeatherKit framework directly via our
+ * native plugin (ios/App/App/WeatherKitPlugin.swift). The raw WeatherKit
+ * response is shaped by the client-side converter below into the same
+ * StandardWeatherResponse the edge function would have returned, so the
+ * rest of the pipeline (mapping to MarineWeatherReport) is unchanged.
+ * Shaves ~500ms-1s off cold start. Falls through to the Supabase path
+ * gracefully if the native call fails.
  */
 
+import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../../../utils/createLogger';
 import { piCache } from '../../PiCacheService';
 import { resolveTimeZone, formatTimeInZone } from '../../../utils/timezone';
@@ -121,6 +131,145 @@ function dayName(dateStr: string): string {
     return DAYS[d.getDay()] || dateStr;
 }
 
+// ── Native WeatherKit → StandardWeatherResponse converter ────
+//
+// The native plugin returns the RAW Apple WeatherKit REST-shaped JSON
+// (currentWeather / forecastHourly.hours[] / forecastDaily.days[] /
+// forecastNextHour.minutes[]). We need to reshape it to match what the
+// Supabase edge function would return so the rest of the pipeline
+// doesn't care which path ran.
+
+interface RawWKCurrent {
+    asOf?: string;
+    temperature?: number;
+    temperatureApparent?: number;
+    dewPoint?: number;
+    humidity?: number;
+    pressure?: number;
+    visibility?: number;
+    uvIndex?: number;
+    cloudCover?: number;
+    conditionCode?: string;
+    windSpeed?: number;
+    windGust?: number | null;
+    windDirection?: number;
+}
+
+interface RawWKHour {
+    forecastStart?: string;
+    temperature?: number;
+    humidity?: number;
+    pressure?: number;
+    conditionCode?: string;
+    cloudCover?: number;
+    precipitationChance?: number;
+    precipitationAmount?: number;
+    windSpeed?: number;
+    windGust?: number | null;
+    windDirection?: number;
+}
+
+interface RawWKDay {
+    forecastStart?: string;
+    conditionCode?: string;
+    temperatureMax?: number;
+    temperatureMin?: number;
+    precipitationChance?: number;
+    precipitationAmount?: number;
+    sunrise?: string | null;
+    sunset?: string | null;
+    uvIndexMax?: number;
+    windSpeedMax?: number;
+}
+
+interface RawWKMinute {
+    startTime?: string;
+    precipitationChance?: number;
+    precipitationIntensity?: number;
+}
+
+interface RawWKResponse {
+    currentWeather?: RawWKCurrent;
+    forecastHourly?: { hours?: RawWKHour[] };
+    forecastDaily?: { days?: RawWKDay[] };
+    forecastNextHour?: { minutes?: RawWKMinute[] };
+}
+
+function nativeWeatherKitToStandard(raw: unknown, lat: number, lon: number): StandardWeatherResponse | null {
+    const r = raw as RawWKResponse;
+    if (!r.currentWeather) return null;
+
+    const c = r.currentWeather;
+    const current: StandardCurrent = {
+        temperature: c.temperature ?? null,
+        feelsLike: c.temperatureApparent ?? null,
+        humidity: typeof c.humidity === 'number' ? Math.round(c.humidity * 100) : null,
+        pressure: c.pressure ?? null,
+        windSpeed: typeof c.windSpeed === 'number' ? c.windSpeed / 1.852 : null, // km/h → kts
+        windDirection: c.windDirection ?? null,
+        windGust: typeof c.windGust === 'number' ? c.windGust / 1.852 : null,
+        condition: c.conditionCode || 'Unknown',
+        cloudCover: typeof c.cloudCover === 'number' ? Math.round(c.cloudCover * 100) : null,
+        visibility: typeof c.visibility === 'number' ? c.visibility / 1852 : null, // m → nm
+        uvIndex: c.uvIndex ?? null,
+        precipitation: null, // only surfaced on hourly/daily in native payload
+        dewPoint: c.dewPoint ?? null,
+        isDay: null, // native doesn't flag this; renderer derives from condition+sunrise
+    };
+
+    const hourly: StandardHourly[] = (r.forecastHourly?.hours || []).map((h) => ({
+        time: h.forecastStart || '',
+        temperature: h.temperature ?? 0,
+        windSpeed: typeof h.windSpeed === 'number' ? h.windSpeed / 1.852 : 0,
+        windDirection: h.windDirection ?? 0,
+        windGust: typeof h.windGust === 'number' ? h.windGust / 1.852 : null,
+        precipitation: h.precipitationAmount ?? 0,
+        precipProbability: typeof h.precipitationChance === 'number' ? h.precipitationChance * 100 : 0,
+        condition: h.conditionCode || 'Unknown',
+        pressure: h.pressure ?? null,
+        cloudCover: typeof h.cloudCover === 'number' ? h.cloudCover * 100 : null,
+        humidity: typeof h.humidity === 'number' ? h.humidity * 100 : null,
+    }));
+
+    const daily: StandardDaily[] = (r.forecastDaily?.days || []).map((d) => ({
+        date: (d.forecastStart || '').split('T')[0],
+        tempMax: d.temperatureMax ?? 0,
+        tempMin: d.temperatureMin ?? 0,
+        windSpeedMax: typeof d.windSpeedMax === 'number' ? d.windSpeedMax / 1.852 : 0,
+        windGustMax: null,
+        condition: d.conditionCode || 'Unknown',
+        precipSum: d.precipitationAmount ?? 0,
+        precipProbability: typeof d.precipitationChance === 'number' ? d.precipitationChance * 100 : null,
+        sunrise: d.sunrise || '',
+        sunset: d.sunset || '',
+        uvIndexMax: d.uvIndexMax ?? null,
+    }));
+
+    const minutes = r.forecastNextHour?.minutes || [];
+    const nowcast: StandardNowcast | undefined =
+        minutes.length > 0
+            ? {
+                  minutes: minutes.map((m) => ({
+                      time: m.startTime || '',
+                      intensity: m.precipitationIntensity ?? 0,
+                  })),
+                  summary: '', // Apple doesn't expose a unified summary string
+              }
+            : undefined;
+
+    return {
+        provider: 'weatherkit',
+        timestamp: c.asOf || new Date().toISOString(),
+        coordinates: { lat, lon },
+        timezone: resolveTimeZone(lat, lon),
+        isPremium: true, // WeatherKit native is free-tier-accessible via App Store entitlement
+        current,
+        nowcast,
+        hourly,
+        daily,
+    };
+}
+
 // ── Fetch ────────────────────────────────────────────────────
 
 /**
@@ -137,6 +286,29 @@ export async function fetchUnifiedWeatherRaw(
     const cacheKey = `${lat.toFixed(2)},${lon.toFixed(2)},${userId || ''}`;
     if (cached && cached.key === cacheKey && Date.now() - cached.fetchedAt < CACHE_TTL) {
         return cached.data;
+    }
+
+    // ── NATIVE FAST PATH (iOS only) ──
+    // Skip Supabase entirely and call Apple's WeatherKit framework
+    // directly via our native plugin. Saves the 500ms-1s edge-function
+    // cold-start + JWT-signing + network round-trip. Graceful fallback
+    // to the Supabase path below if the native call fails (capability
+    // not yet granted, network error, etc.).
+    if (Capacitor.isNativePlatform()) {
+        try {
+            const { fetchWeatherKitNative } = await import('../../native/weatherKit');
+            const nativeRaw = await fetchWeatherKitNative(lat, lon);
+            if (nativeRaw && typeof nativeRaw === 'object') {
+                const converted = nativeWeatherKitToStandard(nativeRaw, lat, lon);
+                if (converted) {
+                    cached = { data: converted, fetchedAt: Date.now(), key: cacheKey };
+                    log.warn(`Unified via native WeatherKit (saved Supabase round-trip)`);
+                    return converted;
+                }
+            }
+        } catch (err) {
+            log.warn('Native WeatherKit path failed, falling through to Supabase:', err);
+        }
     }
 
     const supabaseUrl = getSupabaseUrl();
