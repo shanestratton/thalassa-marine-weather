@@ -41,6 +41,12 @@ export interface UserSettings {
     notifications: NotificationPreferences;
     units: UnitPreferences;
     defaultLocation?: string;
+    /** Coordinates for defaultLocation — saved at the time the user
+     *  picked it (GPS / map / search). Prefer these over re-geocoding
+     *  the name string, which is ambiguous (e.g. "Newport" matches
+     *  six different cities worldwide). Optional for backwards
+     *  compatibility with older settings payloads. */
+    defaultLocationCoords?: { lat: number; lon: number };
     savedLocations: string[];
     vessel?: VesselProfile;
     vesselUnits?: VesselDimensionUnits;
