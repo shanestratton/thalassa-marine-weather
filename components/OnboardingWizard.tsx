@@ -23,6 +23,7 @@ import {
     WeatherModel,
     PolarData,
     OffshoreModel,
+    DisplayMode,
 } from '../types';
 import type { SubscriptionTier } from '../types/settings';
 import { ArrowRightIcon } from './Icons';
@@ -115,6 +116,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     // Display preferences
     const [prefAlwaysOn, setPrefAlwaysOn] = useState(false);
     const [prefOrientation, setPrefOrientation] = useState<'auto' | 'portrait' | 'landscape'>('portrait');
+    const [prefDisplayMode, setPrefDisplayMode] = useState<DisplayMode>('dark');
 
     // Dimension Data - Initialize as Strings to detect empty vs 0
     const [length, setLength] = useState<string>('');
@@ -451,7 +453,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                 tideHeight: prefLength,
                 waveHeight: prefWaveHeight,
                 visibility: 'nm',
-                volume: 'gal',
+                volume: prefVolume,
             },
             vesselUnits: {
                 length: lengthUnit,
@@ -465,6 +467,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
             savedLocations: [homePort],
             alwaysOn: prefAlwaysOn,
             screenOrientation: prefOrientation,
+            displayMode: prefDisplayMode,
             // Include polar data if a yacht was selected
             ...(selectedPolar
                 ? {
@@ -635,6 +638,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                         onAlwaysOnChange={setPrefAlwaysOn}
                         prefOrientation={prefOrientation}
                         onOrientationChange={setPrefOrientation}
+                        prefDisplayMode={prefDisplayMode}
+                        onDisplayModeChange={setPrefDisplayMode}
                         onFinish={handleFinish}
                     />
                 )}
