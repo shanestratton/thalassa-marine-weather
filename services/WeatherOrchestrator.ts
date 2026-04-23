@@ -38,7 +38,18 @@ const log = createLogger('WxOrch');
 // ── Types ──────────────────────────────────────────────────────
 
 export const CACHE_VERSION = 'v19.2-WEATHERKIT-FIX';
-const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
+
+// Two separate thresholds so the UI doesn't double-up a loader:
+// - REFETCH: how old cached data can be before we trigger a background
+//   refresh. Keep at 30min to preserve hourly-ish freshness.
+// - BLUR: how old cached data has to be before the big "Updating…"
+//   blur overlay covers The Glass. 30min was too aggressive — data
+//   that's half an hour old is still fine for tactical decisions, and
+//   the blur made the app feel like it was loading twice on every
+//   cold start. Lift to 2h — below that we background-refresh silently
+//   (the sync badge at the bottom already indicates the fetch).
+const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 min — refetch trigger
+const BLUR_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 h — UI blur trigger
 
 export interface Coords {
     lat: number;
@@ -254,16 +265,21 @@ export class WeatherOrchestrator {
         }
 
         if (hasCachedData && cachedAge >= STALE_THRESHOLD_MS) {
+            // Between 30min and 2h: background refresh silently. Above
+            // 2h: flip staleRefresh so the blur overlay covers The Glass
+            // — at that age data is potentially misleading for marine
+            // decisions and the user needs a clear "hold, updating" cue.
+            const shouldBlur = cachedAge >= BLUR_THRESHOLD_MS;
             log.info(
-                `[WeatherOrchestrator] Cache stale (${Math.round(cachedAge / 60000)}m old) — blur + background refresh`,
+                `[WeatherOrchestrator] Cache stale (${Math.round(cachedAge / 60000)}m old) — ${shouldBlur ? 'blur + ' : ''}background refresh`,
             );
             addBreadcrumb({
                 category: 'weather',
-                message: 'Cache stale, background refresh',
+                message: shouldBlur ? 'Cache very stale, blur + refresh' : 'Cache stale, silent refresh',
                 level: 'info',
                 data: { ageMinutes: Math.round(cachedAge / 60000) },
             });
-            this.cb.setStaleRefresh(true);
+            if (shouldBlur) this.cb.setStaleRefresh(true);
         }
 
         // Handle GPS-based "Current Location"

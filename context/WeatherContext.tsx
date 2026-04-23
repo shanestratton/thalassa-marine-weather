@@ -9,6 +9,7 @@ import {
     saveLargeData,
     saveLargeDataImmediate,
     deleteLargeData,
+    loadLargeDataSync,
     DATA_CACHE_KEY,
     VOYAGE_CACHE_KEY,
     HISTORY_CACHE_KEY,
@@ -62,8 +63,21 @@ const WeatherContext = createContext<WeatherContextType | undefined>(undefined);
 export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { settings, updateSettings, loading: settingsLoading } = useSettings();
 
+    // Synchronous cache pre-read at initial render. Running this as the
+    // useState initializer (instead of inside a useEffect) means the
+    // very first paint already has the cached weather on screen — no
+    // "Initializing Weather Data…" flash. Only flips loading=true if
+    // there's literally nothing to show yet.
+    const initialWeather = React.useMemo(() => {
+        try {
+            return loadLargeDataSync(DATA_CACHE_KEY) as MarineWeatherReport | null;
+        } catch {
+            return null;
+        }
+    }, []);
+
     // ── React State ─────────────────────────────────────────
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(initialWeather === null);
     const [loadingMessage, setLoadingMessage] = useState('Initializing Weather Data...');
     const [backgroundUpdating, setBackgroundUpdating] = useState(false);
     const [staleRefresh, setStaleRefresh] = useState(false);
@@ -73,7 +87,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const [quotaUsed, setQuotaUsed] = useState(0);
     const [nextUpdate, setNextUpdate] = useState<number | null>(null);
     const [versionChecked, setVersionChecked] = useState(false);
-    const [weatherData, _setWeatherData] = useState<MarineWeatherReport | null>(null);
+    const [weatherData, _setWeatherData] = useState<MarineWeatherReport | null>(initialWeather);
     const [voyagePlan, setVoyagePlan] = useState<VoyagePlan | null>(null);
     const [historyCache, setHistoryCache] = useState<Record<string, MarineWeatherReport>>({});
 
@@ -369,7 +383,11 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }, 30_000);
 
         // Wake from sleep handler
-        const STALE_ON_WAKE_MS = 30 * 60 * 1000;
+        // Raised 30min → 2h to match the new two-tier staleness policy
+        // (see WeatherOrchestrator.BLUR_THRESHOLD_MS). Below 2h we refresh
+        // silently using the sync badge; only older than that gets the
+        // disruptive blur overlay.
+        const STALE_ON_WAKE_MS = 2 * 60 * 60 * 1000;
         const handleVisibilityChange = () => {
             if (document.visibilityState !== 'visible') return;
             if (isFetchingRef.current) return;
@@ -432,7 +450,10 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             if (dataAge < STALE_ON_RECONNECT_MS) return;
 
             log.info(`[WeatherContext] Reconnected — data ${Math.round(dataAge / 60000)}m old, refreshing`);
-            setStaleRefresh(true);
+            // Only show the full blur for very-stale data (2h+). Below
+            // that, the sync badge at the bottom communicates the refresh
+            // without yanking the user out of the data they're reading.
+            if (dataAge >= 2 * 60 * 60 * 1000) setStaleRefresh(true);
             // Small delay gives the device a chance to fully settle the
             // connection (especially noticeable on cellular hand-offs).
             setTimeout(() => {
