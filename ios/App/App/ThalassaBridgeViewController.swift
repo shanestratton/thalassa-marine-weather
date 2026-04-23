@@ -43,6 +43,7 @@ public class ThalassaBridgeViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(AlarmAudioPlugin())
         bridge?.registerPluginInstance(BackgroundLocationPlugin())
         bridge?.registerPluginInstance(DataScannerPlugin())
+        bridge?.registerPluginInstance(LightningPlugin())
         // SshClientPlugin + WatchConnectivityPlugin not added yet:
         // their .swift/.m files exist on disk but aren't in the
         // pbxproj build graph yet (separate fix).
