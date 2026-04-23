@@ -587,9 +587,21 @@ export class WeatherOrchestrator {
                 if (!isBackground) this.cb.setLoading(false);
             }
 
-            // Schedule next update + AI enrichment
+            // Schedule next update + AI enrichment. We deliberately DON'T
+            // await this — the Gemini enrichment call inside takes 2-5s
+            // and holding isFetching during that window would silently
+            // drop pull-to-refresh taps and scheduled background updates.
+            // The function sets the base weather data + nextUpdate timer
+            // synchronously at the top, then kicks off the AI call in the
+            // background. When AI completes it re-fires setWeatherData
+            // with the enriched payload, which triggers a re-render.
+            // Errors from the AI path are non-critical; we swallow them
+            // at the outer level so fire-and-forget doesn't leak promise
+            // rejections.
             if (currentReport) {
-                await this.scheduleNextAndEnrich(currentReport, location, settings, force);
+                void this.scheduleNextAndEnrich(currentReport, location, settings, force).catch((e) => {
+                    log.warn('scheduleNextAndEnrich (post-render):', e);
+                });
             }
         } catch (err: unknown) {
             const currentData2 = this.cb.getWeatherData();

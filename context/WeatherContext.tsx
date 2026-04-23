@@ -415,9 +415,56 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
         document.addEventListener('visibilitychange', handleVisibilityChange);
 
+        // Reconnect handler — fires the moment the device comes back
+        // online (airplane-mode toggle, wifi drop, 4G hand-off back to
+        // signal). Previously the user had to either wait for the next
+        // scheduled refresh (could be minutes) or pull-to-refresh
+        // manually; now a fresh fetch kicks off within ~1s of the
+        // connection returning. Mirrors the wake-from-sleep logic.
+        const handleOnline = () => {
+            if (isFetchingRef.current) return;
+            const data = weatherDataRef.current;
+            const dataAge = data?.generatedAt ? Date.now() - new Date(data.generatedAt).getTime() : Infinity;
+            // Only refresh if the cached data is actually stale (5+ min)
+            // — if the user just dipped offline for a few seconds while
+            // scrolling, we don't need to burn a fetch on reconnect.
+            const STALE_ON_RECONNECT_MS = 5 * 60 * 1000;
+            if (dataAge < STALE_ON_RECONNECT_MS) return;
+
+            log.info(`[WeatherContext] Reconnected — data ${Math.round(dataAge / 60000)}m old, refreshing`);
+            setStaleRefresh(true);
+            // Small delay gives the device a chance to fully settle the
+            // connection (especially noticeable on cellular hand-offs).
+            setTimeout(() => {
+                if (isFetchingRef.current) return;
+                const loc = data?.locationName || settingsRef.current.defaultLocation;
+                if (!loc) return;
+
+                if (locationMode === 'gps') {
+                    GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 10 }).then((pos) => {
+                        if (pos) {
+                            fetchWeather(
+                                'Current Location',
+                                true,
+                                { lat: pos.latitude, lon: pos.longitude },
+                                false,
+                                true,
+                            );
+                        } else {
+                            fetchWeather(loc, true, data?.coordinates, false, true);
+                        }
+                    });
+                } else {
+                    fetchWeather(loc, true, data?.coordinates, false, true);
+                }
+            }, 1500);
+        };
+        window.addEventListener('online', handleOnline);
+
         return () => {
             clearInterval(checkInterval);
             document.removeEventListener('visibilitychange', handleVisibilityChange);
+            window.removeEventListener('online', handleOnline);
         };
     }, [fetchWeather, locationMode]);
 
