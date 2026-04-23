@@ -622,9 +622,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     // centres preserve the user's current zoom so we don't yank them out
     // of a harbour view they zoomed into.
     const lastFlownCoordsRef = useRef<{ lat: number; lon: number } | null>(null);
+    const [debugInfo, setDebugInfo] = useState<string>('mount');
     useEffect(() => {
         const map = mapRef.current;
         const name = weatherData?.locationName;
+        const coordsStr = weatherCoords ? `${weatherCoords.lat.toFixed(2)},${weatherCoords.lon.toFixed(2)}` : 'null';
+        setDebugInfo(`ready=${mapReady} n=${name?.slice(0, 12) ?? 'null'} c=${coordsStr}`);
         // console.warn always survives production; `log.info` is a no-op in prod builds.
         console.warn(
             `[MapCentre] tick mapReady=${mapReady} name=${name ?? 'null'} coords=${
@@ -673,6 +676,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         const c = map.getCenter();
         console.warn(
             `[MapCentre] after jumpTo — center=${c.lat.toFixed(3)},${c.lng.toFixed(3)} zoom=${map.getZoom().toFixed(2)}`,
+        );
+        setDebugInfo(
+            `FLEW to ${name?.slice(0, 12)} @ ${c.lat.toFixed(2)},${c.lng.toFixed(2)} z${map.getZoom().toFixed(1)}`,
         );
     }, [
         mapReady,
@@ -1340,6 +1346,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                     {/* ═══ AIS GUARD ZONE ALERT TOAST ═══ */}
                     <AisGuardAlert />
                 </Suspense>
+
+                {/* ═══ DIAGNOSTIC MAP-CENTRE BADGE (temporary) ═══ */}
+                {!embedded && !isPinView && (
+                    <div
+                        className="absolute z-[950] left-2 top-2 px-2 py-1 rounded bg-fuchsia-600/95 text-white font-mono text-[10px] leading-tight shadow-lg pointer-events-none"
+                        style={{ maxWidth: 'calc(100vw - 16px)' }}
+                    >
+                        DBG: {debugInfo}
+                    </div>
+                )}
 
                 {/* ═══ OFFLINE AREA DOWNLOAD — FAB + MODAL ═══
                     Below the ℹ button on the right rail. Opens a modal that
