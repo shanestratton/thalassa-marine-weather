@@ -493,6 +493,19 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const current = weatherDataRef.current?.coordinates;
             if (!current) return;
 
+            // Cold-start debounce — don't let the drift detector trigger a
+            // second weather fetch within 60s of the initial fetch. Without
+            // this guard, if the initial fetch used a slightly-stale GPS
+            // cache (staleLimitMs: 60_000) and the drift detector's
+            // request (staleLimitMs: 10_000) returned a fresher position
+            // that differed by > 5nm, we'd fire a second identical fetch.
+            // The initial fetch's weather is already accurate within 5nm,
+            // so the second call just burns API quota without adding value.
+            const generatedTs = weatherDataRef.current?.generatedAt
+                ? new Date(weatherDataRef.current.generatedAt).getTime()
+                : 0;
+            if (Date.now() - generatedTs < 60_000) return;
+
             GpsService.getCurrentPosition({ staleLimitMs: 10_000 }).then(async (pos) => {
                 if (!pos) return;
                 const { latitude, longitude } = pos;

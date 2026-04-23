@@ -105,6 +105,14 @@ class PiCacheServiceImpl {
     private _consecutiveMisses = 0;
     private static readonly MISS_SKIP_THRESHOLD = 3;
 
+    // Timestamp of the last successful Pi reach, persisted to localStorage
+    // so we remember across cold starts. If we haven't seen the Pi in > 24h,
+    // skip the boot race gate entirely — the user is clearly away from the
+    // boat's network and paying 1.5s per cold start for a Pi that isn't
+    // going to answer is exactly the "slow startup" complaint we need to fix.
+    private static readonly LAST_SEEN_KEY = 'thalassa_pi_last_seen_at';
+    private static readonly STALE_CUTOFF_MS = 24 * 60 * 60 * 1000; // 24 hours
+
     private initReadyPromise(): void {
         // Idempotent — only create once per enable cycle.
         if (this._firstCheckDone) return;
@@ -124,20 +132,28 @@ class PiCacheServiceImpl {
      * Returns immediately if:
      *   - Pi Cache is disabled (nothing to wait for)
      *   - Pi is already known to be reachable (health check already ran)
-     *   - We've missed Pi ≥ 3 times in a row this session (punter is
-     *     obviously off the boat's LAN; further waits are wasted time)
+     *   - We've missed Pi ≥ 3 times in a row this session
+     *   - We haven't successfully reached the Pi in the last 24 hours
+     *     (persisted across cold starts — the punter is ashore)
      *
-     * Otherwise waits up to `maxMs` (default 1500ms) for the first check.
-     * Use this before fetching weather on boot so Pi-capable fetchers don't
-     * race past the discovery phase and hit the network unnecessarily.
+     * Otherwise waits up to `maxMs` (default **500ms** — was 1500ms, but
+     * that 1-extra-second was showing up as "the app takes ages to load"
+     * on every cold start for users whose Pi was slightly slow. 500ms is
+     * more than enough to catch a healthy LAN Pi (50-150ms typical) while
+     * keeping the cold-start latency tight for everyone else).
      */
-    async awaitReady(maxMs: number = 1500): Promise<void> {
+    async awaitReady(maxMs: number = 500): Promise<void> {
         if (!this.config.enabled) return;
         if (this.status.reachable) {
             this._consecutiveMisses = 0; // reset on success
+            this._persistLastSeen();
             return;
         }
         if (this._consecutiveMisses >= PiCacheServiceImpl.MISS_SKIP_THRESHOLD) return;
+        // Stale-persistence gate — if the last successful Pi contact was
+        // more than 24h ago, the user's off the boat's LAN. Skip the wait
+        // immediately rather than paying it on every cold start.
+        if (this._isPiStale()) return;
         if (!this._firstCheckDone) return;
         const hit = await Promise.race([
             this._firstCheckDone.then(() => true),
@@ -145,8 +161,35 @@ class PiCacheServiceImpl {
         ]);
         if (hit && this.status.reachable) {
             this._consecutiveMisses = 0;
+            this._persistLastSeen();
         } else {
             this._consecutiveMisses++;
+        }
+    }
+
+    /** Write "seen now" to localStorage. Called on every successful
+     *  health check or fetch so the cross-session cutoff stays fresh. */
+    private _persistLastSeen(): void {
+        try {
+            if (typeof localStorage !== 'undefined') {
+                localStorage.setItem(PiCacheServiceImpl.LAST_SEEN_KEY, String(Date.now()));
+            }
+        } catch {
+            /* private mode / disk full — non-critical */
+        }
+    }
+
+    /** True if we haven't seen the Pi in > 24h (or never). */
+    private _isPiStale(): boolean {
+        try {
+            if (typeof localStorage === 'undefined') return false;
+            const raw = localStorage.getItem(PiCacheServiceImpl.LAST_SEEN_KEY);
+            if (!raw) return true; // never seen = stale
+            const lastSeenAt = parseInt(raw, 10);
+            if (!Number.isFinite(lastSeenAt)) return true;
+            return Date.now() - lastSeenAt > PiCacheServiceImpl.STALE_CUTOFF_MS;
+        } catch {
+            return false; // on error, default to "not stale" (preserves old behavior)
         }
     }
 
