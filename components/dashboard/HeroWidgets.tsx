@@ -472,11 +472,17 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     // Model comparison matrix — offshore only
     const [showMatrix, setShowMatrix] = useState(false);
     const offshoreModelCode = (useSettingsStore((s) => s.settings.offshoreModel) || 'sg') as OffshoreModel;
+
+    // Offshore → entire grid is tappable to open the model matrix.
+    // Previously only the Wind cell was — user had to hunt for it.
+    const gridOnClick = isOffshore ? () => setShowMatrix(true) : undefined;
+
     return (
         <div
-            className="w-full rounded-xl overflow-hidden bg-white/[0.08] border border-white/[0.15] shadow-2xl"
+            className={`w-full rounded-xl overflow-hidden bg-white/[0.08] border border-white/[0.15] shadow-2xl ${isOffshore ? 'cursor-pointer active:scale-[0.995] transition-transform' : ''}`}
             role="region"
-            aria-label="Weather metrics dashboard"
+            aria-label={isOffshore ? 'Offshore weather metrics — tap to compare models' : 'Weather metrics dashboard'}
+            onClick={gridOnClick}
         >
             {/* TOP ROW: Wind, Dir, Gust, Wave, Per
                 Icons carry a `metric-anim-*` class that plays a CSS
@@ -495,7 +501,8 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     trend={trends?.windSpeed}
                     improving={isWindImproving}
                     tooltip="Sustained wind speed — average over 10 minutes"
-                    onClick={isOffshore ? () => setShowMatrix(true) : undefined}
+                    // onClick removed: whole grid is tappable in offshore
+                    // mode now (see wrapping div's gridOnClick).
                 />
 
                 {/* Direction — standard cell, tap for compass overlay */}
