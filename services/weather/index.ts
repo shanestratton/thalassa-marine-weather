@@ -353,11 +353,32 @@ const _fetchWeatherByStrategyImpl = async (
         report.isLandlocked = openMeteoReport.isLandlocked;
     }
 
-    // --- ENRICH WITH OPENMETEO CAPE (for wind field map) ---
+    // --- ENRICH WITH OPENMETEO CAPE (current + hourly) ---
+    // CAPE (Convective Available Potential Energy) isn't exposed by
+    // WeatherKit or StormGlass — only OpenMeteo reports it. The
+    // StormGlass fetcher does its own OM side-call and injects cape
+    // onto SG hours, but that path silently fails if SG itself fails
+    // OR if the SG hybrid-context fetch doesn't match hour keys (seen
+    // 2026-04-24: wave/period/currents populating, CAPE still "--"
+    // everywhere). Safety net: merge CAPE directly from the parallel
+    // `fetchOpenMeteo` result, which always runs regardless of SG.
     if (openMeteoReport?.current?.cape != null) {
         const current = { ...report.current };
         current.cape = openMeteoReport.current.cape;
         report.current = current;
+    }
+    if (openMeteoReport?.hourly?.length) {
+        const toHourKey = (t: string) => Math.floor(new Date(t).getTime() / 3600000);
+        const omHourlyMap = new Map(openMeteoReport.hourly.map((h) => [toHourKey(h.time), h]));
+        report.hourly = report.hourly.map((h) => {
+            // Only fill cape if downstream hasn't already set it. The SG
+            // merge earlier may have populated it via its hybrid inject;
+            // don't stomp that value here.
+            if (h.cape != null) return h;
+            const omH = omHourlyMap.get(toHourKey(h.time));
+            if (omH?.cape == null) return h;
+            return { ...h, cape: omH.cape };
+        });
     }
 
     // --- INHERIT TIMEZONE ---
