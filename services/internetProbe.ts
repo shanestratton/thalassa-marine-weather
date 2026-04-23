@@ -68,7 +68,9 @@ async function runProbe(): Promise<boolean> {
             return res.status >= 200 && res.status < 400;
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            log.warn('probe failed — assuming no WAN:', msg);
+            // Use .error so Xcode Console actually shows this; Capacitor's
+            // default LoggingBehavior drops warn-level console messages.
+            log.error('probe failed — assuming no WAN:', msg);
             return false;
         }
     })();
@@ -90,7 +92,7 @@ async function probeAndUpdate(): Promise<void> {
     const shouldBeOffline = !reachable;
     const current = useUIStore.getState().isOffline;
     if (current !== shouldBeOffline) {
-        log.warn(`isOffline ${current} → ${shouldBeOffline} (probe reachable=${reachable})`);
+        log.error(`isOffline ${current} → ${shouldBeOffline} (probe reachable=${reachable})`);
         useUIStore.setState({ isOffline: shouldBeOffline });
     }
     // Adapt cadence: fast re-probe after a failure so we catch the moment
