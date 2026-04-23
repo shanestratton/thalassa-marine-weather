@@ -39,25 +39,28 @@ const WeatherKitNative = registerPlugin<WeatherKitNativePlugin>('WeatherKit');
  */
 export async function fetchWeatherKitNative(lat: number, lon: number): Promise<unknown | null> {
     if (!Capacitor.isNativePlatform()) {
+        console.warn('[weatherKitNative] skipped — not a native platform');
         return null;
     }
+    // Diagnostic: confirm the JS→native call actually reaches the bridge.
+    // console.warn shows in Xcode regardless of createLogger's prod filter.
+    console.warn('[weatherKitNative] → calling native bridge', { lat, lon });
     try {
         const result = await WeatherKitNative.fetch({ lat, lon });
         if (!result || typeof result !== 'object') {
-            log.warn('Native fetch returned unexpected payload');
+            console.warn('[weatherKitNative] native fetch returned unexpected payload:', result);
             return null;
         }
-        // log.info is a no-op in production builds; using log.warn so the
-        // success line shows up in Xcode Console when verifying the native
-        // path is active. Not an actual warning, just routing around the
-        // createLogger prod filter.
-        log.warn('Native WeatherKit hit:', Object.keys(result as Record<string, unknown>).join(','));
+        console.warn(
+            '[weatherKitNative] ✅ native WeatherKit hit — keys:',
+            Object.keys(result as Record<string, unknown>).join(','),
+        );
         return result;
     } catch (err) {
         // Most common reason: WeatherKit capability not yet enabled in
         // Xcode / Apple Developer portal. Caller falls back to Supabase.
         const msg = err instanceof Error ? err.message : String(err);
-        log.warn('Native WeatherKit unavailable — falling back to Supabase:', msg);
+        console.warn('[weatherKitNative] ❌ threw:', msg);
         return null;
     }
 }
