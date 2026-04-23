@@ -80,6 +80,9 @@ interface StandardHourly {
     pressure: number | null;
     cloudCover: number | null;
     humidity: number | null;
+    uvIndex: number | null;
+    /** Kilometres. */
+    visibility: number | null;
 }
 
 interface StandardDaily {
@@ -167,6 +170,9 @@ interface RawWKHour {
     windSpeed?: number;
     windGust?: number | null;
     windDirection?: number;
+    uvIndex?: number;
+    /** Native Swift serializer emits metres — TS converter divides by 1000 → km. */
+    visibility?: number;
 }
 
 interface RawWKDay {
@@ -224,11 +230,23 @@ function nativeWeatherKitToStandard(raw: unknown, lat: number, lon: number): Sta
         windDirection: h.windDirection ?? 0,
         windGust: typeof h.windGust === 'number' ? h.windGust / 1.852 : null,
         precipitation: h.precipitationAmount ?? 0,
-        precipProbability: typeof h.precipitationChance === 'number' ? h.precipitationChance * 100 : 0,
+        // WeatherKit returns these as 0-1 fractions; multiply by 100 for
+        // percent and ROUND so the UI doesn't render `79.83333333333333%`.
+        // The current-weather mapper at line 206 was already rounding —
+        // hourly was missed, and the current-hour slot in HeroSlide.tsx
+        // pulls from hourly first, which is why only the live card was
+        // affected. Same fix for cloudCover + precipProbability.
+        precipProbability: typeof h.precipitationChance === 'number' ? Math.round(h.precipitationChance * 100) : 0,
         condition: h.conditionCode || 'Unknown',
         pressure: h.pressure ?? null,
-        cloudCover: typeof h.cloudCover === 'number' ? h.cloudCover * 100 : null,
-        humidity: typeof h.humidity === 'number' ? h.humidity * 100 : null,
+        cloudCover: typeof h.cloudCover === 'number' ? Math.round(h.cloudCover * 100) : null,
+        humidity: typeof h.humidity === 'number' ? Math.round(h.humidity * 100) : null,
+        // UV index + visibility ARE serialized by the Swift plugin (see
+        // WeatherKitPlugin.swift serializeHour lines 106, 111) but the
+        // earlier TS mapper just dropped them. Forward them here so the
+        // per-hour Glass view renders them for the full 240h window.
+        uvIndex: typeof h.uvIndex === 'number' ? h.uvIndex : null,
+        visibility: typeof h.visibility === 'number' ? h.visibility / 1000 : null, // m → km
     }));
 
     const daily: StandardDaily[] = (r.forecastDaily?.days || []).map((d) => ({
@@ -451,7 +469,11 @@ function mapToMarineReport(resp: StandardWeatherResponse, lat: number, lon: numb
         sunset: todaySunset,
     };
 
-    // Hourly forecast
+    // Hourly forecast. UV + visibility threaded through here as well —
+    // the earlier converter dropped them on the floor, which is why they
+    // only showed for the current hour (current mapper carried them, the
+    // per-hour slot mapper didn't). Now both follow the same 240h path
+    // as every other hourly metric.
     const hourly: HourlyForecast[] = resp.hourly.map((h) => ({
         time: h.time,
         windSpeed: h.windSpeed,
@@ -466,6 +488,8 @@ function mapToMarineReport(resp: StandardWeatherResponse, lat: number, lon: numb
         pressure: h.pressure ?? undefined,
         cloudCover: h.cloudCover,
         humidity: h.humidity,
+        uvIndex: h.uvIndex ?? undefined,
+        visibility: h.visibility ?? undefined,
     }));
 
     // Daily forecast — format sunrise/sunset as HH:MM in the target tz so the UI
