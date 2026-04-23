@@ -260,10 +260,21 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const isCacheValid =
                 cached && cached?.coordinates && (cached.coordinates.lat !== 0 || cached.coordinates.lon !== 0);
 
-            const STALE_LOC_MS = 30 * 60 * 1000;
-            const cachedAge =
-                isCacheValid && cached?.generatedAt ? Date.now() - new Date(cached.generatedAt).getTime() : Infinity;
-            const needsBlur = !isCacheValid || cachedAge >= STALE_LOC_MS;
+            // Blur decision is based on what's CURRENTLY on screen, not
+            // whether historyCache has an entry for this location string.
+            // The old logic was firing the blur on every cold start
+            // because the location name re-derived from GPS often didn't
+            // match the historyCache key → cache "miss" → needsBlur=true
+            // → big "Updating" overlay on top of perfectly-fresh data.
+            //
+            // New logic: if the user is seeing weather < 2h old, silent
+            // background refresh (no blur). Only blur if what's on
+            // screen is genuinely stale enough to be dangerous to act on.
+            const BLUR_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours
+            const currentAge = weatherDataRef.current?.generatedAt
+                ? Date.now() - new Date(weatherDataRef.current.generatedAt).getTime()
+                : Infinity;
+            const needsBlur = currentAge >= BLUR_THRESHOLD_MS;
 
             if (needsBlur && weatherDataRef.current) setStaleRefresh(true);
 
