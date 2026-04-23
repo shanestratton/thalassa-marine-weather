@@ -96,6 +96,15 @@ class PiCacheServiceImpl {
     private _firstCheckDone: Promise<void> | null = null;
     private _markFirstCheckDone: (() => void) | null = null;
 
+    // ── Adaptive-skip state ──
+    // Counts how many consecutive fetches have seen Pi unreachable. After
+    // a threshold we skip the ready-wait entirely — the punter is clearly
+    // off the Pi's LAN (ashore, another marina, coffee shop), so paying
+    // 1.5s per fetch to wait for a health check that'll never succeed is
+    // pure cost. A successful health check resets the counter instantly.
+    private _consecutiveMisses = 0;
+    private static readonly MISS_SKIP_THRESHOLD = 3;
+
     private initReadyPromise(): void {
         // Idempotent — only create once per enable cycle.
         if (this._firstCheckDone) return;
@@ -115,6 +124,8 @@ class PiCacheServiceImpl {
      * Returns immediately if:
      *   - Pi Cache is disabled (nothing to wait for)
      *   - Pi is already known to be reachable (health check already ran)
+     *   - We've missed Pi ≥ 3 times in a row this session (punter is
+     *     obviously off the boat's LAN; further waits are wasted time)
      *
      * Otherwise waits up to `maxMs` (default 1500ms) for the first check.
      * Use this before fetching weather on boot so Pi-capable fetchers don't
@@ -122,9 +133,21 @@ class PiCacheServiceImpl {
      */
     async awaitReady(maxMs: number = 1500): Promise<void> {
         if (!this.config.enabled) return;
-        if (this.status.reachable) return;
+        if (this.status.reachable) {
+            this._consecutiveMisses = 0; // reset on success
+            return;
+        }
+        if (this._consecutiveMisses >= PiCacheServiceImpl.MISS_SKIP_THRESHOLD) return;
         if (!this._firstCheckDone) return;
-        await Promise.race([this._firstCheckDone, new Promise<void>((resolve) => setTimeout(resolve, maxMs))]);
+        const hit = await Promise.race([
+            this._firstCheckDone.then(() => true),
+            new Promise<boolean>((resolve) => setTimeout(() => resolve(false), maxMs)),
+        ]);
+        if (hit && this.status.reachable) {
+            this._consecutiveMisses = 0;
+        } else {
+            this._consecutiveMisses++;
+        }
     }
 
     // ── Boot ──
