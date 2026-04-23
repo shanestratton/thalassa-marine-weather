@@ -13,6 +13,7 @@ import { useEffect, useRef, useCallback, useState, type MutableRefObject } from 
 import mapboxgl from 'mapbox-gl';
 import { MBTilesService, type OpenChart } from '../../services/MBTilesService';
 import { ChartLockerService } from '../../services/ChartLockerService';
+import { LocationStore } from '../../stores/LocationStore';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('LocalCharts');
@@ -189,20 +190,30 @@ export function useLocalCharts(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Fly to chart bounds
+    // Fly to chart bounds — or fall back to the user's current location
+    // when bounds are missing from the MBTiles metadata.
     const flyToChart = useCallback(
         (chart: OpenChart) => {
             const map = mapRef.current;
-            if (!map || !chart.metadata.bounds) return;
-
-            const [west, south, east, north] = chart.metadata.bounds;
-            map.fitBounds(
-                [
-                    [west, south],
-                    [east, north],
-                ],
-                { padding: 40, duration: 1500 },
-            );
+            if (!map) return;
+            if (chart.metadata.bounds) {
+                const [west, south, east, north] = chart.metadata.bounds;
+                map.fitBounds(
+                    [
+                        [west, south],
+                        [east, north],
+                    ],
+                    { padding: 40, duration: 1500 },
+                );
+                return;
+            }
+            const loc = LocationStore.getState();
+            const fallbackZoom = Math.min(Math.max((chart.metadata.maxzoom ?? 14) - 4, 6), 12);
+            map.flyTo({
+                center: [loc.lon, loc.lat],
+                zoom: fallbackZoom,
+                duration: 1500,
+            });
         },
         [mapRef],
     );

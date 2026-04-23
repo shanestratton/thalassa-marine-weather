@@ -8,6 +8,7 @@
 import { useEffect, useRef, useCallback, useState, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
+import { LocationStore } from '../../stores/LocationStore';
 import { createLogger } from '../../utils/createLogger';
 import { Preferences } from '@capacitor/preferences';
 
@@ -194,18 +195,31 @@ export function useAvNavCharts(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Fly to chart bounds
+    // Fly to chart bounds — or fall back to the user's current location
+    // when bounds are missing (common for o-charts DRM charts).
     const flyToChart = useCallback(
         (chart: AvNavChart) => {
             const map = mapRef.current;
-            if (!map || !chart.bounds) return;
-            map.fitBounds(
-                [
-                    [chart.bounds[0], chart.bounds[1]],
-                    [chart.bounds[2], chart.bounds[3]],
-                ],
-                { padding: 40, duration: 1500 },
-            );
+            if (!map) return;
+            if (chart.bounds) {
+                map.fitBounds(
+                    [
+                        [chart.bounds[0], chart.bounds[1]],
+                        [chart.bounds[2], chart.bounds[3]],
+                    ],
+                    { padding: 40, duration: 1500 },
+                );
+                return;
+            }
+            // No bounds — centre on the in-app location box at a chart-friendly
+            // zoom so the user at least sees tiles render near where they are.
+            const loc = LocationStore.getState();
+            const fallbackZoom = Math.min(Math.max((chart.maxZoom ?? 14) - 4, 6), 12);
+            map.flyTo({
+                center: [loc.lon, loc.lat],
+                zoom: fallbackZoom,
+                duration: 1500,
+            });
         },
         [mapRef],
     );
