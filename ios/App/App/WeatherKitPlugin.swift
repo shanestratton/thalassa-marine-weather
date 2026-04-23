@@ -47,7 +47,21 @@ public class WeatherKitPlugin: CAPPlugin {
 
     private let service = WeatherService.shared
 
+    // Native-level registration marker — fires when the Obj-C runtime
+    // loads this class. If we DON'T see this in Xcode console at app
+    // launch, the class isn't being linked in (the JS will always get
+    // `"WeatherKit" plugin is not implemented on ios` in that state).
+    // NSLog goes to CAPLog / stderr regardless of Capacitor's web-view
+    // log filtering, so it's a reliable ground-truth signal.
+    public override init() {
+        super.init()
+        NSLog("[WeatherKitPlugin] class init — plugin registered")
+    }
+
     @objc func fetch(_ call: CAPPluginCall) {
+        NSLog("[WeatherKitPlugin] fetch called lat=%f lon=%f",
+              call.getDouble("lat") ?? 0,
+              call.getDouble("lon") ?? 0)
         guard let lat = call.getDouble("lat"),
               let lon = call.getDouble("lon") else {
             call.reject("Missing lat/lon")
