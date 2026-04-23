@@ -854,13 +854,14 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                   +76  → user asked for a bit more breathing
                                          room under the pill
                                   +79  → +3px nudge per user fine-tune
-                                  +80  → current — one more px per user
+                                  +80  → +1px per user
+                                  +81  → current — another +1px per user
                                 z-[130] keeps it above the black blocker /
                                 CompactHeaderRow at z-[120] so it's always
                                 readable. */}
                             <div
                                 className="fixed left-0 right-0 z-[130] px-4"
-                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 80px)' }}
+                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 81px)' }}
                             >
                                 <StalenessBanner
                                     generatedAt={data.generatedAt}
