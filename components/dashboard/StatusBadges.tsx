@@ -1,6 +1,4 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { createPortal } from 'react-dom';
-import { RadioTowerIcon } from '../Icons';
 import { Countdown } from './Countdown';
 import { useEnvironment } from '../../context/ThemeContext';
 import { MetricSource } from '../../types';
@@ -64,6 +62,11 @@ const SOURCE_CONFIG: Record<string, { abbr: string; color: string; label: string
     weatherkit: { abbr: 'WK', color: 'text-emerald-400', label: 'Apple Weather' },
 };
 
+// NOTE: the Data Sources modal was removed on 2026-04-23 — the per-metric
+// provenance shown there was frequently wrong (sources attribution isn't
+// reliably propagated by the API pipeline). Kept SOURCE_CONFIG /
+// SOURCE_DOT_COLORS above because they're still referenced by the pill
+// styling even with the modal gone.
 const SOURCE_DOT_COLORS: Record<string, string> = {
     buoy: 'bg-emerald-400',
     beacon: 'bg-emerald-400',
@@ -72,33 +75,12 @@ const SOURCE_DOT_COLORS: Record<string, string> = {
     weatherkit: 'bg-emerald-400',
 };
 
-// Metric display names for the provenance table
-const METRIC_LABELS: Record<string, string> = {
-    windSpeed: 'Wind Speed',
-    windGust: 'Wind Gust',
-    windDirection: 'Wind Dir',
-    windDegree: 'Wind Deg',
-    waveHeight: 'Wave Height',
-    swellPeriod: 'Swell Period',
-    swellHeight: 'Swell Height',
-    temperature: 'Air Temp',
-    waterTemperature: 'Sea Temp',
-    pressure: 'Pressure',
-    visibility: 'Visibility',
-    humidity: 'Humidity',
-    cloudCover: 'Cloud Cover',
-    uvIndex: 'UV Index',
-    precipitation: 'Rain %',
-    dewPoint: 'Dew Point',
-    feelsLike: 'Feels Like',
-    condition: 'Conditions',
-    sunrise: 'Sunrise',
-    sunset: 'Sunset',
-};
-
 export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
     ({
         isLandlocked,
+        // Modal-only props below — kept in the interface so Dashboard's call
+        // site doesn't need to change, but unused since the Data Sources
+        // modal was removed (attribution was frequently wrong).
         locationName: _locationName,
         displaySource: _displaySource,
         nextUpdate,
@@ -107,22 +89,23 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         locationType,
         beaconName: _beaconName,
         buoyName: _buoyName,
-        sources,
-        activeData,
-        isLive = true,
-        modelUsed,
+        sources: _sources,
+        activeData: _activeData,
+        isLive: _isLive = true,
+        modelUsed: _modelUsed,
         generatedAt,
-        coordinates,
+        coordinates: _coordinates,
         offshoreModelLabel,
         isOffshore: isOffshoreProp,
     }) => {
-        const [showInfoModal, setShowInfoModal] = useState(false);
         const env = useEnvironment();
         const { refreshData, loading, backgroundUpdating } = useWeather();
         const isSyncing = loading || backgroundUpdating;
         const badgeTextSize = env === 'onshore' ? 'text-[11px]' : 'text-xs';
 
-        // Pi Cache fetch stats — poll on mount and after syncs
+        // Pi Cache fetch stats — poll on mount and after syncs. Not shown to
+        // the user anymore (modal is gone), but cheap to compute and still
+        // useful for any future per-badge annotation.
         const [piFetchStats, setPiFetchStats] = useState<PiFetchStats | null>(null);
         useEffect(() => {
             if (!piCache.isAvailable()) {
@@ -132,60 +115,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             setPiFetchStats(piCache.getFetchStats());
             // Re-check after each sync completes
         }, [isSyncing]);
-        const piIsServing = piFetchStats?.lastSource === 'pi-cache' || piFetchStats?.lastSource === 'pi-stale';
-
-        // Derive unique active sources from the sources map
-        const activeSources = useMemo(() => {
-            const sourceSet = new Map<string, { source: string; sourceName: string; metrics: string[] }>();
-
-            if (sources && Object.keys(sources).length > 0) {
-                Object.entries(sources).forEach(([metricKey, ms]) => {
-                    if (!ms?.source) return;
-                    const key = ms.source;
-                    if (!sourceSet.has(key)) {
-                        sourceSet.set(key, { source: key, sourceName: ms.sourceName || key, metrics: [] });
-                    }
-                    sourceSet.get(key)!.metrics.push(metricKey);
-                });
-                // Always show Open-Meteo as base layer when we have per-metric sources
-                if (!sourceSet.has('openmeteo')) {
-                    sourceSet.set('openmeteo', { source: 'openmeteo', sourceName: 'Open-Meteo', metrics: [] });
-                }
-            } else if (modelUsed) {
-                // Forecast/hourly data has no per-metric sources — derive from modelUsed tag
-                // e.g. 'wk+sg+om' → WeatherKit, StormGlass, Open-Meteo
-                const MODEL_MAP: Record<string, { source: string; sourceName: string }> = {
-                    wk: { source: 'weatherkit', sourceName: 'Apple Weather' },
-                    sg: { source: 'stormglass', sourceName: 'StormGlass' },
-                    om: { source: 'openmeteo', sourceName: 'Open-Meteo' },
-                };
-                modelUsed.split('+').forEach((code) => {
-                    const mapped = MODEL_MAP[code.trim()];
-                    if (mapped && !sourceSet.has(mapped.source)) {
-                        sourceSet.set(mapped.source, { ...mapped, metrics: [] });
-                    }
-                });
-            } else {
-                // Ultimate fallback
-                sourceSet.set('openmeteo', { source: 'openmeteo', sourceName: 'Open-Meteo', metrics: [] });
-            }
-
-            return Array.from(sourceSet.values());
-        }, [sources, modelUsed]);
-
-        // Per-metric provenance list for the modal
-        const metricProvenance = useMemo(() => {
-            if (!sources) return [];
-            return Object.entries(sources)
-                .filter(([_, ms]) => ms?.source)
-                .map(([metricKey, ms]) => ({
-                    metric: METRIC_LABELS[metricKey] || metricKey,
-                    source: ms.source,
-                    sourceName: ms.sourceName,
-                    sourceColor: SOURCE_DOT_COLORS[ms.source] || 'bg-white',
-                }))
-                .sort((a, b) => a.metric.localeCompare(b.metric));
-        }, [sources]);
+        void piFetchStats; // Reserved — keeps the polling hook alive.
 
         // BADGES Logic — each variant carries a label, tailwind color
         // classes (bg + text + border), an SVG glyph, and the breathing
@@ -280,46 +210,19 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             timerBadgeColor = 'bg-sky-500/20 text-sky-300 border-sky-500/30';
         }
 
-        // Format helpers for the info modal
-        const fmt = (v: number | null | undefined, unit: string, decimals = 1) => {
-            if (v == null) return '—';
-            return `${v.toFixed(decimals)} ${unit}`;
-        };
-        const fmtDir = (deg: number | null | undefined) => {
-            if (deg == null) return '';
-            const dirs = [
-                'N',
-                'NNE',
-                'NE',
-                'ENE',
-                'E',
-                'ESE',
-                'SE',
-                'SSE',
-                'S',
-                'SSW',
-                'SW',
-                'WSW',
-                'W',
-                'WNW',
-                'NW',
-                'NNW',
-            ];
-            return dirs[Math.round(deg / 22.5) % 16];
-        };
-
         return (
             <>
                 <div className="px-0 shrink-0 relative z-20">
                     <div className="flex items-center justify-between gap-2 w-full mb-0">
-                        {/* Location-type Badge — tap to see data sources.
-                            Carries a subtle breathing glow (status-badge-glow-*)
-                            plus a type-specific icon so the pill is instantly
-                            recognisable at a glance. */}
-                        <button
-                            onClick={() => setShowInfoModal(true)}
-                            aria-label="View data sources"
-                            className={`px-2.5 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${statusBadgeColor} ${statusBadgeGlow} min-w-[82px] text-center transition-transform flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.95]`}
+                        {/* Location-type Badge — informational only (no longer
+                            tappable; the Data Sources modal was removed because
+                            per-metric attribution wasn't reliable). Keeps the
+                            breathing glow and type-specific glyph so the pill
+                            still reads at a glance. */}
+                        <div
+                            role="status"
+                            aria-label={`Location type: ${statusBadgeLabel}`}
+                            className={`px-2.5 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${statusBadgeColor} ${statusBadgeGlow} min-w-[82px] text-center flex items-center justify-center gap-1.5`}
                         >
                             {statusBadgeIcon}
                             {statusBadgePulse && (
@@ -329,7 +232,7 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                 </span>
                             )}
                             {statusBadgeLabel}
-                        </button>
+                        </div>
 
                         {/* Timer Badge — tappable to force refresh, shows live
                             sync state. Syncing now uses a sweeping highlight
@@ -392,267 +295,20 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                     </div>
                 </div>
 
-                {/* Data Source Info Modal — portalled to document root to escape z-index stacking */}
-                {showInfoModal &&
-                    createPortal(
-                        <div
-                            className="fixed inset-0 z-[9999] flex items-start justify-center modal-backdrop-enter bg-black/60"
-                            onClick={() => setShowInfoModal(false)}
-                            role="dialog"
-                            aria-modal="true"
-                            aria-label="Data sources details"
-                            style={{
-                                paddingBottom: 'calc(env(safe-area-inset-bottom) + 80px)',
-                                paddingTop: 'calc(env(safe-area-inset-top) + 60px)',
-                            }}
-                        >
-                            <div
-                                className="modal-panel-enter w-full max-w-md bg-slate-900/95 border border-white/15 rounded-2xl shadow-2xl max-h-[85dvh] overflow-y-auto mx-4"
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                {/* Header */}
-                                <div className="flex items-center justify-between px-5 pt-5 pb-3 sticky top-0 bg-slate-900/95 z-10">
-                                    <div className="flex items-center gap-2">
-                                        <RadioTowerIcon className="w-5 h-5 text-emerald-400" />
-                                        <h2 className="text-base font-bold text-white tracking-tight">Data Sources</h2>
-                                        {!isLive && (
-                                            <span className="text-[11px] font-bold text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded-lg uppercase">
-                                                Forecast
-                                            </span>
-                                        )}
-                                    </div>
-                                    <button
-                                        onClick={() => setShowInfoModal(false)}
-                                        aria-label="Close data sources"
-                                        className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                                    >
-                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                strokeWidth={2}
-                                                d="M6 18L18 6M6 6l12 12"
-                                            />
-                                        </svg>
-                                    </button>
-                                </div>
-
-                                {/* Content */}
-                                <div className="px-5 pb-5 space-y-4">
-                                    {/* Active Sources — dynamically derived */}
-                                    <div className="space-y-2">
-                                        {activeSources.map((s) => {
-                                            const cfg = SOURCE_CONFIG[s.source] || {
-                                                abbr: s.source,
-                                                color: 'text-white',
-                                                label: s.source,
-                                            };
-                                            const dotColor = SOURCE_DOT_COLORS[s.source] || 'bg-white';
-                                            const displayName =
-                                                s.source === 'buoy' || s.source === 'beacon' ? s.sourceName : cfg.label;
-                                            const metricCount = s.metrics.length;
-
-                                            return (
-                                                <div key={s.source} className="flex items-center gap-2">
-                                                    <span className={`w-2 h-2 rounded-full ${dotColor} shrink-0`} />
-                                                    <span className={`${cfg.color} font-bold text-sm`}>
-                                                        {displayName}
-                                                    </span>
-                                                    {metricCount > 0 && (
-                                                        <span className="text-slate-400 text-[11px] font-medium ml-1">
-                                                            {metricCount} metric{metricCount > 1 ? 's' : ''}
-                                                        </span>
-                                                    )}
-                                                    <span className="text-slate-400 text-sm ml-auto uppercase text-[11px] font-bold tracking-wider">
-                                                        {cfg.label === displayName ? '' : cfg.label}
-                                                    </span>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-
-                                    {/* Divider */}
-                                    <div className="border-t border-white/5" />
-
-                                    {/* Per-Metric Provenance */}
-                                    {metricProvenance.length > 0 && (
-                                        <div>
-                                            <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">
-                                                Metric Sources{' '}
-                                                {!isLive && (
-                                                    <span className="text-amber-400 normal-case text-[11px]">
-                                                        (forecast hour)
-                                                    </span>
-                                                )}
-                                            </p>
-                                            <div className="space-y-1.5">
-                                                {metricProvenance.map((mp, i) => (
-                                                    <div key={i} className="flex items-center gap-2 text-sm">
-                                                        <span
-                                                            className={`w-1.5 h-1.5 rounded-full ${mp.sourceColor} shrink-0`}
-                                                        />
-                                                        <span className="text-slate-400 flex-1">{mp.metric}</span>
-                                                        <span className="text-white/70 font-medium text-[11px]">
-                                                            {mp.sourceName}
-                                                        </span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Divider */}
-                                    <div className="border-t border-white/5" />
-
-                                    {/* Conditions at a glance */}
-                                    {activeData && (
-                                        <div>
-                                            <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">
-                                                {isLive ? 'Current Conditions' : 'Forecast Conditions'}
-                                            </p>
-                                            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-                                                <div className="flex justify-between">
-                                                    <span className="text-slate-400">Wind</span>
-                                                    <span className="text-white font-bold">
-                                                        {fmt(activeData.windSpeed, 'kts')}{' '}
-                                                        {typeof activeData.windDirection === 'string'
-                                                            ? activeData.windDirection
-                                                            : fmtDir(activeData.windDirection)}
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                    <span className="text-slate-400">Gust</span>
-                                                    <span className="text-white font-bold">
-                                                        {fmt(activeData.windGust, 'kts')}
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                    <span className="text-slate-400">Waves</span>
-                                                    <span className="text-white font-bold">
-                                                        {activeData.waveHeight != null
-                                                            ? `${(activeData.waveHeight / 3.28084).toFixed(1)} m`
-                                                            : '—'}
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                    <span className="text-slate-400">Period</span>
-                                                    <span className="text-white font-bold">
-                                                        {fmt(activeData.wavePeriod, 's', 0)}
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                    <span className="text-slate-400">Air Temp</span>
-                                                    <span className="text-white font-bold">
-                                                        {fmt(activeData.temperature ?? activeData.airTemperature, '°')}
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                    <span className="text-slate-400">Water</span>
-                                                    <span className="text-white font-bold">
-                                                        {fmt(activeData.waterTemperature, '°')}
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                    <span className="text-slate-400">Pressure</span>
-                                                    <span className="text-white font-bold">
-                                                        {fmt(activeData.pressure, 'hPa', 0)}
-                                                    </span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                    <span className="text-slate-400">Visibility</span>
-                                                    <span className="text-white font-bold">
-                                                        {fmt(activeData.visibility, 'nm', 0)}
-                                                    </span>
-                                                </div>
-                                                {activeData.humidity != null && (
-                                                    <div className="flex justify-between">
-                                                        <span className="text-slate-400">Humidity</span>
-                                                        <span className="text-white font-bold">
-                                                            {fmt(activeData.humidity, '%', 0)}
-                                                        </span>
-                                                    </div>
-                                                )}
-                                                {activeData.cloudCover != null && (
-                                                    <div className="flex justify-between">
-                                                        <span className="text-slate-400">Cloud</span>
-                                                        <span className="text-white font-bold">
-                                                            {fmt(activeData.cloudCover, '%', 0)}
-                                                        </span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Divider */}
-                                    <div className="border-t border-white/5" />
-
-                                    {/* API Details */}
-                                    <div>
-                                        <p className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">
-                                            API Details
-                                        </p>
-                                        <div className="space-y-1.5 text-sm">
-                                            {modelUsed && (
-                                                <div className="flex justify-between">
-                                                    <span className="text-slate-400">Model</span>
-                                                    <span className="text-white font-bold">{modelUsed}</span>
-                                                </div>
-                                            )}
-                                            {generatedAt && (
-                                                <div className="flex justify-between">
-                                                    <span className="text-slate-400">Last Updated</span>
-                                                    <span className="text-white font-bold">
-                                                        {new Date(generatedAt).toLocaleTimeString([], {
-                                                            hour: '2-digit',
-                                                            minute: '2-digit',
-                                                        })}
-                                                    </span>
-                                                </div>
-                                            )}
-                                            {coordinates && (
-                                                <div className="flex justify-between">
-                                                    <span className="text-slate-400">Coordinates</span>
-                                                    <span className="text-white font-bold">
-                                                        {coordinates.lat.toFixed(4)}°, {coordinates.lon.toFixed(4)}°
-                                                    </span>
-                                                </div>
-                                            )}
-                                            {locationType && (
-                                                <div className="flex justify-between">
-                                                    <span className="text-slate-400">Zone</span>
-                                                    <span
-                                                        className={`font-bold uppercase text-sm ${locationType === 'inshore' ? 'text-teal-400' : locationType === 'coastal' ? 'text-emerald-400' : locationType === 'offshore' ? 'text-sky-400' : 'text-amber-400'}`}
-                                                    >
-                                                        {locationType}
-                                                    </span>
-                                                </div>
-                                            )}
-                                            {piIsServing && piFetchStats && (
-                                                <div className="flex justify-between">
-                                                    <span className="text-slate-400">Data via</span>
-                                                    <span className="text-emerald-400 font-bold">
-                                                        Pi Cache
-                                                        {piFetchStats.lastSource === 'pi-stale' && (
-                                                            <span className="text-amber-400 font-normal ml-1">
-                                                                (stale)
-                                                            </span>
-                                                        )}
-                                                        {piFetchStats.lastPiServedAt > 0 && (
-                                                            <span className="text-slate-500 font-normal ml-1">
-                                                                {formatCacheAge(piFetchStats.lastPiServedAt)}
-                                                            </span>
-                                                        )}
-                                                    </span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>,
-                        document.body,
-                    )}
+                {/* ── Removed 2026-04-23: Data Sources modal ───────────────
+                    The portal-rendered modal that opened on tap of the
+                    location-type pill was deleted because the per-metric
+                    provenance it displayed was frequently incorrect — the
+                    API pipeline didn't reliably propagate source attribution
+                    for every metric, so users saw mismatched sources
+                    (e.g. "Wind Speed: Apple Weather" when the actual value
+                    came from Open-Meteo). Better to show nothing than to
+                    mislead. The pill remains as a visual status indicator
+                    only (no longer tappable).
+                    Related props (sources, activeData, modelUsed, coordinates,
+                    isLive) are still in StatusBadgesProps so Dashboard's call
+                    site doesn't need to change — they're underscore-prefixed
+                    in the destructure to signal intentional non-use. */}
             </>
         );
     },
