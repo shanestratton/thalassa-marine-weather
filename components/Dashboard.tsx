@@ -31,6 +31,7 @@ import { UnitPreferences, SourcedWeatherMetrics } from '../types';
 import { fetchMinutelyRainWithSummary, MinutelyRain } from '../services/weather/api/weatherkit';
 import { fetchRainbowPrecip } from '../services/weather/api/rainbowPrecip';
 import { useSettingsStore } from '../stores/settingsStore';
+import { useUIStore } from '../stores/uiStore';
 
 /**
  * Unified rain data fetcher — routes to Rainbow.ai (Skipper) or WeatherKit (others).
@@ -114,6 +115,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // the last update. Gated on LocationStore.source === 'gps' so
     // pinned-map or searched locations aren't overwritten.
     const liveLocationName = useLiveLocationName();
+
+    // Device-level offline signal (navigator.onLine). Flows into the
+    // StalenessBanner so the user sees a subtle "No connection" strip
+    // even when the cached data is still fresh — previously the banner
+    // only surfaced after a fetch attempt actually failed.
+    const isOffline = useUIStore((s) => s.isOffline);
     const isInland = data?.locationType === 'inland' || isLandlocked;
     const offshore = useOffshoreStatus(data?.locationType);
     const isOffshore = offshore.isOffshore;
@@ -831,6 +838,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     staleAgeMinutes={data._staleAgeMinutes}
                                     error={weatherError}
                                     locationType={data.locationType}
+                                    isOffline={isOffline}
                                     onRefresh={() => refreshData()}
                                     isSyncing={weatherLoading || backgroundUpdating}
                                 />

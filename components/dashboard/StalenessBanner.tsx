@@ -27,21 +27,31 @@ interface StalenessBannerProps {
     error?: string | null;
     /** Offshore refreshes hourly — loosen thresholds. */
     locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
+    /** Device-level offline flag from navigator.onLine. The orchestrator's
+     *  `stale` only fires when a fetch attempt fails — if the user is just
+     *  sitting on fresh data and their connection drops, nothing signals
+     *  them. Wiring this prop in surfaces the offline state immediately. */
+    isOffline?: boolean;
     onRefresh?: () => void;
     /** Disables the button while a refresh is in flight. */
     isSyncing?: boolean;
 }
 
-type Severity = 'error' | 'offline' | 'very-old' | 'old' | null;
+type Severity = 'error' | 'offline' | 'no-network' | 'very-old' | 'old' | null;
 
 function pickSeverity(
     ageMin: number,
     stale: boolean | undefined,
     error: string | null | undefined,
+    isOffline: boolean | undefined,
     isOffshore: boolean,
 ): Severity {
     if (error) return 'error';
     if (stale) return 'offline';
+    // Device is offline but weather data is still recent enough — show
+    // the subtle amber 'no-network' banner so the user knows why a refresh
+    // won't happen, without screaming at them.
+    if (isOffline) return 'no-network';
     const oldT = isOffshore ? 120 : 60;
     const veryOldT = isOffshore ? 240 : 120;
     if (ageMin >= veryOldT) return 'very-old';
@@ -67,6 +77,16 @@ const THEME: Record<
         dot: 'bg-red-400',
         icon: 'text-red-300',
     },
+    'no-network': {
+        // Subtle amber — serving cached data happily, just no connection
+        // to refresh. Less alarming than the red 'offline' variant which
+        // fires when the orchestrator actively failed to fetch.
+        bg: 'bg-amber-500/10',
+        border: 'border-amber-500/30',
+        text: 'text-amber-200',
+        dot: 'bg-amber-400',
+        icon: 'text-amber-300',
+    },
     'very-old': {
         bg: 'bg-amber-500/15',
         border: 'border-amber-500/40',
@@ -91,7 +111,7 @@ function formatAge(min: number): string {
 }
 
 export const StalenessBanner: React.FC<StalenessBannerProps> = React.memo(
-    ({ generatedAt, stale, staleAgeMinutes, error, locationType, onRefresh, isSyncing }) => {
+    ({ generatedAt, stale, staleAgeMinutes, error, locationType, isOffline, onRefresh, isSyncing }) => {
         // Prefer generatedAt because _staleAgeMinutes is a snapshot at save time
         // and will lie after the cached payload gets rehydrated on a later launch.
         const ageMin = React.useMemo(() => {
@@ -104,7 +124,7 @@ export const StalenessBanner: React.FC<StalenessBannerProps> = React.memo(
         }, [generatedAt, staleAgeMinutes]);
 
         const isOffshore = locationType === 'offshore';
-        const severity = pickSeverity(ageMin, stale, error, isOffshore);
+        const severity = pickSeverity(ageMin, stale, error, isOffline, isOffshore);
 
         if (!severity) return null;
 
@@ -118,6 +138,9 @@ export const StalenessBanner: React.FC<StalenessBannerProps> = React.memo(
         } else if (severity === 'offline') {
             label = 'Offline cache';
             detail = `Data ${formatAge(ageMin)} old — last fetch failed`;
+        } else if (severity === 'no-network') {
+            label = 'No connection';
+            detail = `Showing cached data (${formatAge(ageMin)} old)`;
         } else if (severity === 'very-old') {
             label = 'Data is stale';
             detail = `${formatAge(ageMin)} since last update`;
@@ -143,7 +166,10 @@ export const StalenessBanner: React.FC<StalenessBannerProps> = React.memo(
                     <span className={`text-[11px] ${theme.text} opacity-80 truncate`}>{detail}</span>
                 </div>
 
-                {onRefresh && (
+                {/* Hide the retry button when there's literally no network —
+                    tapping it would just fail again. It comes back the moment
+                    the connection returns. */}
+                {onRefresh && severity !== 'no-network' && (
                     <button
                         onClick={onRefresh}
                         disabled={isSyncing}
