@@ -346,7 +346,7 @@ const BarometerCell: React.FC<{
             {/* Header: icon + label + trend — locked to 12px line */}
             <div className="flex items-center gap-1 opacity-90 h-3">
                 <span className="w-3 h-3 shrink-0 inline-flex items-center justify-center overflow-hidden text-emerald-400">
-                    <GaugeIcon className="w-3 h-3" />
+                    <GaugeIcon className="w-3 h-3 metric-anim-gauge" />
                 </span>
                 <span className="text-[11px] font-sans font-bold tracking-widest uppercase leading-none text-emerald-300">
                     HPA
@@ -478,12 +478,18 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
             role="region"
             aria-label="Weather metrics dashboard"
         >
-            {/* TOP ROW: Wind, Dir, Gust, Wave, Per */}
+            {/* TOP ROW: Wind, Dir, Gust, Wave, Per
+                Icons carry a `metric-anim-*` class that plays a CSS
+                animation for ~60 seconds after the card mounts, then
+                stops cold. Previously we had infinite wiggles which
+                overheated phones on long voyages; the iteration-count
+                cap is the fix. See index.css → "METRIC GRID ICON
+                ANIMATIONS" for the full keyframe details. */}
             <div className="w-full grid grid-cols-5 divide-x divide-white/[0.12] h-[80px]">
                 {/* Wind Speed — tap to open model comparison when offshore */}
                 <InstrumentCell
                     label="WIND"
-                    icon={<WindIcon className="w-3 h-3" />}
+                    icon={<WindIcon className="w-3 h-3 metric-anim-wind" />}
                     value={windSpeed}
                     unit={speedUnit}
                     trend={trends?.windSpeed}
@@ -493,12 +499,16 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 />
 
                 {/* Direction — standard cell, tap for compass overlay */}
-                <InstrumentCell label="DIR" icon={<CompassIcon className="w-3 h-3" rotation={0} />} value={windDir} />
+                <InstrumentCell
+                    label="DIR"
+                    icon={<CompassIcon className="w-3 h-3 metric-anim-compass" rotation={0} />}
+                    value={windDir}
+                />
 
                 {/* Gusts */}
                 <InstrumentCell
                     label="GUST"
-                    icon={<WindIcon className="w-3 h-3" />}
+                    icon={<WindIcon className="w-3 h-3 metric-anim-wind" />}
                     value={gustVal}
                     unit={speedUnit}
                     trend={trends?.windGust}
@@ -509,7 +519,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Wave/Swell Height — adapts to location type */}
                 <InstrumentCell
                     label={isOffshore ? 'SWELL' : 'WAVE'}
-                    icon={<WaveIcon className="w-3 h-3" />}
+                    icon={<WaveIcon className="w-3 h-3 metric-anim-wave" />}
                     value={waveHeight ?? '--'}
                     unit={waveUnit}
                     trend={trends?.waveHeight}
@@ -525,7 +535,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Period — wave or swell period */}
                 <InstrumentCell
                     label="PER."
-                    icon={<WaveIcon className="w-3 h-3" />}
+                    icon={<WaveIcon className="w-3 h-3 metric-anim-wave" />}
                     value={wavePeriod}
                     unit="s"
                     dirDeg={swellDirDeg}
@@ -540,7 +550,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* UV */}
                 <InstrumentCell
                     label="UV"
-                    icon={<SunIcon className="w-3 h-3" />}
+                    icon={<SunIcon className="w-3 h-3 metric-anim-sun" />}
                     value={uvVal}
                     tooltip="UV Index — 0-2 Low, 3-5 Moderate, 6-7 High, 8-10 Very High, 11+ Extreme"
                 />
@@ -548,7 +558,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Visibility */}
                 <InstrumentCell
                     label="VIS"
-                    icon={<EyeIcon className="w-3 h-3" />}
+                    icon={<EyeIcon className="w-3 h-3 metric-anim-eye" />}
                     value={visVal}
                     unit={distUnit}
                     trend={trends?.visibility}
@@ -562,7 +572,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 {/* Humidity */}
                 <InstrumentCell
                     label="HUM"
-                    icon={<DropletIcon className="w-3 h-3" />}
+                    icon={<DropletIcon className="w-3 h-3 metric-anim-droplet" />}
                     value={humidityVal}
                     unit="%"
                     trend={trends?.humidity}
@@ -570,7 +580,8 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                     tooltip="Relative humidity — 60%+ feels muggy on a boat, <30% is very dry"
                 />
 
-                {/* Rain */}
+                {/* Rain — AnimatedRainIcon already has its own built-in
+                    animation, so we leave it alone rather than double up. */}
                 <InstrumentCell
                     label="RAIN"
                     icon={<AnimatedRainIcon className="w-3 h-3 text-emerald-400" />}
