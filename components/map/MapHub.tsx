@@ -106,6 +106,7 @@ const OfflineAreaModal = lazyRetry(
     'OfflineAreaModal',
 );
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
+import { usePersistedState, usePersistedStringSet } from '../../hooks/usePersistedState';
 // WeatherInspectPopup is rendered imperatively via createRoot — use direct dynamic import
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _WeatherInspectPopup: React.ComponentType<any> | null = null;
@@ -307,18 +308,28 @@ export const MapHub: React.FC<MapHubProps> = ({
     const weatherCoords = weatherData?.coordinates;
     const [mapReady, setMapReady] = useState(false);
     const deviceMode = useDeviceMode();
-    const [aisVisible, setAisVisible] = useState(false);
-    const [chokepointVisible, setChokepointVisible] = useState(false);
+    // Map state persisted across Charts tab switches so the user comes
+    // back to exactly what they left on. Time-critical overlays that
+    // are meant to be session-only (cyclone / squall / weather inspect)
+    // deliberately stay as plain useState.
+    const [aisVisible, setAisVisible] = usePersistedState('thalassa_map_ais_visible', false);
+    const [chokepointVisible, setChokepointVisible] = usePersistedState('thalassa_map_chokepoint_visible', false);
     const [cycloneVisible, setCycloneVisible] = useState(false);
     const [squallVisible, setSquallVisible] = useState(false);
-    const [vesselTrackingVisible, setVesselTrackingVisible] = useState(true); // On by default
-    const [seamarkVisible, setSeamarkVisible] = useState(false);
-    const [tideStationsVisible, setTideStationsVisible] = useState(false);
-    const [lightningVisible, setLightningVisible] = useState(false);
-    const [skChartIds, setSkChartIds] = useState<Set<string>>(new Set());
-    const [skChartOpacity, setSkChartOpacity] = useState(0.7);
-    const [localChartIds, setLocalChartIds] = useState<Set<string>>(new Set());
-    const [localChartOpacity, setLocalChartOpacity] = useState(0.7);
+    const [vesselTrackingVisible, setVesselTrackingVisible] = usePersistedState(
+        'thalassa_map_vessel_tracking_visible',
+        true,
+    );
+    const [seamarkVisible, setSeamarkVisible] = usePersistedState('thalassa_map_seamark_visible', false);
+    const [tideStationsVisible, setTideStationsVisible] = usePersistedState(
+        'thalassa_map_tide_stations_visible',
+        false,
+    );
+    const [lightningVisible, setLightningVisible] = usePersistedState('thalassa_map_lightning_visible', false);
+    const [skChartIds, setSkChartIds] = usePersistedStringSet('thalassa_map_sk_chart_ids');
+    const [skChartOpacity, setSkChartOpacity] = usePersistedState('thalassa_map_sk_chart_opacity', 0.7);
+    const [localChartIds, setLocalChartIds] = usePersistedStringSet('thalassa_map_local_chart_ids');
+    const [localChartOpacity, setLocalChartOpacity] = usePersistedState('thalassa_map_local_chart_opacity', 0.7);
 
     // Charts start hidden — user enables them via the Charts layer toggle.
     // AvNavService still discovers available charts in the background so
