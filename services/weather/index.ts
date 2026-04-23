@@ -82,10 +82,15 @@ const _fetchWeatherByStrategyImpl = async (
     // No-ops instantly when Pi is disabled or already known-reachable.
     await piCache.awaitReady(1500);
 
-    // ── UNIFIED ENDPOINT (single call replaces WeatherKit + OpenMeteo) ──
-    // Fires in parallel with StormGlass + Tides.
-    // If unified succeeds, we skip the WeatherKit + OpenMeteo calls entirely.
-    const [unifiedResult, sgResult, tideResult] = await Promise.allSettled([
+    // ── PARALLEL FETCH: Unified + StormGlass + Tides + OpenMeteo ──
+    // OpenMeteo is included ALWAYS (not just as a fallback) because the
+    // Unified/WeatherKit stack doesn't expose CAPE (Convective Available
+    // Potential Energy) — a thunderstorm-instability metric we still
+    // want offshore even when Unified is serving the primary data. Same
+    // call also gives us distToLandKm, isLandlocked, and timezone data
+    // for free. OpenMeteo is free + unlimited so the parallel cost is
+    // just one extra network round-trip that overlaps the others.
+    const [unifiedResult, sgResult, tideResult, omResult] = await Promise.allSettled([
         // 1. Unified get-weather: single endpoint, subscription-routed
         fetchUnifiedWeather(lat, lon, name, userId).catch((e) => {
             log.warn('Unified weather failed:', e?.message || e);
@@ -105,30 +110,31 @@ const _fetchWeatherByStrategyImpl = async (
             log.warn('Tides failed:', e?.message || e);
             return null;
         }),
+
+        // 4. OpenMeteo: atmospheric + CAPE. Always fetched so offshore
+        //    users get convective-energy readings even when Unified
+        //    serves the primary data.
+        fetchOpenMeteo(lat, lon, name, false, 'best_match').catch((e) => {
+            log.warn('OpenMeteo failed:', e?.message || e);
+            return null;
+        }),
     ]);
 
     const unifiedReport = unifiedResult.status === 'fulfilled' ? unifiedResult.value : null;
     const stormGlassReport = sgResult.status === 'fulfilled' ? sgResult.value : null;
     const tideData = tideResult.status === 'fulfilled' ? tideResult.value : null;
+    const openMeteoReport = omResult.status === 'fulfilled' ? omResult.value : null;
 
-    // ── FALLBACK: if unified failed, try WeatherKit + OpenMeteo individually ──
+    // ── FALLBACK: if unified failed, add WeatherKit as a potential base ──
+    // OpenMeteo is already fetched above, so we only need WeatherKit here.
     let weatherKitFull = null;
-    let openMeteoReport = null;
 
     if (!unifiedReport) {
         log.info('Unified endpoint unavailable — falling back to WeatherKit + OpenMeteo');
-        const [wkResult, omResult] = await Promise.allSettled([
-            fetchWeatherKitFull(lat, lon).catch((e) => {
-                log.warn('WeatherKit failed:', e?.message || e);
-                return null;
-            }),
-            fetchOpenMeteo(lat, lon, name, false, 'best_match').catch((e) => {
-                log.warn('OpenMeteo failed:', e?.message || e);
-                return null;
-            }),
-        ]);
-        weatherKitFull = wkResult.status === 'fulfilled' ? wkResult.value : null;
-        openMeteoReport = omResult.status === 'fulfilled' ? omResult.value : null;
+        weatherKitFull = await fetchWeatherKitFull(lat, lon).catch((e) => {
+            log.warn('WeatherKit failed:', e?.message || e);
+            return null;
+        });
     }
 
     // --- BUILD BASE REPORT ---
