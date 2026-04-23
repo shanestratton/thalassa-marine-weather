@@ -1651,25 +1651,17 @@ class ChartLockerServiceImpl {
     /**
      * List chart files stored locally on the phone (in chart_downloads/).
      * Returns file names, sizes, and URIs for charts waiting to be uploaded.
+     *
+     * Note on log noise: Capacitor's Filesystem plugin native side logs at
+     * error-level both when readdir misses (fresh install, dir not created
+     * yet) AND when mkdir races (dir already exists — even with
+     * recursive:true). There's no mutually-no-op way to probe-then-read via
+     * the public API, so we just accept one of the two errors gets logged
+     * once per app session and let the TS catch handle the outcome
+     * gracefully. Choosing readdir-miss: fires at most once per fresh
+     * install, never on subsequent launches.
      */
     async getLocalCharts(): Promise<Array<{ name: string; size: number; uri: string }>> {
-        // Ensure the directory exists so readdir doesn't emit a plugin-level
-        // "path does not exist" error via Capacitor's native logging pipeline
-        // on fresh installs. The TS catch below handles the failure case
-        // fine, but the NATIVE plugin still logs to Xcode console before our
-        // catch sees it — cluttering the log with harmless noise. mkdir with
-        // recursive:true is a no-op if the directory already exists.
-        try {
-            await Filesystem.mkdir({
-                path: 'chart_downloads',
-                directory: Directory.Cache,
-                recursive: true,
-            });
-        } catch {
-            // Already exists (older Capacitor filesystem plugin versions throw on
-            // this) — fine, we were going to readdir anyway.
-        }
-
         try {
             const listing = await Filesystem.readdir({
                 path: 'chart_downloads',
