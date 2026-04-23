@@ -823,14 +823,20 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 </div>
                             )}
 
-                            {/* STATIC BADGES - Fixed at bottom, outside hero scroll */}
-                            {/* Height is ~42px. Bottom is 74px. Top of badges is 74+42 = 116px.
-                                Hero container bottom is 120px. 
-                                Gap = 120 - 116 = 4px. (Adjusted per user request to be 4px tighter)
-                            */}
+                            {/* STALENESS BANNER — relocated to the TOP of the
+                                screen, in the gap below the location search bar.
+                                Previously this sat above the status badges at
+                                the bottom, where it (a) visually clipped into
+                                the tide graph and (b) left a wasteful empty
+                                band at the top on offline/stale states. Now it
+                                fills that top gap so offline users see the
+                                indicator immediately on app open, and the tide
+                                area stays clean. z-[130] keeps it above the
+                                black blocker / CompactHeaderRow so it's always
+                                readable. */}
                             <div
-                                className="fixed left-0 right-0 z-[125] px-4"
-                                style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}
+                                className="fixed left-0 right-0 z-[130] px-4"
+                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 108px)' }}
                             >
                                 <StalenessBanner
                                     generatedAt={data.generatedAt}
@@ -842,6 +848,17 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     onRefresh={() => refreshData()}
                                     isSyncing={weatherLoading || backgroundUpdating}
                                 />
+                            </div>
+
+                            {/* STATIC BADGES - Fixed at bottom, outside hero scroll */}
+                            {/* Height is ~42px. Bottom is 74px. Top of badges is 74+42 = 116px.
+                                Hero container bottom is 120px.
+                                Gap = 120 - 116 = 4px. (Adjusted per user request to be 4px tighter)
+                            */}
+                            <div
+                                className="fixed left-0 right-0 z-[125] px-4"
+                                style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}
+                            >
                                 <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
                                     <StatusBadges
                                         isLandlocked={isLandlocked}
