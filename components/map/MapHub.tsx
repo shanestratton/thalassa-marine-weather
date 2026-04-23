@@ -50,6 +50,7 @@ import { useVesselTracker } from './useVesselTracker';
 import { useAvNavCharts } from './useAvNavCharts';
 import { useChartCatalog } from './useChartCatalog';
 import { useLocalCharts } from './useLocalCharts';
+import { useOfflineBaseLayer } from './useOfflineBaseLayer';
 import { useSeamarkLayer } from './useSeamarkLayer';
 import { useTideStationLayer } from './useTideStationLayer';
 import { useLightningLayer } from './useLightningLayer';
@@ -100,6 +101,11 @@ const PassageDataPanel = lazyRetry(
     () => import('./PassageDataPanel').then((m) => ({ default: m.PassageDataPanel })),
     'PassageDataPanel',
 );
+const OfflineAreaModal = lazyRetry(
+    () => import('./OfflineAreaModal').then((m) => ({ default: m.OfflineAreaModal })),
+    'OfflineAreaModal',
+);
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 // WeatherInspectPopup is rendered imperatively via createRoot — use direct dynamic import
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _WeatherInspectPopup: React.ComponentType<any> | null = null;
@@ -127,7 +133,10 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     const [isPinView, setIsPinView] = useState(!!window.__thalassaPinView);
     const [showVesselSearch, setShowVesselSearch] = useState(false);
+    const [showOfflineArea, setShowOfflineArea] = useState(false);
+    const [offlineCardDismissed, setOfflineCardDismissed] = useState(false);
     const [weatherInspectMode, setWeatherInspectMode] = useState(false);
+    const isOnline = useOnlineStatus();
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -665,6 +674,9 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Local MBTiles Charts (on-phone, no AvNav needed) ──
     const localCharts = useLocalCharts(mapRef, mapReady, localChartIds, localChartOpacity);
+
+    // ── Offline OSM raster fallback — renders when offline, invisible when online ──
+    useOfflineBaseLayer(mapRef, mapReady, isOnline);
     const chartsActive = skChartIds.size > 0 || chartCatalog.hasEnabledCharts || localChartIds.size > 0;
 
     // ── Interactive Sea Marks (OpenSeaMap / Overpass API) ──
@@ -1250,6 +1262,91 @@ export const MapHub: React.FC<MapHubProps> = ({
                     {/* ═══ AIS GUARD ZONE ALERT TOAST ═══ */}
                     <AisGuardAlert />
                 </Suspense>
+
+                {/* ═══ OFFLINE AREA DOWNLOAD — FAB + MODAL ═══
+                    Below the ℹ button on the right rail. Opens a modal that
+                    pre-caches raster map tiles (OSM + OpenSeaMap) for the
+                    current view, routed through the boat Pi if available. */}
+                {!embedded && !isPinView && !passage.showPassage && (
+                    <>
+                        <button
+                            onClick={() => {
+                                triggerHaptic('light');
+                                setShowOfflineArea(true);
+                            }}
+                            className="absolute z-[500] top-[120px] right-4 w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                            aria-label="Download offline map area"
+                            title="Download offline area"
+                        >
+                            <svg
+                                className="w-5 h-5 text-sky-400"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.8}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M12 3v12m0 0l-4-4m4 4l4-4M4.5 17.25V19.5A1.5 1.5 0 006 21h12a1.5 1.5 0 001.5-1.5v-2.25"
+                                />
+                            </svg>
+                        </button>
+                        <Suspense fallback={null}>
+                            <OfflineAreaModal
+                                isOpen={showOfflineArea}
+                                onClose={() => setShowOfflineArea(false)}
+                                map={mapRef.current}
+                            />
+                        </Suspense>
+                    </>
+                )}
+
+                {/* ═══ OFFLINE — NO CACHED TILES CARD ═══
+                    Shown when the device is offline. Explains why the map
+                    might look blank and offers a one-tap route into the
+                    offline-area download modal (useful if the boat Pi has
+                    internet even when the phone doesn't). */}
+                {!isOnline && !offlineCardDismissed && !embedded && !isPinView && !passage.showPassage && (
+                    <div className="absolute z-[550] left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(320px,calc(100vw-32px))] p-4 rounded-2xl bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] shadow-2xl pointer-events-auto">
+                        <div className="flex items-start gap-3">
+                            <span className="text-xl leading-none">{'\u{1F6F0}\uFE0F'}</span>
+                            <div className="flex-1">
+                                <p className="text-sm font-bold text-white">Offline</p>
+                                <p className="text-[11px] text-gray-400 leading-relaxed mt-1">
+                                    The base map may not fully render — tiles can only load when there was internet
+                                    before, or when a boat Pi has them cached. Your downloaded{' '}
+                                    <span className="text-emerald-400 font-bold">.mbtiles</span> charts and GPS work
+                                    fully offline.
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setOfflineCardDismissed(true)}
+                                aria-label="Dismiss offline notice"
+                                className="shrink-0 w-6 h-6 rounded-full text-gray-500 hover:text-gray-300 hover:bg-white/[0.06] flex items-center justify-center transition-colors"
+                            >
+                                <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <button
+                            onClick={() => {
+                                setOfflineCardDismissed(true);
+                                setShowOfflineArea(true);
+                            }}
+                            className="mt-3 w-full py-2 rounded-xl text-[11px] font-black uppercase tracking-widest bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500/25 transition-all active:scale-95"
+                        >
+                            Download This Area
+                        </button>
+                    </div>
+                )}
 
                 {/* ═══ ROUTE LEGEND (during passage mode) ═══ */}
                 <Suspense fallback={null}>
