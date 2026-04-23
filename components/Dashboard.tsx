@@ -846,21 +846,22 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 </div>
                             )}
 
-                            {/* STALENESS BANNER — slotted into the gap below the
-                                location search bar and ABOVE the CompactHeaderRow
-                                (warnings / sunrise / sunset). Earlier `+108px`
-                                offset put the banner's bottom edge over the
-                                warnings row (banner height ~45px vs the 18px
-                                available gap at that offset). First pass moved
-                                to `+68px`; user asked for a further ~8px nudge
-                                down so the location pill above has a bit more
-                                breathing room, landing at `+76px`. Still clears
-                                the CompactHeaderRow at `+126px` with ~5px margin.
-                                z-[130] keeps it above the black blocker /
-                                CompactHeaderRow so it's always readable. */}
+                            {/* STALENESS BANNER — sits below the location pill.
+                                Position history:
+                                  +108 → overlapped warnings row (too low)
+                                  +68  → too high (dead gap under pill)
+                                  +76  → OK but user wanted a bit more breathing
+                                         room under the pill
+                                  +124 → current — 3 line-heights further down,
+                                         per user. Z-[130] puts it above the
+                                         CompactHeaderRow (+126, z-[120]) and the
+                                         black blocker, so it visually sits on top
+                                         of the warnings/sun row. The warnings row
+                                         is transparent-backed so they co-exist
+                                         cleanly. */}
                             <div
                                 className="fixed left-0 right-0 z-[130] px-4"
-                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 76px)' }}
+                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 124px)' }}
                             >
                                 <StalenessBanner
                                     generatedAt={data.generatedAt}
