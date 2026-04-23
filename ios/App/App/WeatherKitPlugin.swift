@@ -79,7 +79,12 @@ public class WeatherKitPlugin: CAPPlugin {
     private static func serialize(_ w: Weather) -> [String: Any] {
         var out: [String: Any] = [:]
         out["currentWeather"] = serializeCurrent(w.currentWeather)
-        out["forecastHourly"] = ["hours": w.hourlyForecast.forecast.prefix(48).map(serializeHour)]
+        // Apple provides up to 240h (10 days) of hourly forecast. The previous
+        // prefix(48) was arbitrary and caused UV / visibility / humidity etc
+        // to go blank on days 2-6 of the Glass page's 7-day view — those
+        // fields are read per-hour from the hourly array, not from the daily
+        // summary, so anything past the 48-hour mark had no source.
+        out["forecastHourly"] = ["hours": w.hourlyForecast.forecast.prefix(240).map(serializeHour)]
         out["forecastDaily"] = ["days": w.dailyForecast.forecast.prefix(10).map(serializeDay)]
         if let minute = w.minuteForecast {
             out["forecastNextHour"] = [
