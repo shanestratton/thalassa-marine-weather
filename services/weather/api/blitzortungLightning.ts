@@ -58,13 +58,20 @@ interface LightningNativePlugin {
 const LightningNative = registerPlugin<LightningNativePlugin>('Lightning');
 
 // ── Server pool ───────────────────────────────────────────────────────
-// Blitzortung runs 4 known live-data servers. Pick one randomly to spread
-// load. If a connection drops we'll re-pick on retry. (Only used once we
-// have a relay; the browser can't hit these directly.)
-const SERVER_IDS = [1, 6, 5, 7];
+// Blitzortung runs 4 active live-data servers. Pick one randomly to
+// spread load. If a connection drops we'll re-pick on retry.
+//
+// Endpoint history (2026-04-23 fix):
+//   OLD: wss://ws[1,5,6,7].blitzortung.org:3000/ — port 3000 was retired,
+//        server 5/6 retired, new servers 2/8 added. Verified via nc probe
+//        + scraping the currently-obfuscated maps.blitzortung.org client.
+//   NEW: wss://ws[1,2,7,8].blitzortung.org/      — implicit port 443
+//        (standard WSS). TLS handshake + HTTP/1.1 101 Switching Protocols
+//        confirmed working from macOS + iOS native.
+const SERVER_IDS = [1, 2, 7, 8];
 function pickServerUrl(): string {
     const id = SERVER_IDS[Math.floor(Math.random() * SERVER_IDS.length)];
-    return `wss://ws${id}.blitzortung.org:3000/`;
+    return `wss://ws${id}.blitzortung.org/`;
 }
 
 // ── Strike data shape ─────────────────────────────────────────────────
