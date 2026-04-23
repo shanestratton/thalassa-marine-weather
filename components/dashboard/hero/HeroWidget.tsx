@@ -108,7 +108,9 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className="flex flex-col h-full justify-between w-full">
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
-                            <WindIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                            <WindIcon
+                                className={`w-3 h-3 metric-anim-wind ${isLive ? 'text-sky-400' : 'text-slate-400'} `}
+                            />
                             <span
                                 className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}
                             >
@@ -141,7 +143,9 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className="flex flex-col h-full justify-between w-full">
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
-                            <WindIcon className={`w-3 h-3 ${isLive ? 'text-amber-400' : 'text-slate-400'} `} />
+                            <WindIcon
+                                className={`w-3 h-3 metric-anim-wind ${isLive ? 'text-amber-400' : 'text-slate-400'} `}
+                            />
                             <span
                                 className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-amber-200' : 'text-slate-300'} `}
                             >
@@ -166,7 +170,9 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className="flex flex-col h-full justify-between w-full">
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
-                            <WaveIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                            <WaveIcon
+                                className={`w-3 h-3 metric-anim-wave ${isLive ? 'text-sky-400' : 'text-slate-400'} `}
+                            />
                             <span
                                 className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}
                             >
@@ -192,7 +198,9 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
-                            <GaugeIcon className={`w-3 h-3 ${isLive ? 'text-emerald-400' : 'text-slate-400'} `} />
+                            <GaugeIcon
+                                className={`w-3 h-3 metric-anim-gauge ${isLive ? 'text-emerald-400' : 'text-slate-400'} `}
+                            />
                             <span
                                 className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}
                             >
@@ -217,7 +225,9 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
-                            <EyeIcon className={`w-3 h-3 ${isLive ? 'text-emerald-400' : 'text-slate-400'} `} />
+                            <EyeIcon
+                                className={`w-3 h-3 metric-anim-eye ${isLive ? 'text-emerald-400' : 'text-slate-400'} `}
+                            />
                             <span
                                 className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}
                             >
@@ -242,7 +252,9 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
-                            <DropletIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                            <DropletIcon
+                                className={`w-3 h-3 metric-anim-droplet ${isLive ? 'text-sky-400' : 'text-slate-400'} `}
+                            />
                             <span
                                 className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}
                             >
@@ -329,7 +341,9 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className="flex flex-col h-full justify-between">
                         <div className="flex items-center gap-1.5 mb-0.5 opacity-70">
-                            <DropletIcon className={`w-3 h-3 ${isLive ? 'text-sky-400' : 'text-slate-400'} `} />
+                            <DropletIcon
+                                className={`w-3 h-3 metric-anim-droplet ${isLive ? 'text-sky-400' : 'text-slate-400'} `}
+                            />
                             <span
                                 className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-sky-200' : 'text-slate-300'} `}
                             >
@@ -349,7 +363,9 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
-                            <SunIcon className={`w-3 h-3 ${isLive ? 'text-amber-400' : 'text-slate-400'} `} />
+                            <SunIcon
+                                className={`w-3 h-3 metric-anim-sun ${isLive ? 'text-amber-400' : 'text-slate-400'} `}
+                            />
                             <span
                                 className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-amber-200' : 'text-slate-300'} `}
                             >
@@ -438,7 +454,9 @@ export const HeroWidget: React.FC<HeroWidgetProps> = ({
                 return (
                     <div className={`flex flex-col h-full justify-between w-full ${flexColAlign}`}>
                         <div className={`flex items-center gap-1.5 mb-0.5 opacity-70 ${justifyClass} w-full`}>
-                            <WaveIcon className={`w-3 h-3 ${isLive ? 'text-emerald-400' : 'text-slate-400'} `} />
+                            <WaveIcon
+                                className={`w-3 h-3 metric-anim-wave ${isLive ? 'text-emerald-400' : 'text-slate-400'} `}
+                            />
                             <span
                                 className={`text-sm md: text-sm font-bold uppercase tracking-widest ${isLive ? 'text-emerald-200' : 'text-slate-300'} `}
                             >
