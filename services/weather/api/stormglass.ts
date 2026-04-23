@@ -176,6 +176,19 @@ const doFetchStormGlassWeather = async (
         throw e;
     }
 
+    // Defence-in-depth: if the proxy layer returned a payload missing
+    // the `hours` array (quota error, schema mismatch, caching-layer
+    // bug like the Pi /api/weather/stormglass issue discovered
+    // 2026-04-24), bail with a clean error rather than letting
+    // `hours[0]` throw deep inside mapStormGlassToReport and surface
+    // as the cryptic "undefined is not an object (evaluating 'e[0]')"
+    // in prod. The catch in services/weather/index.ts turns a clean
+    // throw into a null stormGlassReport and leaves the rest of the
+    // pipeline intact.
+    if (!weatherRes?.hours?.length) {
+        throw new Error('SG_EMPTY: weather/point returned no hours');
+    }
+
     // 2. SECONDARY: Fetch supplements safely
     // If these fail, we log warning but continue with defaults
 

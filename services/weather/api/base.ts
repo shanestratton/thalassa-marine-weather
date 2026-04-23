@@ -31,21 +31,20 @@ export const fetchSG = async <T>(
         stringParams[k] = String(v);
     }
 
-    // ── Pi Cache shortcut: route through local Pi if available ──
-    if (piCache.isAvailable()) {
-        try {
-            const result = await piCache.fetch<T>(
-                '/api/weather/stormglass',
-                { lat: stringParams.lat || '', lon: stringParams.lng || '' },
-                async () => {
-                    throw new Error('fallback'); // Force fallback below
-                },
-            );
-            if (result.source !== 'direct') return result.data;
-        } catch {
-            // Pi failed — fall through to normal Supabase path
-        }
-    }
+    // ── Pi Cache shortcut (disabled 2026-04-24) ──────────────────
+    // Pi's /api/weather/stormglass endpoint currently only forwards
+    // { lat, lon } — it drops the endpoint path and param list that
+    // StormGlass's `weather/point` call actually needs. Response shape
+    // then differs from { hours: StormGlassHour[] }, and downstream
+    // `hours[0]` access in transformers.ts throws. Symptom seen in
+    // prod as: "[index] StormGlass failed: undefined is not an object
+    // (evaluating 'e[0]')" — which silently zeroed out wave, period,
+    // swell, currents, CAPE, water temp across the whole Glass page.
+    //
+    // Until the Pi route is rewritten to accept & forward full SG
+    // endpoint + params, skip the Pi entirely and go direct to the
+    // Supabase edge function. Same SG quota impact either way — the
+    // Pi only saved a network hop, not an SG call.
 
     const body = JSON.stringify({
         path: cleanEndpoint,
