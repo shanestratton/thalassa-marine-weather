@@ -25,6 +25,7 @@
 		AA000007AAAA000700000001 /* DataScannerPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000007AAAA000700000002 /* DataScannerPlugin.m */; };
 		AA000008AAAA000800000001 /* WeatherKitPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000008AAAA000800000002 /* WeatherKitPlugin.swift */; };
 		AA000009AAAA000900000001 /* WeatherKitPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000009AAAA000900000002 /* WeatherKitPlugin.m */; };
+		AA000010AAAA001000000001 /* ThalassaBridgeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000010AAAA001000000002 /* ThalassaBridgeViewController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -75,6 +76,7 @@
 		AA000007AAAA000700000002 /* DataScannerPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = DataScannerPlugin.m; sourceTree = "<group>"; };
 		AA000008AAAA000800000002 /* WeatherKitPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeatherKitPlugin.swift; sourceTree = "<group>"; };
 		AA000009AAAA000900000002 /* WeatherKitPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WeatherKitPlugin.m; sourceTree = "<group>"; };
+		AA000010AAAA001000000002 /* ThalassaBridgeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThalassaBridgeViewController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -145,6 +147,7 @@
 				AA000007AAAA000700000002 /* DataScannerPlugin.m */,
 				AA000008AAAA000800000002 /* WeatherKitPlugin.swift */,
 				AA000009AAAA000900000002 /* WeatherKitPlugin.m */,
+				AA000010AAAA001000000002 /* ThalassaBridgeViewController.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -352,6 +355,7 @@
 				AA000007AAAA000700000001 /* DataScannerPlugin.m in Sources */,
 				AA000008AAAA000800000001 /* WeatherKitPlugin.swift in Sources */,
 				AA000009AAAA000900000001 /* WeatherKitPlugin.m in Sources */,
+				AA000010AAAA001000000001 /* ThalassaBridgeViewController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
