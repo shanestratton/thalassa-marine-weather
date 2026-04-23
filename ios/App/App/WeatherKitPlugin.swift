@@ -126,15 +126,17 @@ public class WeatherKitPlugin: CAPPlugin {
             "temperatureMax": d.highTemperature.converted(to: .celsius).value,
             "temperatureMin": d.lowTemperature.converted(to: .celsius).value,
             "precipitationChance": d.precipitationChance,
-            // TODO: `rainfallAmount` / `snowfallAmount` were deprecated
-            // in iOS 16.4 in favour of `precipitationAmountByType`.
-            // Two attempts at that new API (`.rain` property access and
-            // `[.rain]` subscript) both failed to compile — Apple's
-            // docs disagree with reality. The old API still works and
-            // returns the same values, so living with the deprecation
-            // warning until we can check the actual type signature in
-            // a reference project. Not user-visible.
-            "precipitationAmount": d.rainfallAmount.converted(to: .millimeters).value,
+            // Rainfall: `rainfallAmount` was deprecated in iOS 16.4 in
+            // favour of `precipitationAmountByType.rainfall`, but that
+            // replacement requires iOS 18+. Our min target is iOS 17,
+            // so use #available to pick the right API at runtime —
+            // silences the deprecation warning on iOS 18+ without
+            // breaking iOS 17 users.
+            //
+            // Snowfall: `DayWeather.snowfallAmount` is NOT deprecated
+            // (different from rainfallAmount). Stays on the direct
+            // property — it's still the sanctioned API.
+            "precipitationAmount": rainfallMM(d),
             "snowfallAmount": d.snowfallAmount.converted(to: .millimeters).value,
             "sunrise": d.sun.sunrise.map { fmt.string(from: $0) } as Any,
             "sunset": d.sun.sunset.map { fmt.string(from: $0) } as Any,
@@ -145,6 +147,16 @@ public class WeatherKitPlugin: CAPPlugin {
             "windSpeedMax": d.wind.speed.converted(to: .kilometersPerHour).value,
             "windDirection": d.wind.direction.converted(to: .degrees).value,
         ]
+    }
+
+    /// Rainfall in mm with iOS-18+ fast path. iOS 17 falls back to the
+    /// deprecated `rainfallAmount` because `precipitationAmountByType`
+    /// wasn't exposed on DayWeather until iOS 18.
+    private static func rainfallMM(_ d: DayWeather) -> Double {
+        if #available(iOS 18.0, *) {
+            return d.precipitationAmountByType.rainfall.converted(to: .millimeters).value
+        }
+        return d.rainfallAmount.converted(to: .millimeters).value
     }
 
     private static func serializeMinute(_ m: MinuteWeather) -> [String: Any] {
