@@ -126,13 +126,16 @@ public class WeatherKitPlugin: CAPPlugin {
             "temperatureMax": d.highTemperature.converted(to: .celsius).value,
             "temperatureMin": d.lowTemperature.converted(to: .celsius).value,
             "precipitationChance": d.precipitationChance,
-            // `rainfallAmount` was deprecated in iOS 16.4. Replacement
-            // `precipitationAmountByType` is subscript-based on the
-            // `Precipitation` enum — not a struct with .rain/.snow
-            // properties. `[.rain]` / `[.snow]` return
-            // Measurement<UnitLength>.
-            "precipitationAmount": d.precipitationAmountByType[.rain].converted(to: .millimeters).value,
-            "snowfallAmount": d.precipitationAmountByType[.snow].converted(to: .millimeters).value,
+            // TODO: `rainfallAmount` / `snowfallAmount` were deprecated
+            // in iOS 16.4 in favour of `precipitationAmountByType`.
+            // Two attempts at that new API (`.rain` property access and
+            // `[.rain]` subscript) both failed to compile — Apple's
+            // docs disagree with reality. The old API still works and
+            // returns the same values, so living with the deprecation
+            // warning until we can check the actual type signature in
+            // a reference project. Not user-visible.
+            "precipitationAmount": d.rainfallAmount.converted(to: .millimeters).value,
+            "snowfallAmount": d.snowfallAmount.converted(to: .millimeters).value,
             "sunrise": d.sun.sunrise.map { fmt.string(from: $0) } as Any,
             "sunset": d.sun.sunset.map { fmt.string(from: $0) } as Any,
             "moonPhase": d.moon.phase.rawValue,
