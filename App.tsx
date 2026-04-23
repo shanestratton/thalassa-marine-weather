@@ -317,16 +317,52 @@ const App: React.FC = () => {
                                             readOnly
                                             placeholder="Select via Map..."
                                             aria-label="Current location"
-                                            className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default ${isOffline ? 'bg-slate-900/40 border border-white/5 opacity-80' : 'bg-slate-900/60 border border-white/10'}`}
+                                            // Offline styling kept at the same contrast as online —
+                                            // a deliberate but subtle ring change instead of the
+                                            // previous opacity fade (which made the bar nearly
+                                            // invisible). The offline state is communicated via
+                                            // the amber wifi-off chip on the left, so the bar
+                                            // itself doesn't need to shout.
+                                            className={`w-full h-full text-white placeholder-gray-400 rounded-2xl pl-12 pr-12 outline-none transition-all shadow-2xl font-bold text-xl tracking-tight cursor-default bg-slate-900/60 border ${isOffline ? 'border-amber-500/40' : 'border-white/10'}`}
                                             onClick={() => {
                                                 mapFromWxRef.current = true;
                                                 setMapPickerActive(true);
                                                 setPage('map');
                                             }}
                                         />
-                                        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400 bg-sky-500/10 p-1 rounded-md">
-                                            <SearchIcon className="w-4 h-4" />
-                                        </div>
+                                        {/* Left adornment: swap between the usual search icon
+                                            and a wifi-off glyph when offline. Keeps the layout
+                                            stable (same slot) while giving a clear visual cue. */}
+                                        {isOffline ? (
+                                            <div
+                                                className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-400 bg-amber-500/15 p-1 rounded-md"
+                                                title="Offline — showing cached data"
+                                                aria-label="Offline"
+                                            >
+                                                <svg
+                                                    className="w-4 h-4"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    strokeWidth={2}
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                >
+                                                    {/* Wifi arcs with slash through — universal "no signal" glyph */}
+                                                    <path d="M1 1l22 22" />
+                                                    <path d="M16.72 11.06A10.94 10.94 0 0119 12.55" />
+                                                    <path d="M5 12.55a10.94 10.94 0 015.17-2.39" />
+                                                    <path d="M10.71 5.05A16 16 0 0122.58 9" />
+                                                    <path d="M1.42 9a15.91 15.91 0 014.7-2.88" />
+                                                    <path d="M8.53 16.11a6 6 0 016.95 0" />
+                                                    <line x1="12" y1="20" x2="12.01" y2="20" />
+                                                </svg>
+                                            </div>
+                                        ) : (
+                                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400 bg-sky-500/10 p-1 rounded-md">
+                                                <SearchIcon className="w-4 h-4" />
+                                            </div>
+                                        )}
                                         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                                             <button
                                                 type="button"
