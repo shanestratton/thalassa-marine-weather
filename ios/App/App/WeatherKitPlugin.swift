@@ -126,12 +126,13 @@ public class WeatherKitPlugin: CAPPlugin {
             "temperatureMax": d.highTemperature.converted(to: .celsius).value,
             "temperatureMin": d.lowTemperature.converted(to: .celsius).value,
             "precipitationChance": d.precipitationChance,
-            // `rainfallAmount` was deprecated in iOS 16.4 in favour of
-            // `precipitationAmountByType`, which separates rain vs snow
-            // vs mixed. We target iOS 17+ so use the new API. `.rain` is
-            // the modern direct replacement for the old rainfallAmount.
-            "precipitationAmount": d.precipitationAmountByType.rain.converted(to: .millimeters).value,
-            "snowfallAmount": d.precipitationAmountByType.snow.converted(to: .millimeters).value,
+            // `rainfallAmount` was deprecated in iOS 16.4. Replacement
+            // `precipitationAmountByType` is subscript-based on the
+            // `Precipitation` enum — not a struct with .rain/.snow
+            // properties. `[.rain]` / `[.snow]` return
+            // Measurement<UnitLength>.
+            "precipitationAmount": d.precipitationAmountByType[.rain].converted(to: .millimeters).value,
+            "snowfallAmount": d.precipitationAmountByType[.snow].converted(to: .millimeters).value,
             "sunrise": d.sun.sunrise.map { fmt.string(from: $0) } as Any,
             "sunset": d.sun.sunset.map { fmt.string(from: $0) } as Any,
             "moonPhase": d.moon.phase.rawValue,
