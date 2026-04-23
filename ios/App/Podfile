@@ -1,6 +1,6 @@
 require_relative '../../node_modules/@capacitor/ios/scripts/pods_helpers'
 
-platform :ios, '16.0'
+platform :ios, '17.0'
 use_frameworks!
 
 # workaround to avoid Xcode caching of Pods that requires
@@ -43,7 +43,10 @@ post_install do |installer|
       config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
 
       # FIX: Xcode "Update to recommended settings" warnings
-      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
+      # Bumped 17.0 2026-04-23: drops iPhone 8/8+/SE-2 (375x667 — too short
+      # for the Dashboard's fixed-px layout), new floor is iPhone XS which
+      # is 375x812 — 145px more vertical room.
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '17.0'
       config.build_settings['ENABLE_USER_SCRIPT_SANDBOXING'] = 'NO'
 
       # FIX: SwiftSocket ships with SWIFT_VERSION=3 which is unsupported
