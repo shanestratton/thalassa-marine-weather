@@ -82,7 +82,10 @@ public class LightningPlugin: CAPPlugin, URLSessionWebSocketDelegate {
 
     public func urlSession(_ session: URLSession,
                            webSocketTask: URLSessionWebSocketTask,
-                           didOpenWithProtocol protocol: String?) {
+                           didOpenWithProtocol proto: String?) {
+        // `proto` renamed from `protocol` — Swift reserved word. Unused
+        // anyway; Blitzortung doesn't negotiate a sub-protocol.
+        _ = proto
         notifyListeners("open", data: [:])
         // Fire the subscription message as soon as the socket is open.
         if let msg = subscribeMessage {
