@@ -846,22 +846,20 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 </div>
                             )}
 
-                            {/* STALENESS BANNER — sits below the location pill.
+                            {/* STALENESS BANNER — sits below the location pill,
+                                just above the CompactHeaderRow (warnings / sun).
                                 Position history:
                                   +108 → overlapped warnings row (too low)
                                   +68  → too high (dead gap under pill)
-                                  +76  → OK but user wanted a bit more breathing
+                                  +76  → user asked for a bit more breathing
                                          room under the pill
-                                  +124 → current — 3 line-heights further down,
-                                         per user. Z-[130] puts it above the
-                                         CompactHeaderRow (+126, z-[120]) and the
-                                         black blocker, so it visually sits on top
-                                         of the warnings/sun row. The warnings row
-                                         is transparent-backed so they co-exist
-                                         cleanly. */}
+                                  +79  → current — +3px nudge per user fine-tune
+                                z-[130] keeps it above the black blocker /
+                                CompactHeaderRow at z-[120] so it's always
+                                readable. */}
                             <div
                                 className="fixed left-0 right-0 z-[130] px-4"
-                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 124px)' }}
+                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 79px)' }}
                             >
                                 <StalenessBanner
                                     generatedAt={data.generatedAt}
