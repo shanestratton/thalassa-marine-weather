@@ -78,9 +78,13 @@ const _fetchWeatherByStrategyImpl = async (
     // mounts and fires this fetch. Without this gate, every fetcher sees
     // piCache.isAvailable() === false and falls through to the network —
     // bypassing a Pi that's about to come online ~200ms later.
-    // Cap at 1.5s so a genuinely-offline Pi doesn't delay the page.
-    // No-ops instantly when Pi is disabled or already known-reachable.
-    await piCache.awaitReady(1500);
+    //
+    // Uses piCache.awaitReady default (500ms, was 1500ms before 2026-04-23).
+    // Plus internal shortcuts: no-op if Pi disabled, no-op if last-seen
+    // was > 24h ago (user ashore — persisted in localStorage), no-op after
+    // 3 consecutive misses this session. Those together make the typical
+    // cold-start latency near-zero for users without / away from the Pi.
+    await piCache.awaitReady();
 
     // ── PARALLEL FETCH: Unified + StormGlass + Tides + OpenMeteo ──
     // OpenMeteo is included ALWAYS (not just as a fallback) because the
