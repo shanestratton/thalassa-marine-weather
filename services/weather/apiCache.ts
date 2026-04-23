@@ -33,7 +33,11 @@ export type ApiCacheProvider = keyof typeof TTL;
 
 // ── Location Key ──────────────────────────────────────────────
 
-const CACHE_PREFIX = 'thalassa_apicache_v1_';
+// v2 (2026-04-24): bumped to invalidate stale tide entries that were
+// written before fetchWorldTides normalized the station name via
+// processResponse on the Pi path. Old entries baked in a literal
+// "WorldTides Station" stationName that surfaced on the tide graph.
+const CACHE_PREFIX = 'thalassa_apicache_v2_';
 
 /** Round to 0.1° to coalesce nearby coordinates (~11km grid) */
 function locationKey(lat: number, lon: number): string {
