@@ -11,7 +11,7 @@ import Capacitor
  * `packageClassList` in capacitor.config.json by scanning installed npm
  * plugin packages for `@objc(...)` / `CAP_PLUGIN(...)` declarations.
  *
- * Our app-local Swift plugins (living in ios/App/App/*.swift) aren't
+ * Our app-local Swift plugins (living in ios/App/App/) aren't
  * npm packages — they're part of the app target itself. The CLI has no
  * way to discover them, so they never get added to packageClassList,
  * and Capacitor's auto-registration never asks the Obj-C runtime for
@@ -30,7 +30,7 @@ import Capacitor
  * plugin instance manually via `bridge.registerPluginInstance(...)`.
  * This is Capacitor's documented escape hatch for local plugins.
  *
- * If you add a new Swift Capacitor plugin in ios/App/App/*.swift,
+ * If you add a new Swift Capacitor plugin in ios/App/App/,
  * instantiate it here.
  */
 public class ThalassaBridgeViewController: CAPBridgeViewController {
