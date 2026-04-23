@@ -33,6 +33,9 @@ export const saveLargeData = async (key: string, data: unknown) => {
                     directory: Directory.Documents,
                     encoding: Encoding.UTF8,
                 });
+                // Invalidate the memoised directory listing so the next
+                // loadLargeData / deleteLargeData call sees the write.
+                _dirListingCache = null;
             } catch (e) {
                 // Capacitor Filesystem not available (web browser) — use localStorage fallback
                 try {
@@ -91,6 +94,9 @@ export const saveLargeDataImmediate = async (key: string, data: unknown): Promis
             directory: Directory.Documents,
             encoding: Encoding.UTF8,
         });
+        // Invalidate the memoised directory listing so the next
+        // loadLargeData / deleteLargeData call sees the write.
+        _dirListingCache = null;
     } catch (e) {
         // Filesystem unavailable (web) — localStorage already written above
     }
@@ -161,25 +167,49 @@ export const writeCacheVersion = async (version: string): Promise<void> => {
     localStorage.setItem('thalassa_cache_version', version);
 };
 
+// --- CACHED DIRECTORY LISTING ───────────────────────────────
+// Startup calls loadLargeData for every cache key (weather, history,
+// voyage, ...), and each call was doing its own Filesystem.readdir on
+// Documents. That turned into 15+ identical readdir round-trips in the
+// first second of boot and cluttered the Xcode console. Memoising for
+// ~3s collapses them all into a single filesystem hit while still
+// staying fresh enough that a new cache write shows up on next read.
+let _dirListingCache: { files: Set<string>; fetchedAt: number } | null = null;
+const DIR_LISTING_TTL_MS = 3_000;
+
+async function listDocumentsDir(): Promise<Set<string>> {
+    if (_dirListingCache && Date.now() - _dirListingCache.fetchedAt < DIR_LISTING_TTL_MS) {
+        return _dirListingCache.files;
+    }
+    try {
+        const result = await Filesystem.readdir({ path: '', directory: Directory.Documents });
+        const files = new Set<string>();
+        for (const f of result.files) {
+            const name = typeof f === 'string' ? f : f.name;
+            files.add(name);
+        }
+        _dirListingCache = { files, fetchedAt: Date.now() };
+        return files;
+    } catch {
+        // Web or filesystem failure — empty set signals "no files on disk".
+        return new Set<string>();
+    }
+}
+
+/** Invalidate the cached listing after a write/delete so the next read sees fresh state. */
+function invalidateDirCache(): void {
+    _dirListingCache = null;
+}
+
 // --- HELPER: LOAD FILE (With LocalStorage Migration) ---
 export const loadLargeData = async (key: string) => {
     const fileName = `${key}.json`;
 
-    // 1. Check Existence First (Prevent Native "File Not Found" Log)
-    let fileFound = false;
-    try {
-        const result = await Filesystem.readdir({
-            path: '',
-            directory: Directory.Documents,
-        });
-        // Capacitor 6 returns FileInfo[] objects, but handle strings for safety
-        fileFound = result.files.some((f: { name: string } | string) => {
-            const name = typeof f === 'string' ? f : f.name;
-            return name === fileName;
-        });
-    } catch (e) {
-        // If readdir fails, we just proceed to legacy check
-    }
+    // 1. Check Existence First (Prevent Native "File Not Found" Log).
+    //    Uses the memoised directory listing so bursts of loadLargeData
+    //    calls share one readdir.
+    const dir = await listDocumentsDir();
+    const fileFound = dir.has(fileName);
 
     if (fileFound) {
         try {
@@ -239,12 +269,25 @@ export const loadLargeData = async (key: string) => {
 
 // --- HELPER: DELETE FILE ---
 export const deleteLargeData = async (key: string) => {
-    try {
-        await Filesystem.deleteFile({
-            path: `${key}.json`,
-            directory: Directory.Documents,
-        });
-    } catch (e) {
-        // Ignore if file doesn't exist
+    const fileName = `${key}.json`;
+    // Probe the directory listing first so we don't call deleteFile for
+    // files that don't exist — Capacitor's Filesystem plugin logs those
+    // as ERROR on the native side before returning to JS, and on fresh
+    // installs (cache-version migration tries to delete 3+ caches that
+    // were never written) the console fills with harmless noise.
+    const dir = await listDocumentsDir();
+    if (!dir.has(fileName)) {
+        // Still scrub the localStorage legacy copy and return.
+        localStorage.removeItem(key);
+        return;
     }
+    try {
+        await Filesystem.deleteFile({ path: fileName, directory: Directory.Documents });
+        invalidateDirCache();
+    } catch {
+        // File existed in the listing but delete failed for another
+        // reason (permissions, race). Non-critical — the caller treats
+        // this as best-effort.
+    }
+    localStorage.removeItem(key);
 };
