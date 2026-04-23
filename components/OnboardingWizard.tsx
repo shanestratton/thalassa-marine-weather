@@ -42,6 +42,9 @@ interface OnboardingWizardProps {
 export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ onComplete }) => {
     const [step, setStep] = useState(1);
     const [keyboardHeight, setKeyboardHeight] = useState(0);
+    // Ref to the outer scroll container so we can snapshot + restore
+    // scrollTop across keyboard-hide events (see handler below).
+    const scrollRef = React.useRef<HTMLDivElement | null>(null);
 
     // Keyboard tracking — same pattern as DiaryPage
     useEffect(() => {
@@ -60,7 +63,25 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                         }, 250);
                     });
                     const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                        // iOS WebView quirk: when the keyboard dismisses
+                        // and the content's padding-bottom collapses by
+                        // its height, WebKit sometimes snaps the outer
+                        // scroll container back to scrollTop=0. That's
+                        // the "page jumps to the top every time I tap a
+                        // checkbox" bug in Vessel Details. Snapshot the
+                        // current scrollTop, let React re-render without
+                        // the keyboard padding, then restore the scroll
+                        // on the next frame so the user's position is
+                        // preserved. requestAnimationFrame fires AFTER
+                        // the layout pass so we're restoring into the
+                        // new collapsed geometry.
+                        const saved = scrollRef.current?.scrollTop ?? 0;
                         setKeyboardHeight(0);
+                        requestAnimationFrame(() => {
+                            if (scrollRef.current) {
+                                scrollRef.current.scrollTop = saved;
+                            }
+                        });
                     });
                     cleanup = () => {
                         showHandle.then((h) => h.remove());
@@ -494,6 +515,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
 
     return (
         <div
+            ref={scrollRef}
             className="fixed inset-0 z-[100] bg-slate-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0f172a] to-black flex items-start md:items-center justify-center px-4 overflow-y-auto"
             style={{
                 paddingTop: 'max(1rem, calc(env(safe-area-inset-top) + 3.5rem))',
