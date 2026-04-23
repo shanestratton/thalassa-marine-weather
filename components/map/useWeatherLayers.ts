@@ -727,26 +727,30 @@ export function useWeatherLayers(
         const hasPressureLayer = activeLayers.has('pressure');
         const layerCount = activeLayers.size;
 
-        // Respect the Aus+NZ minZoom floor computed by useMapInit — never
-        // allow zooming out wider than Australia+NZ regardless of active layer.
+        // AU+NZ fit zoom is published by useMapInit as the "opens-on" target
+        // but is NOT used as a hard floor — the user wants to pinch out to
+        // world view when no weather layer forces a constraint.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ausNzMin: number = (map as any).__ausNzMinZoom ?? 3;
 
         if (hasPressureLayer) {
-            // Pressure/synoptic — lock zoom to synoptic range, but not wider than Aus+NZ
+            // Pressure/synoptic — only makes sense at synoptic scale, so clamp
+            // tight around the AU+NZ view.
             map.setMinZoom(Math.max(ausNzMin, 3));
             map.setMaxZoom(7);
-            map.setMaxBounds(undefined!); // Mapbox runtime API accepts undefined to clear bounds
+            map.setMaxBounds(undefined!);
         } else if (hasWind) {
-            // Wind active — constrain min zoom only (overlay handles its own visibility at high zoom)
+            // Wind particle overlay needs enough pixels on screen to look right,
+            // so clamp to AU+NZ width. Max stays at standard tile depth.
             map.setMinZoom(ausNzMin);
             map.setMaxZoom(18);
-            map.setMaxBounds(undefined!); // Mapbox runtime API accepts undefined to clear bounds
+            map.setMaxBounds(undefined!);
         } else {
-            // No weather layers — Aus+NZ floor still applies
-            map.setMinZoom(ausNzMin);
-            map.setMaxZoom(20);
-            map.setMaxBounds(undefined!); // Mapbox runtime API accepts undefined to clear bounds
+            // No weather layer → restore the full constructor range so the user
+            // can pinch out to world view (z1) or deep into a harbour (z22).
+            map.setMinZoom(1);
+            map.setMaxZoom(22);
+            map.setMaxBounds(undefined!);
         }
 
         // Fly to Aus+NZ overview on FIRST layer activation (not every toggle)
