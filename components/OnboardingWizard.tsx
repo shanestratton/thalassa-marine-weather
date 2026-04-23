@@ -516,7 +516,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     return (
         <div
             ref={scrollRef}
-            className="fixed inset-0 z-[100] bg-slate-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0f172a] to-black flex items-start md:items-center justify-center px-4 overflow-y-auto"
+            className="fixed inset-0 z-[100] bg-slate-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0f172a] to-black flex items-start md:items-center justify-center px-4 overflow-y-auto wizard-scroll"
             style={{
                 paddingTop: 'max(1rem, calc(env(safe-area-inset-top) + 3.5rem))',
                 paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',

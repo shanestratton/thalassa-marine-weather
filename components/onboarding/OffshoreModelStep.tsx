@@ -54,7 +54,7 @@ const MODEL_OPTIONS: {
 ];
 
 export const OffshoreModelStep: React.FC<OffshoreModelStepProps> = ({ selected, onChange, onNext }) => (
-    <div className="animate-in fade-in slide-in-from-right-8 duration-500">
+    <div className="animate-in fade-in slide-in-from-right-8 duration-500 pt-8">
         <h2 className="text-2xl font-bold text-white mb-2 text-center">Offshore Weather Model</h2>
         <p className="text-sm text-gray-400 text-center mb-6 leading-relaxed">
             When your vessel crosses the <span className="text-white font-semibold">20 nm</span> offshore boundary,
