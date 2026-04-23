@@ -846,20 +846,20 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 </div>
                             )}
 
-                            {/* STALENESS BANNER — relocated to the TOP of the
-                                screen, in the gap below the location search bar.
-                                Previously this sat above the status badges at
-                                the bottom, where it (a) visually clipped into
-                                the tide graph and (b) left a wasteful empty
-                                band at the top on offline/stale states. Now it
-                                fills that top gap so offline users see the
-                                indicator immediately on app open, and the tide
-                                area stays clean. z-[130] keeps it above the
-                                black blocker / CompactHeaderRow so it's always
-                                readable. */}
+                            {/* STALENESS BANNER — slotted into the gap below the
+                                location search bar and ABOVE the CompactHeaderRow
+                                (warnings / sunrise / sunset). Earlier `+108px`
+                                offset put the banner's bottom edge over the
+                                warnings row (banner height ~45px vs the 18px
+                                available gap at that offset). Shifting up to
+                                `+68px` clears the CompactHeaderRow at
+                                `+126px` with ~13px of breathing room and gives
+                                the location pill above a clean visual break.
+                                z-[130] keeps it above the black blocker /
+                                CompactHeaderRow so it's always readable. */}
                             <div
                                 className="fixed left-0 right-0 z-[130] px-4"
-                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 108px)' }}
+                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 68px)' }}
                             >
                                 <StalenessBanner
                                     generatedAt={data.generatedAt}
