@@ -38,29 +38,20 @@ const WeatherKitNative = registerPlugin<WeatherKitNativePlugin>('WeatherKit');
  * fall back to the Supabase REST path on null.
  */
 export async function fetchWeatherKitNative(lat: number, lon: number): Promise<unknown | null> {
-    if (!Capacitor.isNativePlatform()) {
-        console.error('[weatherKitNative] skipped — not a native platform');
-        return null;
-    }
-    // Diagnostic: confirm the JS→native call actually reaches the bridge.
-    // console.error shows in Xcode regardless of createLogger's prod filter.
-    console.error('[weatherKitNative] → calling native bridge', { lat, lon });
+    if (!Capacitor.isNativePlatform()) return null;
     try {
         const result = await WeatherKitNative.fetch({ lat, lon });
         if (!result || typeof result !== 'object') {
-            console.error('[weatherKitNative] native fetch returned unexpected payload:', result);
+            log.warn('native fetch returned unexpected payload');
             return null;
         }
-        console.error(
-            '[weatherKitNative] ✅ native WeatherKit hit — keys:',
-            Object.keys(result as Record<string, unknown>).join(','),
-        );
         return result;
     } catch (err) {
-        // Most common reason: WeatherKit capability not yet enabled in
-        // Xcode / Apple Developer portal. Caller falls back to Supabase.
+        // Most common reason: WeatherKit capability not granted (entitlement
+        // missing or Apple Dev portal capability not enabled). Caller falls
+        // back to the Supabase path transparently.
         const msg = err instanceof Error ? err.message : String(err);
-        console.error('[weatherKitNative] ❌ threw:', msg);
+        log.warn('native WeatherKit unavailable — falling back to Supabase:', msg);
         return null;
     }
 }
