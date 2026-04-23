@@ -33,20 +33,10 @@ export const fetchRealTides = async (
         const wtData = await fetchWorldTides(lat, lon, 14);
 
         if (wtData && wtData.extremes) {
-            // Diagnostic: user reports tide data disappearing past day 2. Log
-            // the actual coverage so we can tell if the upstream (WorldTides
-            // account tier) or the proxy is truncating. Expected for 14d
-            // request: ~56 extremes (~4/day). If we see ≤ 8, the account is
-            // on a free/short-range plan and we need to upgrade or
-            // supplement. `log.warn` so it surfaces in the prod bundle.
-            const first = wtData.extremes[0]?.date;
-            const last = wtData.extremes[wtData.extremes.length - 1]?.date;
-            if (first && last) {
-                const spanHours = (new Date(last).getTime() - new Date(first).getTime()) / 3_600_000;
-                log.warn(
-                    `WorldTides returned ${wtData.extremes.length} extremes spanning ${spanHours.toFixed(0)}h (${first} → ${last})`,
-                );
-            }
+            // (Diagnostic log removed 2026-04-24 after confirming WorldTides
+            // returns the full 14-day window — 54 extremes spanning ~329h
+            // in the prod log. The day-2-and-beyond tide disappearance was
+            // actually caused by WeatherKit's 48h hourly cap, not WT.)
 
             const mappedTides: Tide[] = wtData.extremes.map((e) => ({
                 time: e.date,
