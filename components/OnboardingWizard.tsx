@@ -99,6 +99,19 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
         };
     }, []);
 
+    // Reset scroll to the top of the wizard every time the step changes.
+    // Without this, navigating from a long step (e.g. Vessel Details,
+    // scrolled to the Continue button at the bottom) to the next step
+    // inherits the previous scrollTop — so the next step's heading sits
+    // ABOVE the visible viewport, looking exactly like it's hiding in
+    // the notch. The reset is synchronous via a layout effect so the
+    // new step renders already at scrollTop = 0.
+    React.useLayoutEffect(() => {
+        if (scrollRef.current) {
+            scrollRef.current.scrollTop = 0;
+        }
+    }, [step]);
+
     // Step 2: Location Data
     const [homePort, setHomePort] = useState('');
     const [isLocating, setIsLocating] = useState(false);
