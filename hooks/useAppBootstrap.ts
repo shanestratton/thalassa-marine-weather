@@ -57,6 +57,20 @@ export function useAppBootstrap() {
         import('../services/AnchorWatchService').then((m) => m.AnchorWatchService.restoreWatchState()).catch(() => {});
     }, []);
 
+    // ── Internet reachability probe ────────────────────────────────
+    // `navigator.onLine` can't tell "have WiFi" apart from "have WAN" —
+    // critical when the user's Pi is serving cached weather over a LAN
+    // whose uplink is down. The probe hits a public 204 endpoint and
+    // flips uiStore.isOffline → true when the WAN isn't actually
+    // reachable, so the staleness banner shows.
+    useEffect(() => {
+        let stop: (() => void) | null = null;
+        import('../services/internetProbe').then(({ startInternetProbe }) => {
+            stop = startInternetProbe();
+        });
+        return () => stop?.();
+    }, []);
+
     // ── Signal K auto-reconnect ───────────────────────────────────
     useEffect(() => {
         console.info('[Boot] AvNav: importing service...');
