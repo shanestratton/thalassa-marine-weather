@@ -180,11 +180,8 @@ function buildCategories(
             action: tacticalState.onToggleCyclones,
         });
     }
-    // Squall + Lightning hidden from the menu 2026-04-23 — Xweather gone,
-    // Blitzortung needs a server-side relay (code 1006 rejection from
-    // browser-direct), NOAA GOES IR + RainViewer squall not wired yet.
-    // Keep the toggle wiring above intact so when the replacements ship
-    // we just uncomment these two blocks.
+    // Squall still hidden 2026-04-23 — NOAA GOES IR + RainViewer squall
+    // replacement not wired yet. Uncomment when ready.
     // if (tacticalState?.onToggleSquall) {
     //     tactical.push({
     //         id: 'squall',
@@ -193,14 +190,18 @@ function buildCategories(
     //         action: tacticalState.onToggleSquall,
     //     });
     // }
-    // if (tacticalState?.onToggleLightning) {
-    //     tactical.push({
-    //         id: 'lightning',
-    //         label: 'Lightning',
-    //         icon: <LightningIcon />,
-    //         action: tacticalState.onToggleLightning,
-    //     });
-    // }
+    // Lightning re-enabled 2026-04-23 — native Swift LightningPlugin now
+    // wraps URLSessionWebSocketTask so we bypass Blitzortung's browser-
+    // origin rejection (code 1006) and go device → Blitzortung direct. No
+    // server-side relay needed on iOS. Web build still no-op.
+    if (tacticalState?.onToggleLightning) {
+        tactical.push({
+            id: 'lightning',
+            label: 'Lightning',
+            icon: <LightningIcon />,
+            action: tacticalState.onToggleLightning,
+        });
+    }
     if (tacticalState?.onToggleWeatherInspect) {
         tactical.push({
             id: 'inspect',
