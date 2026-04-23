@@ -77,11 +77,15 @@ export function useLiveLocationName(): string | null {
 
         // Poll the ref every 10s; reverse-geocode when it's worth doing.
         const intervalId = setInterval(async () => {
-            // Gate: only if the app is in "follow GPS" mode. If the
-            // user dropped a pin or searched for somewhere, their
-            // explicit choice stays in the label.
+            // Gate: only honour a user-placed pin as a hard override.
+            // 'gps' / 'initial' / 'search' / 'favorite' sources all get
+            // live-updated — the home port from onboarding (stored as
+            // 'search') shouldn't pin the label to a possibly-wrong
+            // geocoding match when the user's phone is physically
+            // somewhere else. Only 'map_pin' (user explicitly tapped
+            // a point on the map) is treated as a strict override.
             const storeSource = LocationStore.getState().source;
-            if (storeSource !== 'gps' && storeSource !== 'initial') return;
+            if (storeSource === 'map_pin') return;
 
             const latest = latestPosRef.current;
             if (!latest) return;
