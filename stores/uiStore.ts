@@ -66,8 +66,13 @@ export const useUIStore = create<UIState>()((set, get) => ({
     },
 }));
 
-// Online/offline listener
+// Offline listener — a definite "offline" from navigator is authoritative
+// (link layer is physically down), so we react immediately. The reverse
+// signal ("online") is NOT authoritative though — you can be on a WiFi
+// whose router has no WAN uplink (e.g. boat LAN hosting the Pi). Clearing
+// isOffline on 'online' events would falsely dismiss the banner in that
+// case, so the upgrade back to "online" is instead driven by
+// services/internetProbe.ts, which actually verifies WAN reachability.
 if (typeof window !== 'undefined') {
-    window.addEventListener('online', () => useUIStore.setState({ isOffline: false }));
     window.addEventListener('offline', () => useUIStore.setState({ isOffline: true }));
 }
