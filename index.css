@@ -2169,6 +2169,140 @@ body,
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   STATUS BADGES — The Glass / Essential WX bottom row
+   Lives under <StatusBadges />. Two pills: location-type (left) and
+   timer/sync (right). This block jazzes them up so the row stops
+   looking barren.
+
+   Tech: all GPU-composited (transform + opacity + background-position).
+   Infinite animations on these are fine — they're only rendered when
+   the dashboard is visible, and stop the moment the user navigates
+   away (React unmounts the component).
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Sweeping highlight that slides across the syncing badge from left
+   to right. Feels like the badge is "loading" a bar of data —
+   visually more interesting than animate-pulse's bare opacity fade. */
+@keyframes status-sweep {
+    0% {
+        background-position: -150% 0;
+    }
+
+    100% {
+        background-position: 250% 0;
+    }
+}
+
+.status-badge-sweep {
+    position: relative;
+    overflow: hidden;
+    background-image: linear-gradient(
+        100deg,
+        rgba(56, 189, 248, 0) 0%,
+        rgba(56, 189, 248, 0.35) 45%,
+        rgba(125, 211, 252, 0.5) 50%,
+        rgba(56, 189, 248, 0.35) 55%,
+        rgba(56, 189, 248, 0) 100%
+    );
+    background-size: 60% 100%;
+    background-repeat: no-repeat;
+    animation: status-sweep 1.6s ease-in-out infinite;
+}
+
+/* Subtle inner light-ring breath on the location badge — indicates
+   the pill is a "live chip", adds premium feel without shouting. */
+@keyframes status-badge-glow {
+    0%,
+    100% {
+        box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+            0 0 8px -2px rgba(56, 189, 248, 0.2);
+    }
+
+    50% {
+        box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+            0 0 14px -1px rgba(56, 189, 248, 0.35);
+    }
+}
+
+.status-badge-glow-sky {
+    animation: status-badge-glow 3s ease-in-out infinite;
+}
+
+/* Variants for the different location types so the glow colour matches
+   the pill — subtle but cohesive. */
+@keyframes status-badge-glow-emerald {
+    0%,
+    100% {
+        box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+            0 0 8px -2px rgba(52, 211, 153, 0.18);
+    }
+
+    50% {
+        box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+            0 0 14px -1px rgba(52, 211, 153, 0.32);
+    }
+}
+
+.status-badge-glow-emerald {
+    animation: status-badge-glow-emerald 3s ease-in-out infinite;
+}
+
+@keyframes status-badge-glow-teal {
+    0%,
+    100% {
+        box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+            0 0 8px -2px rgba(45, 212, 191, 0.18);
+    }
+
+    50% {
+        box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+            0 0 14px -1px rgba(45, 212, 191, 0.32);
+    }
+}
+
+.status-badge-glow-teal {
+    animation: status-badge-glow-teal 3s ease-in-out infinite;
+}
+
+@keyframes status-badge-glow-amber {
+    0%,
+    100% {
+        box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+            0 0 8px -2px rgba(251, 191, 36, 0.18);
+    }
+
+    50% {
+        box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+            0 0 14px -1px rgba(251, 191, 36, 0.32);
+    }
+}
+
+.status-badge-glow-amber {
+    animation: status-badge-glow-amber 3s ease-in-out infinite;
+}
+
+/* Honour reduced-motion — no sweep, no breathing. Keep the static
+   styling (which is already gradient-rich) so the badges still look
+   intentional. */
+@media (prefers-reduced-motion: reduce) {
+    .status-badge-sweep,
+    .status-badge-glow-sky,
+    .status-badge-glow-emerald,
+    .status-badge-glow-teal,
+    .status-badge-glow-amber {
+        animation: none;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    ESSENTIAL WX MAP — Wind Streaks & Weather Pulse
    CSS-only animations: zero JS per-frame, GPU-composited only.
    ═══════════════════════════════════════════════════════════════════ */

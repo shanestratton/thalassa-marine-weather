@@ -187,25 +187,74 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                 .sort((a, b) => a.metric.localeCompare(b.metric));
         }, [sources]);
 
-        // BADGES Logic
+        // BADGES Logic — each variant carries a label, tailwind color
+        // classes (bg + text + border), an SVG glyph, and the breathing
+        // glow class name that matches its colour.
         const offshore = isOffshoreProp ?? locationType === 'offshore';
         let statusBadgeLabel: string;
         let statusBadgeColor: string;
+        let statusBadgeGlow: string;
+        let statusBadgeIcon: React.ReactNode;
         let statusBadgePulse = false;
+
+        // Shared tiny-icon style — matches the 12px label height
+        const iconCls = 'w-3 h-3 shrink-0 opacity-90';
 
         if (offshore) {
             statusBadgeLabel = offshoreModelLabel ? `OFFSHORE (${offshoreModelLabel})` : 'OFFSHORE';
-            statusBadgeColor = 'bg-sky-500/20 text-sky-300 border-sky-500/30';
+            // Gradient gives the pill depth vs a flat wash
+            statusBadgeColor =
+                'bg-gradient-to-r from-sky-500/25 via-sky-500/20 to-sky-500/25 text-sky-200 border-sky-400/40';
+            statusBadgeGlow = 'status-badge-glow-sky';
+            // Compass rose — offshore = open water navigation
+            statusBadgeIcon = (
+                <svg className={iconCls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <circle cx="12" cy="12" r="9" strokeLinecap="round" />
+                    <path d="M12 3v3M12 18v3M3 12h3M18 12h3" strokeLinecap="round" />
+                    <path d="M15 9l-3 6-3-6 6 0z" fill="currentColor" stroke="none" opacity="0.9" />
+                </svg>
+            );
             statusBadgePulse = true;
         } else if (locationType === 'inland' || isLandlocked || fallbackInland) {
             statusBadgeLabel = 'INLAND';
-            statusBadgeColor = 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+            statusBadgeColor =
+                'bg-gradient-to-r from-amber-500/25 via-amber-500/20 to-amber-500/25 text-amber-200 border-amber-400/40';
+            statusBadgeGlow = 'status-badge-glow-amber';
+            // Little mountain silhouette
+            statusBadgeIcon = (
+                <svg className={iconCls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path d="M3 19l6-10 4 6 3-4 5 8H3z" strokeLinejoin="round" strokeLinecap="round" />
+                </svg>
+            );
         } else if (locationType === 'inshore') {
             statusBadgeLabel = 'INSHORE';
-            statusBadgeColor = 'bg-teal-500/20 text-teal-300 border-teal-500/30';
+            statusBadgeColor =
+                'bg-gradient-to-r from-teal-500/25 via-teal-500/20 to-teal-500/25 text-teal-200 border-teal-400/40';
+            statusBadgeGlow = 'status-badge-glow-teal';
+            // Anchor — tight-to-shore waters
+            statusBadgeIcon = (
+                <svg className={iconCls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <circle cx="12" cy="5" r="2" strokeLinecap="round" />
+                    <path d="M12 7v13" strokeLinecap="round" />
+                    <path d="M8 11h8" strokeLinecap="round" />
+                    <path d="M5 15a7 7 0 0014 0" strokeLinecap="round" />
+                </svg>
+            );
         } else {
             statusBadgeLabel = 'COASTAL';
-            statusBadgeColor = 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30';
+            statusBadgeColor =
+                'bg-gradient-to-r from-emerald-500/25 via-emerald-500/20 to-emerald-500/25 text-emerald-200 border-emerald-400/40';
+            statusBadgeGlow = 'status-badge-glow-emerald';
+            // Stylized wave
+            statusBadgeIcon = (
+                <svg className={iconCls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path
+                        d="M3 12c2-2 4-2 6 0s4 2 6 0 4-2 6 0M3 17c2-2 4-2 6 0s4 2 6 0 4-2 6 0"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    />
+                </svg>
+            );
         }
 
         // Timer badge goes amber/red when the underlying data is past its
@@ -263,12 +312,16 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
             <>
                 <div className="px-0 shrink-0 relative z-20">
                     <div className="flex items-center justify-between gap-2 w-full mb-0">
-                        {/* Coastal / Offshore Badge — tap to see data sources */}
+                        {/* Location-type Badge — tap to see data sources.
+                            Carries a subtle breathing glow (status-badge-glow-*)
+                            plus a type-specific icon so the pill is instantly
+                            recognisable at a glance. */}
                         <button
                             onClick={() => setShowInfoModal(true)}
                             aria-label="View data sources"
-                            className={`px-2 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${statusBadgeColor} bg-black/40 min-w-[78px] text-center transition-all duration-500 flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.95]`}
+                            className={`px-2.5 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider ${statusBadgeColor} ${statusBadgeGlow} min-w-[82px] text-center transition-transform flex items-center justify-center gap-1.5 cursor-pointer active:scale-[0.95]`}
                         >
+                            {statusBadgeIcon}
                             {statusBadgePulse && (
                                 <span className="relative flex w-1.5 h-1.5 shrink-0">
                                     <span className="animate-ping absolute inset-0 rounded-full bg-sky-400 opacity-60" />
@@ -278,39 +331,43 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                             {statusBadgeLabel}
                         </button>
 
-                        {/* Timer Badge — tappable to force refresh, shows live sync state */}
+                        {/* Timer Badge — tappable to force refresh, shows live
+                            sync state. Syncing now uses a sweeping highlight
+                            (status-badge-sweep) instead of the old
+                            animate-pulse fade — reads as an active 'loading
+                            bar' rather than a tired blinker. */}
                         <button
                             onClick={() => refreshData()}
                             aria-label="Refresh weather data"
-                            className={`px-2 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider bg-black/40 flex items-center gap-1 justify-center cursor-pointer active:scale-[0.95] transition-all min-w-[78px] ${
+                            className={`px-2.5 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider flex items-center gap-1.5 justify-center cursor-pointer active:scale-[0.95] transition-transform min-w-[82px] ${
                                 isSyncing
-                                    ? 'bg-sky-500/30 text-sky-200 border-sky-400/40 animate-pulse'
-                                    : timerBadgeColor
+                                    ? 'bg-sky-500/25 text-sky-100 border-sky-400/50 status-badge-sweep shadow-[0_0_12px_-2px_rgba(56,189,248,0.5)]'
+                                    : `${timerBadgeColor} ${staleLabel ? '' : 'status-badge-glow-sky'}`
                             }`}
                         >
                             {isSyncing ? (
                                 <>
-                                    <svg className="w-3 h-3 animate-spin shrink-0" fill="none" viewBox="0 0 24 24">
-                                        <circle
-                                            className="opacity-25"
-                                            cx="12"
-                                            cy="12"
-                                            r="10"
-                                            stroke="currentColor"
-                                            strokeWidth="3"
+                                    {/* Triple-dot pulse — more energetic than a spinner */}
+                                    <span className="flex items-center gap-0.5 shrink-0">
+                                        <span
+                                            className="w-1 h-1 rounded-full bg-sky-200"
+                                            style={{ animation: 'hh-pulse 1.2s ease-in-out 0s infinite' }}
                                         />
-                                        <path
-                                            className="opacity-75"
-                                            fill="currentColor"
-                                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                        <span
+                                            className="w-1 h-1 rounded-full bg-sky-200"
+                                            style={{ animation: 'hh-pulse 1.2s ease-in-out 0.2s infinite' }}
                                         />
-                                    </svg>
+                                        <span
+                                            className="w-1 h-1 rounded-full bg-sky-200"
+                                            style={{ animation: 'hh-pulse 1.2s ease-in-out 0.4s infinite' }}
+                                        />
+                                    </span>
                                     <span>Syncing</span>
                                 </>
                             ) : (
                                 <>
                                     <svg
-                                        className="w-3 h-3 opacity-50 shrink-0"
+                                        className="w-3 h-3 opacity-60 shrink-0"
                                         fill="none"
                                         viewBox="0 0 24 24"
                                         stroke="currentColor"
