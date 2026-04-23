@@ -114,9 +114,14 @@ public class WeatherKitPlugin: CAPPlugin {
 
     private static func serializeDay(_ d: DayWeather) -> [String: Any] {
         let fmt = ISO8601DateFormatter()
+        // DayWeather exposes a single `date` (start of day in local
+        // timezone) — not startDate/endDate. Compute the end by adding
+        // a calendar day so the downstream mapper has both edges.
+        let startDate = d.date
+        let endDate = Calendar.current.date(byAdding: .day, value: 1, to: startDate) ?? startDate
         return [
-            "forecastStart": fmt.string(from: d.startDate),
-            "forecastEnd": fmt.string(from: d.endDate),
+            "forecastStart": fmt.string(from: startDate),
+            "forecastEnd": fmt.string(from: endDate),
             "conditionCode": String(describing: d.condition),
             "temperatureMax": d.highTemperature.converted(to: .celsius).value,
             "temperatureMin": d.lowTemperature.converted(to: .celsius).value,
@@ -135,10 +140,15 @@ public class WeatherKitPlugin: CAPPlugin {
     }
 
     private static func serializeMinute(_ m: MinuteWeather) -> [String: Any] {
+        // `precipitationIntensity` is a Measurement<UnitSpeed> in Apple's
+        // model, and Foundation's built-in UnitSpeed doesn't define a
+        // "millimetres per hour" unit — the base SI value is m/s. Pass
+        // the raw value through; the TS mapper already handles it as
+        // a number and re-interprets the scale.
         return [
             "startTime": ISO8601DateFormatter().string(from: m.date),
             "precipitationChance": m.precipitationChance,
-            "precipitationIntensity": m.precipitationIntensity.converted(to: .millimetersPerHour).value,
+            "precipitationIntensity": m.precipitationIntensity.value,
         ]
     }
 }
