@@ -2,50 +2,60 @@
  * blitzortungLightning — Real-time global lightning strike feed via the
  * volunteer-operated Blitzortung.org detector network.
  *
- * ⚠️ CURRENTLY DISABLED (2026-04-22)
- * ──────────────────────────────────
- * Blitzortung's terms of service explicitly forbid browser-direct WebSocket
- * connections from third-party apps. Their servers check Origin/Referer and
- * close unknown clients with code 1006 before the first message arrives.
- * Quote from their FAQ: "Third party apps must use their own servers."
+ * Platform routing (2026-04-23)
+ * ─────────────────────────────
+ * NATIVE iOS (Capacitor): connects directly via the Swift `Lightning`
+ *   plugin, which opens a URLSessionWebSocketTask to
+ *   `wss://ws{1,5,6,7}.blitzortung.org:3000/`. Apple's native networking
+ *   doesn't set an Origin header, so Blitzortung's server-side check
+ *   treats us as a native app (which their ToS explicitly permits) and
+ *   streams live strikes. No server relay needed.
  *
- * To ship this properly we need a small server-side relay:
- *   - Thalassa backend (Cloudflare Worker Durable Object, Railway, or Pi)
- *     holds the WebSocket upstream to Blitzortung
- *   - Clients connect to wss://relay.thalassawx.com/lightning instead
- *   - Relay multiplexes one upstream connection to N browser subscribers
+ * WEB browser: disabled — WKWebView / Chrome / Safari all send an Origin
+ *   header on WebSocket handshakes that Blitzortung rejects with code
+ *   1006 before the first message. A future server-side relay at
+ *   relay.thalassawx.com would unblock this; until then, the lightning
+ *   layer is a no-op on web and the UI toggle is hidden in non-native
+ *   builds.
  *
- * Until that relay exists, `subscribeLightningStrikes()` is a no-op. The
- * previous code used exponential-backoff reconnect which flooded the console
- * with `WebSocket closed: code=1006` every few seconds — now we fail once,
- * log the architectural requirement, and stay quiet.
- *
- * Why we picked Blitzortung (replacing Xweather):
+ * Why Blitzortung (replacing Xweather, DECOMMISSIONED 2026-04-22):
  *   - Free for non-commercial use (email permission for commercial)
- *   - No daily quota — Xweather exhausted its quota 2026-04-22
+ *   - No daily quota — Xweather exhausted its quota mid-afternoon
  *   - Strong Australian coverage (where most of our users are)
  *   - Real-time (sub-minute latency) vs Xweather's 15-min raster
- *   - Animated point markers > static raster tiles for visual impact
+ *   - Animated point markers > static raster tiles
  *
- * Architecture (once relay ships):
- *   1. Browser opens WSS to relay.thalassawx.com
- *   2. Relay forwards JSON-stringified LightningStrike objects
- *   3. Each strike fires listeners in the 16-min ring buffer
+ * Message flow:
+ *   1. Swift LightningPlugin opens wss:// to one of 4 live-data servers
+ *   2. On open, sends {"time":0} to request live feed
+ *   3. Server streams LZW-encoded JSON strings
+ *   4. Swift forwards raw strings to JS via Capacitor events
+ *   5. JS decodes (LZW + JSON.parse) and fires listener callbacks
  *
- * License: data attribution required — render "⚡ Blitzortung.org" chip
+ * License: attribution required — render "⚡ Blitzortung.org" chip
  * somewhere in the UI when this layer is active.
  */
+
+import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 
 import { createLogger } from '../../../utils/createLogger';
 
 const log = createLogger('blitzortung');
 
-// ── Disabled flag ─────────────────────────────────────────────────────
-// Set to `true` once the server-side relay at relay.thalassawx.com ships.
-// Until then, we skip the connect entirely — Blitzortung's servers reject
-// third-party origins with code 1006 and auto-reconnect just floods the
-// console.
-const RELAY_AVAILABLE = false;
+// ── Native WebSocket bridge ───────────────────────────────────────────
+// Implemented in ios/App/App/LightningPlugin.swift. The web build gets
+// a no-op proxy — `Capacitor.isNativePlatform()` guards us from ever
+// calling into it there.
+interface LightningNativePlugin {
+    start(options: { url: string; subscribeMessage: string }): Promise<void>;
+    stop(): Promise<void>;
+    addListener(
+        eventName: 'open' | 'message' | 'close' | 'error',
+        handler: (event: { data?: string; error?: string; code?: number; reason?: string }) => void,
+    ): Promise<PluginListenerHandle> & PluginListenerHandle;
+    removeAllListeners(): Promise<void>;
+}
+const LightningNative = registerPlugin<LightningNativePlugin>('Lightning');
 
 // ── Server pool ───────────────────────────────────────────────────────
 // Blitzortung runs 4 known live-data servers. Pick one randomly to spread
@@ -138,103 +148,145 @@ function decodeMessage(rawData: string): LightningStrike | null {
     }
 }
 
-// ── Connection manager ────────────────────────────────────────────────
+// ── Connection state ──────────────────────────────────────────────────
+
+type ConnectionStatus = 'open' | 'connecting' | 'closed';
 
 interface ConnectionState {
-    socket: WebSocket | null;
     listeners: Set<StrikeListener>;
-    reconnectAttempts: number;
-    closed: boolean;
+    status: ConnectionStatus;
+    /** Listener handles returned by Capacitor addListener — removed on teardown. */
+    nativeHandles: PluginListenerHandle[];
+    /** Retry timer so we can cancel on disconnect. */
+    retryTimer: ReturnType<typeof setTimeout> | null;
+    retryAttempts: number;
 }
 
 const state: ConnectionState = {
-    socket: null,
     listeners: new Set(),
-    reconnectAttempts: 0,
-    closed: true,
+    status: 'closed',
+    nativeHandles: [],
+    retryTimer: null,
+    retryAttempts: 0,
 };
 
-function connect(): void {
-    if (state.socket && state.socket.readyState === WebSocket.OPEN) return;
-    state.closed = false;
-    const url = pickServerUrl();
-    log.info(`Connecting to ${url}`);
+/** Fire a strike out to every subscriber; isolate each callback so one
+ *  throwing listener doesn't kill the others. */
+function emitStrike(strike: LightningStrike): void {
+    state.listeners.forEach((cb) => {
+        try {
+            cb(strike);
+        } catch (err) {
+            log.warn('Listener threw', err);
+        }
+    });
+}
 
-    let socket: WebSocket;
-    try {
-        socket = new WebSocket(url);
-    } catch (err) {
-        log.warn('WebSocket constructor threw', err);
-        scheduleReconnect();
+async function connect(): Promise<void> {
+    if (state.status !== 'closed') return;
+    state.status = 'connecting';
+
+    if (!Capacitor.isNativePlatform()) {
+        // Web path intentionally left unwired — Blitzortung rejects
+        // browser origins. Once a server-side relay ships this is
+        // where we'd open wss://relay.thalassawx.com instead.
+        log.info('Web platform — lightning feed not available (server relay required)');
+        state.status = 'closed';
         return;
     }
-    state.socket = socket;
 
-    socket.addEventListener('open', () => {
-        log.info('Connected — subscribing');
-        state.reconnectAttempts = 0;
-        // Subscribe to the live data feed.
-        socket.send(JSON.stringify({ time: 0 }));
+    const url = pickServerUrl();
+    log.info(`Opening native Lightning WebSocket to ${url}`);
+
+    // Tear down any previous handles first (defensive — start/stop cycles).
+    await teardownNativeHandles();
+
+    // Register handlers BEFORE start so we don't race the first frames.
+    const onOpen = await LightningNative.addListener('open', () => {
+        log.info('Lightning WebSocket open — streaming strikes');
+        state.status = 'open';
+        state.retryAttempts = 0;
     });
+    const onMessage = await LightningNative.addListener('message', ({ data }) => {
+        if (!data) return;
+        const strike = decodeMessage(data);
+        if (strike) emitStrike(strike);
+    });
+    const onError = await LightningNative.addListener('error', ({ error }) => {
+        log.warn('Lightning WebSocket error:', error ?? '(unknown)');
+    });
+    const onClose = await LightningNative.addListener('close', ({ code, reason }) => {
+        log.info(`Lightning WebSocket closed: code=${code ?? 'n/a'} reason=${reason || '(none)'}`);
+        state.status = 'closed';
+        // If we still have active subscribers, try to come back — but
+        // with a bounded backoff so a misbehaving server doesn't burn
+        // battery.
+        if (state.listeners.size > 0) scheduleReconnect();
+    });
+    state.nativeHandles = [onOpen, onMessage, onError, onClose];
 
-    socket.addEventListener('message', (e: MessageEvent) => {
-        const raw = typeof e.data === 'string' ? e.data : '';
-        const strike = decodeMessage(raw);
-        if (!strike) return;
-        state.listeners.forEach((cb) => {
-            try {
-                cb(strike);
-            } catch (err) {
-                log.warn('Listener threw', err);
-            }
+    try {
+        await LightningNative.start({
+            url,
+            subscribeMessage: JSON.stringify({ time: 0 }),
         });
-    });
-
-    socket.addEventListener('close', (e: CloseEvent) => {
-        log.info(`Closed: code=${e.code} reason=${e.reason || '(none)'}`);
-        state.socket = null;
-        if (!state.closed) scheduleReconnect();
-    });
-
-    socket.addEventListener('error', (err: Event) => {
-        log.warn('Socket error', err);
-        // 'close' will fire after this — let it handle the reconnect.
-    });
+    } catch (err) {
+        log.warn('Lightning start() rejected', err);
+        state.status = 'closed';
+        await teardownNativeHandles();
+        if (state.listeners.size > 0) scheduleReconnect();
+    }
 }
 
 function scheduleReconnect(): void {
-    if (state.closed) return;
-    state.reconnectAttempts++;
-    // Only retry once — Blitzortung rejects non-whitelisted origins with
-    // 1006 and retrying just fills the console. If the first attempt fails,
-    // mark the feed permanently closed for this session and log the fix.
-    if (state.reconnectAttempts >= 2) {
-        log.warn(
-            'Blitzortung rejected the connection (code 1006). Their terms require ' +
-                'a server-side relay for third-party apps — the browser-direct feed ' +
-                'is off until relay.thalassawx.com ships. See blitzortungLightning.ts header.',
-        );
-        state.closed = true;
-        return;
-    }
-    const delay = 2000;
-    log.info(`Reconnect in ${delay}ms (attempt ${state.reconnectAttempts})`);
-    setTimeout(() => {
-        if (!state.closed) connect();
-    }, delay);
+    if (state.retryTimer) return;
+    state.retryAttempts++;
+    // Exponential-ish backoff: 5s, 15s, 30s, then every 60s. Capped so
+    // we don't hammer Blitzortung if something's genuinely broken on
+    // their side.
+    const delayMs =
+        state.retryAttempts === 1
+            ? 5_000
+            : state.retryAttempts === 2
+              ? 15_000
+              : state.retryAttempts === 3
+                ? 30_000
+                : 60_000;
+    log.info(`Reconnect scheduled in ${delayMs}ms (attempt ${state.retryAttempts})`);
+    state.retryTimer = setTimeout(() => {
+        state.retryTimer = null;
+        if (state.listeners.size > 0 && state.status === 'closed') {
+            void connect();
+        }
+    }, delayMs);
 }
 
-function disconnect(): void {
-    state.closed = true;
-    if (state.socket) {
+async function teardownNativeHandles(): Promise<void> {
+    const handles = state.nativeHandles;
+    state.nativeHandles = [];
+    for (const h of handles) {
         try {
-            state.socket.close();
+            await h.remove();
         } catch {
             /* best effort */
         }
-        state.socket = null;
     }
-    state.reconnectAttempts = 0;
+}
+
+async function disconnect(): Promise<void> {
+    if (state.retryTimer) {
+        clearTimeout(state.retryTimer);
+        state.retryTimer = null;
+    }
+    state.retryAttempts = 0;
+    state.status = 'closed';
+    if (!Capacitor.isNativePlatform()) return;
+    try {
+        await LightningNative.stop();
+    } catch {
+        /* best effort */
+    }
+    await teardownNativeHandles();
 }
 
 // ── Public API ────────────────────────────────────────────────────────
@@ -242,35 +294,26 @@ function disconnect(): void {
 /**
  * Subscribe to live lightning strikes. Returns an unsubscribe fn.
  *
- * On first subscriber → opens the WebSocket.
- * On last unsubscribe → closes the WebSocket.
+ *   First subscriber → opens the native WebSocket
+ *   Last unsubscribe → closes it + clears retry state
  *
- * Strikes fire continuously as long as at least one subscriber exists.
+ * On web, this is a no-op — the listener is registered but no strikes
+ * will ever fire because the WebSocket can't open (see header).
  */
 export function subscribeLightningStrikes(cb: StrikeListener): () => void {
     state.listeners.add(cb);
-    if (!RELAY_AVAILABLE) {
-        // Relay not yet deployed — log once per session so we don't
-        // confuse future-us debugging an empty lightning layer.
-        if (state.listeners.size === 1) {
-            log.info(
-                'Lightning feed disabled (awaiting server relay). Toggle RELAY_AVAILABLE ' +
-                    'in blitzortungLightning.ts once the relay is live.',
-            );
-        }
-        return () => {
-            state.listeners.delete(cb);
-        };
+    if (state.listeners.size === 1 && state.status === 'closed') {
+        void connect();
     }
-    if (state.listeners.size === 1) connect();
     return () => {
         state.listeners.delete(cb);
-        if (state.listeners.size === 0) disconnect();
+        if (state.listeners.size === 0) {
+            void disconnect();
+        }
     };
 }
 
 /** Inspect connection status — for diagnostic UI. */
-export function getLightningConnectionStatus(): 'open' | 'connecting' | 'closed' {
-    if (!state.socket) return state.closed ? 'closed' : 'connecting';
-    return state.socket.readyState === WebSocket.OPEN ? 'open' : 'connecting';
+export function getLightningConnectionStatus(): ConnectionStatus {
+    return state.status;
 }
