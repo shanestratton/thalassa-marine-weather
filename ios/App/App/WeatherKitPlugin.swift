@@ -24,8 +24,24 @@ import WeatherKit
  *   - WeatherKit capability in the Xcode target (com.apple.developer.weatherkit)
  *   - An Apple Developer account with WeatherKit enabled (free for
  *     native; the 500k-call/mo quota is shared with REST usage)
+ *
+ * IMPORTANT — @available on the CLASS broke Capacitor registration
+ * ────────────────────────────────────────────────────────────────
+ * Previously this file had `@available(iOS 16.0, *)` on the class
+ * itself. Capacitor's bridge resolves plugins at app launch via
+ * `NSClassFromString("WeatherKitPlugin")`, which returns nil when the
+ * class is conditionally available — even on iOS versions that satisfy
+ * the constraint. The symptom: JS always got
+ *   "WeatherKit" plugin is not implemented on ios
+ * (Capacitor's generic "proxy with no native impl" message).
+ *
+ * The Xcode deployment target is iOS 17, so WeatherKit (iOS 16+) is
+ * unconditionally available at runtime — no class-level annotation
+ * needed. Removed the attribute; framework lookup happens per-call
+ * below and is safe because we never ship to <iOS 16 anyway.
+ * `#available` stays on the one iOS 18-only API (`precipitationAmountByType`)
+ * inside `rainfallMM`.
  */
-@available(iOS 16.0, *)
 @objc(WeatherKitPlugin)
 public class WeatherKitPlugin: CAPPlugin {
 
