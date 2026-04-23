@@ -2,6 +2,7 @@ import React, { Suspense, useState, useEffect, useRef } from 'react';
 import { useWeather } from './context/WeatherContext';
 import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
+import { useLocationStore } from './stores/LocationStore';
 import { useAppController } from './hooks/useAppController';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
 import { Dashboard } from './components/Dashboard';
@@ -124,6 +125,18 @@ const App: React.FC = () => {
         return () => window.removeEventListener('thalassa:openUpgrade', handler);
     }, [setIsUpgradeOpen]);
 
+    // Live GPS-derived location name — subscribed here (above the
+    // conditional early return) so React's rules-of-hooks are happy.
+    // The useLiveLocationName hook on the Dashboard writes to
+    // LocationStore via setFromGPS on each successful reverse-geocode,
+    // so subscribing here lets the header title update within ~1s of a
+    // fresh GPS fix — even when the cached weather's locationName is
+    // stale or was a bad forward-geocode from onboarding (e.g. 'Old
+    // Aust Road, England' for a user who typed 'Newport' but meant
+    // Newport, QLD).
+    const locationStore = useLocationStore();
+    const livePreferred = locationStore.source === 'gps' && locationStore.name ? locationStore.name : null;
+
     // Loading State
     if (settingsLoading) {
         return (
@@ -144,7 +157,9 @@ const App: React.FC = () => {
     // Show the location name as-is when it's a real place name.
     // Only prepend "WP" for raw decimal coordinates (e.g. "-27.47, 153.03").
     // Cardinal formats (e.g. "27.47°S, 153.03°E") are already human-readable — leave them.
-    const rawTitle = weatherData ? weatherData.locationName : query || settings.defaultLocation || 'Select Location';
+    const rawTitle =
+        livePreferred ||
+        (weatherData ? weatherData.locationName : query || settings.defaultLocation || 'Select Location');
     let displayTitle = rawTitle;
 
     // Only catch truly raw/generic names:
