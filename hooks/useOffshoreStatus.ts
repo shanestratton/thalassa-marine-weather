@@ -15,8 +15,11 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSettingsStore } from '../stores/settingsStore';
 import type { OffshoreModel } from '../types';
 
+// Kept short enough to fit "OFFSHORE (XXX)" on a single line in the
+// header status badge alongside all the other offshore models. "Stormglass
+// AI" was the only one that wrapped to a second line.
 const MODEL_LABELS: Record<OffshoreModel, string> = {
-    sg: 'Stormglass AI',
+    sg: 'SG AI',
     ecmwf: 'ECMWF',
     gfs: 'GFS / NOAA',
     icon: 'ICON',
