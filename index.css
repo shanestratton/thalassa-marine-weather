@@ -2086,6 +2086,89 @@ body,
 }
 
 /* ═══════════════════════════════════════════════════════════════════
+   METRIC GRID ICON ANIMATIONS — ~60s auto-stop
+   Lives on the 5x2 weather metrics grid on The Glass. Previous "infinite
+   wiggle" version burnt the GPU/CPU and cooked phones on long voyages;
+   this version uses `animation-iteration-count` so each animation plays
+   for roughly 60 seconds after mount and then stops. Pure CSS — no JS
+   timers, no setInterval, no requestAnimationFrame.
+
+   All animations are transform + opacity only (GPU compositor, no layout
+   or paint triggers). `will-change` hints the compositor to promote each
+   icon to its own layer while animating, then quietly retire it.
+   ═══════════════════════════════════════════════════════════════════ */
+
+.metric-anim-wind {
+    /* 20 iterations × 3s = 60s of subtle sway */
+    animation: icon-wind-blow 3s ease-in-out 20;
+    transform-origin: center;
+    will-change: transform;
+}
+
+.metric-anim-compass {
+    /* 15 × 4s = 60s. Wobble is bigger amplitude so slower cadence */
+    animation: icon-compass-wobble 4s ease-in-out 15;
+    transform-origin: center;
+    will-change: transform;
+}
+
+.metric-anim-wave {
+    /* 24 × 2.5s = 60s, gentle bob */
+    animation: icon-wave-undulate 2.5s ease-in-out 24;
+    transform-origin: center;
+    will-change: transform;
+}
+
+.metric-anim-sun {
+    /* 20 × 3s = 60s, breathing pulse */
+    animation: icon-sun-pulse 3s ease-in-out 20;
+    transform-origin: center;
+    will-change: transform, opacity;
+}
+
+.metric-anim-rain {
+    /* 30 × 2s = 60s, droplet fall loop */
+    animation: icon-rain-fall 2s ease-in 30;
+    transform-origin: center;
+    will-change: transform, opacity;
+}
+
+.metric-anim-gauge {
+    /* Reuse compass wobble for the HPA needle — same vibe, longer cadence */
+    animation: icon-compass-wobble 4s ease-in-out 15;
+    transform-origin: center;
+    will-change: transform;
+}
+
+.metric-anim-eye {
+    /* Visibility pulse — same breathing cadence as sun but softer */
+    animation: icon-sun-pulse 3s ease-in-out 20;
+    transform-origin: center;
+    will-change: transform, opacity;
+}
+
+.metric-anim-droplet {
+    /* Humidity — gentle bob for the droplet shape */
+    animation: icon-wave-undulate 2.5s ease-in-out 24;
+    transform-origin: center;
+    will-change: transform;
+}
+
+/* Respect the user's reduced-motion preference: skip the wiggle entirely. */
+@media (prefers-reduced-motion: reduce) {
+    .metric-anim-wind,
+    .metric-anim-compass,
+    .metric-anim-wave,
+    .metric-anim-sun,
+    .metric-anim-rain,
+    .metric-anim-gauge,
+    .metric-anim-eye,
+    .metric-anim-droplet {
+        animation: none;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
    ESSENTIAL WX MAP — Wind Streaks & Weather Pulse
    CSS-only animations: zero JS per-frame, GPU-composited only.
    ═══════════════════════════════════════════════════════════════════ */
