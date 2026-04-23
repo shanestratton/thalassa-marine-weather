@@ -319,9 +319,18 @@ export class WeatherOrchestrator {
                 level: 'info',
             });
             this.cb.setLoading(false);
+            // Prefer saved coordinates for the home port over re-geocoding
+            // the name. Names like "Newport" match six cities worldwide;
+            // whichever one the geocoder returned first could be a
+            // different one than the user originally picked during
+            // onboarding ("Old Aust Road, England" for a user who meant
+            // Newport, QLD). The saved coords were captured at pick-time
+            // so they're authoritative.
+            const savedCoords = settings.defaultLocationCoords as Coords | undefined;
             setTimeout(() => {
                 this.fetchWeather(loc, {
                     force: !hasCachedData,
+                    coords: savedCoords,
                     showOverlay: false,
                     silent: hasCachedData,
                 });

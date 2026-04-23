@@ -29,6 +29,7 @@ import type { SubscriptionTier } from '../types/settings';
 import { ArrowRightIcon } from './Icons';
 import { reverseGeocode, parseLocation } from '../services/weatherService';
 import { fetchWeatherByStrategy } from '../services/weather';
+import { saveLargeDataImmediate, DATA_CACHE_KEY } from '../services/nativeStorage';
 import { getSystemUnits } from '../utils';
 import { GpsService } from '../services/GpsService';
 import { Capacitor } from '@capacitor/core';
@@ -244,9 +245,25 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
         if (prefetchRef.current) return; // Only prefetch once
         prefetchRef.current = true;
         log.info(`Prefetching weather for ${name} (${lat.toFixed(2)}, ${lon.toFixed(2)})`);
-        fetchWeatherByStrategy(lat, lon, name).catch(() => {
-            prefetchRef.current = false; // Allow retry on failure
-        });
+        fetchWeatherByStrategy(lat, lon, name)
+            .then((report) => {
+                // Save to the instant-cache key so loadInstantCache on the
+                // Dashboard sees it immediately when the user lands on The
+                // Glass. Previously the fetch result just lived in the
+                // API-layer cache, which meant The Glass still did a full
+                // fetch chain on first paint (quick because of TTL hits,
+                // but not as fast as a direct localStorage read).
+                if (report) {
+                    try {
+                        saveLargeDataImmediate(DATA_CACHE_KEY, report);
+                    } catch (e) {
+                        log.warn('Could not persist prefetched weather:', e);
+                    }
+                }
+            })
+            .catch(() => {
+                prefetchRef.current = false; // Allow retry on failure
+            });
     };
 
     /** Resolve a lat/lon pair into a name and update homePort state */
@@ -478,6 +495,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
             firstName: sanitizeText(firstName) || undefined,
             lastName: sanitizeText(lastName) || undefined,
             defaultLocation: homePort,
+            // Save the actual coords too, not just the name string.
+            // Without this, the weather fetcher re-geocodes "Newport"
+            // from scratch on every cold start and picks whichever
+            // Newport the geocoder returns first — often NOT the one
+            // the user actually selected during onboarding.
+            defaultLocationCoords: tempLocation ? { lat: tempLocation.lat, lon: tempLocation.lon } : undefined,
             vessel: vesselData,
             units: {
                 speed: prefSpeed,
