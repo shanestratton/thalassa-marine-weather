@@ -46,6 +46,18 @@ function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number):
     return 2 * R * Math.asin(Math.sqrt(a));
 }
 
+/**
+ * Format a lat/lon pair as a human-readable marine coordinate, e.g.
+ * "23.5142°S, 154.2310°E". Used as a fallback when reverseGeocode
+ * returns nothing — which is the common case over open ocean, where
+ * Nominatim has no named admin region.
+ */
+function formatCoords(lat: number, lon: number): string {
+    const latPart = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}`;
+    const lonPart = `${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}`;
+    return `${latPart}, ${lonPart}`;
+}
+
 export function useLiveLocationName(): string | null {
     const [name, setName] = useState<string | null>(null);
 
@@ -82,14 +94,25 @@ export function useLiveLocationName(): string | null {
 
             try {
                 const resolved = await reverseGeocode(latest.lat, latest.lon);
-                if (!resolved) return;
+                // Offshore fallback: reverseGeocode returns null/empty over
+                // open ocean (Nominatim doesn't have a "Pacific Ocean" at
+                // 20°S 160°W in its admin hierarchy). Swap in formatted
+                // coords so the punter still sees a useful, updating label
+                // instead of being stuck on the last shore name.
+                const displayName = resolved || formatCoords(latest.lat, latest.lon);
                 lastGeocodedRef.current = { ...latest };
-                setName(resolved);
+                setName(displayName);
                 // Mirror into LocationStore so any other consumer that
                 // reads from there sees the fresh label too.
-                LocationStore.setFromGPS(latest.lat, latest.lon, resolved);
+                LocationStore.setFromGPS(latest.lat, latest.lon, displayName);
             } catch (err) {
-                log.warn('reverseGeocode failed', err);
+                // Even on network/API failure we can still show coords
+                // rather than leave the label stale.
+                log.warn('reverseGeocode failed — falling back to coords', err);
+                const fallback = formatCoords(latest.lat, latest.lon);
+                lastGeocodedRef.current = { ...latest };
+                setName(fallback);
+                LocationStore.setFromGPS(latest.lat, latest.lon, fallback);
             }
         }, POLL_INTERVAL_MS);
 
