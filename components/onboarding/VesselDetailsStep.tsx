@@ -128,15 +128,14 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
     }) => (
         <div
             className="animate-in fade-in slide-in-from-right-8 duration-500"
-            // Scroll + keyboard handling is now owned by the outer wizard
-            // container (`overflow-y-auto` + safe-area padding + the
-            // keyboardDidShow handler that scrollIntoView's the focused
-            // input). Previously this step had its own max-h + overflow
-            // block AND a dynamic paddingBottom tied to keyboardHeight —
-            // which meant every time the keyboard dismissed (e.g. tapping
-            // a checkbox after typing), the inner container re-rendered
-            // with new padding and reset scrollTop to zero. That's the
-            // "jump back to top" bug. Removing both fixes it.
+            // Keyboard-height padding at the bottom keeps the lower inputs
+            // (fuel / water / crew count) scrollable above the keyboard
+            // rather than letting them hide underneath it. The outer
+            // wizard owns the scroll — it snapshots scrollTop on
+            // keyboardWillHide and restores it on the next frame so
+            // collapsing this padding doesn't yank the user back to the
+            // top of the form.
+            style={{ paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : undefined }}
         >
             {vesselType === 'observer' ? (
                 <div className="text-center py-10">
