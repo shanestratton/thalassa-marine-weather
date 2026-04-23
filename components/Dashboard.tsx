@@ -851,15 +851,16 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 (warnings / sunrise / sunset). Earlier `+108px`
                                 offset put the banner's bottom edge over the
                                 warnings row (banner height ~45px vs the 18px
-                                available gap at that offset). Shifting up to
-                                `+68px` clears the CompactHeaderRow at
-                                `+126px` with ~13px of breathing room and gives
-                                the location pill above a clean visual break.
+                                available gap at that offset). First pass moved
+                                to `+68px`; user asked for a further ~8px nudge
+                                down so the location pill above has a bit more
+                                breathing room, landing at `+76px`. Still clears
+                                the CompactHeaderRow at `+126px` with ~5px margin.
                                 z-[130] keeps it above the black blocker /
                                 CompactHeaderRow so it's always readable. */}
                             <div
                                 className="fixed left-0 right-0 z-[130] px-4"
-                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 68px)' }}
+                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 76px)' }}
                             >
                                 <StalenessBanner
                                     generatedAt={data.generatedAt}
