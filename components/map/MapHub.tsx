@@ -609,6 +609,53 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Location Dot (basic fallback — disabled when vessel tracker is active) ──
     useLocationDot(mapRef, locationDotRef, mapReady && !vesselTrackingVisible);
 
+    // ── Fly to the selected weather location when it arrives / changes ──
+    // `initialCenter` on useMapInit sets the mount-time centre, but when the
+    // weather data is still loading from cache it's undefined and the map
+    // falls back to live GPS. This effect fills that gap: as soon as
+    // weatherCoords is available — and any time it changes afterwards — we
+    // recentre on the selected location. User-driven pans don't change
+    // weatherCoords, so their pan sticks.
+    //
+    // First centre jumps instantly at the AU+NZ fit zoom (what the user
+    // asked for: "width of AU and NZ together, zoom ~2.87"). Subsequent
+    // centres preserve the user's current zoom so we don't yank them out
+    // of a harbour view they zoomed into.
+    const lastFlownCoordsRef = useRef<{ lat: number; lon: number } | null>(null);
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady) return;
+        if (embedded || pickerMode || passage.showPassage || isPinView) return;
+        if (!weatherCoords) return;
+
+        const last = lastFlownCoordsRef.current;
+        if (last && Math.abs(last.lat - weatherCoords.lat) < 1e-6 && Math.abs(last.lon - weatherCoords.lon) < 1e-6) {
+            return;
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const ausNzFitZoom = (map as any).__ausNzMinZoom ?? map.getMinZoom();
+        const isFirst = last === null;
+        map.jumpTo({
+            center: [weatherCoords.lon, weatherCoords.lat],
+            zoom: isFirst ? ausNzFitZoom : Math.max(map.getZoom(), ausNzFitZoom),
+        });
+        if (!isFirst) {
+            // Tiny nudge so the camera has a moment of animation on in-session changes
+            map.easeTo({ center: [weatherCoords.lon, weatherCoords.lat], duration: 600 });
+        }
+        lastFlownCoordsRef.current = { lat: weatherCoords.lat, lon: weatherCoords.lon };
+    }, [
+        mapReady,
+        weatherCoords?.lat,
+        weatherCoords?.lon,
+        embedded,
+        pickerMode,
+        passage.showPassage,
+        isPinView,
+        weatherCoords,
+    ]);
+
     // ── GPS Vessel Tracker Layer ──
     const { flyToVessel } = useVesselTracker(mapRef, mapReady, vesselTrackingVisible);
 
