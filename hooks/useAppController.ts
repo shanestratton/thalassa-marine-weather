@@ -69,7 +69,12 @@ export const useAppController = () => {
             setShowOnboarding(true);
         } else if (!weatherData && !loading && settings.defaultLocation) {
             setPage('dashboard');
-            fetchWeather(settings.defaultLocation);
+            // Pass the saved coords if we have them — prevents the
+            // weather orchestrator from forward-geocoding the name
+            // string and picking a wrong match (e.g. Mapbox prefers
+            // Newport, Monmouthshire UK over Newport, QLD AU for a
+            // query of 'Newport, QLD, AU').
+            fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [settings.defaultLocation]);
@@ -220,7 +225,11 @@ export const useAppController = () => {
         setShowOnboarding(false);
         if (newSettings.defaultLocation) {
             setQuery(newSettings.defaultLocation);
-            setTimeout(() => fetchWeather(newSettings.defaultLocation!, true), 100);
+            // Pass coords — the onboarding wizard now saves them alongside
+            // the name. Forward-geocoding 'Newport, QLD, AU' returns UK
+            // Newport as a top match; bypassing parseLocation with the
+            // authoritative coords from the wizard kills that bug.
+            setTimeout(() => fetchWeather(newSettings.defaultLocation!, true, newSettings.defaultLocationCoords), 100);
         }
     };
 
