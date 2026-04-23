@@ -187,9 +187,20 @@ class PushNotificationServiceClass {
     /**
      * Clear badge count — call when app enters foreground.
      * Resets the iOS badge to 0 and marks pending notifications as "read" in DB.
+     *
+     * Guard against the "capacitorDidRegisterForRemoteNotifications not called"
+     * spam: if the app doesn't have the Push Notifications capability enabled
+     * in the Apple Developer portal, every clearBadge() call fails with that
+     * message. It fires on every foreground transition, and until entitlements
+     * are set up there's nothing useful we can log about it — it just buries
+     * real warnings. Skip cleanly when there's no token.
      */
     async clearBadge(): Promise<void> {
         if (!Capacitor.isNativePlatform()) return;
+        // No token = either permission not granted or capability missing.
+        // Either way, the native removeAllDeliveredNotifications call will
+        // throw the same useless error every time; short-circuit.
+        if (!this.deviceToken) return;
 
         try {
             // Reset iOS badge to 0
