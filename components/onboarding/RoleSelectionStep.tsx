@@ -68,7 +68,7 @@ const ROLE_OPTIONS: {
         emoji: '👀',
         label: 'Deckhand',
         tagline: 'Just here for weather and community',
-        features: ['3-day marine forecast', 'Crew Talk & community', 'Browse Chandlery'],
+        features: ['3-day marine forecast', 'Crew Talk & community', 'Shop the Chandlery'],
         color: 'text-gray-400',
         borderColor: 'border-gray-500',
         bgColor: 'bg-white/5',

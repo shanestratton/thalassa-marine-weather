@@ -63,7 +63,7 @@ export const UnitPreferencesStep: React.FC<UnitPreferencesStepProps> = React.mem
         onVolumeChange,
         onNext,
     }) => (
-        <div className="animate-in fade-in slide-in-from-right-8 duration-500">
+        <div className="animate-in fade-in slide-in-from-right-8 duration-500 pt-8">
             <h2 className="text-2xl font-bold text-white mb-2 text-center">Unit Preferences</h2>
             <p className="text-xs text-gray-400 text-center mb-6">Defaults from your phone locale — change anytime.</p>
 

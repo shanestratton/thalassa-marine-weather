@@ -36,7 +36,7 @@ export const DisplayPrefsStep: React.FC<DisplayPrefsStepProps> = ({
     onDisplayModeChange,
     onFinish,
 }) => (
-    <div className="animate-in fade-in slide-in-from-right-8 duration-500">
+    <div className="animate-in fade-in slide-in-from-right-8 duration-500 pt-8">
         <h2 className="text-2xl font-bold text-white mb-6 text-center">Display Preferences</h2>
 
         <div className="space-y-6 mb-8">
