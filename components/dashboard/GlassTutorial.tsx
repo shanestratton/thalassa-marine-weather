@@ -1,13 +1,15 @@
 /**
  * GlassTutorial — first-time user coach marks for The Glass.
  *
- * Shows a short 3-slide modal the first time a user lands on the
+ * Shows a short 4-slide modal the first time a user lands on the
  * Dashboard, walking them through the non-obvious gestures that
  * otherwise stay hidden:
  *   1. Tap the chevron to toggle between Full and Essential modes
  *      (Essential mode shows the map alongside the weather).
  *   2. Swipe horizontally to step through future hours within a day.
  *   3. Swipe vertically to step through different days (today → +7).
+ *   4. Offshore only — tap anywhere on the metrics grid to open the
+ *      multi-model comparison matrix (SG, ECMWF, GFS, ICON).
  *
  * Dismissal sticks in localStorage so the modal never shows twice.
  * Rendered unconditionally in Dashboard — the component handles its
@@ -46,6 +48,13 @@ const SLIDES: Slide[] = [
         subtitle: 'Swipe up or down on the tide chart to move through the 7-day forecast, day by day.',
         visual: <VerticalSwipeVisual />,
         gradient: 'from-amber-500/20 to-orange-500/10',
+    },
+    {
+        title: 'Offshore Models',
+        subtitle:
+            'Offshore? Tap anywhere on the metrics grid to compare Stormglass AI, ECMWF, GFS and ICON side-by-side. Switch between wind, gusts, waves and pressure with the tabs at the top.',
+        visual: <OffshoreModelsVisual />,
+        gradient: 'from-violet-500/20 to-fuchsia-500/10',
     },
 ];
 
@@ -256,6 +265,71 @@ function HorizontalSwipeVisual() {
                 @keyframes tut-swipe-x {
                     0%, 100% { transform: translate(-60px, -50%); opacity: 0.4; }
                     50% { transform: translate(60px, -50%); opacity: 1; }
+                }
+            `}</style>
+        </div>
+    );
+}
+
+/**
+ * Mini preview of the offshore model-comparison matrix. Four coloured
+ * sparklines (matching the real widget's palette) converging and
+ * diverging over a time axis + a tap-target dot indicating the user
+ * can tap anywhere on the grid to open it.
+ */
+function OffshoreModelsVisual() {
+    const lines = [
+        { color: '#34d399', d: 'M6 38 Q30 24 60 26 T120 14 T180 8', label: 'SG' }, // emerald
+        { color: '#38bdf8', d: 'M6 36 Q30 28 60 30 T120 22 T180 18', label: 'ECMWF' }, // sky
+        { color: '#fbbf24', d: 'M6 40 Q30 30 60 34 T120 26 T180 24', label: 'GFS' }, // amber
+        { color: '#a78bfa', d: 'M6 34 Q30 22 60 28 T120 18 T180 12', label: 'ICON' }, // violet
+    ];
+    return (
+        <div className="relative w-56 h-28 rounded-xl bg-white/[0.06] border border-white/10 shadow-xl overflow-hidden">
+            {/* Param tabs at top */}
+            <div className="absolute inset-x-0 top-2 flex items-center justify-center gap-1">
+                {['WIND', 'GUST', 'WAVE', 'HPA'].map((p, i) => (
+                    <span
+                        key={p}
+                        className={`text-[8px] font-bold tracking-wider px-2 py-0.5 rounded ${
+                            i === 0 ? 'bg-sky-500/30 text-sky-200 ring-1 ring-sky-400/40' : 'bg-white/5 text-white/40'
+                        }`}
+                    >
+                        {p}
+                    </span>
+                ))}
+            </div>
+
+            {/* Sparklines */}
+            <svg className="absolute inset-x-0 top-8 w-full h-16" viewBox="0 0 186 48" fill="none">
+                {lines.map((l, i) => (
+                    <path
+                        key={i}
+                        d={l.d}
+                        stroke={l.color}
+                        strokeWidth={i === 0 ? 2 : 1.3}
+                        strokeOpacity={i === 0 ? 1 : 0.6}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        fill="none"
+                    />
+                ))}
+                {/* Endpoint dots on the highlighted line */}
+                <circle cx="180" cy="8" r="2" fill="#34d399" />
+            </svg>
+
+            {/* Tap hint */}
+            <div className="absolute bottom-1.5 inset-x-0 flex items-center justify-center gap-1.5">
+                <span
+                    className="w-2 h-2 rounded-full bg-violet-400/80 shadow-[0_0_8px_rgba(167,139,250,0.6)]"
+                    style={{ animation: 'tut-tap-pulse 1.8s ease-in-out infinite' }}
+                />
+                <span className="text-[9px] font-bold uppercase tracking-wider text-white/50">Tap grid</span>
+            </div>
+            <style>{`
+                @keyframes tut-tap-pulse {
+                    0%, 100% { transform: scale(1); opacity: 0.6; }
+                    50% { transform: scale(1.6); opacity: 1; }
                 }
             `}</style>
         </div>
