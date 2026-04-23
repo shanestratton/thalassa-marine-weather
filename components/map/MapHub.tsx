@@ -500,6 +500,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         embedded,
         center,
         location,
+        initialCenter: weatherCoords ? { lat: weatherCoords.lat, lon: weatherCoords.lon } : undefined,
         onLocationSelect,
         pickerMode,
         settingPoint: passage.settingPoint,
