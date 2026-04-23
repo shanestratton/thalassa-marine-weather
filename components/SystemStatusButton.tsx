@@ -405,6 +405,25 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
     const [showModal, setShowModal] = useState(false);
     const [showStopConfirm, setShowStopConfirm] = useState(false);
 
+    // ── Aggressive Pi status refresh while the modal is open ─────────
+    // The background health check runs every 30s. That's fine for steady-
+    // state but means a just-disconnected Pi still reads as "connected" to
+    // any user who opens the modal within 30s of pulling the plug. Force an
+    // immediate ping on open and poll every 5s while the modal is visible
+    // so the indicator tracks reality within ~5s of a state change.
+    useEffect(() => {
+        if (!showModal) return;
+        // Immediate fresh ping on open.
+        piCache.ping().catch(() => {
+            /* ping errors already drive the listener → reachable=false */
+        });
+        const id = setInterval(() => {
+            if (document.hidden) return;
+            piCache.ping().catch(() => {});
+        }, 5_000);
+        return () => clearInterval(id);
+    }, [showModal]);
+
     // ── GPS Tracking state ──
     const [gpsTracking, setGpsTracking] = useState(() => ShipLogService.getTrackingStatus());
     const [isMoving, setIsMoving] = useState(false);
@@ -443,11 +462,12 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
             setPiStatus(status);
         });
 
-        // Seed initial state
-        const initial = piCache.getStatus();
-        if (initial.reachable) {
-            setPiStatus(initial);
-        }
+        // Seed initial state — previously this was gated on
+        // `if (initial.reachable)` which was wrong: if the Pi was unreachable
+        // at mount, piStatus stayed null and the modal couldn't tell the
+        // difference between "never checked" and "checked, not reachable".
+        // Always seeding gives the derived state a concrete value to render.
+        setPiStatus(piCache.getStatus());
 
         return unsub;
     }, []);
