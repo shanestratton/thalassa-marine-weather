@@ -24,6 +24,7 @@ import { ShimmerBlock } from './ui/ShimmerBlock';
 
 import { useSettings } from '../context/SettingsContext';
 import { useWeather } from '../context/WeatherContext';
+import { useLiveLocationName } from '../hooks/useLiveLocationName';
 
 import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
 import { UnitPreferences, SourcedWeatherMetrics } from '../types';
@@ -107,6 +108,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
     // Freshness signals for the StalenessBanner
     const { error: weatherError, backgroundUpdating, loading: weatherLoading, refreshData } = useWeather();
+
+    // Live reverse-geocode of the user's GPS — polls every 10s, only
+    // calls the geocoder if the punter has actually moved > 50m since
+    // the last update. Gated on LocationStore.source === 'gps' so
+    // pinned-map or searched locations aren't overwritten.
+    const liveLocationName = useLiveLocationName();
     const isInland = data?.locationType === 'inland' || isLandlocked;
     const offshore = useOffshoreStatus(data?.locationType);
     const isOffshore = offshore.isOffshore;
@@ -503,7 +510,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             tideHourly: data?.tideHourly || [],
             boatingAdvice: boatingAdvice || '',
             lockerItems: lockerItems,
-            locationName: data?.locationName,
+            // Prefer the live GPS-derived name when available; fall back
+            // to the name baked into the weather snapshot. The live name
+            // only resolves when the user is in GPS-follow mode.
+            locationName: liveLocationName || data?.locationName,
             timeZone: data?.timeZone,
             modelUsed: data?.modelUsed,
             isLandlocked: isLandlocked,
@@ -543,6 +553,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             shareReport,
             props.onTriggerUpgrade,
             props.onOpenMap,
+            liveLocationName,
         ],
     );
 
