@@ -269,11 +269,25 @@ export default defineConfig(({ mode }) => {
                 getKey('VITE_SUPABASE_ANON_KEY') || getKey('VITE_SUPABASE_KEY') || getKey('SUPABASE_KEY') || '',
             ),
         },
-        // Strip console.*/debugger from production builds
+        // Strip debug-noise console.* from production but KEEP .warn and .error
+        // so production incidents actually surface in Xcode Console / Sentry.
+        //
+        // Previous `drop: ['console']` was over-broad — it removed every
+        // console.* call including errors, which meant createLogger's
+        // log.warn/log.error and any ad-hoc console.error diagnostics
+        // silently vanished after minification, making production debugging
+        // of native-bridge failures (e.g. WeatherKit entitlement errors)
+        // effectively impossible.
+        //
+        // `pure` marks these calls as side-effect-free so esbuild's dead-
+        // code-elimination removes them because their return value is never
+        // consumed. Same net effect as `drop` for .log/.info/.debug but
+        // leaves the error/warn channels alone.
         esbuild:
             mode === 'production'
                 ? {
-                      drop: ['console', 'debugger'],
+                      pure: ['console.log', 'console.info', 'console.debug'],
+                      drop: ['debugger'],
                   }
                 : undefined,
         build: {
