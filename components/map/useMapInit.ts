@@ -233,8 +233,11 @@ export function useMapInit(opts: UseMapInitOptions) {
             center: startCenter,
             zoom: startZoom,
             attributionControl: false,
-            maxZoom: 18,
-            minZoom: embedded ? initialZoom : ausNzFitZoom,
+            // Full zoom range — user wants to be able to pinch out to world view
+            // and pinch in as deep as Mapbox allows. Opens at `startZoom` (AU+NZ
+            // fit, ~2.87 on a typical portrait phone) but can go anywhere.
+            maxZoom: 22,
+            minZoom: embedded ? initialZoom : 1,
             renderWorldCopies: true,
             projection: 'mercator' as mapboxgl.MapboxOptions['projection'],
             interactive: true,
@@ -321,15 +324,16 @@ export function useMapInit(opts: UseMapInitOptions) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (map as any).__ausNzMinZoom = ausNzFitZoom;
 
-        // Refine minZoom using map.project() once rendered (more accurate
-        // for the actual viewport/projection state).
-        const calcFillMinZoom = () => {
+        // Refine the cached AU+NZ fit zoom once the map is idle — other
+        // hooks read `map.__ausNzMinZoom` as the "opens-on" zoom target.
+        // Deliberately NOT setting minZoom here: the user wants to be able
+        // to pinch out below the AU+NZ fit all the way to world view.
+        const refineAusNzFitZoom = () => {
             if (embedded || !containerRef.current) return;
             const cw = containerRef.current.clientWidth;
             const ch = containerRef.current.clientHeight;
             const z = map.getZoom();
 
-            // Measure how many pixels Aus+NZ spans at the current zoom
             const leftPx = map.project([AUS_NZ_WEST, (AUS_NZ_NORTH + AUS_NZ_SOUTH) / 2]).x;
             const rightPx = map.project([AUS_NZ_EAST, (AUS_NZ_NORTH + AUS_NZ_SOUTH) / 2]).x;
             const topPx = map.project([(AUS_NZ_WEST + AUS_NZ_EAST) / 2, AUS_NZ_NORTH]).y;
@@ -338,22 +342,14 @@ export function useMapInit(opts: UseMapInitOptions) {
             const spanW = Math.abs(rightPx - leftPx);
             const spanH = Math.abs(bottomPx - topPx);
 
-            // Min = fit entire box on screen (contain, not cover)
             const zoomForWidth = z + Math.log2(cw / spanW);
             const zoomForHeight = z + Math.log2(ch / spanH);
             const target = Math.max(Math.min(zoomForWidth, zoomForHeight), 0.5);
 
-            map.setMinZoom(target);
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (map as any).__ausNzMinZoom = target;
-
-            // If current zoom is wider than the Aus+NZ limit, snap to the
-            // exact fit centered on the Aus+NZ midpoint (no animation on boot).
-            if (map.getZoom() < target) {
-                map.jumpTo({ center: AUS_NZ_CENTER, zoom: target });
-            }
         };
-        map.once('idle', calcFillMinZoom);
+        map.once('idle', refineAusNzFitZoom);
 
         map.on('load', () => {
             const style = map.getStyle();
@@ -1124,7 +1120,7 @@ export function useMapInit(opts: UseMapInitOptions) {
         // ResizeObserver — recalculate fill-width minZoom on resize
         const resizeObserver = new ResizeObserver(() => {
             map.resize();
-            calcFillMinZoom();
+            refineAusNzFitZoom();
         });
         resizeObserver.observe(containerRef.current);
 

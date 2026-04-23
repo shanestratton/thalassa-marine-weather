@@ -1173,12 +1173,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                         skChartOpacity={skChartOpacity}
                         skConnectionStatus={skCharts.connectionStatus}
                         onToggleSkChart={(id: string) => {
+                            const turningOn = !skChartIds.has(id);
                             setSkChartIds((prev) => {
                                 const next = new Set(prev);
                                 if (next.has(id)) next.delete(id);
                                 else next.add(id);
                                 return next;
                             });
+                            if (turningOn) {
+                                const chart = skCharts.availableCharts.find((c) => c.id === id);
+                                if (chart) skCharts.flyToChart(chart);
+                            }
                         }}
                         onSkChartOpacityChange={setSkChartOpacity}
                         onFlyToChart={skCharts.flyToChart}
@@ -1215,7 +1220,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                               }
                             : {})}
                         chartCatalogSources={chartCatalog.sources}
-                        onToggleChartSource={chartCatalog.toggleSource}
+                        onToggleChartSource={(id) => {
+                            const src = chartCatalog.sources.find((s) => s.id === id);
+                            const turningOn = src ? !src.enabled : false;
+                            chartCatalog.toggleSource(id);
+                            if (turningOn && src) chartCatalog.flyToSource(src);
+                        }}
                         onChartSourceOpacity={chartCatalog.setOpacity}
                         onFlyToChartSource={chartCatalog.flyToSource}
                         onUpdateLinzKey={chartCatalog.updateLinzKey}
@@ -1224,12 +1234,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                         localChartOpacity={localChartOpacity}
                         localChartsLoading={localCharts.loading}
                         onToggleLocalChart={(fileName: string) => {
+                            const turningOn = !localChartIds.has(fileName);
                             setLocalChartIds((prev) => {
                                 const next = new Set(prev);
                                 if (next.has(fileName)) next.delete(fileName);
                                 else next.add(fileName);
                                 return next;
                             });
+                            if (turningOn) {
+                                const chart = localCharts.availableCharts.find((c) => c.fileName === fileName);
+                                if (chart) localCharts.flyToChart(chart);
+                            }
                         }}
                         onLocalChartOpacityChange={setLocalChartOpacity}
                         onFlyToLocalChart={localCharts.flyToChart}
