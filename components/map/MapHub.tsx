@@ -624,18 +624,30 @@ export const MapHub: React.FC<MapHubProps> = ({
     const lastFlownCoordsRef = useRef<{ lat: number; lon: number } | null>(null);
     useEffect(() => {
         const map = mapRef.current;
+        const name = weatherData?.locationName;
+        log.info(
+            `[MapCentre] effect tick — mapReady=${mapReady} weatherName=${name ?? 'null'} coords=${
+                weatherCoords ? `${weatherCoords.lat.toFixed(3)},${weatherCoords.lon.toFixed(3)}` : 'null'
+            } embedded=${embedded} picker=${pickerMode} passage=${passage.showPassage} pin=${isPinView}`,
+        );
         if (!map || !mapReady) return;
         if (embedded || pickerMode || passage.showPassage || isPinView) return;
         if (!weatherCoords) return;
 
         const last = lastFlownCoordsRef.current;
         if (last && Math.abs(last.lat - weatherCoords.lat) < 1e-6 && Math.abs(last.lon - weatherCoords.lon) < 1e-6) {
+            log.info(
+                `[MapCentre] skipping — coords unchanged since last fly (${last.lat.toFixed(3)},${last.lon.toFixed(3)})`,
+            );
             return;
         }
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const ausNzFitZoom = (map as any).__ausNzMinZoom ?? map.getMinZoom();
         const isFirst = last === null;
+        log.info(
+            `[MapCentre] FLYING to ${name} (${weatherCoords.lat.toFixed(3)},${weatherCoords.lon.toFixed(3)}) isFirst=${isFirst}`,
+        );
         map.jumpTo({
             center: [weatherCoords.lon, weatherCoords.lat],
             zoom: isFirst ? ausNzFitZoom : Math.max(map.getZoom(), ausNzFitZoom),
@@ -654,6 +666,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         passage.showPassage,
         isPinView,
         weatherCoords,
+        weatherData?.locationName,
     ]);
 
     // ── GPS Vessel Tracker Layer ──
