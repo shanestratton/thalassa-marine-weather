@@ -10,6 +10,7 @@
 import { useEffect, useRef, useCallback, useState, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { ChartCatalogService, type ChartSource, type ChartSourceId } from '../../services/ChartCatalogService';
+import { LocationStore } from '../../stores/LocationStore';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('ChartCatalog-Map');
@@ -131,18 +132,29 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Fly to a chart's coverage area
+    // Fly to a chart's coverage area — or fall back to the user's current
+    // location when bounds are missing.
     const flyToSource = useCallback(
         (src: ChartSource) => {
             const map = mapRef.current;
-            if (!map || !src.bounds) return;
-            map.fitBounds(
-                [
-                    [src.bounds[0], src.bounds[1]],
-                    [src.bounds[2], src.bounds[3]],
-                ],
-                { padding: 40, duration: 1500 },
-            );
+            if (!map) return;
+            if (src.bounds) {
+                map.fitBounds(
+                    [
+                        [src.bounds[0], src.bounds[1]],
+                        [src.bounds[2], src.bounds[3]],
+                    ],
+                    { padding: 40, duration: 1500 },
+                );
+                return;
+            }
+            const loc = LocationStore.getState();
+            const fallbackZoom = Math.min(Math.max((src.maxZoom ?? 14) - 4, 6), 12);
+            map.flyTo({
+                center: [loc.lon, loc.lat],
+                zoom: fallbackZoom,
+                duration: 1500,
+            });
         },
         [mapRef],
     );
