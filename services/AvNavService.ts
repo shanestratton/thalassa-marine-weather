@@ -1272,27 +1272,33 @@ class AvNavServiceClass {
         if (!this.enabled || this.status !== 'connected') return;
 
         const baseUrl = this.getBaseUrl();
-        try {
-            const res = await fetch(`${baseUrl}/signalk`, {
-                signal: AbortSignal.timeout(5000),
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        } catch {
-            // If it's an AvNav server, try AvNav health check instead
-            if (this.serverType === 'avnav') {
-                try {
-                    const res2 = await fetch(`${baseUrl}/api/status`, {
-                        signal: AbortSignal.timeout(5000),
-                    });
-                    if (res2.ok) return; // AvNav is healthy
-                } catch {
-                    /* AvNav also down */
-                }
+        // Use CapacitorHttp — WebView `fetch()` is blocked by iOS App
+        // Transport Security on http:// URLs (boat LAN servers are
+        // HTTP-only) so bare `fetch` always failed here, flagging the
+        // server as dead even when chart tiles (which DO use
+        // CapacitorHttp.get) were fetching successfully. Symptom:
+        // "[AvNav] Health check failed — reconnecting" while charts
+        // rendered fine.
+        const ok = async (url: string): Promise<boolean> => {
+            try {
+                const res = await CapacitorHttp.get({
+                    url,
+                    connectTimeout: 5000,
+                    readTimeout: 5000,
+                });
+                return res.status >= 200 && res.status < 400;
+            } catch {
+                return false;
             }
-            log.warn('Health check failed — reconnecting');
-            this.setStatus('disconnected');
-            this.scheduleReconnect();
-        }
+        };
+
+        if (await ok(`${baseUrl}/signalk`)) return;
+        // Fallback probe for AvNav-only boxes that don't run SignalK.
+        if (this.serverType === 'avnav' && (await ok(`${baseUrl}/api/status`))) return;
+
+        log.warn('Health check failed — reconnecting');
+        this.setStatus('disconnected');
+        this.scheduleReconnect();
     }
 
     private startChartRefresh() {
