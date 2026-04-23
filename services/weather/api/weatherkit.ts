@@ -339,6 +339,42 @@ export const fetchWeatherKitFull = async (lat: number, lon: number): Promise<Wea
     try {
         let json: WeatherKitRaw;
 
+        // ── FAST PATH: Native WeatherKit framework (iOS only) ──
+        // Authenticates via the device's App Store identity instead of
+        // going through Supabase to sign a JWT — saves 500ms-1s of cold
+        // start latency on every weather fetch. Returns the same
+        // REST-API-shaped JSON so the downstream mappers are unchanged.
+        // Gracefully returns null if the WeatherKit capability isn't
+        // enabled yet, in which case we fall through to the Supabase
+        // edge fn path below.
+        try {
+            const { fetchWeatherKitNative } = await import('../../native/weatherKit');
+            const nativeJson = await fetchWeatherKitNative(lat, lon);
+            if (nativeJson && typeof nativeJson === 'object') {
+                json = nativeJson as WeatherKitRaw;
+                const observation = json?.currentWeather ? mapCurrentWeather(json.currentWeather) : null;
+                const hourly = json?.forecastHourly ? mapHourlyForecast(json.forecastHourly) : [];
+                const daily = json?.forecastDaily ? mapDailyForecast(json.forecastDaily, tz) : [];
+                const { rain: minutelyRain, summary: rainSummary } = json?.forecastNextHour
+                    ? mapNextHourForecast(json.forecastNextHour)
+                    : { rain: [], summary: '' };
+                const result: WeatherKitFullResponse = {
+                    observation,
+                    hourly,
+                    daily,
+                    minutelyRain,
+                    rainSummary,
+                };
+                cachedFull = { data: result, fetchedAt: Date.now(), key: cacheKey };
+                apiCacheSet('weatherkit', lat, lon, result);
+                return result;
+            }
+        } catch {
+            // Native path unavailable / failed — silently fall through to
+            // the Supabase edge fn path. Non-native web users hit this
+            // branch every time by design.
+        }
+
         // ── Pi Cache shortcut: route through local Pi for offline availability ──
         if (piCache.isAvailable()) {
             try {
