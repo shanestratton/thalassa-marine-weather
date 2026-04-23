@@ -1193,6 +1193,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                             });
                             if (turningOn) {
                                 const chart = skCharts.availableCharts.find((c) => c.id === id);
+                                console.warn(
+                                    `[ChartFly] sk toggle ${id} on → chart=${!!chart} bounds=${JSON.stringify(chart?.bounds)}`,
+                                );
                                 if (chart) skCharts.flyToChart(chart);
                             }
                         }}
@@ -1234,6 +1237,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onToggleChartSource={(id) => {
                             const src = chartCatalog.sources.find((s) => s.id === id);
                             const turningOn = src ? !src.enabled : false;
+                            console.warn(
+                                `[ChartFly] catalog toggle ${id} on=${turningOn} src=${!!src} bounds=${JSON.stringify(src?.bounds)}`,
+                            );
                             chartCatalog.toggleSource(id);
                             if (turningOn && src) chartCatalog.flyToSource(src);
                         }}
@@ -1254,6 +1260,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                             });
                             if (turningOn) {
                                 const chart = localCharts.availableCharts.find((c) => c.fileName === fileName);
+                                console.warn(
+                                    `[ChartFly] local toggle ${fileName} on → chart=${!!chart} bounds=${JSON.stringify(
+                                        chart?.metadata?.bounds,
+                                    )}`,
+                                );
                                 if (chart) localCharts.flyToChart(chart);
                             }
                         }}
