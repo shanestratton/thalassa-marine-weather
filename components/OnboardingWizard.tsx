@@ -552,10 +552,16 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     return (
         <div
             ref={scrollRef}
-            className="fixed inset-0 z-[100] bg-slate-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0f172a] to-black flex items-start md:items-center justify-center px-4 overflow-y-auto wizard-scroll"
+            // `overflow-x-hidden` prevents the entrance animations
+            // (slide-in-from-right-8) or any mis-sized child from
+            // letting the user swipe horizontally. `touch-action: pan-y`
+            // on the inline style further locks the wizard to
+            // vertical-only gestures on iOS WebKit.
+            className="fixed inset-0 z-[100] bg-slate-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0f172a] to-black flex items-start md:items-center justify-center px-4 overflow-x-hidden overflow-y-auto wizard-scroll"
             style={{
                 paddingTop: 'max(1rem, calc(env(safe-area-inset-top) + 3.5rem))',
                 paddingBottom: 'max(1rem, env(safe-area-inset-bottom))',
+                touchAction: 'pan-y',
             }}
         >
             {/* Ambient Background Glow */}

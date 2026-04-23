@@ -506,6 +506,12 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
         const NAME_CHECK_NM = 0.5;
         const WEATHER_REFRESH_NM = 5;
+        // Big-jump threshold — above this we ALWAYS refetch, ignoring
+        // the cold-start debounce. Covers the 'punter caught a flight'
+        // case where cached weather is for a location hundreds of km
+        // away. 25nm ≈ 46km, comfortably bigger than normal coastal
+        // drift but smaller than inter-city flights.
+        const TELEPORT_NM = 25;
         const POLL_MS = 30_000;
 
         const haversineNM = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
@@ -518,25 +524,21 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
             return 2 * R * Math.asin(Math.sqrt(a));
         };
 
-        const driftCheck = setInterval(() => {
+        const runDriftCheck = () => {
             if (document.hidden) return;
             if (!navigator.onLine || isFetchingRef.current) return;
 
             const current = weatherDataRef.current?.coordinates;
             if (!current) return;
 
-            // Cold-start debounce — don't let the drift detector trigger a
-            // second weather fetch within 60s of the initial fetch. Without
-            // this guard, if the initial fetch used a slightly-stale GPS
-            // cache (staleLimitMs: 60_000) and the drift detector's
-            // request (staleLimitMs: 10_000) returned a fresher position
-            // that differed by > 5nm, we'd fire a second identical fetch.
-            // The initial fetch's weather is already accurate within 5nm,
-            // so the second call just burns API quota without adding value.
+            // Cold-start debounce — don't fire a duplicate fetch within
+            // 60s of the initial one. Skipped for TELEPORT-scale jumps
+            // (e.g. flight home between sessions) where we absolutely
+            // need fresh weather regardless of when the last fetch ran.
             const generatedTs = weatherDataRef.current?.generatedAt
                 ? new Date(weatherDataRef.current.generatedAt).getTime()
                 : 0;
-            if (Date.now() - generatedTs < 60_000) return;
+            const isRecent = Date.now() - generatedTs < 60_000;
 
             GpsService.getCurrentPosition({ staleLimitMs: 10_000 }).then(async (pos) => {
                 if (!pos) return;
@@ -544,6 +546,10 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 const dist = haversineNM(current.lat, current.lon, latitude, longitude);
 
                 if (dist < NAME_CHECK_NM) return;
+
+                // Respect cold-start debounce for small-to-medium drift,
+                // but always refetch on teleport-scale jumps.
+                if (isRecent && dist < TELEPORT_NM) return;
 
                 let name = `${Math.abs(latitude).toFixed(2)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(2)}°${longitude >= 0 ? 'E' : 'W'}`;
                 try {
@@ -554,6 +560,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 }
 
                 if (dist >= WEATHER_REFRESH_NM) {
+                    log.info(`[WeatherContext] GPS drift ${dist.toFixed(1)}nm — refetching weather`);
                     selectLocation(name, { lat: latitude, lon: longitude });
                 } else if (name !== weatherDataRef.current?.locationName) {
                     const existing = weatherDataRef.current;
@@ -567,7 +574,15 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     }
                 }
             });
-        }, POLL_MS);
+        };
+
+        // Run the check IMMEDIATELY on mount — don't wait 30s for the
+        // first interval tick. This is the 'opened app after a flight'
+        // case: cached weather is for Brisbane, phone is in Sydney;
+        // without the immediate run the user stares at wrong-location
+        // weather for up to 30s before the detector catches it.
+        runDriftCheck();
+        const driftCheck = setInterval(runDriftCheck, POLL_MS);
 
         return () => clearInterval(driftCheck);
     }, [locationMode, selectLocation, setWeatherData, updateSettings]);
