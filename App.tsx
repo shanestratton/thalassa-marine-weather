@@ -243,8 +243,10 @@ const App: React.FC = () => {
                     Skip to content
                 </a>
 
-                {/* CONNECTIVITY BANNER — offline/reconnect awareness */}
-                <ConnectivityBanner />
+                {/* CONNECTIVITY BANNER — offline/reconnect awareness.
+                    Skipped on the map page — the map renders a floating pill
+                    version next to the ℹ button instead (see below). */}
+                {currentView !== 'map' && <ConnectivityBanner />}
 
                 {/* GLOBAL TOAST PORTAL */}
                 <ToastPortal />
@@ -555,6 +557,18 @@ const App: React.FC = () => {
                                 />
                             </Suspense>
                         </ErrorBoundary>
+                        {/* Offline pill — sits inline with the ℹ button, fills the horizontal
+                            space from the left edge up to the button (at right:16 + w-12 + 16 gap = 80). */}
+                        <div
+                            className="absolute z-[601] pointer-events-auto"
+                            style={{
+                                top: '56px',
+                                left: '16px',
+                                right: '80px',
+                            }}
+                        >
+                            <ConnectivityBanner variant="floating" />
+                        </div>
                         {/* System status ℹ button — floating on map view, aligned with layer FAB row (top-14 = 56px) */}
                         <div
                             className="absolute z-[601] pointer-events-auto"

@@ -9,11 +9,20 @@
  * Shows:
  *   - Offline: amber strip with "No Signal" + elapsed time
  *   - Back online: green flash "Back Online" → auto-dismiss after 3s
+ *
+ * Variants:
+ *   - 'strip'    — full-width horizontal bar at top of app (default)
+ *   - 'floating' — rounded pill sized to fit inside an absolute-positioned
+ *                  wrapper (used on the map page so it sits next to the ℹ button)
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 
-export const ConnectivityBanner: React.FC = () => {
+interface ConnectivityBannerProps {
+    variant?: 'strip' | 'floating';
+}
+
+export const ConnectivityBanner: React.FC<ConnectivityBannerProps> = ({ variant = 'strip' }) => {
     const isOnline = useOnlineStatus();
     const [showReconnect, setShowReconnect] = useState(false);
     const [elapsedMinutes, setElapsedMinutes] = useState(0);
@@ -61,10 +70,18 @@ export const ConnectivityBanner: React.FC = () => {
         return `${hrs}h ${mins % 60}m`;
     }, []);
 
+    const isFloating = variant === 'floating';
+
     // ── Reconnected flash ──
     if (showReconnect) {
         return (
-            <div className="w-full flex items-center justify-center gap-2 px-4 py-1.5 bg-emerald-500/15 border-b border-emerald-500/20 animate-in fade-in slide-in-from-top duration-300">
+            <div
+                className={
+                    isFloating
+                        ? 'w-full h-12 flex items-center justify-center gap-2 px-3 bg-emerald-500/15 border border-emerald-500/25 rounded-2xl backdrop-blur-xl shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300'
+                        : 'w-full flex items-center justify-center gap-2 px-4 py-1.5 bg-emerald-500/15 border-b border-emerald-500/20 animate-in fade-in slide-in-from-top duration-300'
+                }
+            >
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
                 <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Back Online</span>
             </div>
@@ -74,7 +91,13 @@ export const ConnectivityBanner: React.FC = () => {
     // ── Offline strip ──
     if (!isOnline) {
         return (
-            <div className="w-full flex items-center justify-center gap-2 px-4 py-1.5 bg-amber-500/10 border-b border-amber-500/15 animate-in fade-in slide-in-from-top duration-300">
+            <div
+                className={
+                    isFloating
+                        ? 'w-full h-12 flex items-center justify-center gap-2 px-3 bg-amber-500/15 border border-amber-500/25 rounded-2xl backdrop-blur-xl shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300'
+                        : 'w-full flex items-center justify-center gap-2 px-4 py-1.5 bg-amber-500/10 border-b border-amber-500/15 animate-in fade-in slide-in-from-top duration-300'
+                }
+            >
                 <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
                 <span className="text-[11px] font-bold text-amber-400/80 uppercase tracking-wider">No Signal</span>
                 {elapsedMinutes > 0 && (
