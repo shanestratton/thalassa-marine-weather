@@ -47,10 +47,11 @@ export async function fetchWeatherKitNative(lat: number, lon: number): Promise<u
             log.warn('Native fetch returned unexpected payload');
             return null;
         }
-        // Native returns the data directly (no wrapping); Capacitor gives
-        // us the object as-is. Log just the top-level keys so we can sanity
-        // check in dev without dumping the whole payload.
-        log.info('Native WeatherKit hit:', Object.keys(result as Record<string, unknown>).join(','));
+        // log.info is a no-op in production builds; using log.warn so the
+        // success line shows up in Xcode Console when verifying the native
+        // path is active. Not an actual warning, just routing around the
+        // createLogger prod filter.
+        log.warn('Native WeatherKit hit:', Object.keys(result as Record<string, unknown>).join(','));
         return result;
     } catch (err) {
         // Most common reason: WeatherKit capability not yet enabled in
