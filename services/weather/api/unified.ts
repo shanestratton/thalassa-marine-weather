@@ -285,8 +285,18 @@ export async function fetchUnifiedWeatherRaw(
 ): Promise<StandardWeatherResponse | null> {
     const cacheKey = `${lat.toFixed(2)},${lon.toFixed(2)},${userId || ''}`;
     if (cached && cached.key === cacheKey && Date.now() - cached.fetchedAt < CACHE_TTL) {
+        // Diagnostic trace: in-memory cache hit (won't show for first call after cold boot).
+        console.warn('[unified] cache hit', cacheKey);
         return cached.data;
     }
+
+    // DIAGNOSTIC: unconditional entry marker so we can verify this path runs in
+    // the Xcode console. console.warn bypasses the createLogger prod filter.
+    console.warn('[unified] fetchUnifiedWeatherRaw entered', {
+        lat: lat.toFixed(4),
+        lon: lon.toFixed(4),
+        isNative: Capacitor.isNativePlatform(),
+    });
 
     // ── NATIVE FAST PATH (iOS only) ──
     // Skip Supabase entirely and call Apple's WeatherKit framework
@@ -296,20 +306,26 @@ export async function fetchUnifiedWeatherRaw(
     // not yet granted, network error, etc.).
     if (Capacitor.isNativePlatform()) {
         try {
+            console.warn('[unified] trying native WeatherKit');
             const { fetchWeatherKitNative } = await import('../../native/weatherKit');
             const nativeRaw = await fetchWeatherKitNative(lat, lon);
             if (nativeRaw && typeof nativeRaw === 'object') {
                 const converted = nativeWeatherKitToStandard(nativeRaw, lat, lon);
                 if (converted) {
                     cached = { data: converted, fetchedAt: Date.now(), key: cacheKey };
-                    log.warn(`Unified via native WeatherKit (saved Supabase round-trip)`);
+                    console.warn('[unified] ✅ native WeatherKit WIN — saved Supabase hop');
                     return converted;
                 }
+                console.warn('[unified] native payload present but converter returned null');
+            } else {
+                console.warn('[unified] native returned null — falling through to Supabase');
             }
         } catch (err) {
-            log.warn('Native WeatherKit path failed, falling through to Supabase:', err);
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn('[unified] native WeatherKit threw — falling through to Supabase:', msg);
         }
     }
+    console.warn('[unified] taking Supabase path');
 
     const supabaseUrl = getSupabaseUrl();
     if (!supabaseUrl) {
