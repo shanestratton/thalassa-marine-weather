@@ -40,10 +40,20 @@ const STATUS_STYLES: Record<
         border: 'border-emerald-400/50',
         pill: 'bg-emerald-500/20 text-emerald-200',
         dot: 'bg-emerald-400',
-        label: (s) =>
-            s.strikesReceived > 0
-                ? `Live · ${s.strikesReceived.toLocaleString()} strikes`
-                : 'Live · waiting for strikes',
+        label: (s) => {
+            // Prefer viewport-scoped numbers when there's anything in view —
+            // answers "is the storm I'm looking at active?" rather than
+            // "is anywhere on Earth thunderstorming?".
+            if (s.viewportCount > 0) {
+                return `Live · ${s.viewportCount} in view (${s.viewportRate}/min)`;
+            }
+            // Nothing in view — fall back to the global session count so
+            // the user can still tell the feed is healthy.
+            if (s.strikesReceived > 0) {
+                return `Live · ${s.strikesReceived.toLocaleString()} global · 0 in view`;
+            }
+            return 'Live · waiting for strikes';
+        },
     },
     stalled: {
         border: 'border-orange-400/50',
