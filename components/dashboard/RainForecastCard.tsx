@@ -300,14 +300,47 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
         };
     }, []);
 
-    // Time labels
-    const timeLabels = [
-        { min: 0, label: 'NOW' },
-        { min: 15, label: '15M' },
-        { min: 30, label: '30M' },
-        { min: 45, label: '45M' },
-        { min: 59, label: '60M' },
-    ];
+    // Time labels — derived from the ACTUAL data span, not hardcoded.
+    //
+    // Bug that led here: the axis was pinned at 0/15/30/45/60 minutes,
+    // which only matches WeatherKit's 60-sample minutely feed. When
+    // Skipper tier hits Rainbow.ai the feed is up to 240 samples over
+    // 4 hours, and those pinned labels misread every bar position by
+    // up to 4×. A peak visually sitting over "15M" was actually 60 min
+    // away, which is exactly what the user noticed.
+    //
+    // Fix: read the first and last minutelyRain timestamps, compute the
+    // offsets from "now" (in minutes), and generate 5 evenly-spaced
+    // labels across that true range. Formats sub-60min as "Xm" and
+    // 60min+ as "Xh Ym" so 4-hour spans read naturally.
+    const timeLabels = React.useMemo(() => {
+        if (!data || data.length === 0) {
+            return [{ pct: 0, label: 'NOW' }];
+        }
+        const now = Date.now();
+        const firstMin = Math.max(0, Math.round((new Date(data[0].time).getTime() - now) / 60_000));
+        const lastMin = Math.max(
+            firstMin + 1,
+            Math.round((new Date(data[data.length - 1].time).getTime() - now) / 60_000),
+        );
+        const span = lastMin - firstMin;
+
+        const formatMin = (m: number): string => {
+            if (m <= 0) return 'NOW';
+            if (m < 60) return `${m}M`;
+            const h = Math.floor(m / 60);
+            const rest = m - h * 60;
+            return rest === 0 ? `${h}H` : `${h}H${rest}`;
+        };
+
+        // Five evenly-spaced labels: 0%, 25%, 50%, 75%, 100% of the span.
+        // Using pct (not raw minute) so downstream renderers can drop them
+        // on the chart at the correct visual position regardless of span.
+        return [0, 0.25, 0.5, 0.75, 1].map((p) => ({
+            pct: p,
+            label: formatMin(Math.round(firstMin + span * p)),
+        }));
+    }, [data]);
 
     return (
         <div
@@ -560,12 +593,28 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                             })}
                         </div>
 
-                        {/* Time Axis */}
-                        <div className="flex justify-between mt-2 px-0">
-                            {timeLabels.map(({ min, label }) => (
+                        {/* Time Axis — labels positioned by true pct across the
+                            span of the minutelyRain feed, not by fixed index.
+                            Keeps bars and labels aligned regardless of whether
+                            the feed covers 60 min (WeatherKit) or 4h (Rainbow). */}
+                        <div className="relative mt-2 h-4">
+                            {timeLabels.map(({ pct, label }, i) => (
                                 <span
-                                    key={min}
-                                    className="text-[11px] text-white/60 font-bold uppercase tracking-wider"
+                                    key={`${i}-${label}`}
+                                    className="absolute text-[11px] text-white/60 font-bold uppercase tracking-wider"
+                                    style={{
+                                        left: `${pct * 100}%`,
+                                        // Shift the first label flush-left, the
+                                        // last flush-right, the rest centered —
+                                        // matches how bars align to their own
+                                        // flex edges.
+                                        transform:
+                                            pct === 0
+                                                ? 'translateX(0)'
+                                                : pct === 1
+                                                  ? 'translateX(-100%)'
+                                                  : 'translateX(-50%)',
+                                    }}
                                 >
                                     {label}
                                 </span>
