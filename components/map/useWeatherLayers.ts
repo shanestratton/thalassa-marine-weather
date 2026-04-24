@@ -1131,68 +1131,87 @@ export function useWeatherLayers(
             let stale = false;
 
             (async () => {
-                try {
-                    // 1. Fetch RainViewer radar frames + Rainbow.ai snapshot
-                    // IN PARALLEL. Previously these were sequential (~300-800ms
-                    // total); fired together they finish in max(rv, rainbow)
-                    // instead of rv+rainbow.
-                    //
-                    // RainViewer goes through the shared rainviewerIndex module
-                    // so we coalesce with useEmbeddedRain + EssentialMapSlide
-                    // (5min memo + inflight dedup + Pi-cache route).
-                    const supabaseUrl =
-                        (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+                // ═══════════════════════════════════════════════════════════
+                // TWO-PHASE RAIN LOAD — the real fix for "10 seconds to show"
+                // ═══════════════════════════════════════════════════════════
+                // Previously we Promise.all'd RainViewer + Rainbow snapshot
+                // and waited for BOTH before showing anything. Rainbow hits
+                // a Supabase Edge Function whose default wall-clock is ~10s,
+                // so a cold/slow Rainbow blocked the radar from appearing
+                // for that full wall-clock — producing the symptom "rain
+                // takes exactly 10 seconds to show".
+                //
+                // Now:
+                //   Phase 1 — RainViewer only. Radar frames + layers go
+                //             in the map, setRainReady(true) fires. User
+                //             sees current rain within ~300ms.
+                //   Phase 2 — Rainbow snapshot in the background with a
+                //             hard 3s timeout. If it arrives, forecast
+                //             frames get appended to the timeline and
+                //             pre-created as hidden layers. If it doesn't,
+                //             rain still works, just without future frames.
+                // ═══════════════════════════════════════════════════════════
+                const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+                const RAINBOW_FORECAST_MINUTES = [10, 20, 30, 40, 50, 60, 80, 100, 120, 150, 180, 210, 240];
+                const RAINBOW_HARD_TIMEOUT_MS = 3000;
 
-                    // Rainbow snapshot fetcher: hits the in-session memo first,
-                    // falls back to Pi passthrough when boat-network is up,
-                    // last resort is a direct Supabase Edge Function call.
-                    const fetchRainbowSnapshot = async (): Promise<number | null> => {
-                        const memo = rainbowSnapshotMemoRef.current;
-                        if (memo && Date.now() - memo.at < RAINBOW_SNAPSHOT_TTL_MS) {
-                            return memo.snapshot;
-                        }
-                        if (!supabaseUrl) return null;
-                        try {
-                            const upstream = `${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot&layer=precip-global`;
-                            const piUrl = piCache.passthroughUrl(upstream, RAINBOW_SNAPSHOT_TTL_MS, 'rainbow-snapshot');
-                            const snapResp = await fetch(piUrl ?? upstream, { signal: abortCtrl.signal });
-                            if (!snapResp.ok) {
-                                log.warn(`Rainbow.ai snapshot failed: ${snapResp.status}`);
-                                return null;
-                            }
-                            const snapData = await snapResp.json();
-                            const snapshot = snapData.snapshot ?? null;
-                            rainbowSnapshotMemoRef.current = { at: Date.now(), snapshot };
-                            log.info(`Rainbow.ai snapshot: ${snapshot}`);
-                            return snapshot;
-                        } catch (err) {
-                            if (abortCtrl.signal.aborted) throw err;
-                            log.warn('Rainbow.ai snapshot fetch failed, using radar only:', err);
+                // Rainbow snapshot fetcher: memo → Pi passthrough → direct.
+                // Hard 3s timeout so even a dead backend can't block us.
+                const fetchRainbowSnapshot = async (): Promise<number | null> => {
+                    const memo = rainbowSnapshotMemoRef.current;
+                    if (memo && Date.now() - memo.at < RAINBOW_SNAPSHOT_TTL_MS) {
+                        return memo.snapshot;
+                    }
+                    if (!supabaseUrl) return null;
+                    const timeoutCtrl = new AbortController();
+                    const timeoutTimer = setTimeout(() => timeoutCtrl.abort(), RAINBOW_HARD_TIMEOUT_MS);
+                    // Link both the outer abort (layer toggled off) and the
+                    // local timeout — either aborts the fetch.
+                    const onOuterAbort = () => timeoutCtrl.abort();
+                    abortCtrl.signal.addEventListener('abort', onOuterAbort);
+                    try {
+                        const upstream = `${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot&layer=precip-global`;
+                        const piUrl = piCache.passthroughUrl(upstream, RAINBOW_SNAPSHOT_TTL_MS, 'rainbow-snapshot');
+                        const snapResp = await fetch(piUrl ?? upstream, { signal: timeoutCtrl.signal });
+                        if (!snapResp.ok) {
+                            log.warn(`Rainbow.ai snapshot failed: ${snapResp.status}`);
                             return null;
                         }
-                    };
+                        const snapData = await snapResp.json();
+                        const snapshot = snapData.snapshot ?? null;
+                        rainbowSnapshotMemoRef.current = { at: Date.now(), snapshot };
+                        log.info(`Rainbow.ai snapshot: ${snapshot}`);
+                        return snapshot;
+                    } catch (err) {
+                        if (abortCtrl.signal.aborted) throw err;
+                        log.warn(
+                            `Rainbow.ai snapshot fetch failed or timed out (${RAINBOW_HARD_TIMEOUT_MS}ms) — using radar only:`,
+                            err,
+                        );
+                        return null;
+                    } finally {
+                        clearTimeout(timeoutTimer);
+                        abortCtrl.signal.removeEventListener('abort', onOuterAbort);
+                    }
+                };
 
+                // ── PHASE 1: radar (fast path) ────────────────────────────
+                try {
                     const { fetchRainviewerIndex } = await import('../../services/weather/api/rainviewerIndex');
-                    const [radarData, rainbowSnapshotResult] = await Promise.all([
-                        fetchRainviewerIndex(),
-                        fetchRainbowSnapshot(),
-                    ]);
+                    const radarData = await fetchRainviewerIndex();
+                    if (stale || abortCtrl.signal.aborted) {
+                        setRainLoading(false);
+                        return;
+                    }
+
                     const past = radarData?.radar?.past ?? [];
                     const nowcast = radarData?.radar?.nowcast ?? [];
                     const allRadar = [...past, ...nowcast];
 
-                    // 2. Rainbow Global forecast — snapshot already fetched
-                    // in parallel above. Uses precip-global layer for worldwide
-                    // coverage (not just radar footprints). API key stays
-                    // server-side in Supabase Secrets (RAINBOW_API_KEY).
-                    const rainbowSnapshot = rainbowSnapshotResult;
-                    const RAINBOW_FORECAST_MINUTES = [10, 20, 30, 40, 50, 60, 80, 100, 120, 150, 180, 210, 240];
-
-                    // 3. Build unified timeline
+                    // Build radar-only unified timeline first so the UI can
+                    // render as soon as it's ready.
                     const unified: UnifiedRainFrame[] = [];
                     const now = Date.now() / 1000;
-
-                    // Add radar frames
                     for (const f of allRadar) {
                         const diffMin = Math.round((f.time - now) / 60);
                         let label: string;
@@ -1201,53 +1220,32 @@ export function useWeatherLayers(
                             const h = Math.round(diffMin / 60);
                             label = `${h > 0 ? '+' : ''}${h}h`;
                         } else label = `${diffMin > 0 ? '+' : ''}${diffMin}m`;
-
                         unified.push({ type: 'radar', radarPath: f.path, radarTime: f.time, label });
                     }
 
-                    // Mark where "now" is (last past frame)
                     const nowIdx = Math.max(0, past.length - 1);
                     rainNowIdxRef.current = nowIdx;
-
-                    // forecast_time is in SECONDS (not minutes!)
-                    // Use raw dBZ tiles (color=dbz_u8) so we can apply custom raster-color
-                    // matching RainViewer scheme 4 exactly
-                    if (rainbowSnapshot) {
-                        for (const mins of RAINBOW_FORECAST_MINUTES) {
-                            // Format: +10m, +1h, +1h 20m, +2h 30m
-                            let label: string;
-                            if (mins < 60) label = `+${mins}m`;
-                            else if (mins % 60 === 0) label = `+${mins / 60}h`;
-                            else label = `+${Math.floor(mins / 60)}h${mins % 60}m`;
-                            const forecastSecs = mins * 60;
-                            // All tile requests go through proxy-rainbow (API key stays server-side)
-                            const tileUrl = `${supabaseUrl}/functions/v1/proxy-rainbow?action=tile&layer=precip-global&snapshot=${rainbowSnapshot}&forecast=${forecastSecs}&z={z}&x={x}&y={y}&color=dbz_u8`;
-                            unified.push({ type: 'forecast', forecastTileUrl: tileUrl, label });
-                        }
-                    }
-
                     unifiedFramesRef.current = unified;
-                    rainFetchedAtRef.current = Date.now(); // Stamp for staleness-based auto-refresh
+                    rainFetchedAtRef.current = Date.now();
                     setRainFrameCount(unified.length);
                     setRainFrameIndex(nowIdx);
 
-                    // 4. Set up map sources
-                    if (stale || abortCtrl.signal.aborted) return; // Bail if effect was cleaned up during fetch
                     const m = mapRef.current;
-                    if (!m) return;
+                    if (!m) {
+                        setRainLoading(false);
+                        return;
+                    }
 
-                    // Insert rain layers ABOVE the satellite base layer but BELOW labels.
-                    // Previously used 'route-line-layer' as beforeId, which put rain BELOW
-                    // the tiles-satellite layer (85% opacity) — completely hiding the radar.
-                    // Fix: use the first symbol layer (same anchor as satellite) so rain
-                    // stacks directly above satellite in the visual z-order.
+                    // Insert rain layers ABOVE the satellite base layer but
+                    // BELOW labels. Anchor by first symbol so rain stacks
+                    // directly above satellite in the visual z-order.
                     const rainBeforeId = (() => {
                         const layers = m.getStyle()?.layers ?? [];
                         const firstSymbol = layers.find((l) => l.type === 'symbol');
                         return firstSymbol?.id;
                     })();
 
-                    // Pre-create ALL radar layers (hidden) — same instant approach as forecast
+                    // Pre-create radar layers (hidden except the Now frame).
                     const radarFrames = unified.filter((f) => f.type === 'radar');
                     for (let i = 0; i < radarFrames.length; i++) {
                         const rf = radarFrames[i];
@@ -1276,59 +1274,82 @@ export function useWeatherLayers(
                     }
                     log.info(`Pre-created ${radarFrames.length} radar layers`);
 
-                    // Pre-create ALL Rainbow.ai forecast layers (hidden)
-                    // Uses raw dBZ tiles + raster-color to match RainViewer scheme 4 exactly
-                    // dBZ encoding: pixel value 12 = no rain, 13-83 = light→heavy precip
-                    // Colour ramp: transparent → blue → cyan → yellow → orange → red
-
-                    const forecastFrames = unified.filter((f) => f.type === 'forecast');
-                    for (let i = 0; i < forecastFrames.length; i++) {
-                        const ff = forecastFrames[i];
-                        if (!ff.forecastTileUrl) continue;
-                        const srcId = `rainbow-fc-${i}`;
-                        m.addSource(srcId, {
-                            type: 'raster',
-                            tiles: [ff.forecastTileUrl],
-                            tileSize: 256,
-                            minzoom: 2,
-                            // Lowered from 12 → 8. Rainbow's 1km native res
-                            // doesn't add visible detail past z8 for ocean
-                            // weather (cells are larger than the pixel).
-                            // Mapbox overzooms past 8 by stretching the z8
-                            // tile, which looks identical at typical phone
-                            // zooms but cuts the tile request count by ~16x
-                            // per zoom level past 8 — a huge bandwidth win
-                            // when the user pinches in over a coastal area.
-                            maxzoom: 8,
-                        });
-                        m.addLayer(
-                            {
-                                id: srcId,
-                                type: 'raster',
-                                source: srcId,
-                                paint: {
-                                    'raster-opacity': 0,
-                                    'raster-opacity-transition': { duration: 200, delay: 0 },
-                                    'raster-fade-duration': 0,
-                                    'raster-color': RAINVIEWER_COLOR_RAMP,
-                                    'raster-color-mix': [1, 0, 0, 0], // Use red channel as value (R=G=B in grayscale)
-                                    'raster-color-range': [0, 1],
-                                },
-                            },
-                            rainBeforeId,
-                        );
-                    }
-                    log.info(`Pre-created ${forecastFrames.length} Rainbow.ai forecast layers`);
-
+                    // ⚡ PAINT HAPPENS HERE — rain is visible on the map.
                     setRainReady(true);
-                    const forecastCount = rainbowSnapshot ? RAINBOW_FORECAST_MINUTES.length : 0;
-                    log.info(
-                        `Unified timeline: ${unified.length} frames (${allRadar.length} radar + ${forecastCount} Rainbow.ai forecast)`,
-                    );
+                    setRainLoading(false);
+                    log.info(`Radar ready: ${allRadar.length} frames. Rainbow.ai loading in background…`);
+
+                    // ── PHASE 2: Rainbow forecast (background) ────────────
+                    // Doesn't block rainReady. If it fails or times out, the
+                    // user still has a working rain layer.
+                    (async () => {
+                        const rainbowSnapshot = await fetchRainbowSnapshot();
+                        if (stale || abortCtrl.signal.aborted) return;
+                        if (!rainbowSnapshot) return;
+                        const m2 = mapRef.current;
+                        if (!m2) return;
+
+                        // Append forecast frames to the unified timeline.
+                        const current = unifiedFramesRef.current;
+                        const forecastAppendStart = current.length;
+                        const appended = [...current];
+                        for (const mins of RAINBOW_FORECAST_MINUTES) {
+                            let label: string;
+                            if (mins < 60) label = `+${mins}m`;
+                            else if (mins % 60 === 0) label = `+${mins / 60}h`;
+                            else label = `+${Math.floor(mins / 60)}h${mins % 60}m`;
+                            const forecastSecs = mins * 60;
+                            const tileUrl = `${supabaseUrl}/functions/v1/proxy-rainbow?action=tile&layer=precip-global&snapshot=${rainbowSnapshot}&forecast=${forecastSecs}&z={z}&x={x}&y={y}&color=dbz_u8`;
+                            appended.push({ type: 'forecast', forecastTileUrl: tileUrl, label });
+                        }
+                        unifiedFramesRef.current = appended;
+                        setRainFrameCount(appended.length);
+
+                        // Pre-create forecast layers (all hidden initially).
+                        for (let i = 0; i < RAINBOW_FORECAST_MINUTES.length; i++) {
+                            const ff = appended[forecastAppendStart + i];
+                            if (!ff?.forecastTileUrl) continue;
+                            const srcId = `rainbow-fc-${i}`;
+                            // Guard against a race where Phase-2 fires twice
+                            // (e.g. rapid toggle off/on): skip if already
+                            // present so we don't try to add a duplicate.
+                            if (m2.getSource(srcId)) continue;
+                            m2.addSource(srcId, {
+                                type: 'raster',
+                                tiles: [ff.forecastTileUrl],
+                                tileSize: 256,
+                                minzoom: 2,
+                                // Rainbow's 1km native res doesn't add visible
+                                // detail past z8 for ocean weather. Mapbox
+                                // overzooms past 8 by stretching the z8 tile
+                                // — identical-looking at typical phone zooms
+                                // but ~16x fewer tile requests per zoom level.
+                                maxzoom: 8,
+                            });
+                            m2.addLayer(
+                                {
+                                    id: srcId,
+                                    type: 'raster',
+                                    source: srcId,
+                                    paint: {
+                                        'raster-opacity': 0,
+                                        'raster-opacity-transition': { duration: 200, delay: 0 },
+                                        'raster-fade-duration': 0,
+                                        'raster-color': RAINVIEWER_COLOR_RAMP,
+                                        'raster-color-mix': [1, 0, 0, 0],
+                                        'raster-color-range': [0, 1],
+                                    },
+                                },
+                                rainBeforeId,
+                            );
+                        }
+                        log.info(
+                            `Rainbow forecast ready: ${RAINBOW_FORECAST_MINUTES.length} frames appended (timeline now ${appended.length}).`,
+                        );
+                    })();
                 } catch (err) {
                     log.error('Error loading unified rain data:', err);
                     setRainReady(false);
-                } finally {
                     setRainLoading(false);
                 }
             })();
