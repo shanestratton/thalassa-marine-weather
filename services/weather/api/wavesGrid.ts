@@ -216,5 +216,8 @@ async function doFetchWavesGrid(): Promise<WindGrid | null> {
         // Real forecast-hour offsets per step-index (waves are 3-hourly;
         // currents are 1-hourly, so this equals [0,1,...] for them).
         hourOffsets,
+        // Pipeline run time = when step 0 of the forecast represents.
+        // Used by useWeatherLayers to align the scrubber to wall-clock Now.
+        refTime: manifest.generated_at,
     };
 }

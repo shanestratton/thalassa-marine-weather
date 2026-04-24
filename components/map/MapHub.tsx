@@ -1764,9 +1764,19 @@ export const MapHub: React.FC<MapHubProps> = ({
                         } else if (activeLayerKey === 'currents' && isCmemsCurrentsEnabled()) {
                             frameIndex = weather.currentsHour;
                             totalFrames = weather.currentsTotalHours;
-                            const relH = Math.round(frameIndex);
-                            frameLabel = relH === 0 ? 'Now' : `+${relH}h`;
-                            sublabel = relH === 0 ? 'Nowcast' : 'Forecast';
+                            // Label is RELATIVE to Now. nowIdx is whatever
+                            // step aligns with wall-clock now given how old
+                            // the CMEMS manifest is. frame === nowIdx → Now.
+                            const nowIdx = weather.currentsNowIdx;
+                            nowIndex = nowIdx;
+                            const relH = Math.round(frameIndex) - nowIdx;
+                            if (relH === 0) {
+                                frameLabel = 'Now';
+                                sublabel = 'Nowcast';
+                            } else {
+                                frameLabel = relH > 0 ? `+${relH}h` : `${relH}h`;
+                                sublabel = relH > 0 ? 'Forecast' : 'Past';
+                            }
                             isPlaying = weather.currentsPlaying;
                             onScrub = (h: number) => weather.setCurrentsHour(Math.round(h));
                             onPlayToggle = () => weather.setCurrentsPlaying(!weather.currentsPlaying);
@@ -1775,9 +1785,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                             frameIndex = weather.wavesHour;
                             totalFrames = weather.wavesTotalHours;
                             // Waves are 3-hourly — each step = +3h of forecast.
-                            const relH = Math.round(frameIndex) * 3;
-                            frameLabel = relH === 0 ? 'Now' : `+${relH}h`;
-                            sublabel = relH === 0 ? 'Nowcast' : 'Forecast';
+                            const nowIdx = weather.wavesNowIdx;
+                            nowIndex = nowIdx;
+                            const relH = (Math.round(frameIndex) - nowIdx) * 3;
+                            if (relH === 0) {
+                                frameLabel = 'Now';
+                                sublabel = 'Nowcast';
+                            } else {
+                                frameLabel = relH > 0 ? `+${relH}h` : `${relH}h`;
+                                sublabel = relH > 0 ? 'Forecast' : 'Past';
+                            }
                             isPlaying = weather.wavesPlaying;
                             onScrub = (h: number) => weather.setWavesHour(Math.round(h));
                             onPlayToggle = () => weather.setWavesPlaying(!weather.wavesPlaying);
@@ -1786,9 +1803,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                             frameIndex = weather.sstStep;
                             totalFrames = weather.sstTotalSteps;
                             // SST is daily — each step = +1 day of forecast.
-                            const relD = Math.round(frameIndex);
-                            frameLabel = relD === 0 ? 'Today' : `+${relD}d`;
-                            sublabel = relD === 0 ? 'Daily mean' : 'Forecast';
+                            const nowIdx = weather.sstNowIdx;
+                            nowIndex = nowIdx;
+                            const relD = Math.round(frameIndex) - nowIdx;
+                            if (relD === 0) {
+                                frameLabel = 'Today';
+                                sublabel = 'Daily mean';
+                            } else {
+                                frameLabel = relD > 0 ? `+${relD}d` : `${relD}d`;
+                                sublabel = relD > 0 ? 'Forecast' : 'Past';
+                            }
                             isPlaying = weather.sstPlaying;
                             onScrub = (h: number) => weather.setSstStep(Math.round(h));
                             onPlayToggle = () => weather.setSstPlaying(!weather.sstPlaying);
@@ -1796,9 +1820,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                         } else if (activeLayerKey === 'chl' && isCmemsChlEnabled()) {
                             frameIndex = weather.chlStep;
                             totalFrames = weather.chlTotalSteps;
-                            const relD = Math.round(frameIndex);
-                            frameLabel = relD === 0 ? 'Today' : `+${relD}d`;
-                            sublabel = relD === 0 ? 'Daily mean' : 'Forecast';
+                            const nowIdx = weather.chlNowIdx;
+                            nowIndex = nowIdx;
+                            const relD = Math.round(frameIndex) - nowIdx;
+                            if (relD === 0) {
+                                frameLabel = 'Today';
+                                sublabel = 'Daily mean';
+                            } else {
+                                frameLabel = relD > 0 ? `+${relD}d` : `${relD}d`;
+                                sublabel = relD > 0 ? 'Forecast' : 'Past';
+                            }
                             isPlaying = weather.chlPlaying;
                             onScrub = (h: number) => weather.setChlStep(Math.round(h));
                             onPlayToggle = () => weather.setChlPlaying(!weather.chlPlaying);
@@ -1806,9 +1837,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                         } else if (activeLayerKey === 'seaice' && isCmemsSeaIceEnabled()) {
                             frameIndex = weather.seaiceStep;
                             totalFrames = weather.seaiceTotalSteps;
-                            const relD = Math.round(frameIndex);
-                            frameLabel = relD === 0 ? 'Today' : `+${relD}d`;
-                            sublabel = relD === 0 ? 'Daily mean' : 'Forecast';
+                            const nowIdx = weather.seaiceNowIdx;
+                            nowIndex = nowIdx;
+                            const relD = Math.round(frameIndex) - nowIdx;
+                            if (relD === 0) {
+                                frameLabel = 'Today';
+                                sublabel = 'Daily mean';
+                            } else {
+                                frameLabel = relD > 0 ? `+${relD}d` : `${relD}d`;
+                                sublabel = relD > 0 ? 'Forecast' : 'Past';
+                            }
                             isPlaying = weather.seaicePlaying;
                             onScrub = (h: number) => weather.setSeaiceStep(Math.round(h));
                             onPlayToggle = () => weather.setSeaicePlaying(!weather.seaicePlaying);
@@ -1816,9 +1854,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                         } else if (activeLayerKey === 'mld' && isCmemsMldEnabled()) {
                             frameIndex = weather.mldStep;
                             totalFrames = weather.mldTotalSteps;
-                            const relD = Math.round(frameIndex);
-                            frameLabel = relD === 0 ? 'Today' : `+${relD}d`;
-                            sublabel = relD === 0 ? 'Daily mean' : 'Forecast';
+                            const nowIdx = weather.mldNowIdx;
+                            nowIndex = nowIdx;
+                            const relD = Math.round(frameIndex) - nowIdx;
+                            if (relD === 0) {
+                                frameLabel = 'Today';
+                                sublabel = 'Daily mean';
+                            } else {
+                                frameLabel = relD > 0 ? `+${relD}d` : `${relD}d`;
+                                sublabel = relD > 0 ? 'Forecast' : 'Past';
+                            }
                             isPlaying = weather.mldPlaying;
                             onScrub = (h: number) => weather.setMldStep(Math.round(h));
                             onPlayToggle = () => weather.setMldPlaying(!weather.mldPlaying);

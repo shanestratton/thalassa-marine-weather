@@ -191,21 +191,78 @@ interface TileProxyOptions {
 /**
  * Fetch a binary tile through the cache layer.
  * Returns the raw Buffer and content type.
+ *
+ * Uses a stale-while-revalidate strategy when a stale tile is available:
+ * respond with the stale tile IMMEDIATELY and fire the upstream refresh
+ * in the background. This is the key UX win for slow upstreams (e.g.
+ * OWM's `clouds_new` endpoint, which has been measured at 5-7s). Without
+ * SWR, every toggle paid full upstream latency even when the Pi already
+ * had a tile from 20 min ago — the user's device sat on a white map.
+ *
+ * TTL ordering:
+ *   - Within ttlMs: serve fresh cache instantly.
+ *   - TTL expired but within staleWindowMs: serve stale + revalidate.
+ *   - Outside stale window: block on upstream (reduced timeout → fast
+ *     failure mode so we don't hang the client for 10s).
  */
+const TILE_STALE_WINDOW_MS = 60 * 60 * 1000; // 1h — tiles change slowly
+const tileInflight = new Map<string, Promise<void>>();
+
+function revalidateTileInBackground(cache: Cache, opts: TileProxyOptions): void {
+    if (tileInflight.has(opts.cacheKey)) return;
+    const p = (async () => {
+        try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), opts.timeout || 5000);
+            const res = await fetch(opts.url, {
+                headers: opts.headers || {},
+                signal: controller.signal,
+            });
+            clearTimeout(timer);
+            if (!res.ok) throw new Error(`Tile upstream ${res.status}`);
+            const arrayBuffer = await res.arrayBuffer();
+            const data = Buffer.from(arrayBuffer);
+            const contentType = res.headers.get('content-type') || opts.contentType;
+            cache.setTile(opts.cacheKey, data, contentType, opts.ttlMs);
+        } catch (err) {
+            console.warn(`⚡ Background tile revalidation failed for ${opts.cacheKey}: ${(err as Error).message}`);
+        } finally {
+            tileInflight.delete(opts.cacheKey);
+        }
+    })();
+    tileInflight.set(opts.cacheKey, p);
+}
+
 export async function cachedTileFetch(
     cache: Cache,
     opts: TileProxyOptions,
 ): Promise<{ data: Buffer; contentType: string; fromCache: boolean; stale: boolean }> {
-    // 1. Check cache
+    // 1. Fresh cache — serve instantly.
     const cached = cache.getTile(opts.cacheKey);
     if (cached && cache.hasFreshTile(opts.cacheKey)) {
         return { ...cached, fromCache: true, stale: false };
     }
 
-    // 2. Try upstream fetch
+    // 2. SWR fast-path — stale tile within the stale window. Return NOW,
+    //    refresh in background so the next client request gets fresh data.
+    //    This is what fixes the "clouds takes 7s to show" symptom: even a
+    //    20-min-old tile is indistinguishable from fresh at typical sea
+    //    zoom levels, and shipping it instantly beats waiting for OWM.
+    if (cached) {
+        const cachedMeta = cache.getTileMeta?.(opts.cacheKey);
+        const age = cachedMeta ? Date.now() - cachedMeta.storedAt : Infinity;
+        if (age < opts.ttlMs + TILE_STALE_WINDOW_MS) {
+            revalidateTileInBackground(cache, opts);
+            return { ...cached, fromCache: true, stale: true };
+        }
+    }
+
+    // 3. Cold or past stale window — block on upstream. Shortened the
+    //    default timeout from 10s → 5s so a truly dead upstream fails
+    //    quickly instead of hanging the client through the old 10s ceiling.
     try {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), opts.timeout || 10000);
+        const timer = setTimeout(() => controller.abort(), opts.timeout || 5000);
 
         const res = await fetch(opts.url, {
             headers: opts.headers || {},
@@ -224,9 +281,10 @@ export async function cachedTileFetch(
         cache.setTile(opts.cacheKey, data, contentType, opts.ttlMs);
         return { data, contentType, fromCache: false, stale: false };
     } catch (err) {
-        // 3. Fetch failed — serve stale tile
+        // 4. Fetch failed outside stale window — last resort, serve any
+        //    ancient cached version we still have rather than error.
         if (cached) {
-            console.warn(`⚡ Serving stale tile for ${opts.cacheKey}: ${(err as Error).message}`);
+            console.warn(`⚡ Serving ancient stale tile for ${opts.cacheKey}: ${(err as Error).message}`);
             return { ...cached, fromCache: true, stale: true };
         }
         throw err;

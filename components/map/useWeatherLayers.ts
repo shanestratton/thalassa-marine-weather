@@ -200,33 +200,42 @@ export function useWeatherLayers(
     const [currentsHour, setCurrentsHour] = useState(0);
     const [currentsPlaying, setCurrentsPlaying] = useState(false);
     const currentsTotalHours = 12;
+    /** Sub-frame index corresponding to wall-clock "Now". Updated on load
+     *  and every minute while the layer is active so the Now marker creeps
+     *  forward as real time marches on. */
+    const currentsNowIdxRef = useRef(0);
 
     // Waves scrubber (CMEMS WAM, 3-hourly native, 48h window = 17 frames).
     // wavesHour is a STEP index (0..16); each step is +3h of forecast.
     const [wavesHour, setWavesHour] = useState(0);
     const [wavesPlaying, setWavesPlaying] = useState(false);
     const wavesTotalHours = 17;
+    const wavesNowIdxRef = useRef(0);
 
     // SST scrubber (CMEMS daily-mean, today + 5 forecast days = 6 frames
     // because the pipeline's start→end range is inclusive on both ends).
     const [sstStep, setSstStep] = useState(0);
     const [sstPlaying, setSstPlaying] = useState(false);
     const sstTotalSteps = 6;
+    const sstNowIdxRef = useRef(0);
 
     // Chlorophyll scrubber (CMEMS BGC daily, today + 5d = 6 frames).
     const [chlStep, setChlStep] = useState(0);
     const [chlPlaying, setChlPlaying] = useState(false);
     const chlTotalSteps = 6;
+    const chlNowIdxRef = useRef(0);
 
     // Sea-ice scrubber (CMEMS physics daily, today + 5d = 6 frames).
     const [seaiceStep, setSeaiceStep] = useState(0);
     const [seaicePlaying, setSeaicePlaying] = useState(false);
     const seaiceTotalSteps = 6;
+    const seaiceNowIdxRef = useRef(0);
 
     // Mixed-layer depth scrubber (CMEMS physics daily, today + 5d = 6 frames).
     const [mldStep, setMldStep] = useState(0);
     const [mldPlaying, setMldPlaying] = useState(false);
     const mldTotalSteps = 6;
+    const mldNowIdxRef = useRef(0);
 
     // Marine Protected Areas (CAPAD vector tiles). Static overlay —
     // not time-scrubbed, can co-exist with any weather layer (a user
@@ -768,6 +777,193 @@ export function useWeatherLayers(
         }, 60 * 1000); // Every 1 minute
         return () => clearInterval(interval);
     }, [windReady, computeNowIndex]);
+
+    // ── CMEMS Now-alignment helpers ───────────────────────────────────
+    // Shared by the six CMEMS layers (currents, waves, sst, chl, seaice,
+    // mld). Each layer's grid loader attaches `refTime` (= manifest
+    // generated_at = when step 0 represents in wall-clock). We turn the
+    // age-since-refTime into a step index using the layer's cadence.
+    //
+    // For hourly data (currents, 1h step), nowIdx = ageHours rounded.
+    // For 3-hourly (waves), nowIdx = ageHours / 3 rounded.
+    // For daily (sst/chl/seaice/mld), nowIdx = ageDays floored — "today"
+    // is whatever day the wall clock is currently inside.
+    //
+    // All return a safely clamped index — if the CMEMS data is way stale
+    // we show the last available frame rather than falling off the end.
+    const computeCmemsNowIndex = useCallback(
+        (refTime: string | undefined, stepHours: number, totalSteps: number): number => {
+            if (!refTime || totalSteps <= 0) return 0;
+            const ageMs = Date.now() - new Date(refTime).getTime();
+            const ageHours = ageMs / (60 * 60 * 1000);
+            // Daily data (stepHours === 24) uses floor so "today" stays on
+            // day 0 until wall-clock crosses into tomorrow. Sub-day data
+            // uses round so we snap to the closest step.
+            const raw = stepHours >= 24 ? Math.floor(ageHours / stepHours) : Math.round(ageHours / stepHours);
+            return Math.max(0, Math.min(raw, totalSteps - 1));
+        },
+        [],
+    );
+
+    /** Manual-scrub backoff flags — shared across all six CMEMS layers so
+     *  the minute-tick doesn't yank the scrubber away from where the user
+     *  just placed it. Same 5-minute cooldown as wind/pressure. */
+    const cmemsUserScrubbedRefs = useRef<
+        Record<'currents' | 'waves' | 'sst' | 'chl' | 'seaice' | 'mld', { scrubbed: boolean; at: number }>
+    >({
+        currents: { scrubbed: false, at: 0 },
+        waves: { scrubbed: false, at: 0 },
+        sst: { scrubbed: false, at: 0 },
+        chl: { scrubbed: false, at: 0 },
+        seaice: { scrubbed: false, at: 0 },
+        mld: { scrubbed: false, at: 0 },
+    });
+    const CMEMS_MANUAL_COOLDOWN_MS = 5 * 60 * 1000;
+
+    // ── Currents: align scrubber to Now on load + every minute ────────
+    useEffect(() => {
+        if (!activeLayers.has('currents')) return;
+        let cancelled = false;
+        const align = async () => {
+            const { fetchCurrentsGrid } = await import('../../services/weather/api/currentsGrid');
+            const grid = await fetchCurrentsGrid();
+            if (cancelled) return;
+            const idx = computeCmemsNowIndex(grid?.refTime, 1, currentsTotalHours);
+            currentsNowIdxRef.current = idx;
+            const s = cmemsUserScrubbedRefs.current.currents;
+            if (s.scrubbed && Date.now() - s.at < CMEMS_MANUAL_COOLDOWN_MS) return;
+            s.scrubbed = false;
+            setCurrentsHour((prev) => (prev !== idx ? idx : prev));
+        };
+        align();
+        const interval = setInterval(align, 60 * 1000);
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeKey, computeCmemsNowIndex]);
+
+    // ── Waves: align scrubber to Now on load + every minute ───────────
+    useEffect(() => {
+        if (!activeLayers.has('waves')) return;
+        let cancelled = false;
+        const align = async () => {
+            const { fetchWavesGrid } = await import('../../services/weather/api/wavesGrid');
+            const grid = await fetchWavesGrid();
+            if (cancelled) return;
+            // Waves are 3-hourly
+            const idx = computeCmemsNowIndex(grid?.refTime, 3, wavesTotalHours);
+            wavesNowIdxRef.current = idx;
+            const s = cmemsUserScrubbedRefs.current.waves;
+            if (s.scrubbed && Date.now() - s.at < CMEMS_MANUAL_COOLDOWN_MS) return;
+            s.scrubbed = false;
+            setWavesHour((prev) => (prev !== idx ? idx : prev));
+        };
+        align();
+        const interval = setInterval(align, 60 * 1000);
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeKey, computeCmemsNowIndex]);
+
+    // ── SST / Chl / Seaice / MLD: daily cadence ───────────────────────
+    // All four use the same shape: 6-step scrubber, 24h per step. Factored
+    // into a single effect per layer since each calls its own grid loader.
+    useEffect(() => {
+        if (!activeLayers.has('sst')) return;
+        let cancelled = false;
+        const align = async () => {
+            const { fetchSstGrid } = await import('../../services/weather/api/sstGrid');
+            const grid = await fetchSstGrid();
+            if (cancelled) return;
+            const idx = computeCmemsNowIndex(grid?.refTime, 24, sstTotalSteps);
+            sstNowIdxRef.current = idx;
+            const s = cmemsUserScrubbedRefs.current.sst;
+            if (s.scrubbed && Date.now() - s.at < CMEMS_MANUAL_COOLDOWN_MS) return;
+            s.scrubbed = false;
+            setSstStep((prev) => (prev !== idx ? idx : prev));
+        };
+        align();
+        // Daily data — re-check once an hour is more than enough.
+        const interval = setInterval(align, 60 * 60 * 1000);
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeKey, computeCmemsNowIndex]);
+
+    useEffect(() => {
+        if (!activeLayers.has('chl')) return;
+        let cancelled = false;
+        const align = async () => {
+            const { fetchChlGrid } = await import('../../services/weather/api/chlGrid');
+            const grid = await fetchChlGrid();
+            if (cancelled) return;
+            const idx = computeCmemsNowIndex(grid?.refTime, 24, chlTotalSteps);
+            chlNowIdxRef.current = idx;
+            const s = cmemsUserScrubbedRefs.current.chl;
+            if (s.scrubbed && Date.now() - s.at < CMEMS_MANUAL_COOLDOWN_MS) return;
+            s.scrubbed = false;
+            setChlStep((prev) => (prev !== idx ? idx : prev));
+        };
+        align();
+        const interval = setInterval(align, 60 * 60 * 1000);
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeKey, computeCmemsNowIndex]);
+
+    useEffect(() => {
+        if (!activeLayers.has('seaice')) return;
+        let cancelled = false;
+        const align = async () => {
+            const { fetchSeaIceGrid } = await import('../../services/weather/api/seaiceGrid');
+            const grid = await fetchSeaIceGrid();
+            if (cancelled) return;
+            const idx = computeCmemsNowIndex(grid?.refTime, 24, seaiceTotalSteps);
+            seaiceNowIdxRef.current = idx;
+            const s = cmemsUserScrubbedRefs.current.seaice;
+            if (s.scrubbed && Date.now() - s.at < CMEMS_MANUAL_COOLDOWN_MS) return;
+            s.scrubbed = false;
+            setSeaiceStep((prev) => (prev !== idx ? idx : prev));
+        };
+        align();
+        const interval = setInterval(align, 60 * 60 * 1000);
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeKey, computeCmemsNowIndex]);
+
+    useEffect(() => {
+        if (!activeLayers.has('mld')) return;
+        let cancelled = false;
+        const align = async () => {
+            const { fetchMldGrid } = await import('../../services/weather/api/mldGrid');
+            const grid = await fetchMldGrid();
+            if (cancelled) return;
+            const idx = computeCmemsNowIndex(grid?.refTime, 24, mldTotalSteps);
+            mldNowIdxRef.current = idx;
+            const s = cmemsUserScrubbedRefs.current.mld;
+            if (s.scrubbed && Date.now() - s.at < CMEMS_MANUAL_COOLDOWN_MS) return;
+            s.scrubbed = false;
+            setMldStep((prev) => (prev !== idx ? idx : prev));
+        };
+        align();
+        const interval = setInterval(align, 60 * 60 * 1000);
+        return () => {
+            cancelled = true;
+            clearInterval(interval);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeKey, computeCmemsNowIndex]);
 
     // ── Pressure scrubber: recompute Now every minute and auto-advance ──
     // Same rationale as the wind equivalent above: "Now" is a moving
@@ -1590,38 +1786,101 @@ export function useWeatherLayers(
         windNowIdxRef,
         // Currents (CMEMS hourly forecast, gated by VITE_CMEMS_CURRENTS_ENABLED)
         currentsHour,
-        setCurrentsHour,
+        setCurrentsHour: useCallback(
+            (valOrFn: number | ((prev: number) => number)) => {
+                const s = cmemsUserScrubbedRefs.current.currents;
+                s.scrubbed = true;
+                s.at = Date.now();
+                setCurrentsHour(valOrFn);
+            },
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            [],
+        ),
         currentsTotalHours,
+        /** Step index that represents wall-clock "Now" for the currents
+         *  layer. Consumed by MapHub's scrubber label — a 4h-old manifest
+         *  makes nowIdx=4, so the +4h step labels "Now" instead of h00. */
+        currentsNowIdx: currentsNowIdxRef.current,
         currentsPlaying,
         setCurrentsPlaying,
         // Waves (CMEMS WAM 3-hourly, gated by VITE_CMEMS_WAVES_ENABLED)
         wavesHour,
-        setWavesHour,
+        setWavesHour: useCallback(
+            (valOrFn: number | ((prev: number) => number)) => {
+                const s = cmemsUserScrubbedRefs.current.waves;
+                s.scrubbed = true;
+                s.at = Date.now();
+                setWavesHour(valOrFn);
+            },
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            [],
+        ),
         wavesTotalHours,
+        wavesNowIdx: wavesNowIdxRef.current,
         wavesPlaying,
         setWavesPlaying,
         // SST (CMEMS daily-mean 5-day forecast, gated by VITE_CMEMS_SST_ENABLED)
         sstStep,
-        setSstStep,
+        setSstStep: useCallback(
+            (valOrFn: number | ((prev: number) => number)) => {
+                const s = cmemsUserScrubbedRefs.current.sst;
+                s.scrubbed = true;
+                s.at = Date.now();
+                setSstStep(valOrFn);
+            },
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            [],
+        ),
         sstTotalSteps,
+        sstNowIdx: sstNowIdxRef.current,
         sstPlaying,
         setSstPlaying,
         // Chlorophyll (CMEMS BGC daily, gated by VITE_CMEMS_CHL_ENABLED)
         chlStep,
-        setChlStep,
+        setChlStep: useCallback(
+            (valOrFn: number | ((prev: number) => number)) => {
+                const s = cmemsUserScrubbedRefs.current.chl;
+                s.scrubbed = true;
+                s.at = Date.now();
+                setChlStep(valOrFn);
+            },
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            [],
+        ),
         chlTotalSteps,
+        chlNowIdx: chlNowIdxRef.current,
         chlPlaying,
         setChlPlaying,
         // Sea-ice (CMEMS physics daily, gated by VITE_CMEMS_SEAICE_ENABLED)
         seaiceStep,
-        setSeaiceStep,
+        setSeaiceStep: useCallback(
+            (valOrFn: number | ((prev: number) => number)) => {
+                const s = cmemsUserScrubbedRefs.current.seaice;
+                s.scrubbed = true;
+                s.at = Date.now();
+                setSeaiceStep(valOrFn);
+            },
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            [],
+        ),
         seaiceTotalSteps,
+        seaiceNowIdx: seaiceNowIdxRef.current,
         seaicePlaying,
         setSeaicePlaying,
         // Mixed-layer depth (CMEMS physics daily, gated by VITE_CMEMS_MLD_ENABLED)
         mldStep,
-        setMldStep,
+        setMldStep: useCallback(
+            (valOrFn: number | ((prev: number) => number)) => {
+                const s = cmemsUserScrubbedRefs.current.mld;
+                s.scrubbed = true;
+                s.at = Date.now();
+                setMldStep(valOrFn);
+            },
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            [],
+        ),
         mldTotalSteps,
+        mldNowIdx: mldNowIdxRef.current,
         mldPlaying,
         setMldPlaying,
         // Marine Protected Areas (CAPAD, gated by VITE_MPA_ENABLED)

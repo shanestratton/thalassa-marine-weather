@@ -216,5 +216,8 @@ async function doFetchChlGrid(): Promise<WindGrid | null> {
         // Real forecast-hour offsets per step-index (waves are 3-hourly;
         // currents are 1-hourly, so this equals [0,1,...] for them).
         hourOffsets,
+        // Pipeline run time — day 0 of the chlorophyll forecast. Used by
+        // useWeatherLayers to align the scrubber to wall-clock "Today".
+        refTime: manifest.generated_at,
     };
 }
