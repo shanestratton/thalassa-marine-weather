@@ -14,9 +14,13 @@
  *   - Memoises the parsed response for 5 minutes (RainViewer adds a new
  *     past frame every ~10min, so 5min freshness keeps us within one
  *     frame of live without hammering the API)
+ *   - Routes through the Pi cache when the boat network is up so the
+ *     whole fleet shares one index fetch (and so re-fetches over the
+ *     LAN take ~10ms instead of 200-400ms over cellular)
  *   - Returns the same WeatherMaps shape all three consumers were
  *     decoding inline
  */
+import { piCache } from '../../PiCacheService';
 
 export interface RainViewerFrame {
     path: string;
@@ -56,9 +60,16 @@ export async function fetchRainviewerIndex(): Promise<RainViewerIndex | null> {
 
     inflight = (async () => {
         try {
+            // Route through the Pi when available so the boat-fleet shares
+            // one fetch and subsequent requests come straight off the Pi's
+            // disk. TTL matches our in-memory memo (5 min) — RainViewer
+            // publishes a new past frame every ~10 min, so 5 min keeps us
+            // within one frame of live.
+            const piUrl = piCache.passthroughUrl(URL, TTL_MS, 'rainviewer-index');
+            const fetchUrl = piUrl ?? URL;
             // 'default' lets the browser do its own conditional GET if
             // RainViewer's response carries cache-control headers.
-            const res = await fetch(URL, { cache: 'default' });
+            const res = await fetch(fetchUrl, { cache: 'default' });
             if (!res.ok) return null;
             const data = (await res.json()) as RainViewerIndex;
             memo = { at: Date.now(), data };

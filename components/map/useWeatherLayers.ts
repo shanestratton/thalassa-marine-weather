@@ -19,6 +19,7 @@ import { WindStore, useWindStore } from '../../stores/WindStore';
 import { WindParticleLayer } from './WindParticleLayer';
 import { type WindGrid } from '../../services/weather/windField';
 import { WindDataController } from '../../services/weather/WindDataController';
+import { piCache } from '../../services/PiCacheService';
 import { type WeatherLayer, getTileUrl, getWindColor, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS } from './mapConstants';
 import { createWindLabelMarker } from '../../utils/createMarkerEl';
 import {
@@ -179,6 +180,11 @@ export function useWeatherLayers(
      *  moved on. */
     const rainFetchedAtRef = useRef<number>(0);
     const RAIN_MAX_AGE_MS = 10 * 60 * 1000; // RainViewer publishes every 10 min
+    /** Session-scoped memo of the Rainbow.ai snapshot id. The snapshot endpoint
+     *  is idempotent within a 5-minute window, so caching it here saves a
+     *  ~200-500ms Supabase Edge Function roundtrip on quick rain re-toggles. */
+    const rainbowSnapshotMemoRef = useRef<{ at: number; snapshot: number | null } | null>(null);
+    const RAINBOW_SNAPSHOT_TTL_MS = 5 * 60 * 1000;
     /** Track which radar/forecast layer index is currently visible */
     const visibleRadarIdxRef = useRef<number | null>(null);
     const visibleForecastIdxRef = useRef<number | null>(null);
@@ -1126,45 +1132,61 @@ export function useWeatherLayers(
 
             (async () => {
                 try {
-                    // 1. Fetch RainViewer radar frames (past + short nowcast).
-                    // Goes through the shared rainviewerIndex module so we
-                    // coalesce with useEmbeddedRain + EssentialMapSlide
-                    // (5min memo + inflight dedup). Drops 2-3 duplicate
-                    // requests per session in the typical Dashboard → Map
-                    // navigation flow.
+                    // 1. Fetch RainViewer radar frames + Rainbow.ai snapshot
+                    // IN PARALLEL. Previously these were sequential (~300-800ms
+                    // total); fired together they finish in max(rv, rainbow)
+                    // instead of rv+rainbow.
+                    //
+                    // RainViewer goes through the shared rainviewerIndex module
+                    // so we coalesce with useEmbeddedRain + EssentialMapSlide
+                    // (5min memo + inflight dedup + Pi-cache route).
+                    const supabaseUrl =
+                        (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+
+                    // Rainbow snapshot fetcher: hits the in-session memo first,
+                    // falls back to Pi passthrough when boat-network is up,
+                    // last resort is a direct Supabase Edge Function call.
+                    const fetchRainbowSnapshot = async (): Promise<number | null> => {
+                        const memo = rainbowSnapshotMemoRef.current;
+                        if (memo && Date.now() - memo.at < RAINBOW_SNAPSHOT_TTL_MS) {
+                            return memo.snapshot;
+                        }
+                        if (!supabaseUrl) return null;
+                        try {
+                            const upstream = `${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot&layer=precip-global`;
+                            const piUrl = piCache.passthroughUrl(upstream, RAINBOW_SNAPSHOT_TTL_MS, 'rainbow-snapshot');
+                            const snapResp = await fetch(piUrl ?? upstream, { signal: abortCtrl.signal });
+                            if (!snapResp.ok) {
+                                log.warn(`Rainbow.ai snapshot failed: ${snapResp.status}`);
+                                return null;
+                            }
+                            const snapData = await snapResp.json();
+                            const snapshot = snapData.snapshot ?? null;
+                            rainbowSnapshotMemoRef.current = { at: Date.now(), snapshot };
+                            log.info(`Rainbow.ai snapshot: ${snapshot}`);
+                            return snapshot;
+                        } catch (err) {
+                            if (abortCtrl.signal.aborted) throw err;
+                            log.warn('Rainbow.ai snapshot fetch failed, using radar only:', err);
+                            return null;
+                        }
+                    };
+
                     const { fetchRainviewerIndex } = await import('../../services/weather/api/rainviewerIndex');
-                    const radarData = await fetchRainviewerIndex();
-                    if (abortCtrl.signal.aborted) return;
+                    const [radarData, rainbowSnapshotResult] = await Promise.all([
+                        fetchRainviewerIndex(),
+                        fetchRainbowSnapshot(),
+                    ]);
                     const past = radarData?.radar?.past ?? [];
                     const nowcast = radarData?.radar?.nowcast ?? [];
                     const allRadar = [...past, ...nowcast];
 
-                    // 2. Rainbow Global forecast tiles (1km res, satellite+radar fusion) — via Supabase Edge Proxy
-                    // Uses precip-global layer for worldwide coverage (not just radar footprints).
-                    // API key stays server-side in Supabase Secrets (RAINBOW_API_KEY).
-                    let rainbowSnapshot: number | null = null;
+                    // 2. Rainbow Global forecast — snapshot already fetched
+                    // in parallel above. Uses precip-global layer for worldwide
+                    // coverage (not just radar footprints). API key stays
+                    // server-side in Supabase Secrets (RAINBOW_API_KEY).
+                    const rainbowSnapshot = rainbowSnapshotResult;
                     const RAINBOW_FORECAST_MINUTES = [10, 20, 30, 40, 50, 60, 80, 100, 120, 150, 180, 210, 240];
-                    const supabaseUrl =
-                        (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-
-                    if (supabaseUrl) {
-                        try {
-                            const snapResp = await fetch(
-                                `${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot&layer=precip-global`,
-                                { signal: abortCtrl.signal },
-                            );
-                            if (snapResp.ok) {
-                                const snapData = await snapResp.json();
-                                rainbowSnapshot = snapData.snapshot || null;
-                                log.info(`Rainbow.ai snapshot: ${rainbowSnapshot}`);
-                            } else {
-                                log.warn(`Rainbow.ai snapshot failed: ${snapResp.status}`);
-                            }
-                        } catch (err) {
-                            if (abortCtrl.signal.aborted) return;
-                            log.warn('Rainbow.ai snapshot fetch failed, using radar only:', err);
-                        }
-                    }
 
                     // 3. Build unified timeline
                     const unified: UnifiedRainFrame[] = [];
@@ -1269,7 +1291,15 @@ export function useWeatherLayers(
                             tiles: [ff.forecastTileUrl],
                             tileSize: 256,
                             minzoom: 2,
-                            maxzoom: 12,
+                            // Lowered from 12 → 8. Rainbow's 1km native res
+                            // doesn't add visible detail past z8 for ocean
+                            // weather (cells are larger than the pixel).
+                            // Mapbox overzooms past 8 by stretching the z8
+                            // tile, which looks identical at typical phone
+                            // zooms but cuts the tile request count by ~16x
+                            // per zoom level past 8 — a huge bandwidth win
+                            // when the user pinches in over a coastal area.
+                            maxzoom: 8,
                         });
                         m.addLayer(
                             {
