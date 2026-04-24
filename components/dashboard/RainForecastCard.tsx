@@ -10,6 +10,8 @@ interface RainForecastCardProps {
     className?: string;
     timeZone?: string;
     rainSummary?: string; // Apple's native summary (e.g. "Rain starting in 15 min")
+    /** Which API delivered `data` — shown as a tiny provenance tag. */
+    source?: 'rainbow' | 'weatherkit' | 'synthetic' | 'unknown';
 }
 
 /**
@@ -23,7 +25,15 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
     className = '',
     timeZone: _timeZone,
     rainSummary,
+    source = 'unknown',
 }) => {
+    // Label text for the provenance tag in the bottom-right corner.
+    const sourceLabel = (() => {
+        if (source === 'rainbow') return 'Rainbow.ai';
+        if (source === 'weatherkit') return 'Apple';
+        if (source === 'synthetic') return 'Estimated';
+        return '';
+    })();
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     // 60-second tick — forces re-evaluation of "Rain in X min" countdown
@@ -246,6 +256,16 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                         </div>
                     )}
                 </div>
+
+                {/* Provenance tag — tiny bottom-right label so the skipper can
+                    confirm which API delivered the forecast (Rainbow vs Apple).
+                    Helpful for diagnosing "No Rain Expected" when it's clearly
+                    raining outside. */}
+                {sourceLabel && (
+                    <span className="absolute bottom-1 right-2 text-[9px] font-semibold uppercase tracking-wider text-white/40 pointer-events-none select-none">
+                        {sourceLabel}
+                    </span>
+                )}
             </button>
 
             {/* Expanded Modal */}

@@ -10,6 +10,7 @@
  * Returns MinutelyRain[] with precipType (rain/snow/mixed) for RainForecastCard.
  */
 
+import { CapacitorHttp } from '@capacitor/core';
 import { createLogger } from '../../../utils/createLogger';
 import { piCache } from '../../PiCacheService';
 
@@ -141,17 +142,45 @@ export async function fetchRainbowPrecip(lat: number, lon: number): Promise<Rain
         }
 
         if (!nowcastData) {
+            // Use CapacitorHttp (native iOS networking) instead of WebView fetch().
+            // Other Supabase edge calls (openmeteo, worldtides, weatherkit) all use
+            // CapacitorHttp because WebView fetch() has cross-origin quirks on iOS
+            // that silently fail without logging an explicit HTTP status. When the
+            // Pi is available the passthrough path above masks this — take the Pi
+            // away and the direct fetch was just returning nothing. Now we go
+            // through the native HTTP client like every other edge-function call.
             const key = getSupabaseKey();
-            const res = await fetch(nowcastUrl, {
-                headers: key ? { Authorization: `Bearer ${key}`, apikey: key } : {},
-                signal: AbortSignal.timeout(15000),
-            });
-
-            if (res.ok) {
-                nowcastData = await res.json();
-            } else {
-                log.warn(`Rainbow.ai nowcast fetch HTTP ${res.status}`);
-                return null;
+            try {
+                const res = await CapacitorHttp.get({
+                    url: nowcastUrl,
+                    headers: key ? { Authorization: `Bearer ${key}`, apikey: key } : {},
+                    readTimeout: 15000,
+                    connectTimeout: 15000,
+                });
+                if (res.status === 200 && res.data) {
+                    nowcastData = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
+                } else {
+                    log.warn(`Rainbow.ai nowcast fetch HTTP ${res.status}`);
+                    return null;
+                }
+            } catch (httpErr) {
+                // Final fallback: WebView fetch for dev/web environments where
+                // CapacitorHttp isn't available.
+                try {
+                    const res = await fetch(nowcastUrl, {
+                        headers: key ? { Authorization: `Bearer ${key}`, apikey: key } : {},
+                        signal: AbortSignal.timeout(15000),
+                    });
+                    if (res.ok) {
+                        nowcastData = await res.json();
+                    } else {
+                        log.warn(`Rainbow.ai nowcast fetch HTTP ${res.status}`);
+                        return null;
+                    }
+                } catch {
+                    log.warn('Rainbow.ai nowcast fetch failed (CapacitorHttp + fetch)', httpErr);
+                    return null;
+                }
             }
         }
 

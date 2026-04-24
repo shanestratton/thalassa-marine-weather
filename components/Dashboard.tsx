@@ -43,7 +43,7 @@ async function fetchRainData(
     lon: number,
     useRainbow: boolean,
     cancelled: boolean,
-    onData: (rain: MinutelyRain[], summary: string) => void,
+    onData: (rain: MinutelyRain[], summary: string, source: 'rainbow' | 'weatherkit') => void,
 ): Promise<void> {
     if (cancelled) return;
 
@@ -52,7 +52,7 @@ async function fetchRainData(
             const result = await fetchRainbowPrecip(lat, lon);
             if (cancelled) return;
             if (result && result.rain.length > 0) {
-                onData(result.rain, result.summary);
+                onData(result.rain, result.summary, 'rainbow');
                 return;
             }
         } catch {
@@ -63,7 +63,7 @@ async function fetchRainData(
     // WeatherKit fallback (all tiers, or if Rainbow.ai fails)
     const { rain, summary } = await fetchMinutelyRainWithSummary(lat, lon);
     if (!cancelled) {
-        onData(rain, summary);
+        onData(rain, summary, 'weatherkit');
     }
 }
 
@@ -153,6 +153,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // Minutely rain data — Rainbow.ai for Skipper tier, WeatherKit fallback for others
     const [minutelyRain, setMinutelyRain] = useState<MinutelyRain[]>([]);
     const [rainSummary, setRainSummary] = useState<string>('');
+    const [rainSource, setRainSource] = useState<'rainbow' | 'weatherkit' | 'synthetic' | 'unknown'>('unknown');
     const [_rainStatus, setRainStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
     const precipRef = useRef<number>(0);
     precipRef.current = current?.precipitation ?? 0;
@@ -175,21 +176,33 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     ts,
                     data: cachedData,
                     summary: cachedSummary,
-                } = JSON.parse(cached) as { ts: number; data: MinutelyRain[]; summary?: string };
+                    source: cachedSource,
+                } = JSON.parse(cached) as {
+                    ts: number;
+                    data: MinutelyRain[];
+                    summary?: string;
+                    source?: 'rainbow' | 'weatherkit';
+                };
                 if (Date.now() - ts < 5 * 60 * 1000 && cachedData.length > 0) {
                     setMinutelyRain(cachedData);
                     if (cachedSummary) setRainSummary(cachedSummary);
+                    if (cachedSource) setRainSource(cachedSource);
                     setRainStatus('loaded');
                     // Still set up the refresh timer below, but skip initial fetch
                     const rainTimer = setInterval(
                         () => {
                             if (document.hidden) return; // Battery: skip when backgrounded
                             if (!navigator.onLine || cancelled) return;
-                            fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary) => {
+                            fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary, src) => {
                                 setMinutelyRain(rain);
                                 setRainSummary(summary);
+                                setRainSource(src);
                                 setRainStatus('loaded');
-                                localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary }));
+                                log.info(`[rain] source=${src} minutes=${rain.length} summary="${summary}"`);
+                                localStorage.setItem(
+                                    cacheKey,
+                                    JSON.stringify({ ts: Date.now(), data: rain, summary, source: src }),
+                                );
                             });
                         },
                         5 * 60 * 1000,
@@ -205,21 +218,26 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         }
 
         // ── Unified rain fetch: Rainbow.ai for Skipper, WeatherKit for others ──
-        fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary) => {
+        fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary, src) => {
             if (rain.length > 0) {
                 setMinutelyRain(rain);
                 setRainSummary(summary);
+                setRainSource(src);
                 setRainStatus('loaded');
-                localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary }));
+                log.info(`[rain] source=${src} minutes=${rain.length} summary="${summary}"`);
+                localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary, source: src }));
             } else {
                 const fallback = synthesizeFromHourly();
                 setMinutelyRain(fallback);
+                setRainSource(fallback.length > 0 ? 'synthetic' : 'unknown');
                 setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
+                log.warn(`[rain] both APIs returned empty — fallback=${fallback.length > 0 ? 'synthetic' : 'none'}`);
             }
         }).catch(() => {
             if (!cancelled) {
                 const fallback = synthesizeFromHourly();
                 setMinutelyRain(fallback);
+                setRainSource(fallback.length > 0 ? 'synthetic' : 'unknown');
                 setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
             }
         });
@@ -229,21 +247,28 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             () => {
                 if (document.hidden) return;
                 if (!navigator.onLine) return;
-                fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary) => {
+                fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary, src) => {
                     if (rain.length > 0) {
                         setMinutelyRain(rain);
                         setRainSummary(summary);
+                        setRainSource(src);
                         setRainStatus('loaded');
-                        localStorage.setItem(cacheKey, JSON.stringify({ ts: Date.now(), data: rain, summary }));
+                        log.info(`[rain] source=${src} minutes=${rain.length} summary="${summary}"`);
+                        localStorage.setItem(
+                            cacheKey,
+                            JSON.stringify({ ts: Date.now(), data: rain, summary, source: src }),
+                        );
                     } else {
                         const fallback = synthesizeFromHourly();
                         setMinutelyRain(fallback);
+                        setRainSource(fallback.length > 0 ? 'synthetic' : 'unknown');
                         setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
                     }
                 }).catch(() => {
                     if (!cancelled) {
                         const fallback = synthesizeFromHourly();
                         setMinutelyRain(fallback);
+                        setRainSource(fallback.length > 0 ? 'synthetic' : 'unknown');
                         setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
                     }
                 });
@@ -797,6 +822,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         data={minutelyRain}
                                         timeZone={data.timeZone}
                                         rainSummary={rainSummary}
+                                        source={rainSource}
                                     />
                                 </div>
                                 <HeroSection
