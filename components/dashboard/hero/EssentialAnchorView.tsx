@@ -30,14 +30,16 @@
  *   - Tide direction arrow
  *   - Swing-radius auto-suggest
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../../../services/AnchorWatchService';
 import { AisStreamService } from '../../../services/AisStreamService';
 import { NmeaStore, type NmeaStoreState } from '../../../services/NmeaStore';
 import { SwingCircleCanvas, type AisTargetDot } from '../../anchor-watch/SwingCircleCanvas';
 import { formatDistance, bearingToCardinal, formatElapsed, navStatusColorSimple } from '../../anchor-watch/anchorUtils';
+import { suggestSwingRadius } from '../../anchor-watch/swingRadiusSuggest';
 import { CompassIcon, WindIcon } from '../../Icons';
 import { CoachMark } from '../../ui/CoachMark';
+import { triggerHaptic } from '../../../utils/system';
 import type { HourlyForecast } from '../../../types';
 
 interface EssentialAnchorViewProps {
@@ -112,6 +114,42 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
         setNmeaState(NmeaStore.getState());
         return unsub;
     }, []);
+
+    // ── SWING-RADIUS AUTO-SUGGEST ─────────────────────────────────────
+    // After ~30min on the hook with enough GPS samples, propose a radius
+    // that actually matches the observed swing envelope. Dismissals are
+    // remembered for the rest of the watching session via
+    // sessionStorage (keyed on the anchor drop timestamp) so the banner
+    // doesn't keep re-appearing every 30s of polling.
+    const suggestion = useMemo(() => suggestSwingRadius(snapshot), [snapshot]);
+    const [suggestionDismissedAt, setSuggestionDismissedAt] = useState<number | null>(null);
+    // When the anchor is re-dropped, watchStartedAt changes — reset the
+    // dismissal flag so the new session can surface its own suggestion.
+    useEffect(() => {
+        setSuggestionDismissedAt(null);
+    }, [snapshot?.watchStartedAt]);
+    const showSuggestion =
+        !!suggestion && (suggestionDismissedAt === null || snapshot?.watchStartedAt !== suggestionDismissedAt);
+
+    const handleAcceptSuggestion = useCallback(() => {
+        if (!suggestion || !snapshot) return;
+        // Compute the new safetyMargin so that calculateSwingRadius()
+        // produces the proposed radius: delta = proposed - current, so
+        // new safetyMargin = current safetyMargin + delta. Persists
+        // through the usual config pipeline (geofence re-armed,
+        // watchState persisted, listeners notified).
+        const delta = suggestion.proposed - snapshot.swingRadius;
+        const currentMargin = snapshot.config.safetyMargin;
+        const newMargin = Math.max(0, currentMargin + delta);
+        AnchorWatchService.updateConfig({ safetyMargin: newMargin });
+        triggerHaptic('medium');
+    }, [suggestion, snapshot]);
+
+    const handleDismissSuggestion = useCallback(() => {
+        // Remember the watchStartedAt at dismissal time — on re-drop
+        // (new watchStartedAt) the banner comes back naturally.
+        setSuggestionDismissedAt(snapshot?.watchStartedAt ?? null);
+    }, [snapshot?.watchStartedAt]);
 
     // Compute the next 12 hours of wind speed from the forecast for the
     // sparkline. Memoised so the SVG path doesn't rebuild every render.
@@ -334,6 +372,90 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                     {snapshot.watchStartedAt ? `On hook ${formatElapsed(snapshot.watchStartedAt)}` : '—'}
                 </span>
             </div>
+
+            {/* Swing-radius auto-suggest banner — appears after ~30min on
+                the hook if the observed swing differs materially from the
+                configured radius. Suppressed during alarm (don't add decision
+                fatigue to a crisis). */}
+            {showSuggestion && suggestion && !isAlarm && (
+                <div
+                    className={`shrink-0 flex items-center gap-2 px-3 py-2 border-b border-white/[0.06] ${
+                        suggestion.direction === 'larger'
+                            ? 'bg-amber-500/10 border-amber-500/25'
+                            : 'bg-sky-500/10 border-sky-500/25'
+                    }`}
+                    role="status"
+                    aria-live="polite"
+                >
+                    {/* Target icon — dashed circle = "suggested swing" */}
+                    <svg
+                        className={`w-4 h-4 shrink-0 ${
+                            suggestion.direction === 'larger' ? 'text-amber-300' : 'text-sky-300'
+                        }`}
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        aria-hidden="true"
+                    >
+                        <circle cx="12" cy="12" r="9" strokeDasharray="3 3" />
+                        <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+                    </svg>
+                    <div className="flex-1 min-w-0 leading-tight">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-white/80 leading-none mb-0.5">
+                            {suggestion.direction === 'larger'
+                                ? 'Observed swing exceeds your radius'
+                                : 'Your swing radius is larger than needed'}
+                        </p>
+                        <p className="text-[11px] text-white/60 leading-tight truncate">
+                            Propose{' '}
+                            <span
+                                className={`font-mono font-bold ${
+                                    suggestion.direction === 'larger' ? 'text-amber-200' : 'text-sky-200'
+                                }`}
+                            >
+                                {formatDistance(suggestion.proposed)}
+                            </span>{' '}
+                            vs current{' '}
+                            <span className="font-mono font-bold text-white/80">
+                                {formatDistance(suggestion.current)}
+                            </span>{' '}
+                            · {suggestion.samples} samples
+                        </p>
+                    </div>
+                    <button
+                        onClick={handleAcceptSuggestion}
+                        aria-label={`Accept suggested swing radius of ${formatDistance(suggestion.proposed)}`}
+                        className={`shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all active:scale-[0.95] ${
+                            suggestion.direction === 'larger'
+                                ? 'bg-amber-500/25 border border-amber-400/50 text-amber-100 hover:bg-amber-500/35'
+                                : 'bg-sky-500/25 border border-sky-400/50 text-sky-100 hover:bg-sky-500/35'
+                        }`}
+                    >
+                        Accept
+                    </button>
+                    <button
+                        onClick={handleDismissSuggestion}
+                        aria-label="Dismiss swing radius suggestion"
+                        className="shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-white/40 hover:text-white/80 hover:bg-white/[0.08] transition-colors"
+                    >
+                        <svg
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                        >
+                            <line x1="6" y1="6" x2="18" y2="18" />
+                            <line x1="18" y1="6" x2="6" y2="18" />
+                        </svg>
+                    </button>
+                </div>
+            )}
 
             {/* 12-hour wind forecast sparkline — thin strip between the top
                 chrome and the radar. Lets the skipper see at a glance whether
