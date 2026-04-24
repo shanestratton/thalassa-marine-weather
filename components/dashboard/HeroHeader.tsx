@@ -6,6 +6,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { MetricPinSheet } from './MetricPinSheet';
 import { getPinnedMetricDisplay } from './metricDisplayHelpers';
 import { CoachMark } from '../ui/CoachMark';
+import { useDroppable } from '@dnd-kit/core';
 
 /**
  * ConditionText — simple text sizing based on string length.
@@ -152,6 +153,12 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     // temperature. Single-tap tracking is done via a simple timer +
     // click-count ref so we don't block the double-tap with a 250ms delay
     // on every click.
+    // DnD drop target — Phase 2 of metric-pin. Long-pressing and dragging
+    // a grid cell here pins it to the hero slot. The tap handler below is
+    // preserved intact; long-press activation (250ms/8px) in the Dashboard
+    // DndContext means normal taps still pass through to the picker sheet.
+    const { isOver, setNodeRef: setDroppableRef } = useDroppable({ id: 'hero-pin-slot' });
+
     const tapTrackRef = React.useRef<{ count: number; timer: number | null }>({ count: 0, timer: null });
     const handleHeroLeftTap = useCallback(() => {
         tapTrackRef.current.count += 1;
@@ -182,13 +189,16 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     The whole partition is the hit area — keeps the tap
                     target generous on iOS. */}
                 <div
-                    className="flex-[1] px-3 py-2 flex flex-col justify-center items-start min-w-0 cursor-pointer touch-manipulation select-none relative group"
+                    ref={setDroppableRef}
+                    className={`flex-[1] px-3 py-2 flex flex-col justify-center items-start min-w-0 cursor-pointer touch-manipulation select-none relative group transition-all duration-150 ${
+                        isOver ? 'bg-sky-500/20 ring-2 ring-sky-400/60 ring-inset rounded-lg' : ''
+                    }`}
                     onClick={handleHeroLeftTap}
                     role="button"
                     aria-label={
                         pinnedDisplay
-                            ? `Pinned metric ${pinnedDisplay.label}. Tap to change, double-tap to reset.`
-                            : 'Temperature. Tap to pin a different metric to the top.'
+                            ? `Pinned metric ${pinnedDisplay.label}. Tap to change, double-tap to reset. Drop a grid metric here to pin it.`
+                            : 'Temperature. Tap to pin a different metric to the top, or drop one from the grid below.'
                     }
                     style={{ WebkitTapHighlightColor: 'transparent' }}
                 >

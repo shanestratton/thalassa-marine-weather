@@ -33,6 +33,7 @@ import { fetchMinutelyRainWithSummary, MinutelyRain } from '../services/weather/
 import { fetchRainbowPrecip } from '../services/weather/api/rainbowPrecip';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useUIStore } from '../stores/uiStore';
+import { DndContext, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
 
 /**
  * Unified rain data fetcher — routes to Rainbow.ai (Skipper) or WeatherKit (others).
@@ -159,6 +160,47 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     precipRef.current = current?.precipitation ?? 0;
     const subscriptionTier = useSettingsStore((s) => s.settings.subscriptionTier);
     const isSkipper = subscriptionTier === 'owner';
+
+    // ── DnD: Phase 2 of the metric-pin feature ───────────────────────
+    // Long-press activation means taps on cells still pass through to the
+    // existing offshore `gridOnClick` handler (model comparison matrix).
+    // Only when the user HOLDS a cell for 250ms + moves > 8px does a drag
+    // begin. Dropping it on the hero slot writes `settings.heroMetric`,
+    // which the render-swap logic (shipped in Phase 1) already handles.
+    const updateHeroSettings = useSettingsStore((s) => s.updateSettings);
+    const dndSensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: { delay: 250, tolerance: 8 },
+        }),
+        useSensor(TouchSensor, {
+            activationConstraint: { delay: 250, tolerance: 8 },
+        }),
+    );
+    const handleDndDragEnd = useCallback(
+        (event: DragEndEvent) => {
+            const { active, over } = event;
+            if (!over || over.id !== 'hero-pin-slot') return;
+            const droppedMetric = String(active.id);
+            // Valid drop IDs are the 10 grid metric IDs or 'temp' for reset
+            const valid = [
+                'wind',
+                'dir',
+                'gust',
+                'wave',
+                'period',
+                'uv',
+                'vis',
+                'pressure',
+                'humidity',
+                'rain',
+                'temp',
+            ];
+            if (!valid.includes(droppedMetric)) return;
+            updateHeroSettings({ heroMetric: droppedMetric });
+            triggerHaptic('medium');
+        },
+        [updateHeroSettings],
+    );
 
     useEffect(() => {
         if (!data?.coordinates) return;
@@ -658,121 +700,127 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
     return (
         <DashboardWidgetContext.Provider value={contextValue as DashboardWidgetContextType}>
-            {/* ── OFFSHORE BOUNDARY TOAST ── */}
-            <OffshoreBoundaryToast visible={offshore.justCrossed} modelName={offshore.offshoreModel} />
+            <DndContext sensors={dndSensors} onDragEnd={handleDndDragEnd}>
+                {/* ── OFFSHORE BOUNDARY TOAST ── */}
+                <OffshoreBoundaryToast visible={offshore.justCrossed} modelName={offshore.offshoreModel} />
 
-            {/* First-time tutorial coach marks — shows once per install
+                {/* First-time tutorial coach marks — shows once per install
                 (gated internally via localStorage) with 3 slides covering
                 chevron → Essential mode + horizontal hour swipe + vertical
                 day swipe gestures. */}
-            <GlassTutorial />
+                <GlassTutorial />
 
-            <div className="h-[100dvh] w-full flex flex-col overflow-hidden relative bg-black">
-                {' '}
-                {/* Flex Root */}
-                {/* ── STALE DATA BLUR OVERLAY ── */}
-                {/* Triggers when data is >1hr stale (e.g. waking from overnight sleep).
+                <div className="h-[100dvh] w-full flex flex-col overflow-hidden relative bg-black">
+                    {' '}
+                    {/* Flex Root */}
+                    {/* ── STALE DATA BLUR OVERLAY ── */}
+                    {/* Triggers when data is >1hr stale (e.g. waking from overnight sleep).
                     Blurs the entire dashboard so the punter doesn't act on outdated info. */}
-                {staleRefresh && (
-                    <div
-                        className="absolute inset-0 z-[200] flex items-center justify-center pointer-events-none transition-all duration-300"
-                        style={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
-                    >
-                        <div className="bg-black/60 rounded-2xl px-6 py-4 flex flex-col items-center gap-3 border border-white/10 shadow-2xl pointer-events-auto">
-                            <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
-                            <span className="text-sm font-bold text-white/80 uppercase tracking-widest">Updating</span>
-                            <span className="text-xs text-white/50">Fetching latest conditions…</span>
+                    {staleRefresh && (
+                        <div
+                            className="absolute inset-0 z-[200] flex items-center justify-center pointer-events-none transition-all duration-300"
+                            style={{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+                        >
+                            <div className="bg-black/60 rounded-2xl px-6 py-4 flex flex-col items-center gap-3 border border-white/10 shadow-2xl pointer-events-auto">
+                                <div className="w-6 h-6 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
+                                <span className="text-sm font-bold text-white/80 uppercase tracking-widest">
+                                    Updating
+                                </span>
+                                <span className="text-xs text-white/50">Fetching latest conditions…</span>
+                            </div>
                         </div>
-                    </div>
-                )}
-                {/* 2. Main Content Area */}
-                <div className="flex-1 relative w-full min-h-0">
-                    {/* MAIN CAROUSEL / GRID */}
-                    {!isDetailMode && (
-                        <div className="absolute inset-0">
-                            {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall */}
-                            {/* App Header height is ~108px. With 18px gap (was 10px + 8px extra), top should be 126px */}
-                            <div
-                                className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pb-0 fixed left-0 right-0 pointer-events-none"
-                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 126px)' }}
-                            >
-                                <div className="pointer-events-auto">
-                                    <CompactHeaderRow
-                                        alerts={data.alerts}
-                                        sunrise={activeDayData?.sunrise || current?.sunrise}
-                                        sunset={activeDayData?.sunset || current?.sunset}
-                                        moonPhase={getMoonPhase(new Date(widgetCardTime)).emoji}
-                                        dashboardMode={userSettings.dashboardMode || 'full'}
-                                        onToggleDashboardMode={() => {
-                                            triggerHaptic('light');
-                                            const goingEssential = userSettings.dashboardMode !== 'essential';
-                                            updateSettings({ dashboardMode: goingEssential ? 'essential' : 'full' });
-                                            if (goingEssential) {
-                                                // Reset to live so map/widgets show current data
-                                                setActiveDay(0);
-                                                setActiveHour(0);
-                                                setActiveDayData(null);
-                                                // Reset horizontal scroll to live position
-                                                setTimeout(
-                                                    () => window.dispatchEvent(new Event('hero-reset-scroll')),
-                                                    10,
-                                                );
-                                            }
-                                        }}
+                    )}
+                    {/* 2. Main Content Area */}
+                    <div className="flex-1 relative w-full min-h-0">
+                        {/* MAIN CAROUSEL / GRID */}
+                        {!isDetailMode && (
+                            <div className="absolute inset-0">
+                                {/* Compact Header Row - Warnings + Sunrise/Sunset/Rainfall */}
+                                {/* App Header height is ~108px. With 18px gap (was 10px + 8px extra), top should be 126px */}
+                                <div
+                                    className="flex-shrink-0 z-[120] w-full bg-gradient-to-b from-black/80 to-transparent px-4 pb-0 fixed left-0 right-0 pointer-events-none"
+                                    style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 126px)' }}
+                                >
+                                    <div className="pointer-events-auto">
+                                        <CompactHeaderRow
+                                            alerts={data.alerts}
+                                            sunrise={activeDayData?.sunrise || current?.sunrise}
+                                            sunset={activeDayData?.sunset || current?.sunset}
+                                            moonPhase={getMoonPhase(new Date(widgetCardTime)).emoji}
+                                            dashboardMode={userSettings.dashboardMode || 'full'}
+                                            onToggleDashboardMode={() => {
+                                                triggerHaptic('light');
+                                                const goingEssential = userSettings.dashboardMode !== 'essential';
+                                                updateSettings({
+                                                    dashboardMode: goingEssential ? 'essential' : 'full',
+                                                });
+                                                if (goingEssential) {
+                                                    // Reset to live so map/widgets show current data
+                                                    setActiveDay(0);
+                                                    setActiveHour(0);
+                                                    setActiveDayData(null);
+                                                    // Reset horizontal scroll to live position
+                                                    setTimeout(
+                                                        () => window.dispatchEvent(new Event('hero-reset-scroll')),
+                                                        10,
+                                                    );
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* MAXIMUM BLOCKER - Covers entire gap up to carousel */}
+                                <div
+                                    className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300"
+                                    style={{
+                                        height: isExpanded
+                                            ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)'
+                                            : 'calc(max(8px, env(safe-area-inset-top)) + 340px)',
+                                    }}
+                                ></div>
+
+                                {/* FIXED HEADER - Positioned 7px below CompactHeaderRow (126 + 40 + 7 = 173) */}
+                                <div
+                                    className="fixed left-0 right-0 z-[110] px-4"
+                                    style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 173px)' }}
+                                >
+                                    <HeroHeader
+                                        data={safeActive}
+                                        units={units}
+                                        isLive={activeDay === 0 && activeHour === 0}
+                                        isDay={isActiveDay}
+                                        dateLabel={getDateLabel(activeDay)}
+                                        timeLabel={getTimeLabel()}
+                                        timeZone={data.timeZone}
+                                        sources={safeActive.sources}
+                                        isExpanded={isExpanded}
+                                        onToggleExpand={
+                                            isInland || isOffshore
+                                                ? undefined
+                                                : () => {
+                                                      triggerHaptic('light');
+                                                      const goingEssential = isExpanded; // isExpanded means currently full, so toggling goes to essential
+                                                      updateSettings({
+                                                          dashboardMode: goingEssential ? 'essential' : 'full',
+                                                      });
+                                                      if (goingEssential) {
+                                                          setActiveDay(0);
+                                                          setActiveHour(0);
+                                                          setActiveDayData(null);
+                                                          // Reset horizontal scroll to live position
+                                                          setTimeout(
+                                                              () =>
+                                                                  window.dispatchEvent(new Event('hero-reset-scroll')),
+                                                              10,
+                                                          );
+                                                      }
+                                                  }
+                                        }
                                     />
                                 </div>
-                            </div>
 
-                            {/* MAXIMUM BLOCKER - Covers entire gap up to carousel */}
-                            <div
-                                className="fixed top-[0px] left-0 right-0 bg-black z-[100] transition-all duration-300"
-                                style={{
-                                    height: isExpanded
-                                        ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)'
-                                        : 'calc(max(8px, env(safe-area-inset-top)) + 340px)',
-                                }}
-                            ></div>
-
-                            {/* FIXED HEADER - Positioned 7px below CompactHeaderRow (126 + 40 + 7 = 173) */}
-                            <div
-                                className="fixed left-0 right-0 z-[110] px-4"
-                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 173px)' }}
-                            >
-                                <HeroHeader
-                                    data={safeActive}
-                                    units={units}
-                                    isLive={activeDay === 0 && activeHour === 0}
-                                    isDay={isActiveDay}
-                                    dateLabel={getDateLabel(activeDay)}
-                                    timeLabel={getTimeLabel()}
-                                    timeZone={data.timeZone}
-                                    sources={safeActive.sources}
-                                    isExpanded={isExpanded}
-                                    onToggleExpand={
-                                        isInland || isOffshore
-                                            ? undefined
-                                            : () => {
-                                                  triggerHaptic('light');
-                                                  const goingEssential = isExpanded; // isExpanded means currently full, so toggling goes to essential
-                                                  updateSettings({
-                                                      dashboardMode: goingEssential ? 'essential' : 'full',
-                                                  });
-                                                  if (goingEssential) {
-                                                      setActiveDay(0);
-                                                      setActiveHour(0);
-                                                      setActiveDayData(null);
-                                                      // Reset horizontal scroll to live position
-                                                      setTimeout(
-                                                          () => window.dispatchEvent(new Event('hero-reset-scroll')),
-                                                          10,
-                                                      );
-                                                  }
-                                              }
-                                    }
-                                />
-                            </div>
-
-                            {/* CURRENT CONDITIONS CARD - Collapsed mode only (165 + 70 + 8 = 243)
+                                {/* CURRENT CONDITIONS CARD - Collapsed mode only (165 + 70 + 8 = 243)
                                 Transition choreography:
                                 - 200ms ease-out per user spec (feels crisp, not laggy)
                                 - translateY(-14px) gives a perceptible glide without going too
@@ -783,115 +831,115 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                   instead of "glided". pointer-events + opacity cover
                                   functional hide; the element is invisible to screen-readers
                                   via opacity:0 and to clicks via pointer-events:none. */}
-                            <div
-                                className="fixed left-0 right-0 z-[110] px-4 transition-[opacity,transform] duration-200 ease-out"
-                                style={{
-                                    top: 'calc(max(8px, env(safe-area-inset-top)) + 251px)',
-                                    opacity: !isExpanded ? 1 : 0,
-                                    transform: !isExpanded ? 'translateY(0)' : 'translateY(-14px)',
-                                    pointerEvents: !isExpanded ? 'auto' : 'none',
-                                    willChange: 'opacity, transform',
-                                }}
-                            >
-                                <CurrentConditionsCard data={current} units={units} timeZone={data.timeZone} />
-                            </div>
+                                <div
+                                    className="fixed left-0 right-0 z-[110] px-4 transition-[opacity,transform] duration-200 ease-out"
+                                    style={{
+                                        top: 'calc(max(8px, env(safe-area-inset-top)) + 251px)',
+                                        opacity: !isExpanded ? 1 : 0,
+                                        transform: !isExpanded ? 'translateY(0)' : 'translateY(-14px)',
+                                        pointerEvents: !isExpanded ? 'auto' : 'none',
+                                        willChange: 'opacity, transform',
+                                    }}
+                                >
+                                    <CurrentConditionsCard data={current} units={units} timeZone={data.timeZone} />
+                                </div>
 
-                            {/* FIXED WIDGETS - Slide down when expanded (165 + 70 + 8 = 243)
+                                {/* FIXED WIDGETS - Slide down when expanded (165 + 70 + 8 = 243)
                                 Same transition semantics as CurrentConditionsCard above so the
                                 two layers cross-fade in sync. */}
-                            <div
-                                className="fixed left-0 right-0 z-[110] px-4 transition-[opacity,transform] duration-200 ease-out"
-                                style={{
-                                    top: 'calc(max(8px, env(safe-area-inset-top)) + 251px)',
-                                    opacity: isExpanded ? 1 : 0,
-                                    transform: isExpanded ? 'translateY(0)' : 'translateY(-14px)',
-                                    pointerEvents: isExpanded ? 'auto' : 'none',
-                                    willChange: 'opacity, transform',
-                                }}
-                            >
-                                <HeroWidgets
-                                    data={safeActive}
-                                    units={units}
-                                    cardTime={widgetCardTime}
-                                    sources={widgetSources}
-                                    trends={widgetTrends}
-                                    isLive={activeDay === 0 && activeHour === 0}
-                                    locationType={data.locationType}
-                                    hourly={hourly}
-                                />
-                            </div>
+                                <div
+                                    className="fixed left-0 right-0 z-[110] px-4 transition-[opacity,transform] duration-200 ease-out"
+                                    style={{
+                                        top: 'calc(max(8px, env(safe-area-inset-top)) + 251px)',
+                                        opacity: isExpanded ? 1 : 0,
+                                        transform: isExpanded ? 'translateY(0)' : 'translateY(-14px)',
+                                        pointerEvents: isExpanded ? 'auto' : 'none',
+                                        willChange: 'opacity, transform',
+                                    }}
+                                >
+                                    <HeroWidgets
+                                        data={safeActive}
+                                        units={units}
+                                        cardTime={widgetCardTime}
+                                        sources={widgetSources}
+                                        trends={widgetTrends}
+                                        isLive={activeDay === 0 && activeHour === 0}
+                                        locationType={data.locationType}
+                                        hourly={hourly}
+                                    />
+                                </div>
 
-                            {/* HERO CONTAINER - Shifts up when collapsed to reclaim dead space */}
-                            {/* MATH: 
+                                {/* HERO CONTAINER - Shifts up when collapsed to reclaim dead space */}
+                                {/* MATH: 
                                 Expanded Top: 243 (widgets) + 160 (height) + 9 (gap) = 412px
                                 Collapsed Top: 243 (conditions card) + 80 (height) + 9 (gap) = 332px
                             */}
-                            <div
-                                className="fixed left-0 right-0 z-[120] overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-[7px] pt-0"
-                                style={{
-                                    top: isExpanded
-                                        ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)'
-                                        : 'calc(max(8px, env(safe-area-inset-top)) + 340px)',
-                                    bottom: 'calc(env(safe-area-inset-bottom) + 124px)',
-                                }}
-                            >
-                                {/* STATIC RAIN FORECAST — always visible */}
-                                <div className="shrink-0 px-4">
-                                    <RainForecastCard
-                                        data={minutelyRain}
+                                <div
+                                    className="fixed left-0 right-0 z-[120] overflow-hidden bg-black transition-[top] duration-300 flex flex-col gap-[7px] pt-0"
+                                    style={{
+                                        top: isExpanded
+                                            ? 'calc(max(8px, env(safe-area-inset-top)) + 420px)'
+                                            : 'calc(max(8px, env(safe-area-inset-top)) + 340px)',
+                                        bottom: 'calc(env(safe-area-inset-bottom) + 124px)',
+                                    }}
+                                >
+                                    {/* STATIC RAIN FORECAST — always visible */}
+                                    <div className="shrink-0 px-4">
+                                        <RainForecastCard
+                                            data={minutelyRain}
+                                            timeZone={data.timeZone}
+                                            rainSummary={rainSummary}
+                                            source={rainSource}
+                                        />
+                                    </div>
+                                    <HeroSection
+                                        current={current}
+                                        forecasts={data.forecast}
+                                        units={units}
+                                        generatedAt={data.generatedAt}
+                                        locationName={props.displayTitle}
+                                        tides={data.tides}
+                                        tideHourly={data.tideHourly}
                                         timeZone={data.timeZone}
-                                        rainSummary={rainSummary}
-                                        source={rainSource}
+                                        hourly={hourly}
+                                        modelUsed={data.modelUsed}
+                                        guiDetails={data.tideGUIDetails}
+                                        coordinates={data.coordinates}
+                                        locationType={data.locationType}
+                                        utcOffset={data.utcOffset}
+                                        className="px-4"
+                                        onTimeSelect={handleTimeSelect}
+                                        onDayChange={handleDayChange}
+                                        onHourChange={handleHourChange}
+                                        onActiveDataChange={handleActiveDataChange}
+                                        isEssentialMode={!isExpanded}
+                                        vessel={userSettings.vessel}
+                                        minutelyRain={minutelyRain}
                                     />
                                 </div>
-                                <HeroSection
-                                    current={current}
-                                    forecasts={data.forecast}
-                                    units={units}
-                                    generatedAt={data.generatedAt}
-                                    locationName={props.displayTitle}
-                                    tides={data.tides}
-                                    tideHourly={data.tideHourly}
-                                    timeZone={data.timeZone}
-                                    hourly={hourly}
-                                    modelUsed={data.modelUsed}
-                                    guiDetails={data.tideGUIDetails}
-                                    coordinates={data.coordinates}
-                                    locationType={data.locationType}
-                                    utcOffset={data.utcOffset}
-                                    className="px-4"
-                                    onTimeSelect={handleTimeSelect}
-                                    onDayChange={handleDayChange}
-                                    onHourChange={handleHourChange}
-                                    onActiveDataChange={handleActiveDataChange}
-                                    isEssentialMode={!isExpanded}
-                                    vessel={userSettings.vessel}
-                                    minutelyRain={minutelyRain}
-                                />
-                            </div>
 
-                            {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll (full mode only) */}
-                            {isExpanded && (
-                                <div
-                                    className="fixed left-0 right-0 z-[125] flex justify-center"
-                                    style={{ bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}
-                                >
-                                    <div className="flex gap-[3px] px-4 py-1">
-                                        {Array.from({ length: 24 }).map((_, i) => (
-                                            <div
-                                                key={i}
-                                                className={`w-1 h-1 rounded-full transition-all duration-150 ${
-                                                    i === activeHour
-                                                        ? 'bg-sky-400 shadow-[0_0_3px_rgba(56,189,248,0.6)]'
-                                                        : 'bg-white/20'
-                                                }`}
-                                            />
-                                        ))}
+                                {/* HORIZONTAL POSITION DOTS - Shows current slide in horizontal scroll (full mode only) */}
+                                {isExpanded && (
+                                    <div
+                                        className="fixed left-0 right-0 z-[125] flex justify-center"
+                                        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 124px)' }}
+                                    >
+                                        <div className="flex gap-[3px] px-4 py-1">
+                                            {Array.from({ length: 24 }).map((_, i) => (
+                                                <div
+                                                    key={i}
+                                                    className={`w-1 h-1 rounded-full transition-all duration-150 ${
+                                                        i === activeHour
+                                                            ? 'bg-sky-400 shadow-[0_0_3px_rgba(56,189,248,0.6)]'
+                                                            : 'bg-white/20'
+                                                    }`}
+                                                />
+                                            ))}
+                                        </div>
                                     </div>
-                                </div>
-                            )}
+                                )}
 
-                            {/* STALENESS BANNER — sits below the location pill,
+                                {/* STALENESS BANNER — sits below the location pill,
                                 just above the CompactHeaderRow (warnings / sun).
                                 Position history:
                                   +108 → overlapped warnings row (too low)
@@ -904,72 +952,73 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 z-[130] keeps it above the black blocker /
                                 CompactHeaderRow at z-[120] so it's always
                                 readable. */}
-                            <div
-                                className="fixed left-0 right-0 z-[130] px-4"
-                                style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 81px)' }}
-                            >
-                                <StalenessBanner
-                                    generatedAt={data.generatedAt}
-                                    stale={data._stale}
-                                    staleAgeMinutes={data._staleAgeMinutes}
-                                    error={weatherError}
-                                    locationType={data.locationType}
-                                    isOffline={isOffline}
-                                    onRefresh={() => refreshData()}
-                                    isSyncing={weatherLoading || backgroundUpdating}
-                                />
-                            </div>
+                                <div
+                                    className="fixed left-0 right-0 z-[130] px-4"
+                                    style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 81px)' }}
+                                >
+                                    <StalenessBanner
+                                        generatedAt={data.generatedAt}
+                                        stale={data._stale}
+                                        staleAgeMinutes={data._staleAgeMinutes}
+                                        error={weatherError}
+                                        locationType={data.locationType}
+                                        isOffline={isOffline}
+                                        onRefresh={() => refreshData()}
+                                        isSyncing={weatherLoading || backgroundUpdating}
+                                    />
+                                </div>
 
-                            {/* STATIC BADGES - Fixed at bottom, outside hero scroll */}
-                            {/* Height is ~42px. Bottom is 74px. Top of badges is 74+42 = 116px.
+                                {/* STATIC BADGES - Fixed at bottom, outside hero scroll */}
+                                {/* Height is ~42px. Bottom is 74px. Top of badges is 74+42 = 116px.
                                 Hero container bottom is 120px.
                                 Gap = 120 - 116 = 4px. (Adjusted per user request to be 4px tighter)
                             */}
-                            <div
-                                className="fixed left-0 right-0 z-[125] px-4"
-                                style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}
-                            >
-                                <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
-                                    <StatusBadges
-                                        isLandlocked={isLandlocked}
-                                        locationName={props.displayTitle || ''}
-                                        displaySource={data.modelUsed || 'Model'}
-                                        nextUpdate={nextUpdateTime}
-                                        fallbackInland={false}
-                                        stationId={undefined}
-                                        locationType={data.locationType}
-                                        beaconName={beaconName}
-                                        buoyName={buoyName}
-                                        isOffshore={offshore.isOffshore}
-                                        offshoreModelLabel={offshore.offshoreModel}
-                                        sources={widgetSources}
-                                        activeData={safeActive}
-                                        isLive={activeDay === 0 && activeHour === 0}
-                                        modelUsed={data.modelUsed}
-                                        generatedAt={data.generatedAt}
-                                        coordinates={data.coordinates}
-                                    />
+                                <div
+                                    className="fixed left-0 right-0 z-[125] px-4"
+                                    style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}
+                                >
+                                    <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
+                                        <StatusBadges
+                                            isLandlocked={isLandlocked}
+                                            locationName={props.displayTitle || ''}
+                                            displaySource={data.modelUsed || 'Model'}
+                                            nextUpdate={nextUpdateTime}
+                                            fallbackInland={false}
+                                            stationId={undefined}
+                                            locationType={data.locationType}
+                                            beaconName={beaconName}
+                                            buoyName={buoyName}
+                                            isOffshore={offshore.isOffshore}
+                                            offshoreModelLabel={offshore.offshoreModel}
+                                            sources={widgetSources}
+                                            activeData={safeActive}
+                                            isLive={activeDay === 0 && activeHour === 0}
+                                            modelUsed={data.modelUsed}
+                                            generatedAt={data.generatedAt}
+                                            coordinates={data.coordinates}
+                                        />
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    )}
+                        )}
 
-                    {/* DETAILED GRIDS / LOG PAGE - Full height container for proper internal scrolling */}
-                    {isDetailMode && (
-                        <div className="absolute inset-0 overflow-hidden">
-                            <React.Suspense
-                                fallback={
-                                    <div className="flex items-center justify-center h-full bg-black">
-                                        <div className="text-white/60 text-sm">Loading Log...</div>
-                                    </div>
-                                }
-                            >
-                                <LogPage />
-                            </React.Suspense>
-                        </div>
-                    )}
+                        {/* DETAILED GRIDS / LOG PAGE - Full height container for proper internal scrolling */}
+                        {isDetailMode && (
+                            <div className="absolute inset-0 overflow-hidden">
+                                <React.Suspense
+                                    fallback={
+                                        <div className="flex items-center justify-center h-full bg-black">
+                                            <div className="text-white/60 text-sm">Loading Log...</div>
+                                        </div>
+                                    }
+                                >
+                                    <LogPage />
+                                </React.Suspense>
+                            </div>
+                        )}
+                    </div>
                 </div>
-            </div>
+            </DndContext>
         </DashboardWidgetContext.Provider>
     );
 });

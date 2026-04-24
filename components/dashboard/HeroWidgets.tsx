@@ -6,6 +6,38 @@ import { WeatherMetrics, UnitPreferences, HourlyForecast } from '../../types';
 import type { OffshoreModel } from '../../types';
 import { convertTemp, convertSpeed, convertLength, convertDistance } from '../../utils';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useDraggable } from '@dnd-kit/core';
+
+/**
+ * DraggableMetricCell — thin wrapper that makes a grid cell long-pressable
+ * as a DnD source. Uses the @dnd-kit useDraggable hook; activation is
+ * governed by the sensors configured at the DndContext level in
+ * Dashboard.tsx (250ms delay + 8px tolerance), so tap events still pass
+ * through to the existing offshore grid-wide onClick (model comparison
+ * matrix).
+ *
+ * The `id` prop is the "effective metric" — whatever is VISIBLY displayed
+ * in the cell right now. When heroMetric === 'wind' and the wind cell is
+ * rendering temperature instead, the effective id is 'temp'. Dropping
+ * temp on the hero = reset, consistent with the single-string state
+ * model.
+ */
+const DraggableMetricCell: React.FC<{ id: string; children: React.ReactNode }> = ({ id, children }) => {
+    const { attributes, listeners, setNodeRef, isDragging, transform } = useDraggable({ id });
+    const style: React.CSSProperties = {
+        opacity: isDragging ? 0.35 : 1,
+        touchAction: 'none',
+        transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+        transition: isDragging ? 'none' : 'opacity 150ms ease-out',
+        position: 'relative',
+        zIndex: isDragging ? 100 : 'auto',
+    };
+    return (
+        <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+            {children}
+        </div>
+    );
+};
 
 /* ── Micro-animation keyframes for metric icons ── */
 /* ── Micro-animation keyframes moved to index.css ── */
@@ -505,104 +537,114 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 ANIMATIONS" for the full keyframe details. */}
             <div className="w-full grid grid-cols-5 divide-x divide-white/[0.12] h-[80px]">
                 {/* Wind Speed — or TEMP if wind is pinned to hero */}
-                {heroMetric === 'wind' ? (
-                    <InstrumentCell
-                        label="TEMP"
-                        icon={<ThermometerIcon className="w-3 h-3" />}
-                        value={tempValue}
-                        unit={tempUnit}
-                        tooltip="Air temperature (pinned metric moved to hero)"
-                    />
-                ) : (
-                    <InstrumentCell
-                        label="WIND"
-                        icon={<WindIcon className="w-3 h-3 metric-anim-wind" />}
-                        value={windSpeed}
-                        unit={speedUnit}
-                        trend={trends?.windSpeed}
-                        improving={isWindImproving}
-                        tooltip="Sustained wind speed — average over 10 minutes"
-                    />
-                )}
+                <DraggableMetricCell id={heroMetric === 'wind' ? 'temp' : 'wind'}>
+                    {heroMetric === 'wind' ? (
+                        <InstrumentCell
+                            label="TEMP"
+                            icon={<ThermometerIcon className="w-3 h-3" />}
+                            value={tempValue}
+                            unit={tempUnit}
+                            tooltip="Air temperature (pinned metric moved to hero)"
+                        />
+                    ) : (
+                        <InstrumentCell
+                            label="WIND"
+                            icon={<WindIcon className="w-3 h-3 metric-anim-wind" />}
+                            value={windSpeed}
+                            unit={speedUnit}
+                            trend={trends?.windSpeed}
+                            improving={isWindImproving}
+                            tooltip="Sustained wind speed — average over 10 minutes"
+                        />
+                    )}
+                </DraggableMetricCell>
 
                 {/* Direction — or TEMP if pinned */}
-                {heroMetric === 'dir' ? (
-                    <InstrumentCell
-                        label="TEMP"
-                        icon={<ThermometerIcon className="w-3 h-3" />}
-                        value={tempValue}
-                        unit={tempUnit}
-                    />
-                ) : (
-                    <InstrumentCell
-                        label="DIR"
-                        icon={<CompassIcon className="w-3 h-3 metric-anim-compass" rotation={0} />}
-                        value={windDir}
-                    />
-                )}
+                <DraggableMetricCell id={heroMetric === 'dir' ? 'temp' : 'dir'}>
+                    {heroMetric === 'dir' ? (
+                        <InstrumentCell
+                            label="TEMP"
+                            icon={<ThermometerIcon className="w-3 h-3" />}
+                            value={tempValue}
+                            unit={tempUnit}
+                        />
+                    ) : (
+                        <InstrumentCell
+                            label="DIR"
+                            icon={<CompassIcon className="w-3 h-3 metric-anim-compass" rotation={0} />}
+                            value={windDir}
+                        />
+                    )}
+                </DraggableMetricCell>
 
                 {/* Gusts — or TEMP if pinned */}
-                {heroMetric === 'gust' ? (
-                    <InstrumentCell
-                        label="TEMP"
-                        icon={<ThermometerIcon className="w-3 h-3" />}
-                        value={tempValue}
-                        unit={tempUnit}
-                    />
-                ) : (
-                    <InstrumentCell
-                        label="GUST"
-                        icon={<WindIcon className="w-3 h-3 metric-anim-wind" />}
-                        value={gustVal}
-                        unit={speedUnit}
-                        trend={trends?.windGust}
-                        improving={isGustImproving}
-                        tooltip="Peak gust speed — sudden short bursts above sustained wind"
-                    />
-                )}
+                <DraggableMetricCell id={heroMetric === 'gust' ? 'temp' : 'gust'}>
+                    {heroMetric === 'gust' ? (
+                        <InstrumentCell
+                            label="TEMP"
+                            icon={<ThermometerIcon className="w-3 h-3" />}
+                            value={tempValue}
+                            unit={tempUnit}
+                        />
+                    ) : (
+                        <InstrumentCell
+                            label="GUST"
+                            icon={<WindIcon className="w-3 h-3 metric-anim-wind" />}
+                            value={gustVal}
+                            unit={speedUnit}
+                            trend={trends?.windGust}
+                            improving={isGustImproving}
+                            tooltip="Peak gust speed — sudden short bursts above sustained wind"
+                        />
+                    )}
+                </DraggableMetricCell>
 
                 {/* Wave/Swell Height — or TEMP if pinned */}
-                {heroMetric === 'wave' ? (
-                    <InstrumentCell
-                        label="TEMP"
-                        icon={<ThermometerIcon className="w-3 h-3" />}
-                        value={tempValue}
-                        unit={tempUnit}
-                    />
-                ) : (
-                    <InstrumentCell
-                        label={isOffshore ? 'SWELL' : 'WAVE'}
-                        icon={<WaveIcon className="w-3 h-3 metric-anim-wave" />}
-                        value={waveHeight ?? '--'}
-                        unit={waveUnit}
-                        trend={trends?.waveHeight}
-                        improving={isWaveImproving}
-                        dirDeg={swellDirDeg}
-                        tooltip={
-                            isOffshore
-                                ? 'Open-ocean swell height — long-period waves from distant storms'
-                                : 'Significant wave height — average of tallest third of waves'
-                        }
-                    />
-                )}
+                <DraggableMetricCell id={heroMetric === 'wave' ? 'temp' : 'wave'}>
+                    {heroMetric === 'wave' ? (
+                        <InstrumentCell
+                            label="TEMP"
+                            icon={<ThermometerIcon className="w-3 h-3" />}
+                            value={tempValue}
+                            unit={tempUnit}
+                        />
+                    ) : (
+                        <InstrumentCell
+                            label={isOffshore ? 'SWELL' : 'WAVE'}
+                            icon={<WaveIcon className="w-3 h-3 metric-anim-wave" />}
+                            value={waveHeight ?? '--'}
+                            unit={waveUnit}
+                            trend={trends?.waveHeight}
+                            improving={isWaveImproving}
+                            dirDeg={swellDirDeg}
+                            tooltip={
+                                isOffshore
+                                    ? 'Open-ocean swell height — long-period waves from distant storms'
+                                    : 'Significant wave height — average of tallest third of waves'
+                            }
+                        />
+                    )}
+                </DraggableMetricCell>
 
                 {/* Period — or TEMP if pinned */}
-                {heroMetric === 'period' ? (
-                    <InstrumentCell
-                        label="TEMP"
-                        icon={<ThermometerIcon className="w-3 h-3" />}
-                        value={tempValue}
-                        unit={tempUnit}
-                    />
-                ) : (
-                    <InstrumentCell
-                        label="PER."
-                        icon={<WaveIcon className="w-3 h-3 metric-anim-wave" />}
-                        value={wavePeriod}
-                        unit="s"
-                        dirDeg={swellDirDeg}
-                    />
-                )}
+                <DraggableMetricCell id={heroMetric === 'period' ? 'temp' : 'period'}>
+                    {heroMetric === 'period' ? (
+                        <InstrumentCell
+                            label="TEMP"
+                            icon={<ThermometerIcon className="w-3 h-3" />}
+                            value={tempValue}
+                            unit={tempUnit}
+                        />
+                    ) : (
+                        <InstrumentCell
+                            label="PER."
+                            icon={<WaveIcon className="w-3 h-3 metric-anim-wave" />}
+                            value={wavePeriod}
+                            unit="s"
+                            dirDeg={swellDirDeg}
+                        />
+                    )}
+                </DraggableMetricCell>
             </div>
 
             {/* Horizontal divider between rows */}
@@ -611,95 +653,105 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
             {/* BOTTOM ROW: UV, Vis, HPA, Hum, Rain */}
             <div className="w-full grid grid-cols-5 divide-x divide-white/[0.12] h-[80px]">
                 {/* UV — or TEMP if pinned */}
-                {heroMetric === 'uv' ? (
-                    <InstrumentCell
-                        label="TEMP"
-                        icon={<ThermometerIcon className="w-3 h-3" />}
-                        value={tempValue}
-                        unit={tempUnit}
-                    />
-                ) : (
-                    <InstrumentCell
-                        label="UV"
-                        icon={<SunIcon className="w-3 h-3 metric-anim-sun" />}
-                        value={uvVal}
-                        tooltip="UV Index — 0-2 Low, 3-5 Moderate, 6-7 High, 8-10 Very High, 11+ Extreme"
-                    />
-                )}
+                <DraggableMetricCell id={heroMetric === 'uv' ? 'temp' : 'uv'}>
+                    {heroMetric === 'uv' ? (
+                        <InstrumentCell
+                            label="TEMP"
+                            icon={<ThermometerIcon className="w-3 h-3" />}
+                            value={tempValue}
+                            unit={tempUnit}
+                        />
+                    ) : (
+                        <InstrumentCell
+                            label="UV"
+                            icon={<SunIcon className="w-3 h-3 metric-anim-sun" />}
+                            value={uvVal}
+                            tooltip="UV Index — 0-2 Low, 3-5 Moderate, 6-7 High, 8-10 Very High, 11+ Extreme"
+                        />
+                    )}
+                </DraggableMetricCell>
 
                 {/* Visibility — or TEMP if pinned */}
-                {heroMetric === 'vis' ? (
-                    <InstrumentCell
-                        label="TEMP"
-                        icon={<ThermometerIcon className="w-3 h-3" />}
-                        value={tempValue}
-                        unit={tempUnit}
-                    />
-                ) : (
-                    <InstrumentCell
-                        label="VIS"
-                        icon={<EyeIcon className="w-3 h-3 metric-anim-eye" />}
-                        value={visVal}
-                        unit={distUnit}
-                        trend={trends?.visibility}
-                        improving={isVisImproving}
-                        tooltip="Visibility — horizontal distance at which objects can be clearly seen"
-                    />
-                )}
+                <DraggableMetricCell id={heroMetric === 'vis' ? 'temp' : 'vis'}>
+                    {heroMetric === 'vis' ? (
+                        <InstrumentCell
+                            label="TEMP"
+                            icon={<ThermometerIcon className="w-3 h-3" />}
+                            value={tempValue}
+                            unit={tempUnit}
+                        />
+                    ) : (
+                        <InstrumentCell
+                            label="VIS"
+                            icon={<EyeIcon className="w-3 h-3 metric-anim-eye" />}
+                            value={visVal}
+                            unit={distUnit}
+                            trend={trends?.visibility}
+                            improving={isVisImproving}
+                            tooltip="Visibility — horizontal distance at which objects can be clearly seen"
+                        />
+                    )}
+                </DraggableMetricCell>
 
                 {/* Pressure — or TEMP if pinned */}
-                {heroMetric === 'pressure' ? (
-                    <InstrumentCell
-                        label="TEMP"
-                        icon={<ThermometerIcon className="w-3 h-3" />}
-                        value={tempValue}
-                        unit={tempUnit}
-                    />
-                ) : (
-                    <BarometerCell pressure={pressureVal} trend={trends?.pressure} />
-                )}
+                <DraggableMetricCell id={heroMetric === 'pressure' ? 'temp' : 'pressure'}>
+                    {heroMetric === 'pressure' ? (
+                        <InstrumentCell
+                            label="TEMP"
+                            icon={<ThermometerIcon className="w-3 h-3" />}
+                            value={tempValue}
+                            unit={tempUnit}
+                        />
+                    ) : (
+                        <BarometerCell pressure={pressureVal} trend={trends?.pressure} />
+                    )}
+                </DraggableMetricCell>
 
                 {/* Humidity — or TEMP if pinned */}
-                {heroMetric === 'humidity' ? (
-                    <InstrumentCell
-                        label="TEMP"
-                        icon={<ThermometerIcon className="w-3 h-3" />}
-                        value={tempValue}
-                        unit={tempUnit}
-                    />
-                ) : (
-                    <InstrumentCell
-                        label="HUM"
-                        icon={<DropletIcon className="w-3 h-3 metric-anim-droplet" />}
-                        value={humidityVal}
-                        unit="%"
-                        trend={trends?.humidity}
-                        improving={isHumidityImproving}
-                        tooltip="Relative humidity — 60%+ feels muggy on a boat, <30% is very dry"
-                    />
-                )}
+                <DraggableMetricCell id={heroMetric === 'humidity' ? 'temp' : 'humidity'}>
+                    {heroMetric === 'humidity' ? (
+                        <InstrumentCell
+                            label="TEMP"
+                            icon={<ThermometerIcon className="w-3 h-3" />}
+                            value={tempValue}
+                            unit={tempUnit}
+                        />
+                    ) : (
+                        <InstrumentCell
+                            label="HUM"
+                            icon={<DropletIcon className="w-3 h-3 metric-anim-droplet" />}
+                            value={humidityVal}
+                            unit="%"
+                            trend={trends?.humidity}
+                            improving={isHumidityImproving}
+                            tooltip="Relative humidity — 60%+ feels muggy on a boat, <30% is very dry"
+                        />
+                    )}
+                </DraggableMetricCell>
 
                 {/* Rain — or TEMP if pinned */}
-                {heroMetric === 'rain' ? (
-                    <InstrumentCell
-                        label="TEMP"
-                        icon={<ThermometerIcon className="w-3 h-3" />}
-                        value={tempValue}
-                        unit={tempUnit}
-                    />
-                ) : (
-                    <InstrumentCell
-                        label="RAIN"
-                        icon={<AnimatedRainIcon className="w-3 h-3 text-emerald-400" />}
-                        value={rainValue}
-                        unit={rainUnit}
-                        tooltip={
-                            isLive
-                                ? 'Total rainfall today — accumulated precipitation in 24 hours'
-                                : 'Chance of precipitation during this hour'
-                        }
-                    />
-                )}
+                <DraggableMetricCell id={heroMetric === 'rain' ? 'temp' : 'rain'}>
+                    {heroMetric === 'rain' ? (
+                        <InstrumentCell
+                            label="TEMP"
+                            icon={<ThermometerIcon className="w-3 h-3" />}
+                            value={tempValue}
+                            unit={tempUnit}
+                        />
+                    ) : (
+                        <InstrumentCell
+                            label="RAIN"
+                            icon={<AnimatedRainIcon className="w-3 h-3 text-emerald-400" />}
+                            value={rainValue}
+                            unit={rainUnit}
+                            tooltip={
+                                isLive
+                                    ? 'Total rainfall today — accumulated precipitation in 24 hours'
+                                    : 'Chance of precipitation during this hour'
+                            }
+                        />
+                    )}
+                </DraggableMetricCell>
             </div>
 
             {/* Model Comparison Matrix — offshore only */}
