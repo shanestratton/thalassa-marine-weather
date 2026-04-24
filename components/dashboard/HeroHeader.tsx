@@ -7,6 +7,7 @@ import { MetricPinSheet } from './MetricPinSheet';
 import { getPinnedMetricDisplay } from './metricDisplayHelpers';
 import { CoachMark } from '../ui/CoachMark';
 import { useDroppable } from '@dnd-kit/core';
+import { AnimatePresence, motion } from 'framer-motion';
 
 /**
  * ConditionText — simple text sizing based on string length.
@@ -206,42 +207,64 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     }
                     style={{ WebkitTapHighlightColor: 'transparent' }}
                 >
-                    {pinnedDisplay ? (
-                        <>
-                            {/* Pinned-metric mode: small label + value + unit.
-                                Uses typography proportional to the temp slot so
-                                the header doesn't jump height on pin/unpin. */}
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-sky-300/80 leading-none mb-0.5">
-                                {pinnedDisplay.label}
-                            </span>
-                            <div className="flex items-baseline gap-1 leading-none">
-                                <span
-                                    className={`${typeof pinnedDisplay.value === 'string' && pinnedDisplay.value.length > 3 ? 'text-2xl' : 'text-3xl'} font-mono font-bold tracking-tighter text-ivory drop-shadow`}
-                                >
-                                    {pinnedDisplay.value}
-                                </span>
-                                {pinnedDisplay.unit && (
-                                    <span className="text-xs font-bold text-white/60">{pinnedDisplay.unit}</span>
-                                )}
-                            </div>
-                        </>
-                    ) : (
-                        (() => {
-                            const tempStr = (
-                                data.airTemperature !== null ? convertTemp(data.airTemperature, units.temp) : '--'
-                            ).toString();
-                            const len = tempStr.length;
-                            const sizeClass = len > 3 ? 'text-3xl' : len > 2 ? 'text-4xl' : 'text-3xl';
-                            return (
-                                <span
-                                    className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none`}
-                                    aria-label={`Temperature ${tempStr} degrees`}
-                                >
-                                    {tempStr}°
-                                </span>
-                            );
-                        })()
-                    )}
+                    {/* Animated swap — AnimatePresence drives a crossfade +
+                        subtle scale between whichever metric is currently
+                        pinned. `mode="wait"` ensures the old content fully
+                        exits before the new content enters, avoiding a
+                        double-layered flash. The motion.div is keyed by
+                        heroMetric so every swap triggers a fresh enter/exit
+                        cycle. */}
+                    <AnimatePresence mode="wait" initial={false}>
+                        <motion.div
+                            key={heroMetric}
+                            initial={{ opacity: 0, scale: 0.92, y: 6 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.92, y: -6 }}
+                            transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                            className="flex flex-col items-start w-full"
+                        >
+                            {pinnedDisplay ? (
+                                <>
+                                    {/* Pinned-metric mode: small label + value + unit.
+                                        Uses typography proportional to the temp slot so
+                                        the header doesn't jump height on pin/unpin. */}
+                                    <span className="text-[10px] font-bold uppercase tracking-widest text-sky-300/80 leading-none mb-0.5">
+                                        {pinnedDisplay.label}
+                                    </span>
+                                    <div className="flex items-baseline gap-1 leading-none">
+                                        <span
+                                            className={`${typeof pinnedDisplay.value === 'string' && pinnedDisplay.value.length > 3 ? 'text-2xl' : 'text-3xl'} font-mono font-bold tracking-tighter text-ivory drop-shadow`}
+                                        >
+                                            {pinnedDisplay.value}
+                                        </span>
+                                        {pinnedDisplay.unit && (
+                                            <span className="text-xs font-bold text-white/60">
+                                                {pinnedDisplay.unit}
+                                            </span>
+                                        )}
+                                    </div>
+                                </>
+                            ) : (
+                                (() => {
+                                    const tempStr = (
+                                        data.airTemperature !== null
+                                            ? convertTemp(data.airTemperature, units.temp)
+                                            : '--'
+                                    ).toString();
+                                    const len = tempStr.length;
+                                    const sizeClass = len > 3 ? 'text-3xl' : len > 2 ? 'text-4xl' : 'text-3xl';
+                                    return (
+                                        <span
+                                            className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none`}
+                                            aria-label={`Temperature ${tempStr} degrees`}
+                                        >
+                                            {tempStr}°
+                                        </span>
+                                    );
+                                })()
+                            )}
+                        </motion.div>
+                    </AnimatePresence>
                     {/* Tiny "edit" affordance in the top-right — only appears
                         on hover on desktop or remains subtly visible on mobile
                         so new users have a visual cue that this area is

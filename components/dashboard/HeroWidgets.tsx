@@ -7,20 +7,30 @@ import type { OffshoreModel } from '../../types';
 import { convertTemp, convertSpeed, convertLength, convertDistance } from '../../utils';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useDraggable } from '@dnd-kit/core';
+import { AnimatePresence, motion } from 'framer-motion';
 
 /**
  * DraggableMetricCell — thin wrapper that makes a grid cell long-pressable
- * as a DnD source. Uses the @dnd-kit useDraggable hook; activation is
- * governed by the sensors configured at the DndContext level in
- * Dashboard.tsx (250ms delay + 8px tolerance), so tap events still pass
- * through to the existing offshore grid-wide onClick (model comparison
- * matrix).
+ * as a DnD source AND cross-fades its contents on metric swap.
+ *
+ * DnD: Uses the @dnd-kit useDraggable hook; activation is governed by the
+ * sensors configured at the DndContext level in Dashboard.tsx (250ms
+ * delay + 8px tolerance), so tap events still pass through to the
+ * existing offshore grid-wide onClick (model comparison matrix).
  *
  * The `id` prop is the "effective metric" — whatever is VISIBLY displayed
  * in the cell right now. When heroMetric === 'wind' and the wind cell is
  * rendering temperature instead, the effective id is 'temp'. Dropping
  * temp on the hero = reset, consistent with the single-string state
- * model.
+ * model. It also doubles as the AnimatePresence key, so every change
+ * in what's displayed triggers a crossfade.
+ *
+ * Animation: AnimatePresence with `mode="wait"` runs the old content's
+ * exit animation to completion before mounting the new content's entry,
+ * eliminating the flash that a pure state swap would cause. The
+ * transition uses a spring-friendly cubic-bezier and a sub-quarter-
+ * second duration so the swap reads as "considered" without feeling
+ * laggy during rapid pin changes.
  */
 const DraggableMetricCell: React.FC<{ id: string; children: React.ReactNode }> = ({ id, children }) => {
     const { attributes, listeners, setNodeRef, isDragging, transform } = useDraggable({ id });
@@ -34,7 +44,18 @@ const DraggableMetricCell: React.FC<{ id: string; children: React.ReactNode }> =
     };
     return (
         <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-            {children}
+            <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                    key={id}
+                    initial={{ opacity: 0, scale: 0.92 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.92 }}
+                    transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                    className="w-full h-full"
+                >
+                    {children}
+                </motion.div>
+            </AnimatePresence>
         </div>
     );
 };
