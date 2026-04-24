@@ -36,6 +36,7 @@ import { AisStreamService } from '../../../services/AisStreamService';
 import { SwingCircleCanvas, type AisTargetDot } from '../../anchor-watch/SwingCircleCanvas';
 import { formatDistance, bearingToCardinal, formatElapsed, navStatusColorSimple } from '../../anchor-watch/anchorUtils';
 import { CompassIcon, WindIcon } from '../../Icons';
+import { CoachMark } from '../../ui/CoachMark';
 
 interface EssentialAnchorViewProps {
     /** Optional wind speed in kts for the status strip. */
@@ -202,6 +203,22 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
                 snapshot.distanceFromAnchor,
             )} of ${formatDistance(snapshot.swingRadius)} swing radius.`}
         >
+            {/* First-use coach mark — teaches the swap. Only fires the first
+                time the anchor view appears on the Glass (a fresh drop after
+                install). Suppressed during alarm so the red chrome + audio
+                aren't competing with a coach tip. */}
+            {!isAlarm && (
+                <CoachMark
+                    seenKey="thalassa_anchor_view_coach_v1"
+                    visibleWhen={true}
+                    anchor="center"
+                    arrow="down"
+                    message="Swing radar replaces the map while you're on the hook"
+                    initialDelayMs={1200}
+                    ttlMs={7000}
+                    className="top-10"
+                />
+            )}
             {/* Top chrome — status pill + elapsed time */}
             <div className="shrink-0 flex items-center justify-between px-3 py-2 border-b border-white/[0.06] bg-black/30">
                 <div className="flex items-center gap-2">
