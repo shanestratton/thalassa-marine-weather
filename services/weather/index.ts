@@ -380,6 +380,22 @@ const _fetchWeatherByStrategyImpl = async (
             return { ...h, cape: omH.cape };
         });
     }
+    // Safety net: the NOW card reads `report.current.cape` directly (it does
+    // NOT fall through to hourly like the forecast cards do). openmeteo.ts
+    // builds `current.cape` from `hourly.cape[currentHourIndex]`, but that
+    // index lookup compares `now.toISOString()` (UTC) against hourly times
+    // indexed by local time (`&timezone=auto`) — so findIndex returns -1 in
+    // any non-UTC zone and curCAPE ends up `undefined`. The hourly merge
+    // above succeeds because it keys on UTC epoch hours. Backfill current
+    // from the hourly slot that covers "now" so the NOW card doesn't show
+    // "--" while every forecast hour shows a real value.
+    if ((report.current.cape == null || report.current.cape === 0) && report.hourly?.length) {
+        const nowKey = Math.floor(Date.now() / 3600000);
+        const nowHour = report.hourly.find((h) => Math.floor(new Date(h.time).getTime() / 3600000) === nowKey);
+        if (nowHour && typeof nowHour.cape === 'number' && nowHour.cape > 0) {
+            report.current = { ...report.current, cape: nowHour.cape };
+        }
+    }
 
     // --- INHERIT TIMEZONE ---
     if (!report.timeZone) {
