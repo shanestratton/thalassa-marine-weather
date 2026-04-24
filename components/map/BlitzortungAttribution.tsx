@@ -81,7 +81,11 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
 
     return (
         <div
-            className="absolute left-2 bottom-2 z-[140] pointer-events-auto max-w-[300px]"
+            // z-[9999] beats every other map overlay — the chip is the
+            // lightning feed's only user-facing health indicator and it
+            // MUST be visible. Lifted off bottom-2 to bottom-20 so it
+            // doesn't collide with the radial menu's bottom-edge fan.
+            className="absolute left-3 bottom-20 z-[9999] pointer-events-auto max-w-[320px]"
             role="contentinfo"
             aria-label="Lightning data attribution and connection status"
         >

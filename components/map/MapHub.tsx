@@ -90,10 +90,12 @@ const CmemsAttribution = lazyRetry(
     () => import('./CmemsAttribution').then((m) => ({ default: m.CmemsAttribution })),
     'CmemsAttribution',
 );
-const BlitzortungAttribution = lazyRetry(
-    () => import('./BlitzortungAttribution').then((m) => ({ default: m.BlitzortungAttribution })),
-    'BlitzortungAttribution',
-);
+// Eager import — the chip doubles as the live diagnostic pill for the
+// lightning feed, so a lazy chunk that fails to load silently (and
+// leaves the user staring at an empty chart with no feedback) is the
+// exact failure mode we're trying to fix. Tiny component, not worth the
+// risk of a broken chunk hiding our debug surface.
+import { BlitzortungAttribution } from './BlitzortungAttribution';
 const AisGuardAlert = lazyRetry(
     () => import('./AisGuardAlert').then((m) => ({ default: m.AisGuardAlert })),
     'AisGuardAlert',
@@ -1352,9 +1354,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                             <CmemsAttribution visible={currentsVisible} />
                         </React.Suspense>
                     )}
-                    <React.Suspense fallback={null}>
-                        <BlitzortungAttribution visible={lightningVisible} />
-                    </React.Suspense>
+                    {/* Eager import (no Suspense) — chip is the lightning
+                        feed's diagnostic pill, can't risk a broken lazy
+                        chunk failing silently and hiding our debug UI. */}
+                    <BlitzortungAttribution visible={lightningVisible} />
 
                     {/* ═══ VESSEL SEARCH BUTTON ═══ */}
                     {!passage.showPassage && !embedded && !isPinView && aisVisible && (
