@@ -753,9 +753,17 @@ export function useWeatherLayers(
             map.setMaxBounds(undefined!);
         }
 
-        // Fly to Aus+NZ overview on FIRST layer activation (not every toggle)
+        // Zoom to z5 on FIRST layer activation — user wants wind/rain to
+        // open at a consistent regional zoom, same as the passage-planning
+        // rule of thumb. Keep the current map centre so we don't yank the
+        // user away from wherever they were already looking; only ease the
+        // zoom if the user isn't already there or deeper.
         if (layerCount > 0 && prevLayerCountRef.current === 0) {
-            map.flyTo({ center: [145, -28], zoom: ausNzMin, duration: 800 });
+            const currentZoom = map.getZoom();
+            const centre = map.getCenter();
+            if (currentZoom < 4.5) {
+                map.flyTo({ center: [centre.lng, centre.lat], zoom: 5, duration: 800 });
+            }
         }
         prevLayerCountRef.current = layerCount;
         // eslint-disable-next-line react-hooks/exhaustive-deps
