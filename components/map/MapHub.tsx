@@ -411,6 +411,10 @@ export const MapHub: React.FC<MapHubProps> = ({
         setClosestStorm,
         skipAutoFlyRef,
         closestStorm,
+        // Wire marker clicks to the same handler the picker modal uses —
+        // so tapping a storm on the chart does the same thing as tapping
+        // its row in the picker (fly + highlight + close any overlay).
+        handleSelectStorm,
     );
 
     // ── Rain Squall Map (GMGSI IR with BD Enhancement Curve) ──
