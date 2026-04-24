@@ -42,13 +42,16 @@ const STATUS_STYLES: Record<
         dot: 'bg-emerald-400',
         text: 'text-amber-100/80',
         label: (s) => {
-            // Viewport-scoped numbers when there's something to look at,
-            // global session count otherwise so the chip never goes blank.
+            // Always surface a /min rate — viewport-scoped when there's
+            // something to look at (answers "is my storm intensifying?"),
+            // global feed rate otherwise (so the user knows the feed is
+            // healthy even when the map is over open ocean). Without this
+            // the chip went blank-of-rate during calm-viewport periods.
             if (s.viewportCount > 0) {
                 return `Live · ${s.viewportCount} in view (${s.viewportRate}/min)`;
             }
             if (s.strikesReceived > 0) {
-                return `Live · ${s.strikesReceived.toLocaleString()} global`;
+                return `Live · ${s.strikesReceived.toLocaleString()} global (${s.strikesPerMinute}/min)`;
             }
             return 'Live · waiting for strikes';
         },
@@ -95,12 +98,20 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
             aria-label="Lightning data attribution and connection status"
         >
             <div
-                className={`rounded-lg border border-amber-400/30 bg-black/60 backdrop-blur-sm px-2 py-1 text-[10px] leading-tight ${styles.text} flex items-center gap-1.5`}
+                className={`rounded-lg border border-amber-400/30 bg-black/60 backdrop-blur-sm px-2 py-1 text-[10px] leading-tight ${styles.text} flex items-center gap-1.5 flex-wrap`}
             >
                 <span className={`inline-block h-2 w-2 rounded-full ${styles.dot}`} aria-hidden />
                 <span className="font-semibold">{label}</span>
                 <span className="opacity-60">·</span>
-                <span className="font-bold text-amber-300">⚡ Blitzortung</span>
+                <span className="font-bold text-amber-300">⚡</span>
+                <a
+                    href="https://www.blitzortung.org"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-amber-200"
+                >
+                    Blitzortung.org
+                </a>
             </div>
         </div>
     );
