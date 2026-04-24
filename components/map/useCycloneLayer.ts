@@ -1244,6 +1244,12 @@ export function useCycloneLayer(
     onClosestStorm?: (storm: ActiveCyclone | null) => void,
     skipAutoFlyRef?: React.MutableRefObject<boolean>,
     selectedStorm?: ActiveCyclone | null,
+    /** Fires when the user taps a storm marker on the map. Used by the
+     *  host (MapHub) to fly to that storm + highlight it — previously
+     *  markers were purely decorative and tap did nothing, so in a
+     *  multi-storm basin the user had no way to focus a specific storm
+     *  short of opening the StormPicker modal. */
+    onSelectStorm?: (storm: ActiveCyclone) => void,
 ) {
     // (categoryLabels, categoryColor moved to module scope below)
     const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1256,6 +1262,7 @@ export function useCycloneLayer(
     const userLonRef = useRef(userLon);
     const onClosestStormRef = useRef(onClosestStorm);
     const selectedStormRef = useRef(selectedStorm ?? null);
+    const onSelectStormRef = useRef(onSelectStorm);
 
     /** Locked storm center — map snaps back here after any pan */
     const stormCenterRef = useRef<[number, number] | null>(null); // [lng, lat]
@@ -1270,6 +1277,7 @@ export function useCycloneLayer(
     userLonRef.current = userLon;
     onClosestStormRef.current = onClosestStorm;
     selectedStormRef.current = selectedStorm ?? null;
+    onSelectStormRef.current = onSelectStorm;
 
     useEffect(() => {
         const map = mapRef.current;
@@ -1465,6 +1473,44 @@ export function useCycloneLayer(
                 }
 
                 const markerEl = createStormMarkerEl(cyclone, zoom);
+
+                // Tap-to-select: in a multi-storm basin the user needs a
+                // way to focus a specific storm directly from the chart.
+                // Previously markers were decorative only — if the picker
+                // modal was dismissed, there was no way back to a storm
+                // without re-opening the menu. Now tapping any marker
+                // flies to it + highlights it via the host's select
+                // handler (same path as the picker modal).
+                markerEl.style.cursor = 'pointer';
+                markerEl.setAttribute('role', 'button');
+                markerEl.setAttribute(
+                    'aria-label',
+                    `Select ${cyclone.name || 'storm'} category ${cyclone.categoryLabel ?? cyclone.category}`,
+                );
+                const onMarkerClick = (ev: Event) => {
+                    // Stop Mapbox from interpreting the tap as a map click
+                    // (which would deselect things / drop the "closest
+                    // storm" auto-selection we just overrode).
+                    ev.stopPropagation();
+                    ev.preventDefault();
+                    onSelectStormRef.current?.(cyclone);
+                };
+                markerEl.addEventListener('click', onMarkerClick);
+                // Mobile: also listen for touchend so the click doesn't
+                // have to wait for the 300ms click-delay some iOS WebViews
+                // still impose when a pointer-events: none overlay is in
+                // play underneath. { passive: false } so preventDefault
+                // actually suppresses the synthetic click.
+                markerEl.addEventListener(
+                    'touchend',
+                    (ev) => {
+                        ev.stopPropagation();
+                        ev.preventDefault();
+                        onSelectStormRef.current?.(cyclone);
+                    },
+                    { passive: false },
+                );
+
                 const marker = new mapboxgl.Marker({ element: markerEl, anchor: 'center' })
                     .setLngLat([eyeLon, eyeLat])
                     .addTo(map);
