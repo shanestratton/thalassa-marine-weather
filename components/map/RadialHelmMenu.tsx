@@ -318,14 +318,12 @@ function buildCategories(
                     groupExclusive: true,
                     group: ATMOSPHERE_LAYERS,
                 },
-                {
-                    id: 'velocity',
-                    label: 'Flow',
-                    icon: <VelocityIcon />,
-                    layerKey: 'velocity',
-                    groupExclusive: true,
-                    group: ATMOSPHERE_LAYERS,
-                },
+                // The old "Flow" entry (layerKey: 'velocity') was a duplicate —
+                // both it and 'wind' pointed at the same particle engine +
+                // GRIB fetch. Removed from the menu for clarity; the
+                // 'velocity' layer key is still accepted in persisted state
+                // so older saves don't break — WindDataController treats it
+                // as an alias for 'wind'.
                 {
                     id: 'rain',
                     label: 'Rain',
