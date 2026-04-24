@@ -61,17 +61,19 @@ const LightningNative = registerPlugin<LightningNativePlugin>('Lightning');
 // Blitzortung runs 4 active live-data servers. Pick one randomly to
 // spread load. If a connection drops we'll re-pick on retry.
 //
-// Endpoint history (2026-04-23 fix):
-//   OLD: wss://ws[1,5,6,7].blitzortung.org:3000/ — port 3000 was retired,
-//        server 5/6 retired, new servers 2/8 added. Verified via nc probe
-//        + scraping the currently-obfuscated maps.blitzortung.org client.
-//   NEW: wss://ws[1,2,7,8].blitzortung.org/      — implicit port 443
-//        (standard WSS). TLS handshake + HTTP/1.1 101 Switching Protocols
-//        confirmed working from macOS + iOS native.
-const SERVER_IDS = [1, 2, 7, 8];
+// Endpoint history:
+//   2026-04-23 fix tried wss://ws[1,2,7,8].blitzortung.org/ on port 443.
+//   The TLS handshake works on 443 but the server never streams strikes
+//   on that port — it returns 101 Switching Protocols, accepts the
+//   subscribe, then sits idle. Probably a different protocol multiplexed
+//   on the same hostname.
+//   2026-04-25 fix REVERTED: SimonSchick/BlitzortungAPI (a working
+//   third-party JS client) connects to wss://ws[1,5,6,7].blitzortung.org:3000/
+//   and immediately gets a flowing feed. We're back on that proven config.
+const SERVER_IDS = [1, 5, 6, 7];
 function pickServerUrl(): string {
     const id = SERVER_IDS[Math.floor(Math.random() * SERVER_IDS.length)];
-    return `wss://ws${id}.blitzortung.org/`;
+    return `wss://ws${id}.blitzortung.org:3000/`;
 }
 
 // ── Strike data shape ─────────────────────────────────────────────────
@@ -358,23 +360,12 @@ async function connect(): Promise<void> {
     state.nativeHandles = [onOpen, onMessage, onError, onClose];
 
     try {
-        // Subscribe with a worldwide geographic bounding box, which is
-        // the format Blitzortung's own reference viewer sends. The older
-        // {"time":0} format was accepted but some servers treat an
-        // un-scoped subscription as "nothing to filter for you" and the
-        // connection just sits there silent — matches what the user sees
-        // when they say "no strikes even after going round the world".
-        //
-        // Format verified against the maps.blitzortung.org JS viewer:
-        //   ws.send(JSON.stringify({west, east, north, south}))
-        // North clamped to 85 and south to -85 because the polar regions
-        // have no detectors and Blitzortung's server rejects |lat| > 90.
-        const subscribeMessage = JSON.stringify({
-            west: -180,
-            east: 180,
-            north: 85,
-            south: -85,
-        });
+        // Subscribe message: SimonSchick/BlitzortungAPI (a working JS
+        // client that streams successfully) sends literally `{"time":0}`
+        // and gets a flowing feed back. Verified by reading the project
+        // source. We tried a bbox format briefly — server accepts it but
+        // never streams. {"time":0} it is.
+        const subscribeMessage = JSON.stringify({ time: 0 });
         // Reset the raw-frame debug budget each connect so we see the
         // first frames of every reconnect, not just the very first one.
         rawFrameDebugBudget = 5;

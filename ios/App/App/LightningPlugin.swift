@@ -60,11 +60,14 @@ public class LightningPlugin: CAPPlugin, URLSessionWebSocketDelegate {
         session?.invalidateAndCancel()
 
         let config = URLSessionConfiguration.default
-        // Blitzortung occasionally stalls for 10+ seconds before the
-        // handshake completes; give it room but fail hard past 15s so
-        // we don't wedge the UI.
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 60
+        // WebSockets are long-lived. The previous config set
+        // timeoutIntervalForRequest=15 which killed the connection if no
+        // bytes flowed for 15 seconds — that's normal for a streaming
+        // feed during quiet periods (Blitzortung's volunteer detector
+        // network can be silent for tens of seconds globally). Default
+        // is 60s for request and 7 days for resource which is fine for
+        // our use case; we have our own 2-min stall detector in the TS
+        // layer to recover from genuinely-dead connections.
         // Delegate queue must NOT be the main queue — URLSessionWebSocketTask
         // blocks in receive() and we don't want it on the UI thread.
         let queue = OperationQueue()
@@ -144,10 +147,17 @@ public class LightningPlugin: CAPPlugin, URLSessionWebSocketDelegate {
             case .success(let message):
                 switch message {
                 case .string(let s):
+                    // NSLog only the first ~60 chars so a heavy storm
+                    // doesn't flood the log. Truncated head + length
+                    // is enough to tell us the server is sending real
+                    // data versus pings/empty frames.
+                    let head = s.count > 60 ? String(s.prefix(60)) + "…" : s
+                    NSLog("[LightningPlugin] frame (\(s.count)ch): \(head)")
                     self.notifyListeners("message", data: ["data": s])
                 case .data(let d):
                     // Blitzortung sends text frames; any binary frame here
                     // is unexpected but we decode UTF-8 just in case.
+                    NSLog("[LightningPlugin] binary frame (\(d.count) bytes) — unexpected")
                     if let s = String(data: d, encoding: .utf8) {
                         self.notifyListeners("message", data: ["data": s])
                     }
@@ -156,6 +166,7 @@ public class LightningPlugin: CAPPlugin, URLSessionWebSocketDelegate {
                 }
                 self.receiveLoop()
             case .failure(let err):
+                NSLog("[LightningPlugin] receive failed: \(err.localizedDescription)")
                 self.notifyListeners("error", data: ["error": err.localizedDescription])
                 // Don't re-arm — close delegate will follow.
             }
