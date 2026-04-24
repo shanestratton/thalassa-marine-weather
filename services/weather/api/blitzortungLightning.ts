@@ -157,29 +157,109 @@ function decodeMessage(rawData: string): LightningStrike | null {
 
 // ── Connection state ──────────────────────────────────────────────────
 
-type ConnectionStatus = 'open' | 'connecting' | 'closed';
+export type ConnectionStatus = 'open' | 'connecting' | 'closed' | 'stalled' | 'unsupported';
 
 interface ConnectionState {
     listeners: Set<StrikeListener>;
+    /** Observer callbacks for UI diagnostics (connection pill). Separate
+     *  from strike listeners so we don't conflate "new strike" with
+     *  "connection state changed". */
+    statusObservers: Set<(snapshot: StatusSnapshot) => void>;
     status: ConnectionStatus;
+    /** Wall-clock ms of the last strike received. Used to detect stalls
+     *  (connection open but silent for > 2 min → force reconnect). */
+    lastStrikeAt: number;
+    /** Total strikes received this session — for the diagnostic pill. */
+    strikesReceived: number;
+    /** Server chosen for the current connection attempt — shown in the
+     *  status pill so the user can tell if we're cycling through servers. */
+    currentServer: string;
     /** Listener handles returned by Capacitor addListener — removed on teardown. */
     nativeHandles: PluginListenerHandle[];
     /** Retry timer so we can cancel on disconnect. */
     retryTimer: ReturnType<typeof setTimeout> | null;
+    /** Stall-detection timer — fires if no strikes arrive for too long
+     *  even though the socket is open. Blitzortung's servers occasionally
+     *  accept the connection but never stream. */
+    stallTimer: ReturnType<typeof setTimeout> | null;
+    retryAttempts: number;
+}
+
+export interface StatusSnapshot {
+    status: ConnectionStatus;
+    lastStrikeAt: number;
+    strikesReceived: number;
+    currentServer: string;
     retryAttempts: number;
 }
 
 const state: ConnectionState = {
     listeners: new Set(),
+    statusObservers: new Set(),
     status: 'closed',
+    lastStrikeAt: 0,
+    strikesReceived: 0,
+    currentServer: '',
     nativeHandles: [],
     retryTimer: null,
+    stallTimer: null,
     retryAttempts: 0,
 };
 
+/** Emit current status to every observer. Isolate errors so one broken
+ *  observer doesn't silence the others. */
+function notifyStatusObservers(): void {
+    const snapshot: StatusSnapshot = {
+        status: state.status,
+        lastStrikeAt: state.lastStrikeAt,
+        strikesReceived: state.strikesReceived,
+        currentServer: state.currentServer,
+        retryAttempts: state.retryAttempts,
+    };
+    state.statusObservers.forEach((cb) => {
+        try {
+            cb(snapshot);
+        } catch (err) {
+            log.warn('Status observer threw', err);
+        }
+    });
+}
+
+function setStatus(next: ConnectionStatus): void {
+    if (state.status === next) return;
+    state.status = next;
+    notifyStatusObservers();
+}
+
+const STALL_THRESHOLD_MS = 2 * 60 * 1000; // 2 min silent = probably dead
+function armStallTimer(): void {
+    if (state.stallTimer) clearTimeout(state.stallTimer);
+    state.stallTimer = setTimeout(() => {
+        state.stallTimer = null;
+        // Only act if still open — if we already closed, reconnect path
+        // handles it.
+        if (state.status !== 'open') return;
+        log.warn(`[Lightning] Stall detected — no strikes for ${STALL_THRESHOLD_MS / 1000}s, forcing reconnect`);
+        setStatus('stalled');
+        // Tear down and let reconnect logic pick a fresh server.
+        void (async () => {
+            await disconnect();
+            if (state.listeners.size > 0) scheduleReconnect();
+        })();
+    }, STALL_THRESHOLD_MS);
+}
+
 /** Fire a strike out to every subscriber; isolate each callback so one
- *  throwing listener doesn't kill the others. */
+ *  throwing listener doesn't kill the others. Also stamps
+ *  `lastStrikeAt` so the stall detector knows the stream is alive. */
 function emitStrike(strike: LightningStrike): void {
+    state.lastStrikeAt = Date.now();
+    state.strikesReceived++;
+    // Reset the stall timer — every strike resets the 2-min countdown.
+    armStallTimer();
+    // Only notify observers on the FIRST strike after open to avoid
+    // flooding them (we don't need a re-render on every strike).
+    if (state.strikesReceived === 1) notifyStatusObservers();
     state.listeners.forEach((cb) => {
         try {
             cb(strike);
@@ -190,29 +270,37 @@ function emitStrike(strike: LightningStrike): void {
 }
 
 async function connect(): Promise<void> {
-    if (state.status !== 'closed') return;
-    state.status = 'connecting';
+    if (state.status !== 'closed' && state.status !== 'stalled') return;
+    setStatus('connecting');
 
     if (!Capacitor.isNativePlatform()) {
         // Web path intentionally left unwired — Blitzortung rejects
         // browser origins. Once a server-side relay ships this is
         // where we'd open wss://relay.thalassawx.com instead.
-        log.info('Web platform — lightning feed not available (server relay required)');
-        state.status = 'closed';
+        // NOTE: uses warn (not info) so it survives prod builds — if
+        // this fires on a real iOS device, something is very wrong
+        // with Capacitor.isNativePlatform() and we want to see it.
+        log.warn('Web platform detected — lightning feed not available (server relay required)');
+        setStatus('unsupported');
         return;
     }
 
     const url = pickServerUrl();
-    log.info(`Opening native Lightning WebSocket to ${url}`);
+    state.currentServer = url;
+    // Use WARN so this survives prod — critical for field debugging.
+    log.warn(`[Lightning] Opening native WebSocket to ${url}`);
 
     // Tear down any previous handles first (defensive — start/stop cycles).
     await teardownNativeHandles();
 
     // Register handlers BEFORE start so we don't race the first frames.
     const onOpen = await LightningNative.addListener('open', () => {
-        log.info('Lightning WebSocket open — streaming strikes');
-        state.status = 'open';
+        log.warn('[Lightning] WebSocket open — streaming strikes');
+        setStatus('open');
         state.retryAttempts = 0;
+        // Arm the stall detector; `emitStrike` will reset it on every
+        // strike. If nothing arrives in 2 min we'll force a reconnect.
+        armStallTimer();
     });
     const onMessage = await LightningNative.addListener('message', ({ data }) => {
         if (!data) return;
@@ -220,11 +308,15 @@ async function connect(): Promise<void> {
         if (strike) emitStrike(strike);
     });
     const onError = await LightningNative.addListener('error', ({ error }) => {
-        log.warn('Lightning WebSocket error:', error ?? '(unknown)');
+        log.warn('[Lightning] WebSocket error:', error ?? '(unknown)');
     });
     const onClose = await LightningNative.addListener('close', ({ code, reason }) => {
-        log.info(`Lightning WebSocket closed: code=${code ?? 'n/a'} reason=${reason || '(none)'}`);
-        state.status = 'closed';
+        log.warn(`[Lightning] WebSocket closed: code=${code ?? 'n/a'} reason=${reason || '(none)'}`);
+        if (state.stallTimer) {
+            clearTimeout(state.stallTimer);
+            state.stallTimer = null;
+        }
+        setStatus('closed');
         // If we still have active subscribers, try to come back — but
         // with a bounded backoff so a misbehaving server doesn't burn
         // battery.
@@ -237,9 +329,10 @@ async function connect(): Promise<void> {
             url,
             subscribeMessage: JSON.stringify({ time: 0 }),
         });
+        log.warn('[Lightning] native start() resolved, waiting for didOpen event');
     } catch (err) {
-        log.warn('Lightning start() rejected', err);
-        state.status = 'closed';
+        log.warn('[Lightning] native start() rejected:', err);
+        setStatus('closed');
         await teardownNativeHandles();
         if (state.listeners.size > 0) scheduleReconnect();
     }
@@ -285,8 +378,12 @@ async function disconnect(): Promise<void> {
         clearTimeout(state.retryTimer);
         state.retryTimer = null;
     }
+    if (state.stallTimer) {
+        clearTimeout(state.stallTimer);
+        state.stallTimer = null;
+    }
     state.retryAttempts = 0;
-    state.status = 'closed';
+    setStatus('closed');
     if (!Capacitor.isNativePlatform()) return;
     try {
         await LightningNative.stop();
@@ -294,6 +391,24 @@ async function disconnect(): Promise<void> {
         /* best effort */
     }
     await teardownNativeHandles();
+}
+
+/** Subscribe to connection-status changes for UI diagnostics. Separate
+ *  from strike subscription so a status pill doesn't have to care about
+ *  individual strikes. Returns an unsubscribe fn. */
+export function subscribeLightningStatus(cb: (snapshot: StatusSnapshot) => void): () => void {
+    state.statusObservers.add(cb);
+    // Fire immediately so the caller gets current state without waiting.
+    cb({
+        status: state.status,
+        lastStrikeAt: state.lastStrikeAt,
+        strikesReceived: state.strikesReceived,
+        currentServer: state.currentServer,
+        retryAttempts: state.retryAttempts,
+    });
+    return () => {
+        state.statusObservers.delete(cb);
+    };
 }
 
 // ── Public API ────────────────────────────────────────────────────────
