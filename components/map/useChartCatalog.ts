@@ -164,6 +164,11 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
         ChartCatalogService.toggleSource(id);
     }, []);
 
+    // Disable every source — used by the single-select chart picker.
+    const disableAll = useCallback(() => {
+        ChartCatalogService.disableAll();
+    }, []);
+
     // Set opacity
     const setOpacity = useCallback((id: ChartSourceId, opacity: number) => {
         ChartCatalogService.setOpacity(id, opacity);
@@ -180,6 +185,7 @@ export function useChartCatalog(mapRef: MutableRefObject<mapboxgl.Map | null>, m
         sources,
         hasEnabledCharts,
         toggleSource,
+        disableAll,
         setOpacity,
         flyToSource,
         updateLinzKey,
