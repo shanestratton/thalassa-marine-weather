@@ -72,6 +72,13 @@ export const ConnectivityBanner: React.FC<ConnectivityBannerProps> = ({ variant 
 
     const isFloating = variant === 'floating';
 
+    // On the strip variant the background colour extends up to the top of the
+    // viewport (so there's no gap above the notch) but the actual text sits
+    // below the device's safe-area inset, staying clear of the notch /
+    // Dynamic Island / status bar. The floating variant is already positioned
+    // by its parent (see App.tsx map view) so it doesn't need the inset.
+    const stripSafeAreaStyle = isFloating ? undefined : { paddingTop: 'calc(env(safe-area-inset-top) + 6px)' };
+
     // ── Reconnected flash ──
     if (showReconnect) {
         return (
@@ -79,8 +86,9 @@ export const ConnectivityBanner: React.FC<ConnectivityBannerProps> = ({ variant 
                 className={
                     isFloating
                         ? 'w-full h-12 flex items-center justify-center gap-2 px-3 bg-emerald-500/15 border border-emerald-500/25 rounded-2xl backdrop-blur-xl shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300'
-                        : 'w-full flex items-center justify-center gap-2 px-4 py-1.5 bg-emerald-500/15 border-b border-emerald-500/20 animate-in fade-in slide-in-from-top duration-300'
+                        : 'w-full flex items-center justify-center gap-2 px-4 pb-1.5 bg-emerald-500/15 border-b border-emerald-500/20 animate-in fade-in slide-in-from-top duration-300'
                 }
+                style={stripSafeAreaStyle}
             >
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-lg shadow-emerald-400/50" />
                 <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider">Back Online</span>
@@ -95,8 +103,9 @@ export const ConnectivityBanner: React.FC<ConnectivityBannerProps> = ({ variant 
                 className={
                     isFloating
                         ? 'w-full h-12 flex items-center justify-center gap-2 px-3 bg-amber-500/15 border border-amber-500/25 rounded-2xl backdrop-blur-xl shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300'
-                        : 'w-full flex items-center justify-center gap-2 px-4 py-1.5 bg-amber-500/10 border-b border-amber-500/15 animate-in fade-in slide-in-from-top duration-300'
+                        : 'w-full flex items-center justify-center gap-2 px-4 pb-1.5 bg-amber-500/10 border-b border-amber-500/15 animate-in fade-in slide-in-from-top duration-300'
                 }
+                style={stripSafeAreaStyle}
             >
                 <div className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
                 <span className="text-[11px] font-bold text-amber-400/80 uppercase tracking-wider">No Signal</span>
