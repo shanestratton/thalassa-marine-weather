@@ -491,23 +491,25 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                                     fill="rgba(100,116,139,0.15)"
                                 />
                             </svg>
-                            {/* Rain drops on glass.
-                                Real drops refract a darker, compressed view of
-                                the background through them, which is why drops
-                                on a windshield read DARKER than the sky. The
-                                previous pass used light-filled gradient blobs
-                                with a broad highlight bloom — they looked like
-                                soap bubbles, not water.
-                                Redesigned layers:
-                                  1. Trail — dark, narrow, first (drops on top)
-                                  2. Cast shadow — offset ellipse under the drop
-                                  3. Body — dark, flat fill (the "lens" effect)
-                                  4. Meniscus — thin sharp surface-tension ring
-                                  5. Specular dot — small, crisp, bright. Where
-                                     the overhead light source reflects off the
-                                     top of the dome. The signature "water" tell.
-                                  6. Secondary bounce — tiny faint dot on the
-                                     far edge (environment light wrapping round).
+                            {/* Rain drops on glass — v3 (matched to user's
+                                windshield reference photo).
+                                Previous v2 pass was perfectly round with
+                                specular highlight dots — read as "beads of
+                                water on a tabletop", not "rain on a
+                                windshield". Real windshield drops are:
+                                  - IRREGULAR teardrop / kidney shapes,
+                                    slightly rotated, lots of vertical stretch
+                                    from gravity pulling the drop down
+                                  - DARK crescent at the top + LIGHT interior
+                                    at the bottom — because the drop is an
+                                    upside-down lens: dark foreground (trees,
+                                    ground) flips to the top of the bead, and
+                                    bright sky flips to the bottom
+                                  - Sharp near-black outline all around
+                                  - Densely packed (60+ beads), mixed sizes
+                                    1.5–9 units, small drops dominating
+                                  - No prominent specular dot — the dark-top/
+                                    bright-bottom gradient IS the water tell
                             */}
                             <svg
                                 className="absolute inset-0 w-full h-full"
@@ -515,91 +517,108 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                                 preserveAspectRatio="xMidYMid slice"
                                 aria-hidden="true"
                             >
+                                <defs>
+                                    {/* Lens gradient — dark crescent up top
+                                        (inverted foreground), lighter below
+                                        (inverted sky). Hard stop around 22 %
+                                        gives the drop its signature "dark
+                                        moon" crescent rather than a gentle
+                                        fade. */}
+                                    <linearGradient id="drop-lens-v3" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="rgba(8,12,22,0.95)" />
+                                        <stop offset="22%" stopColor="rgba(20,28,42,0.88)" />
+                                        <stop offset="40%" stopColor="rgba(71,85,105,0.55)" />
+                                        <stop offset="70%" stopColor="rgba(148,163,184,0.35)" />
+                                        <stop offset="100%" stopColor="rgba(226,232,240,0.55)" />
+                                    </linearGradient>
+                                </defs>
                                 {(() => {
+                                    // Dense packing — reference image has
+                                    // 200+ drops visible, we'll dial to 55/90
+                                    // depending on rain intensity. Past 100
+                                    // we'd be rendering thousands of SVG
+                                    // nodes and burning battery on low-end
+                                    // phones, so this is the sweet spot.
                                     const isHeavy = analysis.maxIntensity >= 2.5;
-                                    const dropCount = isHeavy ? 26 : 14;
+                                    const dropCount = isHeavy ? 90 : 55;
                                     const drops: Array<{
                                         x: number;
                                         y: number;
-                                        r: number;
+                                        rx: number;
+                                        ry: number;
+                                        rot: number;
                                         hasTrail: boolean;
                                         trailLen: number;
                                     }> = [];
-                                    // Simple LCG for repeatable positions — avoids
-                                    // Math.random shifting layout every render.
                                     let seed = isHeavy ? 17 : 91;
                                     const rand = () => {
                                         seed = (seed * 9301 + 49297) % 233280;
                                         return seed / 233280;
                                     };
                                     for (let i = 0; i < dropCount; i++) {
-                                        const r = 2 + rand() * 7; // 2–9 units
+                                        // Weighted size distribution — most
+                                        // drops small (1.5–3.5), some mid
+                                        // (3–5.5), a few large (5–8.5). Feels
+                                        // like real rain, not a grid of
+                                        // identical pearls.
+                                        const sizeRoll = rand();
+                                        const base =
+                                            sizeRoll < 0.55
+                                                ? 1.5 + rand() * 2
+                                                : sizeRoll < 0.88
+                                                  ? 3 + rand() * 2.5
+                                                  : 5 + rand() * 3.5;
+                                        // Teardrop stretch — gravity pulls
+                                        // drops vertically, so ry usually >
+                                        // rx. Some variance to avoid uniform
+                                        // stretch.
+                                        const stretch = 0.85 + rand() * 0.8;
                                         drops.push({
-                                            x: 8 + rand() * 184,
-                                            y: 12 + rand() * 376,
-                                            r,
-                                            hasTrail: r > 5 && rand() > (isHeavy ? 0.35 : 0.6),
-                                            trailLen: 20 + rand() * 60,
+                                            x: 4 + rand() * 192,
+                                            y: 6 + rand() * 388,
+                                            rx: base,
+                                            ry: base * stretch,
+                                            rot: (rand() - 0.5) * 40, // -20°…+20°
+                                            hasTrail: base > 4.5 && rand() > 0.55,
+                                            trailLen: 15 + rand() * 55,
                                         });
                                     }
                                     return drops.map((d, i) => (
-                                        <g key={i}>
-                                            {/* Trail — dark narrow streak, under
-                                                the drop so the bead sits on top */}
+                                        <g
+                                            key={i}
+                                            transform={`translate(${d.x.toFixed(1)} ${d.y.toFixed(1)}) rotate(${d.rot.toFixed(1)})`}
+                                        >
+                                            {/* Vertical trail — dark, narrow,
+                                                below the bead's rotated frame.
+                                                Reads as "water ran from here
+                                                down the glass". */}
                                             {d.hasTrail && (
                                                 <rect
-                                                    x={d.x - 0.7}
-                                                    y={d.y}
-                                                    width={1.4}
+                                                    x={-0.55}
+                                                    y={0}
+                                                    width={1.1}
                                                     height={d.trailLen}
-                                                    fill="rgba(15,23,42,0.55)"
-                                                    rx={0.7}
+                                                    fill="rgba(15,23,42,0.7)"
+                                                    rx={0.55}
                                                 />
                                             )}
-                                            {/* Cast shadow — subtle lift */}
+                                            {/* Body — teardrop ellipse with
+                                                the lens gradient. This alone
+                                                does most of the heavy lifting
+                                                for the "that is water" read. */}
+                                            <ellipse cx={0} cy={0} rx={d.rx} ry={d.ry} fill="url(#drop-lens-v3)" />
+                                            {/* Sharp dark outline — surface-
+                                                tension edge. Reads clean
+                                                against the panel background
+                                                and locks the drop's silhouette. */}
                                             <ellipse
-                                                cx={d.x + 0.5}
-                                                cy={d.y + d.r * 0.5}
-                                                rx={d.r * 0.75}
-                                                ry={d.r * 0.22}
-                                                fill="rgba(0,0,0,0.35)"
-                                            />
-                                            {/* Body — DARK lens fill. This is
-                                                the critical change vs. the
-                                                "bubble" look: water drops
-                                                refract a compressed dark view
-                                                behind them, so the body reads
-                                                darker than the surround, not
-                                                lighter. */}
-                                            <circle cx={d.x} cy={d.y} r={d.r} fill="rgba(15,23,42,0.72)" />
-                                            {/* Meniscus — sharp surface-tension
-                                                rim. Thin, light, clean. */}
-                                            <circle
-                                                cx={d.x}
-                                                cy={d.y}
-                                                r={d.r}
+                                                cx={0}
+                                                cy={0}
+                                                rx={d.rx}
+                                                ry={d.ry}
                                                 fill="none"
-                                                stroke="rgba(186,230,253,0.55)"
-                                                strokeWidth="0.4"
-                                            />
-                                            {/* Primary specular highlight —
-                                                tiny bright dot, NOT a soft
-                                                gradient. This is THE tell for
-                                                "that's water". */}
-                                            <circle
-                                                cx={d.x - d.r * 0.38}
-                                                cy={d.y - d.r * 0.42}
-                                                r={Math.max(0.6, d.r * 0.18)}
-                                                fill="rgba(255,255,255,0.95)"
-                                            />
-                                            {/* Secondary environment-light
-                                                bounce on the far edge — sells
-                                                the 3D sphere. */}
-                                            <circle
-                                                cx={d.x + d.r * 0.5}
-                                                cy={d.y + d.r * 0.25}
-                                                r={Math.max(0.3, d.r * 0.09)}
-                                                fill="rgba(255,255,255,0.4)"
+                                                stroke="rgba(6,10,20,0.8)"
+                                                strokeWidth="0.45"
                                             />
                                         </g>
                                     ));
