@@ -17,6 +17,7 @@ import type mapboxgl from 'mapbox-gl';
 import { fetchWindGrid, fetchGlobalWindField } from './windField';
 import { loadLocalWindFile } from './GribWindParser';
 import { WindStore } from '../../stores/WindStore';
+import { piCache } from '../PiCacheService';
 const log = createLogger('WindCtrl');
 
 // ── Bounds Cache (avoid redundant re-fetches) ──
@@ -158,23 +159,29 @@ export const WindDataController = {
         WindStore.setLoading(true);
 
         try {
-            // Primary: Supabase GFS GRIB2 edge function (reliable)
+            // Primary: Supabase GFS GRIB2 edge function (reliable).
+            // Route through the boat Pi when it's on the local network — the
+            // Pi caches the binary GRIB keyed by rounded bounds so subsequent
+            // fetches (pan, re-toggle, passage plan) are instant even when the
+            // phone is on cellular.
             const supabaseUrl =
                 (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
                 'https://pcisdplnodrphauixcau.supabase.co';
             const supabaseKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
-            const edgeUrl = `${supabaseUrl}/functions/v1/fetch-wind-grid`;
+            const directUrl = `${supabaseUrl}/functions/v1/fetch-wind-grid`;
+            const usePi = piCache.isAvailable();
+            const edgeUrl = usePi ? `${piCache.baseUrl}/api/grib/wind-grid` : directUrl;
 
             const res = await fetch(edgeUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    ...(supabaseKey
-                        ? {
+                    ...(usePi || !supabaseKey
+                        ? {}
+                        : {
                               apikey: supabaseKey,
                               Authorization: `Bearer ${supabaseKey}`,
-                          }
-                        : {}),
+                          }),
                 },
                 body: JSON.stringify({ north, south, east, west }),
             });

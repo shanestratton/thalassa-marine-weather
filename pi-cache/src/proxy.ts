@@ -233,6 +233,74 @@ export async function cachedTileFetch(
     }
 }
 
+// ── Binary POST Fetch (e.g. GRIB2 wind grids from Supabase) ──
+
+interface BinaryPostOptions {
+    /** Cache key — include the request body so different bounds don't collide. */
+    cacheKey: string;
+    /** Full URL to fetch from */
+    url: string;
+    /** Expected content type (default: 'application/octet-stream') */
+    contentType?: string;
+    /** TTL in milliseconds */
+    ttlMs: number;
+    /** POST body (JSON-serialisable object) */
+    body: unknown;
+    /** Optional custom headers */
+    headers?: Record<string, string>;
+    /** Optional request timeout in ms (default: 30000 — GRIB can be slow) */
+    timeout?: number;
+}
+
+/**
+ * POST a JSON body, cache the binary response. Used for GFS GRIB grids where
+ * the Supabase edge function expects a bounding-box POST and returns a binary
+ * GRIB2 buffer. Reuses the tile-cache storage (same Buffer shape) for LRU
+ * eviction + TTL-based staleness.
+ */
+export async function cachedBinaryPost(
+    cache: Cache,
+    opts: BinaryPostOptions,
+): Promise<{ data: Buffer; contentType: string; fromCache: boolean; stale: boolean }> {
+    const cached = cache.getTile(opts.cacheKey);
+    if (cached && cache.hasFreshTile(opts.cacheKey)) {
+        return { ...cached, fromCache: true, stale: false };
+    }
+
+    try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), opts.timeout || 30000);
+
+        const res = await fetch(opts.url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(opts.headers || {}),
+            },
+            body: JSON.stringify(opts.body),
+            signal: controller.signal,
+        });
+        clearTimeout(timer);
+
+        if (!res.ok) {
+            throw new Error(`Binary POST upstream ${res.status}: ${res.statusText}`);
+        }
+
+        const arrayBuffer = await res.arrayBuffer();
+        const data = Buffer.from(arrayBuffer);
+        const contentType = res.headers.get('content-type') || opts.contentType || 'application/octet-stream';
+
+        cache.setTile(opts.cacheKey, data, contentType, opts.ttlMs);
+        return { data, contentType, fromCache: false, stale: false };
+    } catch (err) {
+        if (cached) {
+            console.warn(`⚡ Serving stale binary for ${opts.cacheKey}: ${(err as Error).message}`);
+            return { ...cached, fromCache: true, stale: true };
+        }
+        throw err;
+    }
+}
+
 // ── Supabase Edge Function Helper ──
 
 /**
