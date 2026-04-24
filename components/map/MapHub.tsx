@@ -1425,7 +1425,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 triggerHaptic('light');
                                 setShowOfflineArea(true);
                             }}
-                            className="absolute z-[500] top-[184px] right-4 w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                            className="absolute z-[500] top-[184px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
                             aria-label="Download offline map area"
                             title="Download offline area"
                         >
