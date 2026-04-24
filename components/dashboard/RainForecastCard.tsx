@@ -363,102 +363,234 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                     boxShadow: '0 0 60px -10px rgba(34, 211, 238, 0.15), 0 25px 50px -12px rgba(0,0,0,0.5)',
                 }}
             >
-                {/* Weather-themed background imagery */}
+                {/* Weather-themed background scene.
+                    Two moods: "sunny day" when no rain is expected,
+                    "rain on glass" when rain is coming. Both are pure
+                    SVG + gradients — no image assets, no infinite
+                    animations (battery), and they sit BEHIND a z-10
+                    content layer so they never interfere with
+                    readability. */}
                 <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-2xl">
-                    {/* Glow effects */}
-                    <div className="absolute -top-20 left-1/4 w-40 h-40 bg-sky-500/10 rounded-full blur-3xl" />
-                    <div className="absolute -bottom-10 right-1/3 w-32 h-32 bg-sky-500/10 rounded-full blur-3xl" />
-
-                    {/* Subtle weather scene */}
                     {!analysis.hasRain ? (
-                        /* ☀️ Clear — subtle warm glow */
+                        /* ☀️ Sunny day — warm sky gradient + prominent sun with
+                            layered rays + friendly cloud puffs. Mood:
+                            optimistic, clear-weather reassurance. */
                         <>
+                            {/* Sky wash — sky blue at top fading to warm amber at
+                                bottom, so the whole panel has a "good day"
+                                tint underneath the modal's base gradient. */}
                             <div
-                                className="absolute top-4 right-8 w-16 h-16 rounded-full opacity-[0.06]"
+                                className="absolute inset-0"
                                 style={{
                                     background:
-                                        'radial-gradient(circle, rgba(250,204,21,0.8) 0%, rgba(250,204,21,0) 70%)',
+                                        'linear-gradient(180deg, rgba(125, 211, 252, 0.22) 0%, rgba(186, 230, 253, 0.12) 35%, rgba(253, 230, 138, 0.08) 75%, rgba(254, 215, 170, 0.05) 100%)',
                                 }}
                             />
-                            <svg
-                                className="absolute top-2 right-6 w-20 h-20 opacity-[0.05] text-yellow-300"
-                                viewBox="0 0 100 100"
-                            >
-                                <circle cx="50" cy="50" r="18" fill="currentColor" />
+                            {/* Lens-flare glow — soft radial bloom behind the sun,
+                                gives the illusion of light bleeding through. */}
+                            <div
+                                className="absolute top-2 right-4 w-40 h-40 rounded-full blur-2xl opacity-60"
+                                style={{
+                                    background:
+                                        'radial-gradient(circle, rgba(253,224,71,0.7) 0%, rgba(251,191,36,0.3) 40%, rgba(251,191,36,0) 75%)',
+                                }}
+                            />
+                            {/* Sun disc + rays — the hero element, bold enough to
+                                read as a real sun but tucked into the corner so
+                                the modal's data stays primary. */}
+                            <svg className="absolute top-6 right-6 w-24 h-24" viewBox="0 0 100 100" aria-hidden="true">
+                                <defs>
+                                    <radialGradient id="sun-disc" cx="45%" cy="40%" r="55%">
+                                        <stop offset="0%" stopColor="rgba(254,249,195,0.95)" />
+                                        <stop offset="50%" stopColor="rgba(253,224,71,0.85)" />
+                                        <stop offset="100%" stopColor="rgba(251,191,36,0.65)" />
+                                    </radialGradient>
+                                </defs>
+                                {/* Long rays */}
                                 {[0, 45, 90, 135, 180, 225, 270, 315].map((angle) => (
                                     <line
-                                        key={angle}
+                                        key={`long-${angle}`}
                                         x1="50"
                                         y1="50"
-                                        x2={50 + 30 * Math.cos((angle * Math.PI) / 180)}
-                                        y2={50 + 30 * Math.sin((angle * Math.PI) / 180)}
-                                        stroke="currentColor"
+                                        x2={50 + 42 * Math.cos((angle * Math.PI) / 180)}
+                                        y2={50 + 42 * Math.sin((angle * Math.PI) / 180)}
+                                        stroke="rgba(253,224,71,0.55)"
                                         strokeWidth="3"
                                         strokeLinecap="round"
                                     />
                                 ))}
-                            </svg>
-                        </>
-                    ) : analysis.maxIntensity < 2.5 ? (
-                        /* 🌧️ Light rain — static subtle droplets (no infinite animations) */
-                        <svg className="absolute inset-0 w-full h-full opacity-[0.06]" viewBox="0 0 200 400">
-                            {[
-                                { x: 30, y: 60 },
-                                { x: 70, y: 120 },
-                                { x: 120, y: 40 },
-                                { x: 160, y: 100 },
-                                { x: 50, y: 200 },
-                                { x: 140, y: 180 },
-                                { x: 90, y: 280 },
-                                { x: 170, y: 250 },
-                                { x: 25, y: 320 },
-                            ].map((drop, i) => (
-                                <line
-                                    key={i}
-                                    x1={drop.x}
-                                    y1={drop.y}
-                                    x2={drop.x - 2}
-                                    y2={drop.y + 14}
-                                    stroke="rgba(56,189,248,1)"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    opacity="0.8"
-                                />
-                            ))}
-                        </svg>
-                    ) : (
-                        /* ⛈️ Heavy rain — dense drops + cloud silhouette */
-                        <>
-                            <svg
-                                className="absolute top-0 left-0 w-full opacity-[0.06]"
-                                viewBox="0 0 300 80"
-                                preserveAspectRatio="xMidYMin slice"
-                            >
-                                <path
-                                    d="M-10 80 Q30 20 80 40 Q120 10 160 35 Q200 5 240 30 Q270 15 310 50 L310 80Z"
-                                    fill="rgba(148,163,184,0.8)"
-                                />
-                                <path
-                                    d="M-10 80 Q40 30 90 50 Q130 20 170 45 Q210 15 250 40 Q280 25 310 55 L310 80Z"
-                                    fill="rgba(100,116,139,0.6)"
-                                />
-                            </svg>
-                            <svg className="absolute inset-0 w-full h-full opacity-[0.08]" viewBox="0 0 200 400">
-                                {Array.from({ length: 18 }, (_, i) => ({
-                                    x: 10 + ((i * 11) % 190),
-                                    y: 20 + ((i * 37) % 300),
-                                })).map((drop, i) => (
+                                {/* Short rays offset 22.5° — fills the gaps, adds
+                                    a gentle starburst feel */}
+                                {[22.5, 67.5, 112.5, 157.5, 202.5, 247.5, 292.5, 337.5].map((angle) => (
                                     <line
-                                        key={i}
-                                        x1={drop.x}
-                                        y1={drop.y}
-                                        x2={drop.x - 3}
-                                        y2={drop.y + 18}
-                                        stroke="rgba(56,189,248,0.9)"
-                                        strokeWidth="1.5"
+                                        key={`short-${angle}`}
+                                        x1="50"
+                                        y1="50"
+                                        x2={50 + 32 * Math.cos((angle * Math.PI) / 180)}
+                                        y2={50 + 32 * Math.sin((angle * Math.PI) / 180)}
+                                        stroke="rgba(253,224,71,0.35)"
+                                        strokeWidth="2"
                                         strokeLinecap="round"
                                     />
                                 ))}
+                                {/* Disc itself */}
+                                <circle cx="50" cy="50" r="18" fill="url(#sun-disc)" />
+                                {/* Inner highlight for 3D feel */}
+                                <circle cx="44" cy="44" r="6" fill="rgba(254,249,195,0.7)" />
+                            </svg>
+                            {/* Secondary lens-flare blob — classic "sun-washing-
+                                the-camera" effect, placed diagonally opposite
+                                the sun so the eye reads it as an echo. */}
+                            <div className="absolute bottom-16 left-6 w-14 h-14 rounded-full bg-yellow-200/15 blur-xl" />
+                            {/* Cloud puffs — soft, friendly, anchored at the
+                                bottom so they feel like a blue-sky horizon
+                                reference, not a gathering storm. */}
+                            <svg
+                                className="absolute bottom-0 left-0 w-full opacity-70"
+                                viewBox="0 0 300 80"
+                                preserveAspectRatio="xMidYEnd slice"
+                                aria-hidden="true"
+                            >
+                                <ellipse cx="50" cy="72" rx="42" ry="12" fill="rgba(255,255,255,0.10)" />
+                                <ellipse cx="80" cy="68" rx="28" ry="9" fill="rgba(255,255,255,0.12)" />
+                                <ellipse cx="220" cy="74" rx="50" ry="11" fill="rgba(255,255,255,0.08)" />
+                                <ellipse cx="255" cy="70" rx="30" ry="8" fill="rgba(255,255,255,0.10)" />
+                            </svg>
+                        </>
+                    ) : (
+                        <>
+                            {/* Rain on glass — realistic droplets with
+                                highlights, shadows, and trails. Scales with
+                                intensity: light rain gets ~14 drops, heavy
+                                rain gets ~26 with more streaks running down.
+                                Seeded pseudo-random positions so the layout
+                                stays stable between renders but feels natural,
+                                not gridded. */}
+                            {/* Cool gray-blue wash — mimics the view out a
+                                rainy window, fades top-to-bottom. */}
+                            <div
+                                className="absolute inset-0"
+                                style={{
+                                    background:
+                                        'linear-gradient(180deg, rgba(71, 85, 105, 0.25) 0%, rgba(51, 65, 85, 0.15) 60%, rgba(30, 41, 59, 0.2) 100%)',
+                                }}
+                            />
+                            {/* Subtle soft-focus cloud band at the top */}
+                            <svg
+                                className="absolute top-0 left-0 w-full opacity-50"
+                                viewBox="0 0 300 80"
+                                preserveAspectRatio="xMidYMin slice"
+                                aria-hidden="true"
+                            >
+                                <path
+                                    d="M-10 80 Q40 30 90 50 Q130 20 170 45 Q210 15 250 40 Q280 25 310 55 L310 80Z"
+                                    fill="rgba(148,163,184,0.18)"
+                                />
+                                <path
+                                    d="M-10 80 Q30 20 80 40 Q120 10 160 35 Q200 5 240 30 Q270 15 310 50 L310 80Z"
+                                    fill="rgba(100,116,139,0.15)"
+                                />
+                            </svg>
+                            {/* Rain drops with highlights + shadows + trails */}
+                            <svg
+                                className="absolute inset-0 w-full h-full"
+                                viewBox="0 0 200 400"
+                                preserveAspectRatio="xMidYMid slice"
+                                aria-hidden="true"
+                            >
+                                <defs>
+                                    {/* Drop highlight — tiny bright spot top-left
+                                        of each drop simulating light reflecting
+                                        off a curved water surface. */}
+                                    <radialGradient id="drop-highlight" cx="30%" cy="25%" r="50%">
+                                        <stop offset="0%" stopColor="rgba(255,255,255,0.9)" />
+                                        <stop offset="60%" stopColor="rgba(255,255,255,0.15)" />
+                                        <stop offset="100%" stopColor="rgba(255,255,255,0)" />
+                                    </radialGradient>
+                                    {/* Drop body — soft blue-white tint, dense
+                                        in the centre, fading at the edges. */}
+                                    <radialGradient id="drop-body" cx="50%" cy="50%" r="50%">
+                                        <stop offset="0%" stopColor="rgba(186,230,253,0.55)" />
+                                        <stop offset="70%" stopColor="rgba(125,211,252,0.25)" />
+                                        <stop offset="100%" stopColor="rgba(56,189,248,0.05)" />
+                                    </radialGradient>
+                                </defs>
+                                {(() => {
+                                    // Deterministic pseudo-random for stable layout
+                                    // across renders. Seeded on intensity bucket
+                                    // so heavy vs light rain pick distinct but
+                                    // still-pretty distributions.
+                                    const isHeavy = analysis.maxIntensity >= 2.5;
+                                    const dropCount = isHeavy ? 26 : 14;
+                                    const drops: Array<{
+                                        x: number;
+                                        y: number;
+                                        r: number;
+                                        hasTrail: boolean;
+                                        trailLen: number;
+                                    }> = [];
+                                    // Simple LCG for repeatable positions — avoids
+                                    // Math.random shifting layout every render.
+                                    let seed = isHeavy ? 17 : 91;
+                                    const rand = () => {
+                                        seed = (seed * 9301 + 49297) % 233280;
+                                        return seed / 233280;
+                                    };
+                                    for (let i = 0; i < dropCount; i++) {
+                                        const r = 2 + rand() * 7; // 2–9 units
+                                        drops.push({
+                                            x: 8 + rand() * 184,
+                                            y: 12 + rand() * 376,
+                                            r,
+                                            // Larger drops get trails (rain running
+                                            // down the glass). More trails on heavy.
+                                            hasTrail: r > 5 && rand() > (isHeavy ? 0.35 : 0.6),
+                                            trailLen: 20 + rand() * 60,
+                                        });
+                                    }
+                                    return drops.map((d, i) => (
+                                        <g key={i}>
+                                            {/* Trail first so drops sit on top */}
+                                            {d.hasTrail && (
+                                                <rect
+                                                    x={d.x - 0.8}
+                                                    y={d.y}
+                                                    width={1.6}
+                                                    height={d.trailLen}
+                                                    fill="rgba(186,230,253,0.18)"
+                                                    rx={0.8}
+                                                />
+                                            )}
+                                            {/* Soft shadow below drop (3D lift) */}
+                                            <ellipse
+                                                cx={d.x}
+                                                cy={d.y + d.r * 0.35}
+                                                rx={d.r * 0.85}
+                                                ry={d.r * 0.35}
+                                                fill="rgba(15,23,42,0.35)"
+                                                filter="blur(0.5)"
+                                            />
+                                            {/* Drop body */}
+                                            <circle cx={d.x} cy={d.y} r={d.r} fill="url(#drop-body)" />
+                                            {/* Outline for definition */}
+                                            <circle
+                                                cx={d.x}
+                                                cy={d.y}
+                                                r={d.r}
+                                                fill="none"
+                                                stroke="rgba(186,230,253,0.35)"
+                                                strokeWidth="0.5"
+                                            />
+                                            {/* Highlight — the "wet" look */}
+                                            <circle
+                                                cx={d.x - d.r * 0.25}
+                                                cy={d.y - d.r * 0.25}
+                                                r={d.r * 0.5}
+                                                fill="url(#drop-highlight)"
+                                            />
+                                        </g>
+                                    ));
+                                })()}
                             </svg>
                         </>
                     )}
