@@ -1378,6 +1378,17 @@ export function useWeatherLayers(
                         source: tileId,
                         paint: {
                             'raster-opacity': LAYER_OPACITY[tl] ?? 0.65,
+                            // Kill Mapbox's default 300ms cross-fade — OWM
+                            // tiles for clouds/temperature are a single
+                            // static layer (no animation), so the fade is
+                            // pure visual fluff that costs a paint cycle
+                            // on every tile load. Match the satellite base
+                            // layer which already runs with fade-duration 0.
+                            'raster-fade-duration': 0,
+                            // Smooth resampling when Mapbox overzooms past
+                            // OWM's source maxzoom — looks better on a phone
+                            // pinch-in without costing extra bandwidth.
+                            'raster-resampling': 'linear',
                         },
                     },
                     map.getLayer('route-line-layer') ? 'route-line-layer' : undefined,
