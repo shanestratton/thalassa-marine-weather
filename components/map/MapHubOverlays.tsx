@@ -481,7 +481,7 @@ export const LayerFABMenu: React.FC<{
     const hasCharts = skCharts.length > 0 || chartCatalogSources.length > 0 || localCharts.length > 0;
 
     return (
-        <div className={`absolute z-[700] flex flex-col items-end gap-2 top-[120px] right-4`}>
+        <div className={`absolute z-[700] flex flex-col items-end gap-2 top-[120px] right-[16px]`}>
             {/* ── FAB Button ── */}
             <button
                 aria-label="Toggle chart layer menu"
