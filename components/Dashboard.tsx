@@ -772,29 +772,41 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                 />
                             </div>
 
-                            {/* CURRENT CONDITIONS CARD - Collapsed mode only (165 + 70 + 8 = 243) */}
+                            {/* CURRENT CONDITIONS CARD - Collapsed mode only (165 + 70 + 8 = 243)
+                                Transition choreography:
+                                - 200ms ease-out per user spec (feels crisp, not laggy)
+                                - translateY(-14px) gives a perceptible glide without going too
+                                  far out of the layout frame
+                                - `visibility` REMOVED because it's a binary property that can't
+                                  be interpolated — toggling it instantly hid the element
+                                  mid-fade, which is exactly why the old swap felt "appeared"
+                                  instead of "glided". pointer-events + opacity cover
+                                  functional hide; the element is invisible to screen-readers
+                                  via opacity:0 and to clicks via pointer-events:none. */}
                             <div
-                                className="fixed left-0 right-0 z-[110] px-4 transition-all duration-300 ease-in-out"
+                                className="fixed left-0 right-0 z-[110] px-4 transition-[opacity,transform] duration-200 ease-out"
                                 style={{
                                     top: 'calc(max(8px, env(safe-area-inset-top)) + 251px)',
                                     opacity: !isExpanded ? 1 : 0,
-                                    transform: !isExpanded ? 'translateY(0)' : 'translateY(-10px)',
+                                    transform: !isExpanded ? 'translateY(0)' : 'translateY(-14px)',
                                     pointerEvents: !isExpanded ? 'auto' : 'none',
-                                    visibility: !isExpanded ? 'visible' : 'hidden',
+                                    willChange: 'opacity, transform',
                                 }}
                             >
                                 <CurrentConditionsCard data={current} units={units} timeZone={data.timeZone} />
                             </div>
 
-                            {/* FIXED WIDGETS - Slide down when expanded (165 + 70 + 8 = 243) */}
+                            {/* FIXED WIDGETS - Slide down when expanded (165 + 70 + 8 = 243)
+                                Same transition semantics as CurrentConditionsCard above so the
+                                two layers cross-fade in sync. */}
                             <div
-                                className="fixed left-0 right-0 z-[110] px-4 transition-all duration-300 ease-in-out"
+                                className="fixed left-0 right-0 z-[110] px-4 transition-[opacity,transform] duration-200 ease-out"
                                 style={{
                                     top: 'calc(max(8px, env(safe-area-inset-top)) + 251px)',
                                     opacity: isExpanded ? 1 : 0,
-                                    transform: isExpanded ? 'translateY(0)' : 'translateY(-10px)',
+                                    transform: isExpanded ? 'translateY(0)' : 'translateY(-14px)',
                                     pointerEvents: isExpanded ? 'auto' : 'none',
-                                    visibility: isExpanded ? 'visible' : 'hidden',
+                                    willChange: 'opacity, transform',
                                 }}
                             >
                                 <HeroWidgets

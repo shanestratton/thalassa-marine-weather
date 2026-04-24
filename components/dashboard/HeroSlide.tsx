@@ -229,6 +229,55 @@ const HeroSlideComponent = ({
         return () => clearInterval(timer);
     }, [index]);
 
+    // First-use swipe affordance: a pulsing chevron on the right edge of the
+    // live card tells the user "there's more content horizontally". Solves
+    // the discoverability gap where first-time users don't realise hours live
+    // sideways on the today slide. Shows for 2.5s, then never again (flag
+    // lives in localStorage so it survives app restarts).
+    //
+    // Only fires on day 0, hour 0 (the live card) — the carousel is most
+    // discoverable here because it's where the user naturally starts.
+    const SWIPE_HINT_SEEN_KEY = 'thalassa_swipe_hint_seen_v1';
+    const [showSwipeHint, setShowSwipeHint] = useState(false);
+    useEffect(() => {
+        if (index !== 0 || activeHIdx !== 0) return;
+        try {
+            if (localStorage.getItem(SWIPE_HINT_SEEN_KEY) === '1') return;
+        } catch {
+            // localStorage unavailable — skip hint
+            return;
+        }
+        // Small delay so the hint appears AFTER the card's initial mount
+        // animation completes (feels like a deliberate coach-mark, not a
+        // glitch).
+        const showT = setTimeout(() => setShowSwipeHint(true), 600);
+        const hideT = setTimeout(() => {
+            setShowSwipeHint(false);
+            try {
+                localStorage.setItem(SWIPE_HINT_SEEN_KEY, '1');
+            } catch {
+                /* ignore — user will just see hint again next boot */
+            }
+        }, 3100); // 600ms delay + 2.5s visible
+        return () => {
+            clearTimeout(showT);
+            clearTimeout(hideT);
+        };
+    }, [index, activeHIdx]);
+
+    // Dismiss the hint the moment the user scrolls horizontally — no need to
+    // keep nagging them once they've discovered it.
+    useEffect(() => {
+        if (activeHIdx > 0 && showSwipeHint) {
+            setShowSwipeHint(false);
+            try {
+                localStorage.setItem(SWIPE_HINT_SEEN_KEY, '1');
+            } catch {
+                /* ignore */
+            }
+        }
+    }, [activeHIdx, showSwipeHint]);
+
     const isLive = index === 0 && activeHIdx === 0;
 
     // FIX: Live Data Override using Hourly Array
@@ -829,6 +878,36 @@ const HeroSlideComponent = ({
         <div className="relative w-full h-full overflow-hidden">
             {/* ========== HEADERS MOVED TO DASHBOARD LEVEL ========== */}
             {/* Header and widgets now rendered at Dashboard level for true fixed positioning */}
+
+            {/* ========== FIRST-USE SWIPE AFFORDANCE ========== */}
+            {/* Pulsing chevron on right edge of the live card teaches the
+                horizontal hour carousel. Auto-dismisses after 2.5s or the
+                moment the user swipes. localStorage flag ensures it only
+                fires on the very first session. Pointer-events disabled so
+                it never interferes with the user's own swipe. */}
+            {showSwipeHint && (
+                <div
+                    className="absolute inset-y-0 right-0 z-[50] w-16 flex items-center justify-end pr-3 pointer-events-none"
+                    style={{
+                        background:
+                            'linear-gradient(to right, transparent 0%, rgba(56, 189, 248, 0.08) 60%, rgba(56, 189, 248, 0.18) 100%)',
+                        animation: 'swipe-hint-pulse 1.1s ease-in-out infinite',
+                    }}
+                    aria-hidden="true"
+                >
+                    <svg
+                        className="w-6 h-6 text-sky-300 drop-shadow-[0_0_6px_rgba(56,189,248,0.55)]"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                    >
+                        <polyline points="9 6 15 12 9 18" />
+                    </svg>
+                </div>
+            )}
 
             {/* ========== SCROLLABLE HORIZONTAL CAROUSEL ========== */}
             <div className="absolute inset-0 overflow-y-auto overflow-x-hidden no-scrollbar">

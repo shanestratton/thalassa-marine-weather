@@ -625,10 +625,10 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
             <button
                 onClick={() => setShowModal(true)}
                 aria-label={`System status: ${activeCount} active`}
-                className={`relative w-12 h-12 rounded-2xl flex items-center justify-center border shadow-2xl transition-all pointer-events-auto ${
+                className={`relative w-12 h-12 rounded-2xl flex items-center justify-center border shadow-2xl transition-all pointer-events-auto active:scale-[0.95] ${
                     hasUrgent
-                        ? 'bg-amber-500/90 border-amber-400/40 shadow-amber-500/30'
-                        : 'bg-sky-500/90 border-sky-400/40 shadow-sky-500/30'
+                        ? 'bg-gradient-to-br from-amber-400 to-amber-600 border-amber-300/50 shadow-amber-500/40'
+                        : 'bg-gradient-to-br from-sky-400 to-sky-600 border-sky-300/50 shadow-sky-500/40'
                 }`}
             >
                 {/* Glow ring when multiple systems active or urgent — sits just outside the button bounds */}
@@ -639,11 +639,31 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
                         }`}
                     />
                 )}
-                <span className="relative text-white font-bold text-base">ℹ</span>
+
+                {/* Subtle inner highlight for depth — matches the glass aesthetic */}
+                <span className="absolute inset-0 rounded-2xl bg-gradient-to-b from-white/25 via-transparent to-transparent pointer-events-none" />
+
+                {/* Proper SVG info icon — unicode ℹ rendered thin and inconsistent across
+                    iOS font variations. This Heroicons-style circle-i has real visual
+                    weight and scales crisply on retina displays. */}
+                <svg
+                    className="relative w-6 h-6 text-white drop-shadow-sm"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                >
+                    <circle cx="12" cy="12" r="9" />
+                    <line x1="12" y1="11" x2="12" y2="17" />
+                    <circle cx="12" cy="7.5" r="0.75" fill="currentColor" />
+                </svg>
 
                 {/* Active count badge */}
                 {activeCount > 1 && (
-                    <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white text-slate-900 text-[11px] font-black flex items-center justify-center shadow-md">
+                    <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-white text-slate-900 text-[11px] font-black flex items-center justify-center shadow-md ring-2 ring-slate-900/20">
                         {activeCount}
                     </span>
                 )}

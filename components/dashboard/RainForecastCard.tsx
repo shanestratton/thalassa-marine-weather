@@ -262,7 +262,7 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
                     Helpful for diagnosing "No Rain Expected" when it's clearly
                     raining outside. */}
                 {sourceLabel && (
-                    <span className="absolute bottom-1 right-2 text-[9px] font-semibold uppercase tracking-wider text-white/40 pointer-events-none select-none">
+                    <span className="absolute bottom-1 right-2 text-[11px] font-semibold uppercase tracking-wider text-white/50 pointer-events-none select-none">
                         {sourceLabel}
                     </span>
                 )}
