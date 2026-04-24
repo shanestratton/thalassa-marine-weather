@@ -47,6 +47,8 @@ import { MinutelyRain } from '../../services/weather/api/weatherkit';
 
 import { isGoldenHour } from '../../utils/goldenHour';
 import { EssentialMapSlide } from './hero/EssentialMapSlide';
+import { EssentialAnchorView } from './hero/EssentialAnchorView';
+import { AnchorWatchService, type AnchorWatchSnapshot } from '../../services/AnchorWatchService';
 import {
     computeDisplayValues,
     computeTrends,
@@ -218,6 +220,20 @@ const HeroSlideComponent = ({
             return hItem ? new Date(hItem.time).getTime() : undefined;
         }
     }, [activeHIdx, index, hourlyToRender]);
+
+    // Anchor-watch snapshot — when the user has deployed the anchor, the
+    // essential-mode slot swaps from EssentialMapSlide to EssentialAnchorView
+    // (swing circle + radar + nearby AIS). Subscribe once at the HeroSlide
+    // level so every slide in the carousel sees the same state.
+    const [anchorSnapshot, setAnchorSnapshot] = useState<AnchorWatchSnapshot | null>(null);
+    useEffect(() => {
+        const unsub = AnchorWatchService.subscribe(setAnchorSnapshot);
+        return unsub;
+    }, []);
+    // Swap trigger: anchor is actively watching (deployed + GPS running) or
+    // has triggered the drag alarm. Idle / setting / paused still show the
+    // map — the user hasn't committed to being on the hook.
+    const showAnchorView = anchorSnapshot?.state === 'watching' || anchorSnapshot?.state === 'alarm';
 
     // Ticker for Live Countdown
     const [tick, setTick] = useState(0);
@@ -972,7 +988,45 @@ const HeroSlideComponent = ({
                                 key={slideIdx}
                                 className="w-full h-full snap-start snap-always shrink-0 relative pb-4 flex flex-col"
                             >
-                                {showMapInstead ? (
+                                {showMapInstead && showAnchorView ? (
+                                    // Anchor deployed → radar-style anchor watch view
+                                    // replaces the map in the essential slot. Only
+                                    // renders on the live (today, slideIdx 0) card
+                                    // so forecast days still show the map — the
+                                    // anchor view is "right now", not "tomorrow at
+                                    // 1400".
+                                    slideIdx === 0 ? (
+                                        <EssentialAnchorView
+                                            windSpeed={data.windSpeed}
+                                            windDirection={data.windDirection}
+                                            windGust={data.windGust}
+                                            speedUnit={units.speed || 'kts'}
+                                        />
+                                    ) : (
+                                        <EssentialMapSlide
+                                            slideIdx={slideIdx}
+                                            isGolden={isGolden}
+                                            isCardDay={isCardDay}
+                                            coordinates={coordinates}
+                                            windSpeed={data.windSpeed}
+                                            windDirection={
+                                                typeof data.windDirection === 'number'
+                                                    ? data.windDirection
+                                                    : (cardinalToDegrees(data.windDirection) ?? null)
+                                            }
+                                            windGust={data.windGust}
+                                            condition={data.condition}
+                                            units={units}
+                                            onMapTap={() => {
+                                                window.dispatchEvent(
+                                                    new CustomEvent('thalassa:navigate', {
+                                                        detail: { tab: 'map' },
+                                                    }),
+                                                );
+                                            }}
+                                        />
+                                    )
+                                ) : showMapInstead ? (
                                     <EssentialMapSlide
                                         slideIdx={slideIdx}
                                         isGolden={isGolden}
