@@ -22,6 +22,16 @@ interface PressureGrid {
     rows: number;
     cols: number;
     totalHours: number;
+    /** ISO timestamp of the GFS run (or null if the source doesn't expose one,
+     *  e.g. the Open-Meteo fallback). Used to align scrubber "Now" to wall-
+     *  clock time instead of forecast hour 0. */
+    refTime: string | null;
+    /** Forecast-hour offsets for the keyframes BEFORE interpolation, e.g.
+     *  [0,3,6,9,12]. Combined with INTERP_STEPS=3 this gives 0,1,2,3,...,12
+     *  sub-frames. Used to turn an age-in-hours into an index. */
+    keyframeFhrs: number[];
+    /** Hours per sub-frame after interpolation (1h for the GFS 3h/3-step case). */
+    subFrameStepHours: number;
 }
 
 // Runtime grid for a single hour (used by contour/barb generators)
@@ -77,6 +87,11 @@ interface GfsGridResponse {
     lons: number[]; // W→E
     width: number;
     height: number;
+    /** GFS run ISO timestamp — added 2026-04 so the client can align Now
+     *  to wall-clock instead of the cycle hour. */
+    refTime?: string;
+    /** Forecast-hour offsets for the frames returned. */
+    fhrs?: number[];
     north: number;
     south: number;
     east: number;
@@ -189,6 +204,10 @@ async function fetchPressureGridGfs(
             rows,
             cols,
             totalHours: interpTotal,
+            refTime: data.refTime ?? null,
+            keyframeFhrs: data.fhrs ?? GRIB_FORECAST_HOURS,
+            // 3h keyframes, 3 interpolation steps → 1h per sub-frame.
+            subFrameStepHours: (data.fhrs && data.fhrs.length > 1 ? data.fhrs[1] - data.fhrs[0] : 3) / INTERP_STEPS,
         };
     } catch (e) {
         return null;
@@ -298,6 +317,13 @@ export async function fetchPressureGrid(
             rows: uniqueLats.length,
             cols: uniqueLons.length,
             totalHours,
+            // Open-Meteo's hourly forecast is already wall-clock aligned
+            // (hour 0 of its output corresponds to wall-clock "now"),
+            // so we signal that by setting refTime to the current time
+            // and subFrameStepHours to 1. Net effect: nowIdx = 0.
+            refTime: new Date().toISOString(),
+            keyframeFhrs: Array.from({ length: totalHours }, (_, i) => i),
+            subFrameStepHours: 1,
         };
     } catch (e) {
         return null;

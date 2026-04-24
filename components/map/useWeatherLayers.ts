@@ -307,6 +307,11 @@ export function useWeatherLayers(
     const [isPlaying, setIsPlaying] = useState(false);
     const [totalFrames, setTotalFrames] = useState(FORECAST_HOURS);
     const [framesReady, setFramesReady] = useState(0);
+    /** Sub-frame index that corresponds to wall-clock "Now", computed from
+     *  the GFS cycle refTime + keyframe fhrs + subFrameStepHours. When the
+     *  GFS cycle is 4h old, this is the sub-frame that represents "+4h of
+     *  model forecast" — i.e. the model's prediction for right now. */
+    const pressureNowIdxRef = useRef(0);
     const playRafRef = useRef<number | null>(null);
     const lastFrameTimeRef = useRef(0);
 
@@ -361,11 +366,18 @@ export function useWeatherLayers(
         const total = grid.totalHours as number;
         setTotalFrames(total);
 
-        // Preserve frame 0 which was already computed in updateIsobars
+        // Preserve any frames already seeded by updateIsobars (at minimum
+        // frame 0; also the Now frame when the GFS cycle is stale).
         const existing = cachedFramesRef.current;
         cachedFramesRef.current = new Array(total);
-        if (existing[0]) cachedFramesRef.current[0] = existing[0];
-        setFramesReady(1);
+        let seededCount = 0;
+        for (let h = 0; h < existing.length; h++) {
+            if (existing[h]) {
+                cachedFramesRef.current[h] = existing[h];
+                seededCount++;
+            }
+        }
+        setFramesReady(seededCount);
 
         let idx = 1; // Start from frame 1 — frame 0 is already done
         const KEYFRAME_INTERVAL = 3;
@@ -385,15 +397,33 @@ export function useWeatherLayers(
         setTimeout(computeBatch, 50);
     }, []);
 
+    /** Compute which sub-frame corresponds to wall-clock "Now" for the
+     *  pressure timeline. Mirrors the wind layer's computeNowIndex pattern:
+     *  takes the age of the GFS cycle and divides by sub-frame step hours.
+     *  Returns 0 if no refTime (e.g. Open-Meteo fallback) or if the data
+     *  shape is unexpected. */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const computePressureNowIndex = useCallback((grid: any): number => {
+        if (!grid?.refTime || !grid?.subFrameStepHours) return 0;
+        const ageMs = Date.now() - new Date(grid.refTime).getTime();
+        const ageHours = ageMs / (60 * 60 * 1000);
+        const idx = Math.round(ageHours / grid.subFrameStepHours);
+        // Clamp to the valid range — if the GFS cycle is way out of date we
+        // show the first frame rather than falling off the end.
+        return Math.max(0, Math.min(idx, (grid.totalHours ?? 1) - 1));
+    }, []);
+
     const updateIsobars = useCallback(
         async (map: mapboxgl.Map) => {
             const token = ++isobarFetchRef.current;
 
-            // If we already have a cached grid, just re-apply frame 0 (instant).
+            // If we already have a cached grid, just re-apply the Now frame.
             // The grid is global at 1° resolution — no need to re-fetch on pan/zoom.
             if (cachedGridRef.current && cachedFramesRef.current.length > 0) {
-                setForecastHour(0);
-                applyFrame(0);
+                const idx = computePressureNowIndex(cachedGridRef.current);
+                pressureNowIdxRef.current = idx;
+                setForecastHour(idx);
+                applyFrame(idx);
                 return;
             }
 
@@ -406,15 +436,31 @@ export function useWeatherLayers(
             // Cache the raw grid permanently (until layer is toggled off)
             cachedGridRef.current = data.grid;
 
-            // Show frame 0 immediately — user sees the chart in <1s after data arrives
-            setForecastHour(0);
-            cachedFramesRef.current = [data.result];
-            applyFrame(0);
+            // Align the scrubber to wall-clock "Now" so a stale GFS cycle
+            // (e.g. 4h old) shows the +4h sub-frame labelled Now, not the
+            // cycle-0 sub-frame. Matches wind's computeNowIndex behaviour.
+            const idx = computePressureNowIndex(data.grid);
+            pressureNowIdxRef.current = idx;
+
+            // Seed the cached frames array with frame 0 (pre-computed as
+            // part of the fetch) AND — if Now isn't frame 0 — synchronously
+            // compute the Now frame so the first render already has real
+            // isobars rather than waiting for the background batch to
+            // catch up. Worst case adds ~10ms of main-thread work on top
+            // of the fetch; acceptable in exchange for zero blank-chart time.
+            const seededFrames: unknown[] = [data.result];
+            if (idx !== 0) {
+                seededFrames[idx] = generateIsobarsFromGrid(data.grid, idx, false);
+            }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            cachedFramesRef.current = seededFrames as any[];
+            setForecastHour(idx);
+            applyFrame(idx);
 
             // Precompute remaining frames in background (non-blocking)
             precomputeFrames(data.grid);
         },
-        [applyFrame, precomputeFrames],
+        [applyFrame, precomputeFrames, computePressureNowIndex],
     );
 
     // Isobar playback RAF
@@ -722,6 +768,33 @@ export function useWeatherLayers(
         }, 60 * 1000); // Every 1 minute
         return () => clearInterval(interval);
     }, [windReady, computeNowIndex]);
+
+    // ── Pressure scrubber: recompute Now every minute and auto-advance ──
+    // Same rationale as the wind equivalent above: "Now" is a moving
+    // target as wall-clock time marches on, so we slide the scrubber
+    // forward unless the user has recently scrubbed manually. Skips
+    // when no cached grid (layer not active or not yet loaded).
+    const pressureUserScrubbedRef = useRef(false);
+    const pressureUserScrubbedTimeRef = useRef(0);
+    useEffect(() => {
+        if (!activeLayers.has('pressure')) return;
+        const interval = setInterval(() => {
+            const grid = cachedGridRef.current;
+            if (!grid) return;
+            const newNowIdx = computePressureNowIndex(grid);
+            pressureNowIdxRef.current = newNowIdx;
+
+            // Skip auto-advance if user manually scrubbed within the last 5 min
+            const manualAge = Date.now() - pressureUserScrubbedTimeRef.current;
+            const MANUAL_COOLDOWN_MS = 5 * 60 * 1000;
+            if (pressureUserScrubbedRef.current && manualAge < MANUAL_COOLDOWN_MS) return;
+
+            pressureUserScrubbedRef.current = false;
+            setForecastHour((prev) => (prev !== newNowIdx ? newNowIdx : prev));
+        }, 60 * 1000);
+        return () => clearInterval(interval);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeKey, computePressureNowIndex]);
 
     // ── Center map when switching layers + WIND GEOLOCK ──
     const prevLayerCountRef = useRef(0);
@@ -1574,7 +1647,22 @@ export function useWeatherLayers(
         setGribError,
         // Isobars / Pressure
         forecastHour,
-        setForecastHour,
+        /** Wraps the raw state setter to flag that the user manually
+         *  scrubbed — the 1-min Now-recompute interval will back off for
+         *  5 minutes before auto-advancing again. */
+        setForecastHour: useCallback(
+            (valOrFn: number | ((prev: number) => number)) => {
+                pressureUserScrubbedRef.current = true;
+                pressureUserScrubbedTimeRef.current = Date.now();
+                setForecastHour(valOrFn);
+            },
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            [],
+        ),
+        /** Sub-frame index corresponding to wall-clock "Now". Consumed by
+         *  MapHub's scrubber label so a 4h-old GFS cycle shows "Now" on
+         *  the +4h sub-frame instead of mis-labelling cycle-0 as Now. */
+        pressureNowIdx: pressureNowIdxRef.current,
         isPlaying,
         setIsPlaying,
         totalFrames,

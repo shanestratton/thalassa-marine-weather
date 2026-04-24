@@ -1710,12 +1710,24 @@ export const MapHub: React.FC<MapHubProps> = ({
                             framesReady = weather.framesReady;
                             isPlaying = weather.isPlaying;
                             const maxF = Math.max(0, totalFrames - 1);
-                            const forecastHrs = maxF > 0 ? (frameIndex / maxF) * 12 : 0;
-                            frameLabel =
-                                frameIndex === 0
-                                    ? 'Now'
-                                    : `+${forecastHrs % 1 === 0 ? forecastHrs : forecastHrs.toFixed(1)}h`;
-                            sublabel = frameIndex === 0 ? 'Current' : 'Forecast';
+                            const nowIdx = weather.pressureNowIdx;
+                            nowIndex = nowIdx; // feed the scrubber's Now-marker
+                            // Label is RELATIVE to Now, not to cycle hour. If
+                            // the GFS cycle is 4h old and we're on sub-frame 4
+                            // (= wall-clock now), we want "Now", not "+4h".
+                            // If we're on sub-frame 8 (= 4h in the future),
+                            // we want "+4h". Matches the wind scrubber.
+                            const forecastHrs = maxF > 0 ? ((frameIndex - nowIdx) / maxF) * 12 : 0;
+                            if (frameIndex === nowIdx) {
+                                frameLabel = 'Now';
+                                sublabel = 'Current';
+                            } else if (forecastHrs > 0) {
+                                frameLabel = `+${forecastHrs % 1 === 0 ? forecastHrs : forecastHrs.toFixed(1)}h`;
+                                sublabel = 'Forecast';
+                            } else {
+                                frameLabel = `${forecastHrs % 1 === 0 ? forecastHrs : forecastHrs.toFixed(1)}h`;
+                                sublabel = 'Past';
+                            }
                             onScrub = (h: number) => weather.setForecastHour(h);
                             onPlayToggle = () => weather.setIsPlaying(!weather.isPlaying);
                             onScrubStart = () => weather.setIsPlaying(false);
