@@ -210,9 +210,168 @@ export async function downloadArea(
     return { phase: 'done', current, total, failed, route, message: 'Done' };
 }
 
+// ── Auto-download around the user (Pi-only smart caching) ──
+
+/**
+ * Compute an OfflineBounds square-ish box of `radiusNm` nautical miles either
+ * side of (centerLat, centerLon). Latitude maths is constant (1° ≈ 60 nm);
+ * longitude is scaled by cos(lat) so the real-world width stays ~ 2 × radiusNm.
+ */
+export function boundsAroundPoint(centerLat: number, centerLon: number, radiusNm: number): OfflineBounds {
+    const latDelta = radiusNm / 60; // 1° lat ≈ 60 nm
+    const cosLat = Math.max(0.01, Math.cos((centerLat * Math.PI) / 180));
+    const lonDelta = radiusNm / 60 / cosLat;
+    return {
+        north: Math.min(85, centerLat + latDelta),
+        south: Math.max(-85, centerLat - latDelta),
+        east: centerLon + lonDelta,
+        west: centerLon - lonDelta,
+    };
+}
+
+/**
+ * Great-circle distance in nautical miles. Good enough for "did the user move
+ * far enough to warrant re-caching" — we don't need millimetre accuracy.
+ */
+export function distanceNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R_NM = 3440.065; // Earth radius in NM
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return 2 * R_NM * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+// ── Auto-cache bookkeeping ──
+
+const LS_LAST_CENTER_KEY = 'thalassa_map_autocache_last_center';
+const MOVE_THRESHOLD_NM = 100; // re-trigger after the user moves this far
+/** Hard ceiling on the Pi cache size before we skip auto-caching to protect disk. */
+const PI_CACHE_CEILING_MB = 10 * 1024;
+
+interface LastAutoCache {
+    lat: number;
+    lon: number;
+    timestamp: number;
+}
+
+function loadLastAutoCache(): LastAutoCache | null {
+    try {
+        const raw = localStorage.getItem(LS_LAST_CENTER_KEY);
+        if (!raw) return null;
+        const obj = JSON.parse(raw);
+        if (typeof obj?.lat === 'number' && typeof obj?.lon === 'number') {
+            return obj as LastAutoCache;
+        }
+    } catch {
+        /* ignore */
+    }
+    return null;
+}
+
+function saveLastAutoCache(lat: number, lon: number): void {
+    try {
+        localStorage.setItem(LS_LAST_CENTER_KEY, JSON.stringify({ lat, lon, timestamp: Date.now() }));
+    } catch {
+        /* ignore */
+    }
+}
+
+export type AutoDownloadOutcome =
+    | { status: 'skipped'; reason: string }
+    | { status: 'started' }
+    | { status: 'done'; tilesCached: number; failed: number }
+    | { status: 'error'; message: string };
+
+export interface AutoDownloadOptions {
+    centerLat: number;
+    centerLon: number;
+    /** How far either side of the centre to cover (default 1000 NM). */
+    radiusNm?: number;
+    /** Zoom range — z6 ocean-view → z10 coastal-detail covers a 1000 NM box
+     *  in ~17k tiles per source. Deeper zooms blow tile counts up quickly. */
+    minZoom?: number;
+    maxZoom?: number;
+    /** Optional cancellation */
+    signal?: AbortSignal;
+    /** Optional progress callback for UI toasts */
+    onProgress?: (p: OfflineDownloadProgress) => void;
+}
+
+/**
+ * Smart auto-cache called when the boat Pi is available. Downloads a
+ * 1000 NM coastal box around the user in the background so the map keeps
+ * working when the phone drops offline. Skips when:
+ *   - No Pi (we only auto-cache onto the Pi, not the phone, because phone
+ *     storage and bandwidth are finite)
+ *   - Coordinates are invalid or the equator placeholder (0,0)
+ *   - User hasn't moved far enough from the last auto-cache centre
+ *   - Pi's SQLite cache is already fat (>10 GB) — the skipper can purge
+ *     and re-run manually if they want
+ */
+export async function autoDownloadAroundUser(opts: AutoDownloadOptions): Promise<AutoDownloadOutcome> {
+    const { centerLat, centerLon, radiusNm = 1000, minZoom = 6, maxZoom = 10, signal, onProgress } = opts;
+
+    if (!isFinite(centerLat) || !isFinite(centerLon) || (centerLat === 0 && centerLon === 0)) {
+        return { status: 'skipped', reason: 'invalid centre' };
+    }
+
+    if (!piCache.isAvailable()) {
+        return { status: 'skipped', reason: 'no Pi — auto-cache is Pi-only' };
+    }
+
+    // Disk-space guard: the Pi cache has LRU eviction, but if it's already
+    // massive we'd rather let the skipper make the call.
+    const piStatus = piCache.getStatus();
+    const piSizeMB = piStatus.cacheStats?.dbSizeMB ?? 0;
+    if (piSizeMB > PI_CACHE_CEILING_MB) {
+        return { status: 'skipped', reason: `Pi cache already ${(piSizeMB / 1024).toFixed(1)} GB` };
+    }
+
+    // Movement threshold — skip if we've already cached near here.
+    const last = loadLastAutoCache();
+    if (last) {
+        const moved = distanceNm(last.lat, last.lon, centerLat, centerLon);
+        if (moved < MOVE_THRESHOLD_NM) {
+            return {
+                status: 'skipped',
+                reason: `only moved ${moved.toFixed(0)} NM since last auto-cache`,
+            };
+        }
+    }
+
+    const bounds = boundsAroundPoint(centerLat, centerLon, radiusNm);
+    log.info(
+        `auto-cache: ${radiusNm}NM around (${centerLat.toFixed(2)},${centerLon.toFixed(2)}) z${minZoom}-z${maxZoom}`,
+    );
+
+    onProgress?.({
+        phase: 'downloading',
+        current: 0,
+        total: 0,
+        failed: 0,
+        route: 'pi',
+        message: `Auto-caching ${radiusNm} NM around you…`,
+    });
+
+    const result = await downloadArea({ bounds, minZoom, maxZoom, signal, concurrency: 8 }, (p) => onProgress?.(p));
+
+    if (result.phase === 'done') {
+        saveLastAutoCache(centerLat, centerLon);
+        return { status: 'done', tilesCached: result.current - result.failed, failed: result.failed };
+    }
+    if (result.phase === 'cancelled') {
+        return { status: 'skipped', reason: 'cancelled' };
+    }
+    return { status: 'error', message: result.message };
+}
+
 export const MapOfflineService = {
     enumerateTiles,
     estimateTileCount,
     estimateSizeMB,
     downloadArea,
+    boundsAroundPoint,
+    distanceNm,
+    autoDownloadAroundUser,
 };
