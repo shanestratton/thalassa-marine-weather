@@ -238,6 +238,21 @@ class ChartCatalogServiceClass {
         this.emit();
     }
 
+    /** Disable every source in one pass. Used by the single-select chart picker. */
+    disableAll(): void {
+        let changed = false;
+        for (const s of this.sources) {
+            if (s.enabled) {
+                s.enabled = false;
+                changed = true;
+            }
+        }
+        if (changed) {
+            this.persist();
+            this.emit();
+        }
+    }
+
     setOpacity(id: ChartSourceId, opacity: number): void {
         const src = this.sources.find((s) => s.id === id);
         if (!src) return;
