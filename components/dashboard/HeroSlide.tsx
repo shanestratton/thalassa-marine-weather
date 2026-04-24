@@ -332,21 +332,25 @@ const HeroSlideComponent = ({
     // Horizontal Scroll Reset Logic (Inner Axis is now Horizontal)
     const horizontalScrollRef = useRef<HTMLDivElement>(null);
 
-    // FIX V5: PRE-CALCULATE THE DATE LABEL FROM THE PARENT ROW DATA
+    // FIX V6: DERIVE THE DATE LABEL FROM THE ROW INDEX, NOT THE DATA
+    //
+    // Every upstream provider (WK, OM, SG) produces isoDate strings that are
+    // supposed to represent the same calendar day — but the string formatting
+    // differs subtly between device-tz vs location-tz vs UTC-derived paths,
+    // and any one of those drifts produced a silent off-by-one on the label.
+    // User reported "Fri 24 should be Sat 25 and so on" — every forecast card
+    // was showing yesterday's day name.
+    //
+    // Since Hero.tsx guarantees rows are ordered chronologically starting from
+    // today (row 0), the label can be derived purely from `index`: row 0 is
+    // TODAY, row 1 is today + 1 day, row N is today + N days. Immune to any
+    // isoDate/date-string bugs further up the pipeline.
     const rowDateLabel = useMemo(() => {
         if (index === 0) return 'TODAY';
-
-        // Critical: Use displayData.isoDate if available to LOCK the date to the row's day
-        if (displayData.isoDate) {
-            const [y, m, day] = displayData.isoDate.split('-').map(Number);
-            const d = new Date(y, m - 1, day, 12, 0, 0);
-            return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-        }
-
-        // Fallback for generic date objects
-        const d = displayData.date ? new Date(displayData.date) : new Date();
+        const d = new Date();
+        d.setDate(d.getDate() + index);
         return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-    }, [index, displayData.isoDate, displayData.date]);
+    }, [index]);
 
     // Auto-scroll to slide 0 when entering essential mode (map only renders on slide 0)
     useEffect(() => {
