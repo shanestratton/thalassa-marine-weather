@@ -1001,6 +1001,7 @@ const HeroSlideComponent = ({
                                             windDirection={data.windDirection}
                                             windGust={data.windGust}
                                             speedUnit={units.speed || 'kts'}
+                                            hourlyForecast={hourly}
                                         />
                                     ) : (
                                         <EssentialMapSlide
