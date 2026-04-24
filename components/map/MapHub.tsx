@@ -35,6 +35,9 @@ import { useUI } from '../../context/UIContext';
 import { triggerHaptic } from '../../utils/system';
 import { PassageBanner } from './PassageBanner';
 import { GpsService } from '../../services/GpsService';
+import { piCache } from '../../services/PiCacheService';
+import { MapOfflineService } from '../../services/MapOfflineService';
+import { toast } from '../Toast';
 
 import { type MapHubProps, type WeatherLayer, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS } from './mapConstants';
 import { useMapInit, useLocationDot, usePickerMode } from './useMapInit';
@@ -665,6 +668,68 @@ export const MapHub: React.FC<MapHubProps> = ({
         isPinView,
         weatherCoords,
     ]);
+
+    // ── Auto-cache tiles around the user when a Pi is in play ──
+    // When the boat has a Pi on the network, silently download a 1000 NM
+    // box of raster tiles at cruising zooms (z6-z10) so the map keeps
+    // working the moment the phone drops offline. Only runs when:
+    //   - Pi is available
+    //   - User has a valid weatherCoords
+    //   - User has moved > 100 NM since the last auto-cache (tracked in LS)
+    //   - Pi's SQLite cache isn't already gigantic (>10 GB)
+    // The one-time-per-mount guard prevents firing while a download's in
+    // flight; subsequent weatherCoords changes that still fall within the
+    // move-threshold are deduped inside MapOfflineService.
+    const autoCacheRanRef = useRef(false);
+    useEffect(() => {
+        if (embedded || pickerMode || isPinView) return;
+        if (!weatherCoords) return;
+        if (autoCacheRanRef.current) return;
+
+        let cancelled = false;
+        const ctrl = new AbortController();
+        const tryRun = async () => {
+            if (!piCache.isAvailable()) return; // wait for Pi
+            autoCacheRanRef.current = true;
+            const outcome = await MapOfflineService.autoDownloadAroundUser({
+                centerLat: weatherCoords.lat,
+                centerLon: weatherCoords.lon,
+                signal: ctrl.signal,
+                onProgress: (p) => {
+                    if (p.phase === 'downloading' && p.current === 0) {
+                        toast.info('Auto-caching 1000 NM around you to the Pi…', 4000);
+                    }
+                },
+            });
+            if (cancelled) return;
+            if (outcome.status === 'done') {
+                toast.success(`Pi cached ${outcome.tilesCached.toLocaleString()} tiles — the map stays live offline.`);
+            } else if (outcome.status === 'error') {
+                // Reset the guard so a later weatherCoords change can retry.
+                autoCacheRanRef.current = false;
+                log.warn('Auto-cache failed:', outcome.message);
+            } else if (outcome.status === 'skipped') {
+                // Skipped for a legitimate reason (no Pi, not moved, cache full) —
+                // don't toast the user, but leave the guard open so Pi arriving
+                // later or movement over the threshold can still kick it off.
+                autoCacheRanRef.current = false;
+                log.info('Auto-cache skipped:', outcome.reason);
+            }
+        };
+
+        // Run once now, then subscribe so we fire the moment the Pi is found.
+        tryRun();
+        const unsub = piCache.onStatusChange(() => {
+            if (!autoCacheRanRef.current && piCache.isAvailable()) tryRun();
+        });
+
+        return () => {
+            cancelled = true;
+            ctrl.abort();
+            unsub();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [weatherCoords?.lat, weatherCoords?.lon, embedded, pickerMode, isPinView]);
 
     // ── GPS Vessel Tracker Layer ──
     const { flyToVessel } = useVesselTracker(mapRef, mapReady, vesselTrackingVisible);
