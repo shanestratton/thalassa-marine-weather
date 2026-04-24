@@ -497,17 +497,24 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     }, [hourly, safeActive]);
 
     // Helper to generate proper date labels
+    //
+    // Derive purely from dayIndex (row position in the vertical carousel),
+    // NOT from `data.forecast[dayIndex].isoDate`. Hero.tsx's dayRows[] is
+    // sorted + deduped so row 0 = today, row 1 = tomorrow, row N = today + N.
+    // But `data.forecast` is the raw provider array — if any provider
+    // front-loads yesterday or today (common UTC-offset quirk: e.g. the
+    // first WeatherKit daily entry has yesterday's UTC date because it
+    // represents local-today and the day is still before UTC midnight),
+    // `data.forecast[1]` resolves to today and the label reads "Fri 24"
+    // on a row that actually contains tomorrow's data.
+    //
+    // Since the carousel is guaranteed chronological, the label is purely
+    // a function of the row's position relative to today.
     const getDateLabel = (dayIndex: number): string => {
         if (dayIndex === 0) return 'TODAY';
-
-        const forecast = data?.forecast?.[dayIndex];
-        if (forecast?.isoDate) {
-            const [y, m, day] = forecast.isoDate.split('-').map(Number);
-            const d = new Date(y, m - 1, day, 12, 0, 0);
-            return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
-        }
-
-        return `DAY ${dayIndex + 1}`; // Fallback
+        const d = new Date();
+        d.setDate(d.getDate() + dayIndex);
+        return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
     };
 
     // Helper to generate time label for active hour
