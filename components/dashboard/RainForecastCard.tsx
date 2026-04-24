@@ -491,35 +491,31 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                                     fill="rgba(100,116,139,0.15)"
                                 />
                             </svg>
-                            {/* Rain drops with highlights + shadows + trails */}
+                            {/* Rain drops on glass.
+                                Real drops refract a darker, compressed view of
+                                the background through them, which is why drops
+                                on a windshield read DARKER than the sky. The
+                                previous pass used light-filled gradient blobs
+                                with a broad highlight bloom — they looked like
+                                soap bubbles, not water.
+                                Redesigned layers:
+                                  1. Trail — dark, narrow, first (drops on top)
+                                  2. Cast shadow — offset ellipse under the drop
+                                  3. Body — dark, flat fill (the "lens" effect)
+                                  4. Meniscus — thin sharp surface-tension ring
+                                  5. Specular dot — small, crisp, bright. Where
+                                     the overhead light source reflects off the
+                                     top of the dome. The signature "water" tell.
+                                  6. Secondary bounce — tiny faint dot on the
+                                     far edge (environment light wrapping round).
+                            */}
                             <svg
                                 className="absolute inset-0 w-full h-full"
                                 viewBox="0 0 200 400"
                                 preserveAspectRatio="xMidYMid slice"
                                 aria-hidden="true"
                             >
-                                <defs>
-                                    {/* Drop highlight — tiny bright spot top-left
-                                        of each drop simulating light reflecting
-                                        off a curved water surface. */}
-                                    <radialGradient id="drop-highlight" cx="30%" cy="25%" r="50%">
-                                        <stop offset="0%" stopColor="rgba(255,255,255,0.9)" />
-                                        <stop offset="60%" stopColor="rgba(255,255,255,0.15)" />
-                                        <stop offset="100%" stopColor="rgba(255,255,255,0)" />
-                                    </radialGradient>
-                                    {/* Drop body — soft blue-white tint, dense
-                                        in the centre, fading at the edges. */}
-                                    <radialGradient id="drop-body" cx="50%" cy="50%" r="50%">
-                                        <stop offset="0%" stopColor="rgba(186,230,253,0.55)" />
-                                        <stop offset="70%" stopColor="rgba(125,211,252,0.25)" />
-                                        <stop offset="100%" stopColor="rgba(56,189,248,0.05)" />
-                                    </radialGradient>
-                                </defs>
                                 {(() => {
-                                    // Deterministic pseudo-random for stable layout
-                                    // across renders. Seeded on intensity bucket
-                                    // so heavy vs light rain pick distinct but
-                                    // still-pretty distributions.
                                     const isHeavy = analysis.maxIntensity >= 2.5;
                                     const dropCount = isHeavy ? 26 : 14;
                                     const drops: Array<{
@@ -542,51 +538,68 @@ const RainModal: React.FC<ModalProps> = ({ data, analysis, onClose }) => {
                                             x: 8 + rand() * 184,
                                             y: 12 + rand() * 376,
                                             r,
-                                            // Larger drops get trails (rain running
-                                            // down the glass). More trails on heavy.
                                             hasTrail: r > 5 && rand() > (isHeavy ? 0.35 : 0.6),
                                             trailLen: 20 + rand() * 60,
                                         });
                                     }
                                     return drops.map((d, i) => (
                                         <g key={i}>
-                                            {/* Trail first so drops sit on top */}
+                                            {/* Trail — dark narrow streak, under
+                                                the drop so the bead sits on top */}
                                             {d.hasTrail && (
                                                 <rect
-                                                    x={d.x - 0.8}
+                                                    x={d.x - 0.7}
                                                     y={d.y}
-                                                    width={1.6}
+                                                    width={1.4}
                                                     height={d.trailLen}
-                                                    fill="rgba(186,230,253,0.18)"
-                                                    rx={0.8}
+                                                    fill="rgba(15,23,42,0.55)"
+                                                    rx={0.7}
                                                 />
                                             )}
-                                            {/* Soft shadow below drop (3D lift) */}
+                                            {/* Cast shadow — subtle lift */}
                                             <ellipse
-                                                cx={d.x}
-                                                cy={d.y + d.r * 0.35}
-                                                rx={d.r * 0.85}
-                                                ry={d.r * 0.35}
-                                                fill="rgba(15,23,42,0.35)"
-                                                filter="blur(0.5)"
+                                                cx={d.x + 0.5}
+                                                cy={d.y + d.r * 0.5}
+                                                rx={d.r * 0.75}
+                                                ry={d.r * 0.22}
+                                                fill="rgba(0,0,0,0.35)"
                                             />
-                                            {/* Drop body */}
-                                            <circle cx={d.x} cy={d.y} r={d.r} fill="url(#drop-body)" />
-                                            {/* Outline for definition */}
+                                            {/* Body — DARK lens fill. This is
+                                                the critical change vs. the
+                                                "bubble" look: water drops
+                                                refract a compressed dark view
+                                                behind them, so the body reads
+                                                darker than the surround, not
+                                                lighter. */}
+                                            <circle cx={d.x} cy={d.y} r={d.r} fill="rgba(15,23,42,0.72)" />
+                                            {/* Meniscus — sharp surface-tension
+                                                rim. Thin, light, clean. */}
                                             <circle
                                                 cx={d.x}
                                                 cy={d.y}
                                                 r={d.r}
                                                 fill="none"
-                                                stroke="rgba(186,230,253,0.35)"
-                                                strokeWidth="0.5"
+                                                stroke="rgba(186,230,253,0.55)"
+                                                strokeWidth="0.4"
                                             />
-                                            {/* Highlight — the "wet" look */}
+                                            {/* Primary specular highlight —
+                                                tiny bright dot, NOT a soft
+                                                gradient. This is THE tell for
+                                                "that's water". */}
                                             <circle
-                                                cx={d.x - d.r * 0.25}
-                                                cy={d.y - d.r * 0.25}
-                                                r={d.r * 0.5}
-                                                fill="url(#drop-highlight)"
+                                                cx={d.x - d.r * 0.38}
+                                                cy={d.y - d.r * 0.42}
+                                                r={Math.max(0.6, d.r * 0.18)}
+                                                fill="rgba(255,255,255,0.95)"
+                                            />
+                                            {/* Secondary environment-light
+                                                bounce on the far edge — sells
+                                                the 3D sphere. */}
+                                            <circle
+                                                cx={d.x + d.r * 0.5}
+                                                cy={d.y + d.r * 0.25}
+                                                r={Math.max(0.3, d.r * 0.09)}
+                                                fill="rgba(255,255,255,0.4)"
                                             />
                                         </g>
                                     ));
