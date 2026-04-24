@@ -5,6 +5,7 @@ import { convertTemp } from '../../utils';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { MetricPinSheet } from './MetricPinSheet';
 import { getPinnedMetricDisplay } from './metricDisplayHelpers';
+import { CoachMark } from '../ui/CoachMark';
 
 /**
  * ConditionText — simple text sizing based on string length.
@@ -249,6 +250,24 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                             <circle cx="19" cy="12" r="1" />
                         </svg>
                     </span>
+
+                    {/* First-use coach mark — only fires while the user is
+                        still on the default temp view AND only on the LIVE
+                        card (live temp reads are the honest moment to teach
+                        the feature, not a forecast day). Disappears after
+                        one viewing, controlled by localStorage. */}
+                    {isLive && (
+                        <CoachMark
+                            seenKey="thalassa_hero_pin_coach_v1"
+                            visibleWhen={heroMetric === 'temp'}
+                            anchor="top-right"
+                            arrow="up"
+                            message="Tap to pin any metric here"
+                            initialDelayMs={1500}
+                            ttlMs={6000}
+                            className="-translate-y-8"
+                        />
+                    )}
                 </div>
 
                 {/* CENTER: Status dot + icon + condition */}
