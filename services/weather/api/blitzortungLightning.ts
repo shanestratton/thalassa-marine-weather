@@ -127,10 +127,43 @@ interface RawStrike {
     pol?: number;
 }
 
+/** Counter + cap for "dump the first N raw frames" debugging. Survives
+ *  prod because we want to see exactly what the server is sending when
+ *  users report "no strikes". Once we've got visibility we'll pull this. */
+let rawFrameDebugBudget = 5;
+
 function decodeMessage(rawData: string): LightningStrike | null {
+    // Dump the first few raw frames so we can see if the server is
+    // streaming at all, and if so, what shape the payload actually is.
+    // log.warn so it survives production builds.
+    if (rawFrameDebugBudget > 0) {
+        rawFrameDebugBudget--;
+        const preview = rawData.length > 200 ? `${rawData.slice(0, 200)}…(${rawData.length}ch)` : rawData;
+        log.warn(`[Lightning] raw frame #${5 - rawFrameDebugBudget}: ${preview}`);
+        try {
+            const decoded = lzwDecode(rawData);
+            const decodedPreview = decoded.length > 200 ? `${decoded.slice(0, 200)}…(${decoded.length}ch)` : decoded;
+            log.warn(`[Lightning] decoded: ${decodedPreview}`);
+        } catch {
+            log.warn('[Lightning] decode threw — likely not LZW, maybe plain JSON');
+        }
+    }
     try {
-        const decoded = lzwDecode(rawData);
-        const obj = JSON.parse(decoded) as RawStrike;
+        // Try LZW first (Blitzortung's historical encoding).
+        let decoded: string;
+        try {
+            decoded = lzwDecode(rawData);
+        } catch {
+            decoded = rawData;
+        }
+        // Fall back to raw if LZW output doesn't look like JSON — some
+        // Blitzortung server variants now send plain-text JSON.
+        let obj: RawStrike;
+        try {
+            obj = JSON.parse(decoded) as RawStrike;
+        } catch {
+            obj = JSON.parse(rawData) as RawStrike;
+        }
         if (typeof obj.lat !== 'number' || typeof obj.lon !== 'number' || typeof obj.time !== 'number') {
             return null;
         }
@@ -325,11 +358,31 @@ async function connect(): Promise<void> {
     state.nativeHandles = [onOpen, onMessage, onError, onClose];
 
     try {
+        // Subscribe with a worldwide geographic bounding box, which is
+        // the format Blitzortung's own reference viewer sends. The older
+        // {"time":0} format was accepted but some servers treat an
+        // un-scoped subscription as "nothing to filter for you" and the
+        // connection just sits there silent — matches what the user sees
+        // when they say "no strikes even after going round the world".
+        //
+        // Format verified against the maps.blitzortung.org JS viewer:
+        //   ws.send(JSON.stringify({west, east, north, south}))
+        // North clamped to 85 and south to -85 because the polar regions
+        // have no detectors and Blitzortung's server rejects |lat| > 90.
+        const subscribeMessage = JSON.stringify({
+            west: -180,
+            east: 180,
+            north: 85,
+            south: -85,
+        });
+        // Reset the raw-frame debug budget each connect so we see the
+        // first frames of every reconnect, not just the very first one.
+        rawFrameDebugBudget = 5;
         await LightningNative.start({
             url,
-            subscribeMessage: JSON.stringify({ time: 0 }),
+            subscribeMessage,
         });
-        log.warn('[Lightning] native start() resolved, waiting for didOpen event');
+        log.warn(`[Lightning] native start() resolved, subscribe=${subscribeMessage}, waiting for didOpen`);
     } catch (err) {
         log.warn('[Lightning] native start() rejected:', err);
         setStatus('closed');
