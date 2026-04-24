@@ -283,15 +283,31 @@ export type AutoDownloadOutcome =
     | { status: 'done'; tilesCached: number; failed: number }
     | { status: 'error'; message: string };
 
+/**
+ * Zoom-tiered coverage: deep harbour zooms only make sense close to the boat,
+ * low ocean zooms cover the whole 1000-NM area you might sail into. Prevents
+ * dumping hundreds of thousands of harbour-detail tiles over open ocean where
+ * they'd never be used, while still giving the user harbour-level detail
+ * right where the boat is.
+ */
+export interface CoverageTier {
+    radiusNm: number;
+    minZoom: number;
+    maxZoom: number;
+}
+
+export const DEFAULT_COVERAGE_TIERS: CoverageTier[] = [
+    { radiusNm: 1000, minZoom: 4, maxZoom: 7 }, // ocean-wide: the region you might sail into
+    { radiusNm: 500, minZoom: 8, maxZoom: 9 }, // regional: a multi-day sail radius
+    { radiusNm: 150, minZoom: 10, maxZoom: 11 }, // coastal approach
+    { radiusNm: 40, minZoom: 12, maxZoom: 13 }, // harbour detail
+];
+
 export interface AutoDownloadOptions {
     centerLat: number;
     centerLon: number;
-    /** How far either side of the centre to cover (default 1000 NM). */
-    radiusNm?: number;
-    /** Zoom range — z6 ocean-view → z10 coastal-detail covers a 1000 NM box
-     *  in ~17k tiles per source. Deeper zooms blow tile counts up quickly. */
-    minZoom?: number;
-    maxZoom?: number;
+    /** Override the default tiered coverage (rarely needed). */
+    tiers?: CoverageTier[];
     /** Optional cancellation */
     signal?: AbortSignal;
     /** Optional progress callback for UI toasts */
@@ -300,8 +316,9 @@ export interface AutoDownloadOptions {
 
 /**
  * Smart auto-cache called when the boat Pi is available. Downloads a
- * 1000 NM coastal box around the user in the background so the map keeps
- * working when the phone drops offline. Skips when:
+ * multi-tier shell of raster tiles around the user: low zooms cover the
+ * whole ocean area they might sail into, deeper zooms only cover close
+ * to the boat where harbour detail is actually useful. Skips when:
  *   - No Pi (we only auto-cache onto the Pi, not the phone, because phone
  *     storage and bandwidth are finite)
  *   - Coordinates are invalid or the equator placeholder (0,0)
@@ -310,7 +327,7 @@ export interface AutoDownloadOptions {
  *     and re-run manually if they want
  */
 export async function autoDownloadAroundUser(opts: AutoDownloadOptions): Promise<AutoDownloadOutcome> {
-    const { centerLat, centerLon, radiusNm = 1000, minZoom = 6, maxZoom = 10, signal, onProgress } = opts;
+    const { centerLat, centerLon, tiers = DEFAULT_COVERAGE_TIERS, signal, onProgress } = opts;
 
     if (!isFinite(centerLat) || !isFinite(centerLon) || (centerLat === 0 && centerLon === 0)) {
         return { status: 'skipped', reason: 'invalid centre' };
@@ -340,30 +357,64 @@ export async function autoDownloadAroundUser(opts: AutoDownloadOptions): Promise
         }
     }
 
-    const bounds = boundsAroundPoint(centerLat, centerLon, radiusNm);
+    // Estimate total tile count across every tier so progress is meaningful
+    // (otherwise each tier resets the counter and the user thinks it loops).
+    const grandTotal = tiers.reduce((sum, tier) => {
+        const b = boundsAroundPoint(centerLat, centerLon, tier.radiusNm);
+        return sum + estimateTileCount(b, tier.minZoom, tier.maxZoom);
+    }, 0);
+
     log.info(
-        `auto-cache: ${radiusNm}NM around (${centerLat.toFixed(2)},${centerLon.toFixed(2)}) z${minZoom}-z${maxZoom}`,
+        `auto-cache tiered: ${tiers.length} tiers around (${centerLat.toFixed(2)},${centerLon.toFixed(2)}), ~${grandTotal} tiles`,
     );
 
     onProgress?.({
         phase: 'downloading',
         current: 0,
-        total: 0,
+        total: grandTotal,
         failed: 0,
         route: 'pi',
-        message: `Auto-caching ${radiusNm} NM around you…`,
+        message: `Auto-caching ${tiers[0].radiusNm} NM around you…`,
     });
 
-    const result = await downloadArea({ bounds, minZoom, maxZoom, signal, concurrency: 8 }, (p) => onProgress?.(p));
-
-    if (result.phase === 'done') {
-        saveLastAutoCache(centerLat, centerLon);
-        return { status: 'done', tilesCached: result.current - result.failed, failed: result.failed };
+    let totalDone = 0;
+    let totalFailed = 0;
+    for (const tier of tiers) {
+        if (signal?.aborted) break;
+        const bounds = boundsAroundPoint(centerLat, centerLon, tier.radiusNm);
+        log.info(`auto-cache tier: ${tier.radiusNm}NM z${tier.minZoom}-z${tier.maxZoom}`);
+        const result = await downloadArea(
+            { bounds, minZoom: tier.minZoom, maxZoom: tier.maxZoom, signal, concurrency: 8 },
+            (p) => {
+                // Re-emit with the running grand total so the progress bar
+                // advances across the whole multi-tier run, not per tier.
+                onProgress?.({
+                    ...p,
+                    current: totalDone + p.current,
+                    total: grandTotal,
+                    failed: totalFailed + p.failed,
+                    message: `z${tier.minZoom}–${tier.maxZoom} at ${tier.radiusNm} NM · ${totalDone + p.current} / ${grandTotal}`,
+                });
+            },
+        );
+        totalDone += result.current;
+        totalFailed += result.failed;
+        if (result.phase === 'cancelled') break;
+        if (result.phase === 'error') {
+            return { status: 'error', message: result.message };
+        }
     }
-    if (result.phase === 'cancelled') {
+
+    if (signal?.aborted) {
         return { status: 'skipped', reason: 'cancelled' };
     }
-    return { status: 'error', message: result.message };
+
+    saveLastAutoCache(centerLat, centerLon);
+    return {
+        status: 'done',
+        tilesCached: totalDone - totalFailed,
+        failed: totalFailed,
+    };
 }
 
 export const MapOfflineService = {
@@ -374,4 +425,5 @@ export const MapOfflineService = {
     boundsAroundPoint,
     distanceNm,
     autoDownloadAroundUser,
+    DEFAULT_COVERAGE_TIERS,
 };
