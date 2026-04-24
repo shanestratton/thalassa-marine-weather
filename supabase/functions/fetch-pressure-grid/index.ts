@@ -335,6 +335,11 @@ Deno.serve(async (req: Request) => {
             return rows;
         });
 
+        // Build the GFS run refTime (ISO string) so the client can align
+        // its scrubber "Now" marker to wall-clock time instead of the model
+        // run time. `date` is YYYYMMDD, `cycle` is HH in UTC.
+        const refTimeIso = `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}T${cycle}:00:00.000Z`;
+
         const responseBody = {
             frames, // [frameIdx][row_S_to_N][col_W_to_E] in hPa
             lats, // S→N
@@ -345,6 +350,14 @@ Deno.serve(async (req: Request) => {
             south: gridSouth,
             east: gridEast,
             west: gridWest,
+            /** ISO timestamp of the GFS cycle that produced these frames.
+             *  Lets the client compute "Now" as the frame closest to
+             *  (Date.now() − refTime), not the frame at forecastHour[0]. */
+            refTime: refTimeIso,
+            /** The forecast-hour offsets (e.g. [0,3,6,9,12]) that `frames`
+             *  correspond to, BEFORE the client's 30-min sub-frame
+             *  interpolation. Used with refTime to compute nowIdx. */
+            fhrs: forecastHours,
         };
 
         console.info(`[fetch-pressure-grid] Returning ${frames.length} frames, ${f0.width}×${f0.height} grid`);
