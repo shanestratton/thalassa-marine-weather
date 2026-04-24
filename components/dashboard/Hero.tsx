@@ -128,6 +128,14 @@ export const HeroSection = ({
             lowTemp: todayForecast?.lowTemp ?? current.lowTemp,
             sunrise: todayForecast?.sunrise ?? (current as WeatherMetrics & { sunrise?: string }).sunrise,
             sunset: todayForecast?.sunset ?? (current as WeatherMetrics & { sunset?: string }).sunset,
+            // Lock row 0's identity: the "TODAY" label in HeroSlide reads
+            // `displayData.isoDate`, so anchor it to the real local date.
+            // Without this, row 0 can inherit yesterday's isoDate via the
+            // todayForecast spread (when WK assigns yesterday's UTC date to
+            // the "today-local" entry) and we end up with two rows whose
+            // isoDate equals the same calendar day.
+            isoDate: todayISO,
+            date: todayISO,
         };
         rows.push({
             data: todayMetrics as unknown as WeatherMetrics,
@@ -135,39 +143,67 @@ export const HeroSection = ({
             customTime: undefined, // Live — uses new Date() for "now" line
         });
 
-        // ROWS 1+: Future forecast days (skip today to avoid duplication)
+        // ROWS 1+: Future forecast days (skip today, de-dupe, cap at 10 total)
+        //
+        // Previously we compared each `f.isoDate` against `todayISO`/`yesterdayISO`
+        // string-equality. That held up when every provider agreed on the
+        // location-tz isoDate format, but the StormGlass transformer generates
+        // isoDate from the device-local tz (`new Date(h.time).toLocaleDateString('en-CA')`
+        // with no timeZone option), while Hero computes todayISO in the
+        // *location* tz. On a boat near a tz boundary — or any user whose
+        // device tz differs from the location tz — the two strings disagreed
+        // for the exact same calendar day and today slipped through the filter,
+        // producing a second "today" row labelled with the date (e.g. "Fri, 24 Apr").
+        //
+        // New approach: dedupe by isoDate using a Set that's pre-seeded with
+        // todayISO and yesterdayISO. Any entry whose isoDate collides with a
+        // previously-added row is skipped. This is robust against cross-tz
+        // drift, duplicate forecast entries, and providers that front-load
+        // today into the array.
         if (forecasts && forecasts.length > 0) {
-            forecasts
-                .filter((f, fIdx) => {
-                    const fDate = f.isoDate || f.date;
-                    if (fDate && fDate === todayISO) return false;
-                    if (fDate && fDate === yesterdayISO && fIdx === 0) return false;
-                    return true;
-                })
-                .forEach((f) => {
-                    const targetDate = f.isoDate;
-                    let dayHourly: HourlyForecast[] = [];
-                    if (targetDate && hourly && Array.isArray(hourly)) {
-                        dayHourly = hourly.filter((h) => {
-                            const localDateStr = new Date(h.time).toLocaleDateString('en-CA', { timeZone: timeZone });
-                            return localDateStr === targetDate;
-                        });
-                    }
-
-                    // merge of WeatherMetrics + ForecastDay
-                    const metrics: Record<string, unknown> = {
-                        ...current,
-                        ...f,
-                        condition: f.condition,
-                    };
-                    rows.push({
-                        data: metrics as unknown as WeatherMetrics,
-                        hourly: dayHourly,
-                        customTime: undefined,
-                    });
+            const seenIsoDates = new Set<string>([todayISO, yesterdayISO]);
+            // Sort chronologically by isoDate so the carousel always reads
+            // left-to-right from nearest to furthest, regardless of provider
+            // ordering quirks.
+            const sortedForecasts = [...forecasts]
+                .filter((f) => !!(f.isoDate || f.date))
+                .sort((a, b) => {
+                    const aDate = String(a.isoDate || a.date);
+                    const bDate = String(b.isoDate || b.date);
+                    return aDate.localeCompare(bDate);
                 });
+            sortedForecasts.forEach((f) => {
+                const fDate = f.isoDate || f.date;
+                if (!fDate) return;
+                if (seenIsoDates.has(fDate)) return; // skip today + already-emitted
+                seenIsoDates.add(fDate);
+
+                const targetDate = f.isoDate;
+                let dayHourly: HourlyForecast[] = [];
+                if (targetDate && hourly && Array.isArray(hourly)) {
+                    dayHourly = hourly.filter((h) => {
+                        const localDateStr = new Date(h.time).toLocaleDateString('en-CA', { timeZone: timeZone });
+                        return localDateStr === targetDate;
+                    });
+                }
+
+                // merge of WeatherMetrics + ForecastDay
+                const metrics: Record<string, unknown> = {
+                    ...current,
+                    ...f,
+                    condition: f.condition,
+                };
+                rows.push({
+                    data: metrics as unknown as WeatherMetrics,
+                    hourly: dayHourly,
+                    customTime: undefined,
+                });
+            });
         }
-        return rows;
+        // Cap at 10 rows total (Today + up to 9 future days). WeatherKit's
+        // daily forecast returns 10 days; Open-Meteo returns up to 16. Either
+        // way, 10 is the carousel's design ceiling.
+        return rows.slice(0, 10);
     }, [current, forecasts, hourly, timeZone]);
 
     const handleScroll = useCallback(
