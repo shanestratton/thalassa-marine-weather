@@ -62,18 +62,19 @@ const LightningNative = registerPlugin<LightningNativePlugin>('Lightning');
 // spread load. If a connection drops we'll re-pick on retry.
 //
 // Endpoint history:
-//   2026-04-23 fix tried wss://ws[1,2,7,8].blitzortung.org/ on port 443.
-//   The TLS handshake works on 443 but the server never streams strikes
-//   on that port — it returns 101 Switching Protocols, accepts the
-//   subscribe, then sits idle. Probably a different protocol multiplexed
-//   on the same hostname.
-//   2026-04-25 fix REVERTED: SimonSchick/BlitzortungAPI (a working
-//   third-party JS client) connects to wss://ws[1,5,6,7].blitzortung.org:3000/
-//   and immediately gets a flowing feed. We're back on that proven config.
-const SERVER_IDS = [1, 5, 6, 7];
+//   - 2020-era SimonSchick/BlitzortungAPI used :3000 with subscribe
+//     {"time":0}. That's stale — port 3000 is now firewalled by most
+//     cellular carriers (the user reported "Could not connect to server"
+//     on iOS) and the protocol changed.
+//   - We then tried :443 with {"time":0} — handshake succeeded but the
+//     server never streamed (wrong subscribe).
+//   - 2026-04-25 FINAL FIX: decoded the live map.blitzortung.org viewer
+//     JS directly. Real protocol is wss://ws[1,2,7,8].blitzortung.org/
+//     (port 443 implicit) with subscribe {"a":111}.
+const SERVER_IDS = [1, 2, 7, 8];
 function pickServerUrl(): string {
     const id = SERVER_IDS[Math.floor(Math.random() * SERVER_IDS.length)];
-    return `wss://ws${id}.blitzortung.org:3000/`;
+    return `wss://ws${id}.blitzortung.org/`;
 }
 
 // ── Strike data shape ─────────────────────────────────────────────────
@@ -360,12 +361,16 @@ async function connect(): Promise<void> {
     state.nativeHandles = [onOpen, onMessage, onError, onClose];
 
     try {
-        // Subscribe message: SimonSchick/BlitzortungAPI (a working JS
-        // client that streams successfully) sends literally `{"time":0}`
-        // and gets a flowing feed back. Verified by reading the project
-        // source. We tried a bbox format briefly — server accepts it but
-        // never streams. {"time":0} it is.
-        const subscribeMessage = JSON.stringify({ time: 0 });
+        // Subscribe message: extracted from the live map.blitzortung.org
+        // viewer's obfuscated JS by reading the WebSocket onopen handler:
+        //
+        //   ws.send('{"a":111}');
+        //
+        // The 'a' key is some kind of authentication/capability handshake
+        // value — the meaning of 111 is opaque but it's a literal in their
+        // code. We tried {"time":0} (legacy) and a bbox format (guess);
+        // neither works on the current server. {"a":111} unlocks the feed.
+        const subscribeMessage = JSON.stringify({ a: 111 });
         // Reset the raw-frame debug budget each connect so we see the
         // first frames of every reconnect, not just the very first one.
         rawFrameDebugBudget = 5;
