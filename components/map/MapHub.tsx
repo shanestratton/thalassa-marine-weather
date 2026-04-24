@@ -737,6 +737,62 @@ export const MapHub: React.FC<MapHubProps> = ({
     useOfflineBaseLayer(mapRef, mapReady, isOnline);
     const chartsActive = skChartIds.size > 0 || chartCatalog.hasEnabledCharts || localChartIds.size > 0;
 
+    // ── Single-select chart picker ──
+    // Only one nautical chart layer visible at a time across all three kinds
+    // (AvNav / free catalog / on-phone MBTiles). Clicking the currently-on
+    // chart turns it off (empty state is allowed). Clicking any other chart
+    // turns that one on, turns everything else off, and flies the camera
+    // to the new chart's coverage.
+    const selectChartExclusive = useCallback(
+        (kind: 'sk' | 'catalog' | 'local', id: string) => {
+            const isSkOn = kind === 'sk' && skChartIds.has(id);
+            const isLocalOn = kind === 'local' && localChartIds.has(id);
+            const catalogSrc = kind === 'catalog' ? chartCatalog.sources.find((s) => s.id === id) : undefined;
+            const isCatalogOn = !!catalogSrc?.enabled;
+            const turningOff = isSkOn || isLocalOn || isCatalogOn;
+
+            if (turningOff) {
+                // Toggle off the one they tapped; leave the (already-empty) other buckets alone.
+                if (kind === 'sk') {
+                    setSkChartIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(id);
+                        return next;
+                    });
+                } else if (kind === 'local') {
+                    setLocalChartIds((prev) => {
+                        const next = new Set(prev);
+                        next.delete(id);
+                        return next;
+                    });
+                } else if (catalogSrc) {
+                    chartCatalog.toggleSource(catalogSrc.id);
+                }
+                return;
+            }
+
+            // Turning on → wipe every other chart, enable just this one.
+            setSkChartIds(kind === 'sk' ? new Set([id]) : new Set());
+            setLocalChartIds(kind === 'local' ? new Set([id]) : new Set());
+            chartCatalog.disableAll();
+            if (kind === 'catalog' && catalogSrc) {
+                chartCatalog.toggleSource(catalogSrc.id); // flips off → on
+            }
+
+            // Fly the camera so the user sees their selection.
+            if (kind === 'sk') {
+                const chart = skCharts.availableCharts.find((c) => c.id === id);
+                if (chart) skCharts.flyToChart(chart);
+            } else if (kind === 'local') {
+                const chart = localCharts.availableCharts.find((c) => c.fileName === id);
+                if (chart) localCharts.flyToChart(chart);
+            } else if (catalogSrc) {
+                chartCatalog.flyToSource(catalogSrc);
+            }
+        },
+        [skChartIds, localChartIds, chartCatalog, skCharts, localCharts],
+    );
+
     // ── Interactive Sea Marks (OpenSeaMap / Overpass API) ──
     // When o-charts are active: 'identify' mode (invisible hit targets, still click-to-identify)
     // When no charts:           'full' mode (renders IALA icons + click-to-identify)
@@ -1028,16 +1084,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     label: c.name.length > 10 ? c.name.substring(0, 10) : c.name,
                                     iconKind: 'avnav' as const,
                                     enabled: skChartIds.has(c.id),
-                                    onToggle: () => {
-                                        const turningOn = !skChartIds.has(c.id);
-                                        setSkChartIds((prev) => {
-                                            const next = new Set(prev);
-                                            if (next.has(c.id)) next.delete(c.id);
-                                            else next.add(c.id);
-                                            return next;
-                                        });
-                                        if (turningOn) skCharts.flyToChart(c);
-                                    },
+                                    onToggle: () => selectChartExclusive('sk', c.id),
                                 })),
                                 ...chartCatalog.sources.map((s) => ({
                                     id: `cat-${s.id}`,
@@ -1059,27 +1106,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             ? 'linz'
                                             : 'generic') as 'noaa' | 'ecdis' | 'linz' | 'generic',
                                     enabled: s.enabled && !!s.tileUrl,
-                                    onToggle: () => {
-                                        const turningOn = !s.enabled;
-                                        chartCatalog.toggleSource(s.id);
-                                        if (turningOn) chartCatalog.flyToSource(s);
-                                    },
+                                    onToggle: () => selectChartExclusive('catalog', s.id),
                                 })),
                                 ...localCharts.availableCharts.map((c) => ({
                                     id: `local-${c.fileName}`,
                                     label: c.name.length > 10 ? c.name.substring(0, 10) : c.name,
                                     iconKind: 'local' as const,
                                     enabled: localChartIds.has(c.fileName),
-                                    onToggle: () => {
-                                        const turningOn = !localChartIds.has(c.fileName);
-                                        setLocalChartIds((prev) => {
-                                            const next = new Set(prev);
-                                            if (next.has(c.fileName)) next.delete(c.fileName);
-                                            else next.add(c.fileName);
-                                            return next;
-                                        });
-                                        if (turningOn) localCharts.flyToChart(c);
-                                    },
+                                    onToggle: () => selectChartExclusive('local', c.fileName),
                                 })),
                             ],
                         }}
@@ -1191,19 +1225,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         skChartIds={skChartIds}
                         skChartOpacity={skChartOpacity}
                         skConnectionStatus={skCharts.connectionStatus}
-                        onToggleSkChart={(id: string) => {
-                            const turningOn = !skChartIds.has(id);
-                            setSkChartIds((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(id)) next.delete(id);
-                                else next.add(id);
-                                return next;
-                            });
-                            if (turningOn) {
-                                const chart = skCharts.availableCharts.find((c) => c.id === id);
-                                if (chart) skCharts.flyToChart(chart);
-                            }
-                        }}
+                        onToggleSkChart={(id: string) => selectChartExclusive('sk', id)}
                         onSkChartOpacityChange={setSkChartOpacity}
                         onFlyToChart={skCharts.flyToChart}
                         seamarkVisible={seamarkVisible}
@@ -1239,12 +1261,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                               }
                             : {})}
                         chartCatalogSources={chartCatalog.sources}
-                        onToggleChartSource={(id) => {
-                            const src = chartCatalog.sources.find((s) => s.id === id);
-                            const turningOn = src ? !src.enabled : false;
-                            chartCatalog.toggleSource(id);
-                            if (turningOn && src) chartCatalog.flyToSource(src);
-                        }}
+                        onToggleChartSource={(id) => selectChartExclusive('catalog', id)}
                         onChartSourceOpacity={chartCatalog.setOpacity}
                         onFlyToChartSource={chartCatalog.flyToSource}
                         onUpdateLinzKey={chartCatalog.updateLinzKey}
@@ -1252,19 +1269,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         localChartIds={localChartIds}
                         localChartOpacity={localChartOpacity}
                         localChartsLoading={localCharts.loading}
-                        onToggleLocalChart={(fileName: string) => {
-                            const turningOn = !localChartIds.has(fileName);
-                            setLocalChartIds((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(fileName)) next.delete(fileName);
-                                else next.add(fileName);
-                                return next;
-                            });
-                            if (turningOn) {
-                                const chart = localCharts.availableCharts.find((c) => c.fileName === fileName);
-                                if (chart) localCharts.flyToChart(chart);
-                            }
-                        }}
+                        onToggleLocalChart={(fileName: string) => selectChartExclusive('local', fileName)}
                         onLocalChartOpacityChange={setLocalChartOpacity}
                         onFlyToLocalChart={localCharts.flyToChart}
                     />
