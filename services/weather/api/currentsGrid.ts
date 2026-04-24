@@ -201,5 +201,11 @@ async function doFetchCurrentsGrid(): Promise<WindGrid | null> {
         east,
         totalHours: hourCount,
         landMask,
+        // Pipeline runs on the top of the hour in UTC and immediately
+        // writes manifest.generated_at, so this is (within seconds) the
+        // wall-clock moment that h00.bin represents — i.e. the model run
+        // reference time. Consumed by useWeatherLayers to align the
+        // scrubber's "Now" marker to real wall-clock now instead of h00.
+        refTime: manifest.generated_at,
     };
 }

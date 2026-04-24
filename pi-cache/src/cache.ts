@@ -139,6 +139,17 @@ export class Cache {
         return !!row && row.expires_at > Date.now();
     }
 
+    /** Return stored-at + expiry timestamps for a tile so the proxy layer
+     *  can decide whether a stale tile is within the stale-while-revalidate
+     *  window. Returns null if the tile isn't in the cache. */
+    getTileMeta(key: string): { storedAt: number; expiresAt: number } | null {
+        const row = this.db.prepare('SELECT cached_at, expires_at FROM tile_cache WHERE key = ?').get(key) as
+            | { cached_at: number; expires_at: number }
+            | undefined;
+        if (!row) return null;
+        return { storedAt: row.cached_at, expiresAt: row.expires_at };
+    }
+
     // ── Maintenance ──
 
     purgeExpired(): { kvDeleted: number; tileDeleted: number } {

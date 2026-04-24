@@ -163,5 +163,8 @@ async function doFetchSeaIceGrid(): Promise<WindGrid | null> {
         totalHours: hourCount,
         landMask,
         hourOffsets,
+        // Pipeline run time — day 0 of the sea-ice forecast. Used by
+        // useWeatherLayers to align the scrubber to wall-clock "Today".
+        refTime: manifest.generated_at,
     };
 }
