@@ -20,7 +20,11 @@
 import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
-import { subscribeLightningStrikes, type LightningStrike } from '../../services/weather/api/blitzortungLightning';
+import {
+    subscribeLightningStrikes,
+    setLightningViewportStats,
+    type LightningStrike,
+} from '../../services/weather/api/blitzortungLightning';
 
 const log = createLogger('LightningLayer');
 
@@ -29,9 +33,13 @@ const LIGHTNING_SOURCE = 'lightning-blitz-source';
 const LIGHTNING_LAYER_GLOW = 'lightning-blitz-layer-glow';
 const LIGHTNING_LAYER_CORE = 'lightning-blitz-layer-core';
 
-// How long a strike stays visible. Matches the visual convention from
-// most weather apps — 15-min decay window with a 1-min "pulse" at start.
-const STRIKE_TTL_MS = 16 * 60 * 1000;
+// How long a strike stays visible on the chart. User-tuned to 10 min
+// (2026-04-25) — long enough that a passing thunderstorm leaves a visible
+// trail of its track, short enough that the chart doesn't get cluttered
+// with hour-old strikes that no longer represent active danger. The
+// first 1-min "pulse" gives newly-arrived strikes a brief flicker so
+// active cells visibly twinkle.
+const STRIKE_TTL_MS = 10 * 60 * 1000;
 const PULSE_MS = 60 * 1000;
 
 // Trim the buffer at this size — defensive cap so a heavy storm doesn't
@@ -156,12 +164,45 @@ export function useLightningLayer(
                 // age, prunes expired ones, and pushes the updated FeatureCollection
                 // to the source. ~4Hz is plenty smooth for a fade animation
                 // and keeps Mapbox's diff light.
+                //
+                // Also computes viewport-filtered strike count + rate every
+                // second and pushes to the service so the BlitzortungAttribution
+                // pill can show "12/min in view" — answers the user's question
+                // "is the storm I'm watching intensifying?". The viewport
+                // window for rate is the last 60s.
+                const VIEWPORT_RATE_WINDOW_MS = 60 * 1000;
                 let lastTick = 0;
+                let lastViewportPush = 0;
                 const tick = (now: number) => {
                     if (!rafRef.current) return;
                     if (now - lastTick > 250) {
                         lastTick = now;
                         repaintStrikes(map, strikesRef.current);
+                    }
+                    // Viewport stats at 1Hz — much cheaper than every paint
+                    // and already covers user panning at human speed.
+                    if (now - lastViewportPush > 1000) {
+                        lastViewportPush = now;
+                        try {
+                            const bounds = map.getBounds();
+                            if (!bounds) return;
+                            const wallNow = Date.now();
+                            const recentCutoff = wallNow - VIEWPORT_RATE_WINDOW_MS;
+                            let inView = 0;
+                            let recentInView = 0;
+                            // bounds may straddle the antimeridian; Mapbox handles
+                            // the wraparound internally for contains() so we just
+                            // ask it directly.
+                            strikesRef.current.forEach((s) => {
+                                if (bounds.contains([s.lon, s.lat])) {
+                                    inView++;
+                                    if (s.time >= recentCutoff) recentInView++;
+                                }
+                            });
+                            setLightningViewportStats(recentInView, inView);
+                        } catch {
+                            /* getBounds can throw mid-style-load — best effort */
+                        }
                     }
                     rafRef.current = requestAnimationFrame(tick);
                 };

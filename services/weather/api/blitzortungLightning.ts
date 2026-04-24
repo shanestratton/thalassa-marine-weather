@@ -207,6 +207,22 @@ interface ConnectionState {
     lastStrikeAt: number;
     /** Total strikes received this session — for the diagnostic pill. */
     strikesReceived: number;
+    /** Rolling 60-second window of strike timestamps (epoch ms). Trimmed
+     *  eagerly in emitStrike so the array stays bounded even during a
+     *  hurricane (worst case ~few thousand entries). Used to compute
+     *  global strikes/min — handy as a connection-health signal. */
+    recentStrikeTimes: number[];
+    /** Strikes/min in the user's current map viewport, computed by
+     *  useLightningLayer (which has access to map.getBounds()) and
+     *  pushed in via setViewportRate. The pill shows this number rather
+     *  than the global rate — answers "is the storm I'm looking at
+     *  intensifying?", not "is anywhere on Earth thunderstorming?".
+     *  Falls back to 0 when no strikes have arrived in the viewport
+     *  window or the layer hasn't reported a value yet. */
+    viewportRate: number;
+    /** Strikes currently visible in the user's viewport — shown alongside
+     *  the rate. Updated by the same hook that updates viewportRate. */
+    viewportCount: number;
     /** Server chosen for the current connection attempt — shown in the
      *  status pill so the user can tell if we're cycling through servers. */
     currentServer: string;
@@ -221,10 +237,22 @@ interface ConnectionState {
     retryAttempts: number;
 }
 
+const RATE_WINDOW_MS = 60 * 1000;
+
 export interface StatusSnapshot {
     status: ConnectionStatus;
     lastStrikeAt: number;
+    /** Total strikes received this session, globally. Useful as a
+     *  feed-health signal — if it's not climbing during a thunderstorm,
+     *  something's wrong with the connection. */
     strikesReceived: number;
+    /** Strikes/min over the last 60 s, GLOBAL. Reflects feed health. */
+    strikesPerMinute: number;
+    /** Strikes/min IN THE USER'S CURRENT VIEWPORT over the last 60 s.
+     *  This is the answer to "is the storm I'm looking at intensifying?". */
+    viewportRate: number;
+    /** Active strikes currently visible inside the viewport. */
+    viewportCount: number;
     currentServer: string;
     retryAttempts: number;
 }
@@ -235,6 +263,9 @@ const state: ConnectionState = {
     status: 'closed',
     lastStrikeAt: 0,
     strikesReceived: 0,
+    recentStrikeTimes: [],
+    viewportRate: 0,
+    viewportCount: 0,
     currentServer: '',
     nativeHandles: [],
     retryTimer: null,
@@ -242,16 +273,42 @@ const state: ConnectionState = {
     retryAttempts: 0,
 };
 
-/** Emit current status to every observer. Isolate errors so one broken
- *  observer doesn't silence the others. */
-function notifyStatusObservers(): void {
-    const snapshot: StatusSnapshot = {
+/** Build the current snapshot. Centralised so subscribe + notify use
+ *  exactly the same shape and the rate calc happens in one place. */
+function buildSnapshot(): StatusSnapshot {
+    // Trim the rate window to be safe — emitStrike usually keeps it tight
+    // but during reconnects or quiet periods it can drift.
+    const cutoff = Date.now() - RATE_WINDOW_MS;
+    while (state.recentStrikeTimes.length > 0 && state.recentStrikeTimes[0] < cutoff) {
+        state.recentStrikeTimes.shift();
+    }
+    return {
         status: state.status,
         lastStrikeAt: state.lastStrikeAt,
         strikesReceived: state.strikesReceived,
+        strikesPerMinute: state.recentStrikeTimes.length, // 60s window = strikes/min directly
+        viewportRate: state.viewportRate,
+        viewportCount: state.viewportCount,
         currentServer: state.currentServer,
         retryAttempts: state.retryAttempts,
     };
+}
+
+/** Push the latest viewport rate + count from useLightningLayer (which
+ *  is the only thing that knows about map.getBounds()). Also refreshes
+ *  the pill so the count visibly ticks even while the user is panning
+ *  around without new strikes arriving. */
+export function setLightningViewportStats(rate: number, count: number): void {
+    if (state.viewportRate === rate && state.viewportCount === count) return;
+    state.viewportRate = rate;
+    state.viewportCount = count;
+    notifyStatusObservers();
+}
+
+/** Emit current status to every observer. Isolate errors so one broken
+ *  observer doesn't silence the others. */
+function notifyStatusObservers(): void {
+    const snapshot = buildSnapshot();
     state.statusObservers.forEach((cb) => {
         try {
             cb(snapshot);
@@ -285,17 +342,39 @@ function armStallTimer(): void {
     }, STALL_THRESHOLD_MS);
 }
 
+/** Throttle the strikes-received pill update so a heavy storm (>10
+ *  strikes/sec) doesn't trigger a React re-render on every single
+ *  strike — but the count still moves visibly. 1Hz feels live without
+ *  flooding. */
+let lastStatusNotifyAt = 0;
+const STATUS_NOTIFY_INTERVAL_MS = 1_000;
+
 /** Fire a strike out to every subscriber; isolate each callback so one
  *  throwing listener doesn't kill the others. Also stamps
  *  `lastStrikeAt` so the stall detector knows the stream is alive. */
 function emitStrike(strike: LightningStrike): void {
-    state.lastStrikeAt = Date.now();
+    const now = Date.now();
+    state.lastStrikeAt = now;
     state.strikesReceived++;
+    // Add to the rolling rate-window — kept short (60s) so the pill's
+    // strikes/min number reflects current storm intensity, not session
+    // history. Trim eagerly to the same window so the array doesn't
+    // grow unbounded during a big storm.
+    state.recentStrikeTimes.push(now);
+    const cutoff = now - RATE_WINDOW_MS;
+    while (state.recentStrikeTimes.length > 0 && state.recentStrikeTimes[0] < cutoff) {
+        state.recentStrikeTimes.shift();
+    }
     // Reset the stall timer — every strike resets the 2-min countdown.
     armStallTimer();
-    // Only notify observers on the FIRST strike after open to avoid
-    // flooding them (we don't need a re-render on every strike).
-    if (state.strikesReceived === 1) notifyStatusObservers();
+    // Throttle pill updates to 1Hz (1 second). Without this throttle the
+    // pill never re-rendered after the first strike (stuck at "1"); with
+    // a too-aggressive notify it would re-render on every strike during
+    // a big storm and burn CPU on diff churn.
+    if (now - lastStatusNotifyAt >= STATUS_NOTIFY_INTERVAL_MS) {
+        lastStatusNotifyAt = now;
+        notifyStatusObservers();
+    }
     state.listeners.forEach((cb) => {
         try {
             cb(strike);
@@ -448,13 +527,7 @@ async function disconnect(): Promise<void> {
 export function subscribeLightningStatus(cb: (snapshot: StatusSnapshot) => void): () => void {
     state.statusObservers.add(cb);
     // Fire immediately so the caller gets current state without waiting.
-    cb({
-        status: state.status,
-        lastStrikeAt: state.lastStrikeAt,
-        strikesReceived: state.strikesReceived,
-        currentServer: state.currentServer,
-        retryAttempts: state.retryAttempts,
-    });
+    cb(buildSnapshot());
     return () => {
         state.statusObservers.delete(cb);
     };
