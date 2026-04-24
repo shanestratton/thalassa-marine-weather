@@ -1,7 +1,10 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useState } from 'react';
 import { ArrowUpIcon, ArrowDownIcon } from '../Icons';
 import { WeatherMetrics, UnitPreferences } from '../../types';
 import { convertTemp } from '../../utils';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { MetricPinSheet } from './MetricPinSheet';
+import { getPinnedMetricDisplay } from './metricDisplayHelpers';
 
 /**
  * ConditionText — simple text sizing based on string length.
@@ -135,28 +138,117 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     const displayCondition = data.condition || 'Cloudy';
     const _conditionIcon = getConditionIcon(conditionCategory);
 
+    // ── PINNED METRIC STATE ──────────────────────────────────────────
+    // When `heroMetric` !== 'temp', the LEFT partition renders the pinned
+    // metric (e.g. "GUST 22 kts") instead of the big temperature number.
+    // The temperature moves into the grid cell the pinned metric vacated
+    // — that swap is handled in HeroWidgets.tsx, not here.
+    const heroMetric = useSettingsStore((s) => s.settings.heroMetric) || 'temp';
+    const updateSettings = useSettingsStore((s) => s.updateSettings);
+    const [pinSheetOpen, setPinSheetOpen] = useState(false);
+    const pinnedDisplay = heroMetric !== 'temp' ? getPinnedMetricDisplay(heroMetric, data, units) : null;
+    // Tap on the LEFT partition opens the picker. Double-tap resets to
+    // temperature. Single-tap tracking is done via a simple timer +
+    // click-count ref so we don't block the double-tap with a 250ms delay
+    // on every click.
+    const tapTrackRef = React.useRef<{ count: number; timer: number | null }>({ count: 0, timer: null });
+    const handleHeroLeftTap = useCallback(() => {
+        tapTrackRef.current.count += 1;
+        if (tapTrackRef.current.timer != null) {
+            window.clearTimeout(tapTrackRef.current.timer);
+        }
+        tapTrackRef.current.timer = window.setTimeout(() => {
+            const count = tapTrackRef.current.count;
+            tapTrackRef.current.count = 0;
+            if (count >= 2) {
+                // Double-tap → reset to temperature
+                updateSettings({ heroMetric: 'temp' });
+            } else {
+                // Single tap → open the picker sheet
+                setPinSheetOpen(true);
+            }
+        }, 260);
+    }, [updateSettings]);
+
     return (
         <div className="relative w-full rounded-2xl overflow-hidden border bg-white/[0.08] shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] border-white/[0.15]">
             {/* Keyframes moved to index.css */}
 
             <div className="flex flex-row w-full items-center min-h-[70px]">
-                {/* LEFT: Temperature only */}
-                <div className="flex-[1] px-3 py-2 flex flex-col justify-center items-start min-w-0">
-                    {(() => {
-                        const tempStr = (
-                            data.airTemperature !== null ? convertTemp(data.airTemperature, units.temp) : '--'
-                        ).toString();
-                        const len = tempStr.length;
-                        const sizeClass = len > 3 ? 'text-3xl' : len > 2 ? 'text-4xl' : 'text-3xl';
-                        return (
-                            <span
-                                className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none`}
-                                aria-label={`Temperature ${tempStr} degrees`}
-                            >
-                                {tempStr}°
+                {/* LEFT: Pinned metric (temperature by default).
+                    Tap → open MetricPinSheet to pick a different metric.
+                    Double-tap → reset to temperature.
+                    The whole partition is the hit area — keeps the tap
+                    target generous on iOS. */}
+                <div
+                    className="flex-[1] px-3 py-2 flex flex-col justify-center items-start min-w-0 cursor-pointer touch-manipulation select-none relative group"
+                    onClick={handleHeroLeftTap}
+                    role="button"
+                    aria-label={
+                        pinnedDisplay
+                            ? `Pinned metric ${pinnedDisplay.label}. Tap to change, double-tap to reset.`
+                            : 'Temperature. Tap to pin a different metric to the top.'
+                    }
+                    style={{ WebkitTapHighlightColor: 'transparent' }}
+                >
+                    {pinnedDisplay ? (
+                        <>
+                            {/* Pinned-metric mode: small label + value + unit.
+                                Uses typography proportional to the temp slot so
+                                the header doesn't jump height on pin/unpin. */}
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-sky-300/80 leading-none mb-0.5">
+                                {pinnedDisplay.label}
                             </span>
-                        );
-                    })()}
+                            <div className="flex items-baseline gap-1 leading-none">
+                                <span
+                                    className={`${typeof pinnedDisplay.value === 'string' && pinnedDisplay.value.length > 3 ? 'text-2xl' : 'text-3xl'} font-mono font-bold tracking-tighter text-ivory drop-shadow`}
+                                >
+                                    {pinnedDisplay.value}
+                                </span>
+                                {pinnedDisplay.unit && (
+                                    <span className="text-xs font-bold text-white/60">{pinnedDisplay.unit}</span>
+                                )}
+                            </div>
+                        </>
+                    ) : (
+                        (() => {
+                            const tempStr = (
+                                data.airTemperature !== null ? convertTemp(data.airTemperature, units.temp) : '--'
+                            ).toString();
+                            const len = tempStr.length;
+                            const sizeClass = len > 3 ? 'text-3xl' : len > 2 ? 'text-4xl' : 'text-3xl';
+                            return (
+                                <span
+                                    className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none`}
+                                    aria-label={`Temperature ${tempStr} degrees`}
+                                >
+                                    {tempStr}°
+                                </span>
+                            );
+                        })()
+                    )}
+                    {/* Tiny "edit" affordance in the top-right — only appears
+                        on hover on desktop or remains subtly visible on mobile
+                        so new users have a visual cue that this area is
+                        interactive. */}
+                    <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-white/[0.06] flex items-center justify-center opacity-60 group-hover:opacity-100 transition-opacity pointer-events-none">
+                        <svg
+                            width="8"
+                            height="8"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className="text-white/70"
+                            aria-hidden="true"
+                        >
+                            <circle cx="5" cy="12" r="1" />
+                            <circle cx="12" cy="12" r="1" />
+                            <circle cx="19" cy="12" r="1" />
+                        </svg>
+                    </span>
                 </div>
 
                 {/* CENTER: Status dot + icon + condition */}
@@ -233,6 +325,19 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                     )}
                 </div>
             </div>
+
+            {/* Pin-a-metric picker sheet — mounts as a portal to document.body
+                so its backdrop covers the full viewport regardless of the
+                header's fixed-position stacking context. */}
+            <MetricPinSheet
+                visible={pinSheetOpen}
+                currentMetric={heroMetric}
+                onPick={(id) => {
+                    updateSettings({ heroMetric: id });
+                    setPinSheetOpen(false);
+                }}
+                onClose={() => setPinSheetOpen(false)}
+            />
         </div>
     );
 };

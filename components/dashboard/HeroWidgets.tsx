@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { WindIcon, WaveIcon, GaugeIcon, EyeIcon, SunIcon, CompassIcon, DropletIcon } from '../Icons';
+import { WindIcon, WaveIcon, GaugeIcon, EyeIcon, SunIcon, CompassIcon, DropletIcon, ThermometerIcon } from '../Icons';
 import { AnimatedRainIcon } from '../ui/AnimatedIcons';
 import { ModelComparisonMatrix } from './ModelComparisonMatrix';
 import { WeatherMetrics, UnitPreferences, HourlyForecast } from '../../types';
@@ -473,6 +473,18 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     const [showMatrix, setShowMatrix] = useState(false);
     const offshoreModelCode = (useSettingsStore((s) => s.settings.offshoreModel) || 'sg') as OffshoreModel;
 
+    // ── Pin-to-hero: pinned metric ID + temp display value ──
+    // When the user pins a metric to the hero slot, THAT cell in the grid
+    // needs to render temperature instead (the swap rule). Read the
+    // current pinned metric and precompute the temperature display so the
+    // conditional cell renderers below stay clean.
+    const heroMetric = useSettingsStore((s) => s.settings.heroMetric) || 'temp';
+    const tempValue =
+        data.airTemperature !== null && data.airTemperature !== undefined
+            ? convertTemp(data.airTemperature, units.temp)
+            : '--';
+    const tempUnit = `°${units.temp || 'C'}`;
+
     // Offshore → entire grid is tappable to open the model matrix.
     // Previously only the Wind cell was — user had to hunt for it.
     const gridOnClick = isOffshore ? () => setShowMatrix(true) : undefined;
@@ -492,114 +504,202 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 cap is the fix. See index.css → "METRIC GRID ICON
                 ANIMATIONS" for the full keyframe details. */}
             <div className="w-full grid grid-cols-5 divide-x divide-white/[0.12] h-[80px]">
-                {/* Wind Speed — tap to open model comparison when offshore */}
-                <InstrumentCell
-                    label="WIND"
-                    icon={<WindIcon className="w-3 h-3 metric-anim-wind" />}
-                    value={windSpeed}
-                    unit={speedUnit}
-                    trend={trends?.windSpeed}
-                    improving={isWindImproving}
-                    tooltip="Sustained wind speed — average over 10 minutes"
-                    // onClick removed: whole grid is tappable in offshore
-                    // mode now (see wrapping div's gridOnClick).
-                />
+                {/* Wind Speed — or TEMP if wind is pinned to hero */}
+                {heroMetric === 'wind' ? (
+                    <InstrumentCell
+                        label="TEMP"
+                        icon={<ThermometerIcon className="w-3 h-3" />}
+                        value={tempValue}
+                        unit={tempUnit}
+                        tooltip="Air temperature (pinned metric moved to hero)"
+                    />
+                ) : (
+                    <InstrumentCell
+                        label="WIND"
+                        icon={<WindIcon className="w-3 h-3 metric-anim-wind" />}
+                        value={windSpeed}
+                        unit={speedUnit}
+                        trend={trends?.windSpeed}
+                        improving={isWindImproving}
+                        tooltip="Sustained wind speed — average over 10 minutes"
+                    />
+                )}
 
-                {/* Direction — standard cell, tap for compass overlay */}
-                <InstrumentCell
-                    label="DIR"
-                    icon={<CompassIcon className="w-3 h-3 metric-anim-compass" rotation={0} />}
-                    value={windDir}
-                />
+                {/* Direction — or TEMP if pinned */}
+                {heroMetric === 'dir' ? (
+                    <InstrumentCell
+                        label="TEMP"
+                        icon={<ThermometerIcon className="w-3 h-3" />}
+                        value={tempValue}
+                        unit={tempUnit}
+                    />
+                ) : (
+                    <InstrumentCell
+                        label="DIR"
+                        icon={<CompassIcon className="w-3 h-3 metric-anim-compass" rotation={0} />}
+                        value={windDir}
+                    />
+                )}
 
-                {/* Gusts */}
-                <InstrumentCell
-                    label="GUST"
-                    icon={<WindIcon className="w-3 h-3 metric-anim-wind" />}
-                    value={gustVal}
-                    unit={speedUnit}
-                    trend={trends?.windGust}
-                    improving={isGustImproving}
-                    tooltip="Peak gust speed — sudden short bursts above sustained wind"
-                />
+                {/* Gusts — or TEMP if pinned */}
+                {heroMetric === 'gust' ? (
+                    <InstrumentCell
+                        label="TEMP"
+                        icon={<ThermometerIcon className="w-3 h-3" />}
+                        value={tempValue}
+                        unit={tempUnit}
+                    />
+                ) : (
+                    <InstrumentCell
+                        label="GUST"
+                        icon={<WindIcon className="w-3 h-3 metric-anim-wind" />}
+                        value={gustVal}
+                        unit={speedUnit}
+                        trend={trends?.windGust}
+                        improving={isGustImproving}
+                        tooltip="Peak gust speed — sudden short bursts above sustained wind"
+                    />
+                )}
 
-                {/* Wave/Swell Height — adapts to location type */}
-                <InstrumentCell
-                    label={isOffshore ? 'SWELL' : 'WAVE'}
-                    icon={<WaveIcon className="w-3 h-3 metric-anim-wave" />}
-                    value={waveHeight ?? '--'}
-                    unit={waveUnit}
-                    trend={trends?.waveHeight}
-                    improving={isWaveImproving}
-                    dirDeg={swellDirDeg}
-                    tooltip={
-                        isOffshore
-                            ? 'Open-ocean swell height — long-period waves from distant storms'
-                            : 'Significant wave height — average of tallest third of waves'
-                    }
-                />
+                {/* Wave/Swell Height — or TEMP if pinned */}
+                {heroMetric === 'wave' ? (
+                    <InstrumentCell
+                        label="TEMP"
+                        icon={<ThermometerIcon className="w-3 h-3" />}
+                        value={tempValue}
+                        unit={tempUnit}
+                    />
+                ) : (
+                    <InstrumentCell
+                        label={isOffshore ? 'SWELL' : 'WAVE'}
+                        icon={<WaveIcon className="w-3 h-3 metric-anim-wave" />}
+                        value={waveHeight ?? '--'}
+                        unit={waveUnit}
+                        trend={trends?.waveHeight}
+                        improving={isWaveImproving}
+                        dirDeg={swellDirDeg}
+                        tooltip={
+                            isOffshore
+                                ? 'Open-ocean swell height — long-period waves from distant storms'
+                                : 'Significant wave height — average of tallest third of waves'
+                        }
+                    />
+                )}
 
-                {/* Period — wave or swell period */}
-                <InstrumentCell
-                    label="PER."
-                    icon={<WaveIcon className="w-3 h-3 metric-anim-wave" />}
-                    value={wavePeriod}
-                    unit="s"
-                    dirDeg={swellDirDeg}
-                />
+                {/* Period — or TEMP if pinned */}
+                {heroMetric === 'period' ? (
+                    <InstrumentCell
+                        label="TEMP"
+                        icon={<ThermometerIcon className="w-3 h-3" />}
+                        value={tempValue}
+                        unit={tempUnit}
+                    />
+                ) : (
+                    <InstrumentCell
+                        label="PER."
+                        icon={<WaveIcon className="w-3 h-3 metric-anim-wave" />}
+                        value={wavePeriod}
+                        unit="s"
+                        dirDeg={swellDirDeg}
+                    />
+                )}
             </div>
 
             {/* Horizontal divider between rows */}
             <div className="w-full h-px bg-white/[0.12]" />
 
-            {/* BOTTOM ROW: UV, Vis, HPA, Seas, Rain */}
+            {/* BOTTOM ROW: UV, Vis, HPA, Hum, Rain */}
             <div className="w-full grid grid-cols-5 divide-x divide-white/[0.12] h-[80px]">
-                {/* UV */}
-                <InstrumentCell
-                    label="UV"
-                    icon={<SunIcon className="w-3 h-3 metric-anim-sun" />}
-                    value={uvVal}
-                    tooltip="UV Index — 0-2 Low, 3-5 Moderate, 6-7 High, 8-10 Very High, 11+ Extreme"
-                />
+                {/* UV — or TEMP if pinned */}
+                {heroMetric === 'uv' ? (
+                    <InstrumentCell
+                        label="TEMP"
+                        icon={<ThermometerIcon className="w-3 h-3" />}
+                        value={tempValue}
+                        unit={tempUnit}
+                    />
+                ) : (
+                    <InstrumentCell
+                        label="UV"
+                        icon={<SunIcon className="w-3 h-3 metric-anim-sun" />}
+                        value={uvVal}
+                        tooltip="UV Index — 0-2 Low, 3-5 Moderate, 6-7 High, 8-10 Very High, 11+ Extreme"
+                    />
+                )}
 
-                {/* Visibility */}
-                <InstrumentCell
-                    label="VIS"
-                    icon={<EyeIcon className="w-3 h-3 metric-anim-eye" />}
-                    value={visVal}
-                    unit={distUnit}
-                    trend={trends?.visibility}
-                    improving={isVisImproving}
-                    tooltip="Visibility — horizontal distance at which objects can be clearly seen"
-                />
+                {/* Visibility — or TEMP if pinned */}
+                {heroMetric === 'vis' ? (
+                    <InstrumentCell
+                        label="TEMP"
+                        icon={<ThermometerIcon className="w-3 h-3" />}
+                        value={tempValue}
+                        unit={tempUnit}
+                    />
+                ) : (
+                    <InstrumentCell
+                        label="VIS"
+                        icon={<EyeIcon className="w-3 h-3 metric-anim-eye" />}
+                        value={visVal}
+                        unit={distUnit}
+                        trend={trends?.visibility}
+                        improving={isVisImproving}
+                        tooltip="Visibility — horizontal distance at which objects can be clearly seen"
+                    />
+                )}
 
-                {/* Pressure — custom barometer cell with inline trend */}
-                <BarometerCell pressure={pressureVal} trend={trends?.pressure} />
+                {/* Pressure — or TEMP if pinned */}
+                {heroMetric === 'pressure' ? (
+                    <InstrumentCell
+                        label="TEMP"
+                        icon={<ThermometerIcon className="w-3 h-3" />}
+                        value={tempValue}
+                        unit={tempUnit}
+                    />
+                ) : (
+                    <BarometerCell pressure={pressureVal} trend={trends?.pressure} />
+                )}
 
-                {/* Humidity */}
-                <InstrumentCell
-                    label="HUM"
-                    icon={<DropletIcon className="w-3 h-3 metric-anim-droplet" />}
-                    value={humidityVal}
-                    unit="%"
-                    trend={trends?.humidity}
-                    improving={isHumidityImproving}
-                    tooltip="Relative humidity — 60%+ feels muggy on a boat, <30% is very dry"
-                />
+                {/* Humidity — or TEMP if pinned */}
+                {heroMetric === 'humidity' ? (
+                    <InstrumentCell
+                        label="TEMP"
+                        icon={<ThermometerIcon className="w-3 h-3" />}
+                        value={tempValue}
+                        unit={tempUnit}
+                    />
+                ) : (
+                    <InstrumentCell
+                        label="HUM"
+                        icon={<DropletIcon className="w-3 h-3 metric-anim-droplet" />}
+                        value={humidityVal}
+                        unit="%"
+                        trend={trends?.humidity}
+                        improving={isHumidityImproving}
+                        tooltip="Relative humidity — 60%+ feels muggy on a boat, <30% is very dry"
+                    />
+                )}
 
-                {/* Rain — AnimatedRainIcon already has its own built-in
-                    animation, so we leave it alone rather than double up. */}
-                <InstrumentCell
-                    label="RAIN"
-                    icon={<AnimatedRainIcon className="w-3 h-3 text-emerald-400" />}
-                    value={rainValue}
-                    unit={rainUnit}
-                    tooltip={
-                        isLive
-                            ? 'Total rainfall today — accumulated precipitation in 24 hours'
-                            : 'Chance of precipitation during this hour'
-                    }
-                />
+                {/* Rain — or TEMP if pinned */}
+                {heroMetric === 'rain' ? (
+                    <InstrumentCell
+                        label="TEMP"
+                        icon={<ThermometerIcon className="w-3 h-3" />}
+                        value={tempValue}
+                        unit={tempUnit}
+                    />
+                ) : (
+                    <InstrumentCell
+                        label="RAIN"
+                        icon={<AnimatedRainIcon className="w-3 h-3 text-emerald-400" />}
+                        value={rainValue}
+                        unit={rainUnit}
+                        tooltip={
+                            isLive
+                                ? 'Total rainfall today — accumulated precipitation in 24 hours'
+                                : 'Chance of precipitation during this hour'
+                        }
+                    />
+                )}
             </div>
 
             {/* Model Comparison Matrix — offshore only */}

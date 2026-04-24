@@ -59,6 +59,20 @@ export interface UserSettings {
     aiPersona?: number;
     heroWidgets?: string[];
     topHeroWidget?: string;
+    /**
+     * Which metric occupies the big top slot of the hero card.
+     * Default: 'temp' (temperature — app's canonical hero metric).
+     *
+     * When set to something else (e.g. 'gust', 'pressure'), the Glass page
+     * promotes that metric to the top slot and the displaced temperature
+     * moves into the grid cell the promoted metric was occupying. This is
+     * a single-swap model — exactly one non-temp metric can be promoted at
+     * a time, and temp always occupies the vacated slot.
+     *
+     * Persisted via the standard settingsStore localStorage flow so the
+     * choice survives app restarts.
+     */
+    heroMetric?: string;
     detailsWidgets?: string[];
     rowOrder?: string[];
     dynamicHeaderMetrics?: boolean;

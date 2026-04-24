@@ -46,6 +46,7 @@ export const DEFAULT_SETTINGS: UserSettings = {
     offshoreModel: 'sg',
     aiPersona: 50,
     heroWidgets: ['wind', 'wave', 'pressure'],
+    heroMetric: 'temp',
     detailsWidgets: ['score', 'pressure', 'humidity', 'precip', 'cloud', 'visibility', 'chill', 'swell'],
     rowOrder: ['beaufort', 'details', 'tides', 'sunMoon', 'vessel', 'advice', 'hourly', 'daily', 'map'],
     mapboxToken: import.meta.env.VITE_MAPBOX_ACCESS_TOKEN,
