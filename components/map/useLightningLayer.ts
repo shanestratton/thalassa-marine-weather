@@ -168,7 +168,10 @@ export function useLightningLayer(
                 rafRef.current = requestAnimationFrame(tick);
 
                 isSetUp.current = true;
-                log.info('Lightning layer added (Blitzortung WebSocket)');
+                // Use warn so this survives prod builds — without it,
+                // "user toggled lightning and nothing happened" is
+                // completely invisible in Xcode's device console.
+                log.warn('Lightning layer added (Blitzortung WebSocket) — subscribing to strike feed');
             } catch (err) {
                 log.warn('Failed to add lightning layer:', err);
             }
@@ -199,7 +202,7 @@ export function useLightningLayer(
                 /* already removed */
             }
             isSetUp.current = false;
-            log.info('Lightning layer removed');
+            log.warn('Lightning layer removed — unsubscribed from strike feed');
         }
 
         return () => {

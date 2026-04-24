@@ -47,10 +47,12 @@ public class LightningPlugin: CAPPlugin, URLSessionWebSocketDelegate {
         guard let urlString = call.getString("url"),
               let url = URL(string: urlString),
               url.scheme?.lowercased() == "wss" || url.scheme?.lowercased() == "ws" else {
+            NSLog("[LightningPlugin] start rejected — invalid URL: \(call.getString("url") ?? "nil")")
             call.reject("Valid ws:// or wss:// URL required")
             return
         }
         subscribeMessage = call.getString("subscribeMessage")
+        NSLog("[LightningPlugin] start → \(url.absoluteString) (subscribe: \(subscribeMessage ?? "none"))")
 
         // Cancel any previous session cleanly before starting a new one.
         // Keeps stop()/start() cycles safe without leaking tasks.
@@ -58,6 +60,11 @@ public class LightningPlugin: CAPPlugin, URLSessionWebSocketDelegate {
         session?.invalidateAndCancel()
 
         let config = URLSessionConfiguration.default
+        // Blitzortung occasionally stalls for 10+ seconds before the
+        // handshake completes; give it room but fail hard past 15s so
+        // we don't wedge the UI.
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 60
         // Delegate queue must NOT be the main queue — URLSessionWebSocketTask
         // blocks in receive() and we don't want it on the UI thread.
         let queue = OperationQueue()
@@ -86,12 +93,17 @@ public class LightningPlugin: CAPPlugin, URLSessionWebSocketDelegate {
         // `proto` renamed from `protocol` — Swift reserved word. Unused
         // anyway; Blitzortung doesn't negotiate a sub-protocol.
         _ = proto
+        NSLog("[LightningPlugin] didOpen")
         notifyListeners("open", data: [:])
         // Fire the subscription message as soon as the socket is open.
         if let msg = subscribeMessage {
+            NSLog("[LightningPlugin] sending subscribe: \(msg)")
             webSocketTask.send(.string(msg)) { [weak self] err in
                 if let err = err {
+                    NSLog("[LightningPlugin] subscribe send failed: \(err.localizedDescription)")
                     self?.notifyListeners("error", data: ["error": err.localizedDescription])
+                } else {
+                    NSLog("[LightningPlugin] subscribe sent OK")
                 }
             }
         }
@@ -102,6 +114,7 @@ public class LightningPlugin: CAPPlugin, URLSessionWebSocketDelegate {
                            didCloseWith closeCode: URLSessionWebSocketTask.CloseCode,
                            reason: Data?) {
         let reasonStr: String = reason.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        NSLog("[LightningPlugin] didClose code=\(closeCode.rawValue) reason=\(reasonStr)")
         notifyListeners("close", data: [
             "code": closeCode.rawValue,
             "reason": reasonStr,
@@ -112,6 +125,7 @@ public class LightningPlugin: CAPPlugin, URLSessionWebSocketDelegate {
                            task: URLSessionTask,
                            didCompleteWithError error: Error?) {
         if let error = error {
+            NSLog("[LightningPlugin] didCompleteWithError: \(error.localizedDescription)")
             notifyListeners("error", data: ["error": error.localizedDescription])
         }
     }
