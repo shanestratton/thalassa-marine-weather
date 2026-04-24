@@ -33,7 +33,16 @@ import { fetchMinutelyRainWithSummary, MinutelyRain } from '../services/weather/
 import { fetchRainbowPrecip } from '../services/weather/api/rainbowPrecip';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useUIStore } from '../stores/uiStore';
-import { DndContext, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core';
+import {
+    DndContext,
+    PointerSensor,
+    TouchSensor,
+    useSensor,
+    useSensors,
+    type DragEndEvent,
+    type DragStartEvent,
+    type DragOverEvent,
+} from '@dnd-kit/core';
 
 /**
  * Unified rain data fetcher — routes to Rainbow.ai (Skipper) or WeatherKit (others).
@@ -176,8 +185,38 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             activationConstraint: { delay: 250, tolerance: 8 },
         }),
     );
+    // Haptic choreography across the drag lifecycle:
+    //   drag start  → light tick   ("the cell is alive in your hand now")
+    //   drag over   → medium tick  ("you're over a valid drop zone")
+    //   drag end OK → medium tick  ("pinned")
+    // Each transition is debounced via a ref so rapid finger movement
+    // doesn't fire the same haptic twice per drag.
+    const dragHapticRef = useRef<{ startFired: boolean; lastOver: string | null }>({
+        startFired: false,
+        lastOver: null,
+    });
+
+    const handleDndDragStart = useCallback((_event: DragStartEvent) => {
+        dragHapticRef.current = { startFired: true, lastOver: null };
+        triggerHaptic('light');
+    }, []);
+
+    const handleDndDragOver = useCallback((event: DragOverEvent) => {
+        const overId = event.over?.id ? String(event.over.id) : null;
+        // Only fire when the drop target actually changes — prevents a
+        // buzz every frame the finger hovers inside the drop zone.
+        if (overId !== dragHapticRef.current.lastOver) {
+            dragHapticRef.current.lastOver = overId;
+            if (overId === 'hero-pin-slot') {
+                triggerHaptic('medium');
+            }
+        }
+    }, []);
+
     const handleDndDragEnd = useCallback(
         (event: DragEndEvent) => {
+            // Reset haptic tracking for the next drag
+            dragHapticRef.current = { startFired: false, lastOver: null };
             const { active, over } = event;
             if (!over || over.id !== 'hero-pin-slot') return;
             const droppedMetric = String(active.id);
@@ -700,7 +739,12 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
 
     return (
         <DashboardWidgetContext.Provider value={contextValue as DashboardWidgetContextType}>
-            <DndContext sensors={dndSensors} onDragEnd={handleDndDragEnd}>
+            <DndContext
+                sensors={dndSensors}
+                onDragStart={handleDndDragStart}
+                onDragOver={handleDndDragOver}
+                onDragEnd={handleDndDragEnd}
+            >
                 {/* ── OFFSHORE BOUNDARY TOAST ── */}
                 <OffshoreBoundaryToast visible={offshore.justCrossed} modelName={offshore.offshoreModel} />
 
@@ -795,6 +839,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         timeZone={data.timeZone}
                                         sources={safeActive.sources}
                                         isExpanded={isExpanded}
+                                        locationType={data.locationType}
                                         onToggleExpand={
                                             isInland || isOffshore
                                                 ? undefined
