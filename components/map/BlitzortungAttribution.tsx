@@ -1,23 +1,26 @@
 /**
- * BlitzortungAttribution — required attribution + live diagnostic pill
+ * BlitzortungAttribution — single-line legend chip + diagnostic pill
  * for the Blitzortung.org lightning data feed.
  *
  * Blitzortung's terms of service require visible attribution whenever
- * their data is rendered. They run a community-funded volunteer detector
- * network and ask only for credit + (for commercial use) emailed
- * permission.
+ * their data is rendered. They run a volunteer detector network and
+ * ask for credit; the credit doesn't have to be a clickable link or a
+ * paragraph — just a visible mention of the source.
  *
- * The chip also doubles as a connection-status indicator so the user can
- * tell at a glance whether the WebSocket is healthy. Without this, a
- * silent connection failure looked identical to "no active lightning
- * anywhere in the world right now" and the user had no way to tell.
+ * Visual: matches `CmemsAttribution` — same compact single-line pill
+ * style, same `left-2 bottom-2` corner. Adds a colour-coded status dot
+ * (and animated where appropriate) so the chip doubles as the feed's
+ * health indicator. Without that, "no strikes anywhere on screen" looks
+ * identical to "WebSocket dropped 3 minutes ago".
  *
- * States shown (colour-coded border):
- *   connecting  → amber   · "Connecting to …"
- *   open        → green   · "Live · N strikes"
- *   stalled     → orange  · "Stalled — reconnecting"
- *   closed      → red     · "Disconnected"
- *   unsupported → slate   · "Web — server relay required"
+ * States shown via the dot + label:
+ *   connecting  → amber pulse  · "Connecting…"
+ *   open        → green static · "Live · 47 in view (12/min)"
+ *                              · "Live · 1.2k global · 0 in view"
+ *                              · "Live · waiting for strikes"
+ *   stalled     → orange pulse · "Stalled — reconnecting"
+ *   closed      → red static   · "Disconnected" / "Reconnecting (N)"
+ *   unsupported → slate static · "Web — relay required"
  */
 import React, { useEffect, useState } from 'react';
 import { subscribeLightningStatus, type StatusSnapshot } from '../../services/weather/api/blitzortungLightning';
@@ -28,49 +31,41 @@ interface BlitzortungAttributionProps {
 
 const STATUS_STYLES: Record<
     StatusSnapshot['status'],
-    { border: string; pill: string; dot: string; label: (s: StatusSnapshot) => string }
+    { dot: string; text: string; label: (s: StatusSnapshot) => string }
 > = {
     connecting: {
-        border: 'border-amber-400/50',
-        pill: 'bg-amber-400/20 text-amber-200',
         dot: 'bg-amber-400 animate-pulse',
+        text: 'text-amber-100/80',
         label: (s) => `Connecting${s.retryAttempts > 0 ? ` (retry ${s.retryAttempts})` : '…'}`,
     },
     open: {
-        border: 'border-emerald-400/50',
-        pill: 'bg-emerald-500/20 text-emerald-200',
         dot: 'bg-emerald-400',
+        text: 'text-amber-100/80',
         label: (s) => {
-            // Prefer viewport-scoped numbers when there's anything in view —
-            // answers "is the storm I'm looking at active?" rather than
-            // "is anywhere on Earth thunderstorming?".
+            // Viewport-scoped numbers when there's something to look at,
+            // global session count otherwise so the chip never goes blank.
             if (s.viewportCount > 0) {
                 return `Live · ${s.viewportCount} in view (${s.viewportRate}/min)`;
             }
-            // Nothing in view — fall back to the global session count so
-            // the user can still tell the feed is healthy.
             if (s.strikesReceived > 0) {
-                return `Live · ${s.strikesReceived.toLocaleString()} global · 0 in view`;
+                return `Live · ${s.strikesReceived.toLocaleString()} global`;
             }
             return 'Live · waiting for strikes';
         },
     },
     stalled: {
-        border: 'border-orange-400/50',
-        pill: 'bg-orange-500/20 text-orange-200',
         dot: 'bg-orange-400 animate-pulse',
+        text: 'text-orange-100/80',
         label: () => 'Stalled — reconnecting',
     },
     closed: {
-        border: 'border-red-400/50',
-        pill: 'bg-red-500/20 text-red-200',
         dot: 'bg-red-400',
+        text: 'text-red-100/80',
         label: (s) => (s.retryAttempts > 0 ? `Reconnecting (${s.retryAttempts})` : 'Disconnected'),
     },
     unsupported: {
-        border: 'border-slate-400/40',
-        pill: 'bg-slate-500/20 text-slate-200',
         dot: 'bg-slate-400',
+        text: 'text-slate-200/80',
         label: () => 'Web — relay required',
     },
 };
@@ -91,33 +86,21 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
 
     return (
         <div
-            // z-[9999] beats every other map overlay — the chip is the
-            // lightning feed's only user-facing health indicator and it
-            // MUST be visible. Lifted off bottom-2 to bottom-20 so it
-            // doesn't collide with the radial menu's bottom-edge fan.
-            className="absolute left-3 bottom-20 z-[9999] pointer-events-auto max-w-[320px]"
+            // Same corner + z-index as CmemsAttribution. The lightning
+            // chip and the CMEMS chip can never both be visible at the
+            // same time (different layer toggles), so they share the
+            // same anchor.
+            className="absolute left-2 bottom-2 z-[140] pointer-events-auto max-w-[320px]"
             role="contentinfo"
             aria-label="Lightning data attribution and connection status"
         >
             <div
-                className={`rounded-lg border ${styles.border} bg-black/70 backdrop-blur-sm px-2 py-1.5 text-[10px] leading-tight text-amber-100/80 flex flex-col gap-1`}
+                className={`rounded-lg border border-amber-400/30 bg-black/60 backdrop-blur-sm px-2 py-1 text-[10px] leading-tight ${styles.text} flex items-center gap-1.5`}
             >
-                <div className="flex items-center gap-1.5">
-                    <span className={`inline-block h-2 w-2 rounded-full ${styles.dot}`} aria-hidden />
-                    <span className={`font-semibold px-1.5 py-0.5 rounded ${styles.pill}`}>{label}</span>
-                </div>
-                <div className="text-[9px] opacity-80">
-                    <span className="font-bold text-amber-300">⚡</span>{' '}
-                    <a
-                        href="https://www.blitzortung.org"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="underline hover:text-amber-200"
-                    >
-                        Blitzortung.org
-                    </a>{' '}
-                    · community detector network
-                </div>
+                <span className={`inline-block h-2 w-2 rounded-full ${styles.dot}`} aria-hidden />
+                <span className="font-semibold">{label}</span>
+                <span className="opacity-60">·</span>
+                <span className="font-bold text-amber-300">⚡ Blitzortung</span>
             </div>
         </div>
     );
