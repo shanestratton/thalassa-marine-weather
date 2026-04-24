@@ -1810,6 +1810,46 @@ body,
     }
 }
 
+/* Swipe affordance — pulsing chevron on the right edge of the hero live
+   card, shown on first-use to teach the horizontal hour carousel. Combines
+   a gentle opacity pulse with a subtle 4px horizontal drift so the eye
+   reads it as "there's content over here". */
+@keyframes swipe-hint-pulse {
+    0%,
+    100% {
+        opacity: 0.35;
+        transform: translateX(0);
+    }
+
+    50% {
+        opacity: 1;
+        transform: translateX(4px);
+    }
+}
+
+/* Loud-mode staleness banner — the red error/offline variants get a soft
+   breathing glow so they're unmistakably louder than the amber/yellow
+   "getting old" variants. Applied as a class, not inline style, so the
+   cached Tailwind border/bg classes compose correctly. */
+@keyframes staleness-loud-breathe {
+    0%,
+    100% {
+        box-shadow:
+            0 0 0 rgba(239, 68, 68, 0),
+            0 0 0 rgba(239, 68, 68, 0);
+    }
+
+    50% {
+        box-shadow:
+            0 0 0 1px rgba(239, 68, 68, 0.25),
+            0 0 16px -2px rgba(239, 68, 68, 0.4);
+    }
+}
+
+.staleness-loud-glow {
+    animation: staleness-loud-breathe 2.4s ease-in-out infinite;
+}
+
 /* Essential Mode Map Overrides */
 .essential-map .mapboxgl-ctrl-bottom-left,
 .essential-map .mapboxgl-ctrl-bottom-right,

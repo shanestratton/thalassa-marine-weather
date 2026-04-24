@@ -149,11 +149,25 @@ export const StalenessBanner: React.FC<StalenessBannerProps> = React.memo(
             detail = `${formatAge(ageMin)} since last update`;
         }
 
+        // Loud-mode styling for the high-severity banners (error / offline).
+        // User feedback: the thin 11px strip was too quiet when the refresh
+        // pipeline has actually failed — the skipper needs a louder signal
+        // than for "data's 70 minutes old". Lift these two severities to:
+        //   - 12px bold text (up from 11px)
+        //   - 4px left accent bar (ties visual weight to severity colour)
+        //   - Subtle pulsing glow under the whole banner (new keyframe)
+        // Everything else stays on the subtle original styling.
+        const isLoud = severity === 'error' || severity === 'offline';
+        const textSize = isLoud ? 'text-xs' : 'text-[11px]';
+        const verticalPad = isLoud ? 'py-2.5' : 'py-2';
+        const leftAccent = isLoud ? 'border-l-4' : '';
+        const loudGlow = isLoud ? 'staleness-loud-glow' : '';
+
         return (
             <div
                 role="status"
                 aria-live="polite"
-                className={`flex items-center gap-2 px-3 py-2 mb-2 rounded-xl border ${theme.bg} ${theme.border} backdrop-blur-sm`}
+                className={`relative flex items-center gap-2 px-3 ${verticalPad} mb-2 rounded-xl border ${leftAccent} ${theme.bg} ${theme.border} ${loudGlow} backdrop-blur-sm`}
             >
                 {/* Pulsing dot — catches the eye without being obnoxious */}
                 <span className="relative flex w-2 h-2 shrink-0">
@@ -162,8 +176,8 @@ export const StalenessBanner: React.FC<StalenessBannerProps> = React.memo(
                 </span>
 
                 <div className="flex-1 min-w-0 flex items-baseline gap-2">
-                    <span className={`text-[11px] font-bold uppercase tracking-wider ${theme.text}`}>{label}</span>
-                    <span className={`text-[11px] ${theme.text} opacity-80 truncate`}>{detail}</span>
+                    <span className={`${textSize} font-bold uppercase tracking-wider ${theme.text}`}>{label}</span>
+                    <span className={`${textSize} ${theme.text} opacity-80 truncate`}>{detail}</span>
                 </div>
 
                 {/* Hide the retry button when there's literally no network —
@@ -174,7 +188,7 @@ export const StalenessBanner: React.FC<StalenessBannerProps> = React.memo(
                         onClick={onRefresh}
                         disabled={isSyncing}
                         aria-label="Retry fetching weather data"
-                        className={`text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded-lg border ${theme.border} ${theme.text} hover:bg-white/5 active:scale-[0.95] transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
+                        className={`${textSize} font-bold uppercase tracking-wider px-2 py-1 rounded-lg border ${theme.border} ${theme.text} hover:bg-white/5 active:scale-[0.95] transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
                         {isSyncing ? 'Syncing' : 'Retry'}
                     </button>
