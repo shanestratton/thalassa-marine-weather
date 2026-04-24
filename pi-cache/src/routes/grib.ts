@@ -14,7 +14,14 @@
 
 import { Router, Request, Response } from 'express';
 import { Cache } from '../cache.js';
-import { ProxyConfig, cachedJsonFetch, supabaseEdgeUrl, supabaseHeaders, openMeteoUrl } from '../proxy.js';
+import {
+    ProxyConfig,
+    cachedJsonFetch,
+    cachedBinaryPost,
+    supabaseEdgeUrl,
+    supabaseHeaders,
+    openMeteoUrl,
+} from '../proxy.js';
 import { TTL } from '../scheduler.js';
 
 export function createGribRoutes(cache: Cache, config: ProxyConfig): Router {
@@ -195,6 +202,53 @@ export function createGribRoutes(cache: Cache, config: ProxyConfig): Router {
             res.json(composite);
         } catch (err) {
             res.status(502).json({ error: 'Composite GRIB failed', message: (err as Error).message });
+        }
+    });
+
+    /**
+     * POST /api/grib/wind-grid — GFS GRIB2 binary wind grid for a bbox.
+     *
+     * Body: { north, south, east, west } (numbers in degrees).
+     *
+     * Proxies the Supabase `fetch-wind-grid` edge function which returns a
+     * binary GRIB2 buffer containing multi-hour U/V wind components. The Pi
+     * caches the binary response keyed on the rounded bounding box + TTL
+     * syncs with the GFS model run schedule (6 h), so a boat panning around
+     * their cruising ground hits the Pi cache instead of the internet once
+     * the first fetch has landed.
+     */
+    router.post('/wind-grid', async (req: Request, res: Response) => {
+        try {
+            const { north, south, east, west } = req.body ?? {};
+            if (
+                typeof north !== 'number' ||
+                typeof south !== 'number' ||
+                typeof east !== 'number' ||
+                typeof west !== 'number'
+            ) {
+                return res.status(400).json({ error: 'north/south/east/west (numbers) required' });
+            }
+
+            // Round bounds to 1° to improve cache hit rate — a boat wiggling
+            // ±0.1° on the map shouldn't cause a new GRIB fetch.
+            const round = (n: number) => Math.round(n);
+            const key = `grib:wind-grid:${round(north)}:${round(south)}:${round(east)}:${round(west)}`;
+            const url = supabaseEdgeUrl(config, 'fetch-wind-grid');
+
+            const result = await cachedBinaryPost(cache, {
+                cacheKey: key,
+                url,
+                contentType: 'application/octet-stream',
+                ttlMs: TTL.GRIB,
+                body: { north, south, east, west },
+                headers: supabaseHeaders(config),
+            });
+
+            res.set('Content-Type', result.contentType);
+            res.set('X-Cache', result.fromCache ? (result.stale ? 'STALE' : 'HIT') : 'MISS');
+            res.send(result.data);
+        } catch (err) {
+            res.status(502).json({ error: 'Wind grid proxy failed', message: (err as Error).message });
         }
     });
 

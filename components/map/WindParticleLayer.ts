@@ -307,8 +307,10 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
     // Current interpolation state (fractional hour → smooth blend)
     private forecastHour: number = 0; // float, e.g. 4.5
     private blendFactor: number = 0; // 0.0–1.0 between hourA and hourB
-    private hourIdxA: number = 0; // floor index into windTimeline
-    private hourIdxB: number = 0; // ceil index into windTimeline
+    // Sentinel -1 means "nothing uploaded yet" so the very first
+    // setForecastHour() call always hits the upload path.
+    private hourIdxA: number = -1; // floor index into windTimeline
+    private hourIdxB: number = -1; // ceil index into windTimeline
 
     private dataBounds: WindBounds = { south: -85, north: 85, west: -180, east: 180 };
     private gridBounds = { south: -85.0, north: 85.0, west: -180.0, east: 180.0 };
@@ -485,6 +487,12 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
 
         // Build timeline: store all hourly U/V arrays
         this.windTimeline = [];
+        // Reset bracketing indices so setForecastHour() below force-uploads
+        // the new grid's textures — otherwise a fresh grid that happens to
+        // keep the same scrub hour would short-circuit the upload path and
+        // the GPU would render stale data from the previous grid.
+        this.hourIdxA = -1;
+        this.hourIdxB = -1;
         const size = grid.width * grid.height;
 
         log.info(
@@ -662,6 +670,12 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
      * Set the forecast hour as a FLOAT for smooth interpolation.
      * e.g., setForecastHour(4.5) blends 50/50 between hour 4 and hour 5.
      * Does NOT respawn particles — they smoothly transition.
+     *
+     * Texture re-uploads are cheap per-call but add up during scrubbing —
+     * we only re-upload when the INTEGER bracketing hour changes. The
+     * blendFactor handles sub-hour interpolation via a shader uniform, so
+     * a drag that wiggles between hour 4.1 and 4.9 only uploads once
+     * (for hour 4 and hour 5), not 60 times per second.
      */
     setForecastHour(hour: number): void {
         if (this.windTimeline.length === 0) return;
@@ -670,16 +684,23 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         const clamped = Math.max(0, Math.min(hour, maxIdx));
         this.forecastHour = clamped;
 
-        // Compute bracketing indices and blend factor
-        this.hourIdxA = Math.floor(clamped);
-        this.hourIdxB = Math.min(this.hourIdxA + 1, maxIdx);
+        const newIdxA = Math.floor(clamped);
+        const newIdxB = Math.min(newIdxA + 1, maxIdx);
+        const needsUpload = newIdxA !== this.hourIdxA || newIdxB !== this.hourIdxB;
+
+        this.hourIdxA = newIdxA;
+        this.hourIdxB = newIdxB;
         this.blendFactor = clamped - this.hourIdxA;
 
-        // Upload the pair of bracketing textures to GPU
-        const tsA = this.windTimeline[this.hourIdxA];
-        const tsB = this.windTimeline[this.hourIdxB];
-        if (tsA && this.windTexture0) this.uploadWindTexture(this.windTexture0, tsA.u, tsA.v);
-        if (tsB && this.windTexture1) this.uploadWindTexture(this.windTexture1, tsB.u, tsB.v);
+        // Only touch the GPU when the bracketing hour pair has actually
+        // changed. Sub-hour scrub updates happen every RAF tick during a
+        // drag — keeping them off the tex pipe saves 0.5–1 ms per tick.
+        if (needsUpload) {
+            const tsA = this.windTimeline[this.hourIdxA];
+            const tsB = this.windTimeline[this.hourIdxB];
+            if (tsA && this.windTexture0) this.uploadWindTexture(this.windTexture0, tsA.u, tsA.v);
+            if (tsB && this.windTexture1) this.uploadWindTexture(this.windTexture1, tsB.u, tsB.v);
+        }
     }
 
     /** Convenience: set integer hour (backward-compatible with setHour). */
@@ -720,8 +741,10 @@ export class WindParticleLayer implements mapboxgl.CustomLayerInterface {
         this.windTimeline = [{ u, v }];
         this.totalHours = 1;
         this.forecastHour = 0;
-        this.hourIdxA = 0;
-        this.hourIdxB = 0;
+        // Reset to sentinels so the next setForecastHour re-uploads the
+        // bracketing textures with the new grid data.
+        this.hourIdxA = -1;
+        this.hourIdxB = -1;
         this.blendFactor = 0;
 
         // Max speed
