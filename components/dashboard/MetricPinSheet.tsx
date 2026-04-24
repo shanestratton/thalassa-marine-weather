@@ -46,9 +46,36 @@ interface MetricPinSheetProps {
     currentMetric: string; // the currently pinned metric id (or 'temp')
     onPick: (id: string) => void; // called with 'temp' for reset or any PINNABLE id
     onClose: () => void;
+    /**
+     * Location type for per-location eligibility filtering. Marine-only
+     * metrics (wave / period) get hidden for inland / landlocked users
+     * so the picker stays short and relevant. Coastal / inshore / offshore
+     * see the full list.
+     */
+    locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
 }
 
-export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({ visible, currentMetric, onPick, onClose }) => {
+/**
+ * Filter the canonical pinnable-metrics list down to what's actually
+ * relevant for the user's current location type. Keeps the picker honest —
+ * a user sitting on a landlocked lake doesn't want "swell height" cluttering
+ * the pin sheet.
+ */
+function filterForLocation(all: PinnableMetric[], locationType: MetricPinSheetProps['locationType']): PinnableMetric[] {
+    if (locationType === 'inland') {
+        return all.filter((m) => m.id !== 'wave' && m.id !== 'period');
+    }
+    return all;
+}
+
+export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
+    visible,
+    currentMetric,
+    onPick,
+    onClose,
+    locationType,
+}) => {
+    const visibleMetrics = filterForLocation(PINNABLE_METRICS, locationType);
     // ESC closes the sheet
     useEffect(() => {
         if (!visible) return;
@@ -139,7 +166,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({ visible, current
                     <div className="h-px bg-white/[0.06] my-2" />
 
                     {/* The 10 pinnable metrics */}
-                    {PINNABLE_METRICS.map((m) => {
+                    {visibleMetrics.map((m) => {
                         const isActive = currentMetric === m.id;
                         return (
                             <button

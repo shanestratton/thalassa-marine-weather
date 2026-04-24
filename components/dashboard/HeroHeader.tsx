@@ -89,6 +89,9 @@ interface HeroHeaderProps {
     >;
     isExpanded?: boolean;
     onToggleExpand?: () => void;
+    /** Passed through to MetricPinSheet so the picker hides marine-only
+     *  metrics on inland users. */
+    locationType?: 'inshore' | 'coastal' | 'offshore' | 'inland';
 }
 
 const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
@@ -100,6 +103,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
     timeLabel,
     timeZone: _timeZone,
     sources,
+    locationType,
     isExpanded = true,
     onToggleExpand,
 }) => {
@@ -361,6 +365,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
             <MetricPinSheet
                 visible={pinSheetOpen}
                 currentMetric={heroMetric}
+                locationType={locationType}
                 onPick={(id) => {
                     updateSettings({ heroMetric: id });
                     setPinSheetOpen(false);
