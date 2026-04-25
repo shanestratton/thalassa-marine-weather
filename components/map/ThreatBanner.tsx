@@ -261,7 +261,7 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
                 triggerHaptic('light');
                 flyTo(threat.target.lat, threat.target.lon, threat.target.zoom);
             }}
-            className="fixed left-1/2 -translate-x-1/2 z-[170] flex items-center gap-3 text-left transition-all"
+            className="fixed left-1/2 -translate-x-1/2 z-[170] flex items-center gap-3 text-left transition-all chart-chip-in"
             style={{
                 top: 'max(58px, calc(env(safe-area-inset-top) + 56px))', // sits below the modes chip
                 background: 'rgba(15, 23, 42, 0.92)',

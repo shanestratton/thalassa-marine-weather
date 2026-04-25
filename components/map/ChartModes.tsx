@@ -250,7 +250,7 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
             ref={wrapRef}
             // Top-center, fixed so it sits above all map overlays. z high
             // enough to clear the radial menu's own popovers.
-            className="fixed left-1/2 -translate-x-1/2 z-[180] pointer-events-auto"
+            className="fixed left-1/2 -translate-x-1/2 z-[180] pointer-events-auto chart-chip-in"
             style={{ top: 'max(10px, env(safe-area-inset-top))' }}
         >
             <button

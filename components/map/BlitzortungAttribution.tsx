@@ -104,7 +104,7 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
             //  - bottom-96px clears the menu bar.
             //  - max(96px, env(safe-area-inset-bottom)+80px) for iPhone
             //    safe-area on notched phones.
-            className="fixed left-2 z-[140] pointer-events-auto"
+            className="fixed left-2 z-[140] pointer-events-auto chart-chip-up"
             style={{ bottom: 'max(96px, calc(env(safe-area-inset-bottom) + 80px))' }}
             role="contentinfo"
             aria-label="Lightning data attribution and connection status"

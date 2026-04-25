@@ -83,7 +83,7 @@ export const ConnectivityChip: React.FC<ConnectivityChipProps> = ({ visible }) =
             // Bottom-right, above the Mapbox scale control which sits at
             // bottom-right by default. z high enough to clear the chip
             // backdrop but below the modal layer.
-            className="fixed right-2 z-[140] pointer-events-auto"
+            className="fixed right-2 z-[140] pointer-events-auto chart-chip-up"
             style={{ bottom: 'max(40px, calc(env(safe-area-inset-bottom) + 32px))' }}
             title={s.tooltip}
         >
