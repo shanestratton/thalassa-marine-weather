@@ -3,12 +3,14 @@
  */
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
+import { particleScale } from '../../utils/deviceTier';
 
 const log = createLogger('WindParticleLayer');
 import type { WindGrid } from '../../services/weather/windField';
 
 const MAX_SPEED = 60.0;
-const NUM_PARTICLES = 30000;
+// Device-tiered: 30k on high-end, 21k on mid, 12k on low (iPhone 8/SE).
+const NUM_PARTICLES = Math.round(30000 * particleScale());
 const MAX_AGE = 250;
 const SPEED_FACTOR = 0.00025;
 const MS_TO_KNOTS = 1.94384;

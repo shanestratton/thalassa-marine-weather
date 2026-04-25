@@ -30,7 +30,10 @@ const log = createLogger('CurrentParticleLayer');
 // ── Tunable constants ─────────────────────────────────────────────────
 //
 // Each is a deliberate departure from WindParticleLayer's wind defaults.
-const NUM_PARTICLES = 80000;
+// Particle count is now device-tiered (utils/deviceTier.ts) — older
+// iPhones get 40% of the default count to keep the frame rate up.
+import { particleScale } from '../../utils/deviceTier';
+const NUM_PARTICLES = Math.round(80000 * particleScale());
 const TRAIL_LENGTH = 28;
 const FLOATS_PER_TRAIL_PT = 4; // x, y, speed (m/s), alpha
 const FLOATS_PER_PARTICLE = TRAIL_LENGTH * FLOATS_PER_TRAIL_PT;

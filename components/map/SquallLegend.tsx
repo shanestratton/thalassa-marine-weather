@@ -52,7 +52,10 @@ export const SquallLegend: React.FC<SquallLegendProps> = ({ visible }) => {
     // Status dot + label match the lightning chip's vocabulary so the
     // two legends feel like part of the same family.
     let dotClass = 'bg-emerald-400';
-    let statusLabel = 'LIVE';
+    // Match the "Live" capitalisation used elsewhere on the chart
+    // (BlitzortungAttribution, scrubber sublabels). All-caps "LIVE"
+    // was visually shouty in a chip alongside lower-case body text.
+    let statusLabel = 'Live';
     if (ageMin === null) {
         dotClass = 'bg-amber-400 animate-pulse';
         statusLabel = 'Loading…';
