@@ -244,6 +244,11 @@ async function loadSquallTiles(
         log.warn(`Squall snapshot ${snapshot} — mounting tile layer`);
         mountSquallLayer(map, supabaseUrl, snapshot);
         lastRefreshAtRef.current = Date.now();
+        // Publish to a window-scoped ref so the SquallLegend chip's
+        // age indicator can update without us threading a callback or
+        // store through the React tree just for one number.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (window as any).__thalassaSquallLastRefreshAt = lastRefreshAtRef.current;
         updateHudAge(map, 0);
     } finally {
         inflightRef.current = false;
