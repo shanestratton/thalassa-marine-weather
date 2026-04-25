@@ -108,9 +108,14 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
                 // Match ThalassaHelixControl's scrubber-pill look so the
                 // lightning chip reads as part of the same control family
                 // — slate translucent fill, heavy blur, subtle white
-                // border, 16px radius. Same dimensions feel as the
-                // wind/rain "play next hour" button.
-                className={`flex items-center gap-2 text-[11px] leading-tight ${styles.text}`}
+                // border, 16px radius.
+                //
+                // Two-row layout: status on top, attribution credit
+                // underneath. Single-row was getting clipped under the
+                // "your location" FAB on the right side. Stacking gives
+                // each row room to breathe and keeps the chip narrow
+                // enough to clear the FAB.
+                className={`flex flex-col gap-0.5 text-[11px] leading-tight ${styles.text}`}
                 style={{
                     background: 'rgba(15, 23, 42, 0.80)',
                     backdropFilter: 'blur(20px)',
@@ -120,18 +125,21 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
                     padding: '6px 12px',
                 }}
             >
-                <span className={`inline-block h-2 w-2 rounded-full ${styles.dot}`} aria-hidden />
-                <span className="font-semibold">{label}</span>
-                <span className="opacity-40">·</span>
-                <span className="font-bold text-amber-300">⚡</span>
-                <a
-                    href="https://www.blitzortung.org"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-white/85 underline-offset-2 hover:underline"
-                >
-                    Blitzortung.org
-                </a>
+                <div className="flex items-center gap-2">
+                    <span className={`inline-block h-2 w-2 rounded-full ${styles.dot}`} aria-hidden />
+                    <span className="font-semibold">{label}</span>
+                </div>
+                <div className="flex items-center gap-1 text-[10px] opacity-80">
+                    <span className="font-bold text-amber-300">⚡</span>
+                    <a
+                        href="https://www.blitzortung.org"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-white/85 underline-offset-2 hover:underline"
+                    >
+                        Blitzortung.org
+                    </a>
+                </div>
             </div>
         </div>
     );
