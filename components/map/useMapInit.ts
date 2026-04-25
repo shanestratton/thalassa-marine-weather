@@ -351,6 +351,21 @@ export function useMapInit(opts: UseMapInitOptions) {
         };
         map.once('idle', refineAusNzFitZoom);
 
+        // Nautical-miles scale bar — bottom-right of the map. Marine apps
+        // need this; without it a user can't gauge distance at a glance.
+        // Mapbox's built-in ScaleControl handles unit conversion + zoom-
+        // dependent rounding, so we don't need to roll our own. Hidden in
+        // embedded mode where space is at a premium.
+        if (!embedded) {
+            map.addControl(
+                new mapboxgl.ScaleControl({
+                    maxWidth: 100,
+                    unit: 'nautical',
+                }),
+                'bottom-right',
+            );
+        }
+
         map.on('load', () => {
             const style = map.getStyle();
             if (style?.layers) {
