@@ -26,6 +26,7 @@
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { triggerHaptic } from '../../utils/system';
+import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
 
 export type ChartMode = 'day-sail' | 'offshore' | 'storm-watch' | 'charts-only' | 'clear' | 'custom';
 
@@ -178,6 +179,13 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
     // but keeping for future preset overlap).
     const currentMode = detected;
     const currentSpec = MODE_SPECS.find((s) => s.id === currentMode);
+    const deviceClass = useDeviceClass();
+    // Tablet sizing — bumped font + padding + dropdown width so the
+    // chart screen feels tablet-native instead of stretched phone UI.
+    const chipFontSize = pickByDevice(deviceClass, 12, 14);
+    const chipPaddingV = pickByDevice(deviceClass, 7, 9);
+    const chipPaddingH = pickByDevice(deviceClass, 12, 16);
+    const dropdownMinWidth = pickByDevice(deviceClass, 240, 320);
 
     // Close picker on outside tap.
     useEffect(() => {
@@ -273,11 +281,12 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                         triggerHaptic('light');
                         setOpen((v) => !v);
                     }}
-                    className="flex items-center gap-2 text-[12px] leading-tight"
+                    className="flex items-center gap-2 leading-tight"
                     style={{
-                        padding: '7px 12px',
+                        padding: `${chipPaddingV}px ${chipPaddingH}px`,
                         color: 'rgba(255,255,255,0.9)',
                         fontWeight: 600,
+                        fontSize: chipFontSize,
                         background: 'transparent',
                         border: 'none',
                         borderRadius: 18,
@@ -286,7 +295,9 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                 >
                     <span aria-hidden>{currentSpec?.icon ?? '⚙️'}</span>
                     <span>{currentSpec?.label ?? 'Custom'}</span>
-                    <span className="opacity-50 text-[10px]">{open ? '▴' : '▾'}</span>
+                    <span className="opacity-50" style={{ fontSize: chipFontSize - 2 }}>
+                        {open ? '▴' : '▾'}
+                    </span>
                 </button>
                 {/* Cog opens layer-opacity settings — separated from the
                     mode picker by a thin divider so the two functions are
@@ -327,8 +338,9 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
 
             {open && (
                 <div
-                    className="absolute left-1/2 -translate-x-1/2 mt-2 flex flex-col gap-1 min-w-[240px]"
+                    className="absolute left-1/2 -translate-x-1/2 mt-2 flex flex-col gap-1"
                     style={{
+                        minWidth: dropdownMinWidth,
                         background: 'rgba(15, 23, 42, 0.94)',
                         backdropFilter: 'blur(24px)',
                         WebkitBackdropFilter: 'blur(24px)',
