@@ -1337,6 +1337,25 @@ body,
     }
 }
 
+/* ThreatBanner danger-tier pulse — gentle "this is urgent" breathing
+   without being annoying. Used by components/map/ThreatBanner.tsx. */
+@keyframes threat-pulse {
+    0%,
+    100% {
+        box-shadow:
+            0 8px 24px rgba(0, 0, 0, 0.5),
+            0 0 16px rgba(239, 68, 68, 0.4);
+        transform: translateX(-50%) scale(1);
+    }
+
+    50% {
+        box-shadow:
+            0 8px 28px rgba(0, 0, 0, 0.55),
+            0 0 28px rgba(239, 68, 68, 0.7);
+        transform: translateX(-50%) scale(1.015);
+    }
+}
+
 /* GPS dedup feedback badge animations */
 @keyframes dedupFadeIn {
     from {

@@ -98,6 +98,7 @@ const CmemsAttribution = lazyRetry(
 import { BlitzortungAttribution } from './BlitzortungAttribution';
 import { SquallLegend } from './SquallLegend';
 import { ChartModes } from './ChartModes';
+import { ThreatBanner } from './ThreatBanner';
 import { CoachMark } from '../ui/CoachMark';
 const AisGuardAlert = lazyRetry(
     () => import('./AisGuardAlert').then((m) => ({ default: m.AisGuardAlert })),
@@ -1425,6 +1426,23 @@ export const MapHub: React.FC<MapHubProps> = ({
                         />
                     </>
                 )}
+
+                {/* Threat proximity banner — surfaces nearby lightning
+                    or active cyclones with bearing + distance. The
+                    safety feature competitors don't have. Tap → fly to
+                    threat. Hidden when nothing is dangerously near. */}
+                <ThreatBanner
+                    visible={!passage.showPassage && !embedded && !isPinView}
+                    userLat={location.lat}
+                    userLon={location.lon}
+                    cyclones={allCyclones}
+                    lightningActive={lightningVisible}
+                    flyTo={(lat, lon, zoom) => {
+                        const map = mapRef.current;
+                        if (!map) return;
+                        map.flyTo({ center: [lon, lat], zoom, duration: 1200, essential: true });
+                    }}
+                />
 
                 <BlitzortungAttribution visible={lightningVisible} />
 
