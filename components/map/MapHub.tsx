@@ -96,6 +96,7 @@ const CmemsAttribution = lazyRetry(
 // exact failure mode we're trying to fix. Tiny component, not worth the
 // risk of a broken chunk hiding our debug surface.
 import { BlitzortungAttribution } from './BlitzortungAttribution';
+import { SquallLegend } from './SquallLegend';
 const AisGuardAlert = lazyRetry(
     () => import('./AisGuardAlert').then((m) => ({ default: m.AisGuardAlert })),
     'AisGuardAlert',
@@ -1356,6 +1357,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                     it renders independently of any other component's
                     loading state. */}
                 <BlitzortungAttribution visible={lightningVisible} />
+
+                {/* Squall colormap legend — same anchor as the lightning
+                    chip. Both layers are mutually exclusive in the radial
+                    menu so there's no risk of them rendering on top of
+                    each other in the bottom-left corner. */}
+                <SquallLegend visible={squallVisible} />
 
                 {/* ═══ AIS COLOUR LEGEND + GUARD ZONE TOGGLE ═══ */}
                 <Suspense fallback={null}>
