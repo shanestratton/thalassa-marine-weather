@@ -35,40 +35,36 @@ const STATUS_STYLES: Record<
 > = {
     connecting: {
         dot: 'bg-amber-400 animate-pulse',
-        text: 'text-amber-100/80',
+        text: 'text-white/85',
         label: (s) => `Connecting${s.retryAttempts > 0 ? ` (retry ${s.retryAttempts})` : '…'}`,
     },
     open: {
         dot: 'bg-emerald-400',
-        text: 'text-amber-100/80',
+        text: 'text-white/85',
         label: (s) => {
-            // Always surface a /min rate — viewport-scoped when there's
-            // something to look at (answers "is my storm intensifying?"),
-            // global feed rate otherwise (so the user knows the feed is
-            // healthy even when the map is over open ocean). Without this
-            // the chip went blank-of-rate during calm-viewport periods.
+            // Strictly viewport-scoped numbers — user only cares about
+            // the storm on their screen, not what's happening in
+            // Indonesia. When there's nothing in view, we just say so;
+            // global counts were noise.
             if (s.viewportCount > 0) {
-                return `Live · ${s.viewportCount} in view (${s.viewportRate}/min)`;
+                return `Live · ${s.viewportCount} on screen (${s.viewportRate}/min)`;
             }
-            if (s.strikesReceived > 0) {
-                return `Live · ${s.strikesReceived.toLocaleString()} global (${s.strikesPerMinute}/min)`;
-            }
-            return 'Live · waiting for strikes';
+            return 'Live · no strikes in view';
         },
     },
     stalled: {
         dot: 'bg-orange-400 animate-pulse',
-        text: 'text-orange-100/80',
+        text: 'text-white/85',
         label: () => 'Stalled — reconnecting',
     },
     closed: {
         dot: 'bg-red-400',
-        text: 'text-red-100/80',
+        text: 'text-white/85',
         label: (s) => (s.retryAttempts > 0 ? `Reconnecting (${s.retryAttempts})` : 'Disconnected'),
     },
     unsupported: {
         dot: 'bg-slate-400',
-        text: 'text-slate-200/80',
+        text: 'text-white/85',
         label: () => 'Web — relay required',
     },
 };
@@ -109,17 +105,30 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
             aria-label="Lightning data attribution and connection status"
         >
             <div
-                className={`rounded-lg border border-amber-400/30 bg-black/60 backdrop-blur-sm px-2 py-1 text-[10px] leading-tight ${styles.text} flex items-center gap-1.5 flex-wrap`}
+                // Match ThalassaHelixControl's scrubber-pill look so the
+                // lightning chip reads as part of the same control family
+                // — slate translucent fill, heavy blur, subtle white
+                // border, 16px radius. Same dimensions feel as the
+                // wind/rain "play next hour" button.
+                className={`flex items-center gap-2 text-[11px] leading-tight ${styles.text}`}
+                style={{
+                    background: 'rgba(15, 23, 42, 0.80)',
+                    backdropFilter: 'blur(20px)',
+                    WebkitBackdropFilter: 'blur(20px)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 16,
+                    padding: '6px 12px',
+                }}
             >
                 <span className={`inline-block h-2 w-2 rounded-full ${styles.dot}`} aria-hidden />
                 <span className="font-semibold">{label}</span>
-                <span className="opacity-60">·</span>
+                <span className="opacity-40">·</span>
                 <span className="font-bold text-amber-300">⚡</span>
                 <a
                     href="https://www.blitzortung.org"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="underline hover:text-amber-200"
+                    className="text-white/85 underline-offset-2 hover:underline"
                 >
                     Blitzortung.org
                 </a>
