@@ -68,7 +68,7 @@ export const SquallLegend: React.FC<SquallLegendProps> = ({ visible }) => {
         <div
             // Same anchor as BlitzortungAttribution — fixed bottom-left,
             // lifted above the menu bar, iOS safe-area aware.
-            className="fixed left-2 z-[140] pointer-events-auto"
+            className="fixed left-2 z-[140] pointer-events-auto chart-chip-up"
             style={{ bottom: 'max(96px, calc(env(safe-area-inset-bottom) + 80px))' }}
             role="contentinfo"
             aria-label="Squall intensity legend"
