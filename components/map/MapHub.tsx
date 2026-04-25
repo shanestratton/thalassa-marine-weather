@@ -99,6 +99,7 @@ import { BlitzortungAttribution } from './BlitzortungAttribution';
 import { SquallLegend } from './SquallLegend';
 import { ChartModes } from './ChartModes';
 import { ThreatBanner } from './ThreatBanner';
+import { ConnectivityChip } from './ConnectivityChip';
 import { CoachMark } from '../ui/CoachMark';
 const AisGuardAlert = lazyRetry(
     () => import('./AisGuardAlert').then((m) => ({ default: m.AisGuardAlert })),
@@ -1443,6 +1444,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                         map.flyTo({ center: [lon, lat], zoom, duration: 1200, essential: true });
                     }}
                 />
+
+                {/* At-a-glance network status — Pi (boat network) /
+                    Online (cellular/WiFi) / Offline. Critical for
+                    marine users who need to know what their data costs
+                    them and whether live feeds will update. */}
+                <ConnectivityChip visible={!passage.showPassage && !embedded && !isPinView} />
 
                 <BlitzortungAttribution visible={lightningVisible} />
 
