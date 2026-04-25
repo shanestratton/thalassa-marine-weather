@@ -89,11 +89,13 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
 
     return (
         <div
-            // Same corner + z-index as CmemsAttribution. The lightning
-            // chip and the CMEMS chip can never both be visible at the
-            // same time (different layer toggles), so they share the
-            // same anchor.
-            className="absolute left-2 bottom-2 z-[140] pointer-events-auto max-w-[320px]"
+            // ⚠️ DIAGNOSTIC POSITIONING: temporarily fixed-position centered
+            // with a huge red border, to confirm the chip renders AT ALL.
+            // If the user sees THIS, render path is fine and the only issue
+            // was the previous absolute-bottom-corner being clipped/hidden.
+            // We'll restore the legend-style position once that's confirmed.
+            // `fixed` sidesteps any parent `overflow:hidden` or clipping.
+            className="fixed left-1/2 top-20 -translate-x-1/2 z-[99999] pointer-events-auto max-w-[400px] border-4 border-red-500"
             role="contentinfo"
             aria-label="Lightning data attribution and connection status"
         >
