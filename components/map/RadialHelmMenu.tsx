@@ -163,13 +163,34 @@ function buildCategories(
 ): HelmCategory[] {
     const tactical: HelmMenuItem[] = [];
 
-    // Only include tactical items that have callbacks provided
-    if (tacticalState?.onToggleAis) {
+    // ─────────────────────────────────────────────────────────────────
+    // Order matters — the radial fan presents items in this sequence,
+    // so the FIRST items are the ones a user is most likely to want
+    // when something is going wrong. Threat-critical layers first
+    // (lightning, squall, storms, vessel-traffic awareness), then
+    // operational reference layers (marks, tides, no-go zones,
+    // diagnostic inspector).
+    //
+    // The radial menu doesn't yet have visual sub-categories, but the
+    // ordering itself communicates priority — at a glance the user sees
+    // the "things that might hurt me" cluster first.
+    // ─────────────────────────────────────────────────────────────────
+
+    // ── Threat-critical (top of the fan) ──
+    if (tacticalState?.onToggleLightning) {
         tactical.push({
-            id: 'ais',
-            label: 'AIS',
-            icon: <AisIcon />,
-            action: tacticalState.onToggleAis,
+            id: 'lightning',
+            label: 'Lightning',
+            icon: <LightningIcon />,
+            action: tacticalState.onToggleLightning,
+        });
+    }
+    if (tacticalState?.onToggleSquall) {
+        tactical.push({
+            id: 'squall',
+            label: 'Squall',
+            icon: <SquallIcon />,
+            action: tacticalState.onToggleSquall,
         });
     }
     if (tacticalState?.onToggleCyclones) {
@@ -180,38 +201,16 @@ function buildCategories(
             action: tacticalState.onToggleCyclones,
         });
     }
-    // Squall re-enabled 2026-04-25 — useSquallMap now powered by
-    // Rainbow.ai's precip-global tiles, rendered through SQUALL_COLOR_RAMP
-    // so only heavy convective cells show up (light/moderate rain
-    // transparent). Replaces the Xweather decommission.
-    if (tacticalState?.onToggleSquall) {
+    if (tacticalState?.onToggleAis) {
         tactical.push({
-            id: 'squall',
-            label: 'Squall',
-            icon: <SquallIcon />,
-            action: tacticalState.onToggleSquall,
+            id: 'ais',
+            label: 'AIS',
+            icon: <AisIcon />,
+            action: tacticalState.onToggleAis,
         });
     }
-    // Lightning re-enabled 2026-04-23 — native Swift LightningPlugin now
-    // wraps URLSessionWebSocketTask so we bypass Blitzortung's browser-
-    // origin rejection (code 1006) and go device → Blitzortung direct. No
-    // server-side relay needed on iOS. Web build still no-op.
-    if (tacticalState?.onToggleLightning) {
-        tactical.push({
-            id: 'lightning',
-            label: 'Lightning',
-            icon: <LightningIcon />,
-            action: tacticalState.onToggleLightning,
-        });
-    }
-    if (tacticalState?.onToggleWeatherInspect) {
-        tactical.push({
-            id: 'inspect',
-            label: 'Inspect',
-            icon: <InspectIcon />,
-            action: tacticalState.onToggleWeatherInspect,
-        });
-    }
+
+    // ── Operational reference (lower in the fan) ──
     if (tacticalState?.onToggleSeamark) {
         tactical.push({
             id: 'seamark',
@@ -228,14 +227,20 @@ function buildCategories(
             action: tacticalState.onToggleTideStations,
         });
     }
-    // Marine Protected Areas — sits in Tactical because the question
-    // "is it legal to fish/anchor here?" is operational, not weather.
     if (tacticalState?.onToggleMpa) {
         tactical.push({
             id: 'mpa',
             label: 'No-Go',
             icon: <MpaIcon />,
             action: tacticalState.onToggleMpa,
+        });
+    }
+    if (tacticalState?.onToggleWeatherInspect) {
+        tactical.push({
+            id: 'inspect',
+            label: 'Inspect',
+            icon: <InspectIcon />,
+            action: tacticalState.onToggleWeatherInspect,
         });
     }
 
