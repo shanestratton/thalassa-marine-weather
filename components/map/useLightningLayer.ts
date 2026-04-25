@@ -30,8 +30,12 @@ const log = createLogger('LightningLayer');
 
 // ── Layer/Source IDs ──
 const LIGHTNING_SOURCE = 'lightning-blitz-source';
-const LIGHTNING_LAYER_GLOW = 'lightning-blitz-layer-glow';
-const LIGHTNING_LAYER_CORE = 'lightning-blitz-layer-core';
+// Hit-spot — small dark dot at the lat/lon where the lightning grounded.
+// Lives UNDER the bolt symbol so the bolt visually "lands" on the dot.
+const LIGHTNING_LAYER_HIT = 'lightning-blitz-layer-hit';
+// Bolt — white ⚡ glyph rendered as a Mapbox text-symbol. Bottom-anchored
+// so the base of the bolt sits at the hit-spot.
+const LIGHTNING_LAYER_BOLT = 'lightning-blitz-layer-bolt';
 
 // How long a strike stays visible on the chart. User-tuned to 10 min
 // (2026-04-25) — long enough that a passing thunderstorm leaves a visible
@@ -92,57 +96,69 @@ export function useLightningLayer(
                     styleLayers.find((l) => l.type === 'symbol')?.id ??
                     (map.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
 
-                // Outer glow — wider, soft, fades faster. Gives the
-                // "halo" around each strike that makes them visible
-                // against busy satellite imagery.
-                if (!map.getLayer(LIGHTNING_LAYER_GLOW)) {
+                // Hit-spot — small dark dot at the lat/lon where the
+                // lightning grounded. Sits UNDER the bolt so the bolt
+                // appears to land on it. Polarity tints (subtle) so a
+                // burst of -CG strikes looks tonally distinct from a
+                // burst of +CG strikes.
+                if (!map.getLayer(LIGHTNING_LAYER_HIT)) {
                     map.addLayer(
                         {
-                            id: LIGHTNING_LAYER_GLOW,
+                            id: LIGHTNING_LAYER_HIT,
                             type: 'circle',
                             source: LIGHTNING_SOURCE,
                             paint: {
-                                // Radius grows with zoom — visible at z=2 and z=14.
-                                'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 6, 5, 10, 10, 18, 14, 28],
+                                'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 1.5, 5, 2.5, 10, 4, 14, 6],
                                 'circle-color': [
                                     'match',
                                     ['get', 'pol'],
                                     'positive',
-                                    '#fbbf24', // amber for +CG
+                                    '#7c2d12', // deep amber-brown for +CG
                                     'negative',
-                                    '#22d3ee', // cyan for -CG (most strikes)
-                                    /* unknown */ '#a78bfa', // violet
+                                    '#0c4a6e', // deep navy for -CG (most strikes)
+                                    /* unknown */ '#312e81', // deep indigo
                                 ],
-                                'circle-blur': 1.0,
+                                'circle-stroke-color': '#ffffff',
+                                'circle-stroke-width': 0.5,
                                 'circle-opacity': ['get', 'alpha'],
+                                'circle-stroke-opacity': ['get', 'alpha'],
                             },
                         },
                         beforeId,
                     );
                 }
 
-                // Inner core — bright sharp dot at the strike point.
-                if (!map.getLayer(LIGHTNING_LAYER_CORE)) {
+                // Bolt — white ⚡ glyph rendered via Mapbox's text-field.
+                // Using the unicode glyph means we don't need to ship a
+                // PNG/SVG icon image and register it with the map; iOS's
+                // built-in emoji fonts handle the rasterising. Bottom-
+                // anchored + a small upward offset so the base of the
+                // bolt visually touches the hit-spot dot.
+                if (!map.getLayer(LIGHTNING_LAYER_BOLT)) {
                     map.addLayer(
                         {
-                            id: LIGHTNING_LAYER_CORE,
-                            type: 'circle',
+                            id: LIGHTNING_LAYER_BOLT,
+                            type: 'symbol',
                             source: LIGHTNING_SOURCE,
+                            layout: {
+                                'text-field': '⚡',
+                                // Size grows with zoom so a strike is visible
+                                // at world-view but not absurd at z14.
+                                'text-size': ['interpolate', ['linear'], ['zoom'], 2, 12, 5, 16, 10, 22, 14, 28],
+                                'text-anchor': 'bottom',
+                                'text-offset': [0, -0.1],
+                                'text-allow-overlap': true,
+                                'text-ignore-placement': true,
+                                // Keep upright on rotated maps so a bolt
+                                // doesn't look weird if user tilts/rotates.
+                                'text-rotation-alignment': 'viewport',
+                                'text-pitch-alignment': 'viewport',
+                            },
                             paint: {
-                                'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 1.5, 5, 2.5, 10, 4, 14, 6],
-                                'circle-color': '#ffffff',
-                                'circle-stroke-color': [
-                                    'match',
-                                    ['get', 'pol'],
-                                    'positive',
-                                    '#fcd34d',
-                                    'negative',
-                                    '#67e8f9',
-                                    /* unknown */ '#c4b5fd',
-                                ],
-                                'circle-stroke-width': 1,
-                                'circle-opacity': ['get', 'alpha'],
-                                'circle-stroke-opacity': ['get', 'alpha'],
+                                'text-color': '#ffffff',
+                                'text-halo-color': 'rgba(0, 0, 0, 0.55)',
+                                'text-halo-width': 1.2,
+                                'text-opacity': ['get', 'alpha'],
                             },
                         },
                         beforeId,
@@ -228,12 +244,12 @@ export function useLightningLayer(
             unsubRef.current = null;
             strikesRef.current.clear();
             try {
-                if (map.getLayer(LIGHTNING_LAYER_CORE)) map.removeLayer(LIGHTNING_LAYER_CORE);
+                if (map.getLayer(LIGHTNING_LAYER_BOLT)) map.removeLayer(LIGHTNING_LAYER_BOLT);
             } catch {
                 /* already removed */
             }
             try {
-                if (map.getLayer(LIGHTNING_LAYER_GLOW)) map.removeLayer(LIGHTNING_LAYER_GLOW);
+                if (map.getLayer(LIGHTNING_LAYER_HIT)) map.removeLayer(LIGHTNING_LAYER_HIT);
             } catch {
                 /* already removed */
             }
