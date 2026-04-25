@@ -95,6 +95,10 @@ export const MODE_SPECS: ModeSpec[] = [
 
 interface ChartModesProps {
     visible: boolean;
+    /** Open the layer-settings sheet (passed from MapHub so the sheet
+     *  itself can sit at the top level of the chart screen, not nested
+     *  inside this chip's stacking context). */
+    onOpenSettings?: () => void;
     /** Current active sky layer set (from useWeatherLayers). */
     activeSkyLayers: Set<string>;
     /** Toggle a sky layer ON/OFF (calls weather.toggleLayer). */
@@ -253,29 +257,73 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
             className="fixed left-1/2 -translate-x-1/2 z-[180] pointer-events-auto chart-chip-in"
             style={{ top: 'max(10px, env(safe-area-inset-top))' }}
         >
-            <button
-                onClick={() => {
-                    triggerHaptic('light');
-                    setOpen((v) => !v);
-                }}
-                className="flex items-center gap-2 text-[12px] leading-tight"
+            <div
+                className="flex items-center"
                 style={{
                     background: 'rgba(15, 23, 42, 0.85)',
                     backdropFilter: 'blur(20px)',
                     WebkitBackdropFilter: 'blur(20px)',
                     border: '1px solid rgba(255,255,255,0.1)',
                     borderRadius: 18,
-                    padding: '7px 14px',
-                    color: 'rgba(255,255,255,0.9)',
-                    fontWeight: 600,
                     boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
                 }}
-                aria-label="Open chart mode picker"
             >
-                <span aria-hidden>{currentSpec?.icon ?? '⚙️'}</span>
-                <span>{currentSpec?.label ?? 'Custom'}</span>
-                <span className="opacity-50 text-[10px]">{open ? '▴' : '▾'}</span>
-            </button>
+                <button
+                    onClick={() => {
+                        triggerHaptic('light');
+                        setOpen((v) => !v);
+                    }}
+                    className="flex items-center gap-2 text-[12px] leading-tight"
+                    style={{
+                        padding: '7px 12px',
+                        color: 'rgba(255,255,255,0.9)',
+                        fontWeight: 600,
+                        background: 'transparent',
+                        border: 'none',
+                        borderRadius: 18,
+                    }}
+                    aria-label="Open chart mode picker"
+                >
+                    <span aria-hidden>{currentSpec?.icon ?? '⚙️'}</span>
+                    <span>{currentSpec?.label ?? 'Custom'}</span>
+                    <span className="opacity-50 text-[10px]">{open ? '▴' : '▾'}</span>
+                </button>
+                {/* Cog opens layer-opacity settings — separated from the
+                    mode picker by a thin divider so the two functions are
+                    visually distinct. */}
+                {props.onOpenSettings && (
+                    <>
+                        <span
+                            aria-hidden
+                            style={{
+                                width: 1,
+                                height: 18,
+                                background: 'rgba(255,255,255,0.12)',
+                            }}
+                        />
+                        <button
+                            onClick={() => {
+                                triggerHaptic('light');
+                                props.onOpenSettings?.();
+                                setOpen(false);
+                            }}
+                            className="flex items-center justify-center"
+                            style={{
+                                padding: '7px 10px 7px 8px',
+                                color: 'rgba(255,255,255,0.85)',
+                                fontSize: 13,
+                                background: 'transparent',
+                                border: 'none',
+                                borderTopRightRadius: 18,
+                                borderBottomRightRadius: 18,
+                            }}
+                            aria-label="Layer opacity settings"
+                        >
+                            ⚙
+                        </button>
+                    </>
+                )}
+            </div>
 
             {open && (
                 <div

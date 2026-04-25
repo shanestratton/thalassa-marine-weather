@@ -100,6 +100,8 @@ import { SquallLegend } from './SquallLegend';
 import { ChartModes } from './ChartModes';
 import { ThreatBanner } from './ThreatBanner';
 import { ConnectivityChip } from './ConnectivityChip';
+import { LayerSettings } from './LayerSettings';
+import { PerfOverlay } from './PerfOverlay';
 import { CoachMark } from '../ui/CoachMark';
 const AisGuardAlert = lazyRetry(
     () => import('./AisGuardAlert').then((m) => ({ default: m.AisGuardAlert })),
@@ -351,6 +353,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Storm picker modal — opens when the user taps Storms in the radial menu
     // AND there are multiple active cyclones to choose from.
     const [stormPickerOpen, setStormPickerOpen] = useState(false);
+    const [layerSettingsOpen, setLayerSettingsOpen] = useState(false);
 
     // Fetch all active cyclones for the storm picker menu (runs regardless of layer visibility)
     // Dynamic import — CycloneTrackingService is large and only needed after map loads
@@ -1367,6 +1370,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     the chart screen. */}
                 <ChartModes
                     visible={!passage.showPassage && !embedded && !isPinView}
+                    onOpenSettings={() => setLayerSettingsOpen(true)}
                     activeSkyLayers={weather.activeLayers as Set<string>}
                     toggleSkyLayer={(layer) => weather.toggleLayer(layer as never)}
                     setActiveSkyLayer={(layer) =>
@@ -1427,6 +1431,35 @@ export const MapHub: React.FC<MapHubProps> = ({
                         />
                     </>
                 )}
+
+                {/* Performance HUD — only renders when ?perf=1 in URL.
+                    Used for diagnosing perf hitches on lower-spec
+                    devices. Zero cost in normal use. */}
+                <PerfOverlay
+                    mapRef={mapRef}
+                    activeLayerCount={
+                        weather.activeLayers.size +
+                        (lightningVisible ? 1 : 0) +
+                        (squallVisible ? 1 : 0) +
+                        (cycloneVisible ? 1 : 0) +
+                        (aisVisible ? 1 : 0) +
+                        (seamarkVisible ? 1 : 0) +
+                        (tideStationsVisible ? 1 : 0)
+                    }
+                />
+
+                {/* Layer-opacity settings sheet — opened from the cog
+                    inside the ChartModes chip. Lets the user dim any
+                    active raster layer in real time so they can see
+                    the chart underneath without having to toggle the
+                    layer off entirely. */}
+                <LayerSettings
+                    visible={layerSettingsOpen && !passage.showPassage && !embedded && !isPinView}
+                    onClose={() => setLayerSettingsOpen(false)}
+                    mapRef={mapRef}
+                    activeSkyLayers={weather.activeLayers as Set<string>}
+                    squallVisible={squallVisible}
+                />
 
                 {/* Threat proximity banner — surfaces nearby lightning
                     or active cyclones with bearing + distance. The
