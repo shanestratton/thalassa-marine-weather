@@ -19,7 +19,12 @@ const log = createLogger('WindGLEngine');
 import { WindGrid, MAX_SPEED, encodeWindTexture } from '../../services/weather/windField';
 
 // ── Constants ─────────────────────────────────────────────────────
-const PARTICLE_RES = 80; // 80×80 = 6400 particles
+// Device-tiered: 80×80=6400 on high-end, ~67×67=4500 on mid, ~50×50=2560
+// on low. The texture-based update loop scales with NUM_PARTICLES, so
+// halving the particle count on an iPhone 8 nearly doubles the frame
+// rate during heavy wind activity.
+import { particleResScale } from '../../utils/deviceTier';
+const PARTICLE_RES = Math.max(32, Math.round(80 * particleResScale()));
 const NUM_PARTICLES = PARTICLE_RES * PARTICLE_RES;
 
 // ── GLSL Shaders ──────────────────────────────────────────────────
