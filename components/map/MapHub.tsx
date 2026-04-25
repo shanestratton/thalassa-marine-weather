@@ -97,6 +97,8 @@ const CmemsAttribution = lazyRetry(
 // risk of a broken chunk hiding our debug surface.
 import { BlitzortungAttribution } from './BlitzortungAttribution';
 import { SquallLegend } from './SquallLegend';
+import { ChartModes } from './ChartModes';
+import { CoachMark } from '../ui/CoachMark';
 const AisGuardAlert = lazyRetry(
     () => import('./AisGuardAlert').then((m) => ({ default: m.AisGuardAlert })),
     'AisGuardAlert',
@@ -1356,6 +1358,74 @@ export const MapHub: React.FC<MapHubProps> = ({
                     own code was loaded and ready. Now it stands alone so
                     it renders independently of any other component's
                     loading state. */}
+                {/* Chart modes — top-center one-tap layer presets so a
+                    new user can go from blank chart to "Day Sail" or
+                    "Storm Watch" in a single tap, instead of hunting
+                    through 20 layer toggles. Always visible while on
+                    the chart screen. */}
+                <ChartModes
+                    visible={!passage.showPassage && !embedded && !isPinView}
+                    activeSkyLayers={weather.activeLayers as Set<string>}
+                    toggleSkyLayer={(layer) => weather.toggleLayer(layer as never)}
+                    setActiveSkyLayer={(layer) =>
+                        weather.setActiveLayer(layer as import('./mapConstants').WeatherLayer)
+                    }
+                    aisVisible={aisVisible}
+                    setAisVisible={setAisVisible}
+                    lightningVisible={lightningVisible}
+                    setLightningVisible={setLightningVisible}
+                    cycloneVisible={cycloneVisible}
+                    setCycloneVisible={setCycloneVisible}
+                    squallVisible={squallVisible}
+                    setSquallVisible={setSquallVisible}
+                    seamarkVisible={seamarkVisible}
+                    setSeamarkVisible={setSeamarkVisible}
+                    tideStationsVisible={tideStationsVisible}
+                    setTideStationsVisible={setTideStationsVisible}
+                    chokepointVisible={chokepointVisible}
+                    setChokepointVisible={setChokepointVisible}
+                    vesselTrackingVisible={vesselTrackingVisible}
+                    setVesselTrackingVisible={setVesselTrackingVisible}
+                    mpaVisible={weather.mpaVisible}
+                    setMpaVisible={(v) => weather.setMpaVisible(v)}
+                />
+
+                {/* First-run coach marks — fire once per device. Three
+                    one-sentence prompts that explain the most important
+                    affordances on the chart screen, in order: Modes
+                    (one-tap presets), Radial menu (per-layer control),
+                    Location box (where the map opens). 6s TTL so they
+                    don't linger if the user is already exploring. */}
+                {!passage.showPassage && !embedded && !isPinView && (
+                    <>
+                        <CoachMark
+                            seenKey="thalassa_coach_chart_modes"
+                            visibleWhen={mapReady}
+                            anchor="top-left"
+                            arrow="up"
+                            initialDelayMs={1200}
+                            className="!top-[60px] !left-1/2 !-translate-x-1/2 items-center"
+                            message="Tap a mode at the top to set up the chart for your situation in one go."
+                        />
+                        <CoachMark
+                            seenKey="thalassa_coach_radial_menu"
+                            visibleWhen={mapReady}
+                            anchor="bottom-right"
+                            arrow="down"
+                            initialDelayMs={8000}
+                            message="Open the radial menu to fine-tune any individual layer."
+                        />
+                        <CoachMark
+                            seenKey="thalassa_coach_legend_chip"
+                            visibleWhen={mapReady && (lightningVisible || squallVisible)}
+                            anchor="bottom-left"
+                            arrow="down"
+                            initialDelayMs={2000}
+                            message="The legend in the bottom-left explains every colour you see on the chart."
+                        />
+                    </>
+                )}
+
                 <BlitzortungAttribution visible={lightningVisible} />
 
                 {/* Squall colormap legend — same anchor as the lightning
