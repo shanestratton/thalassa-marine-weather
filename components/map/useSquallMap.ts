@@ -115,7 +115,10 @@ export function useSquallMap(
             map.on('zoomend', onZoomEnd);
             zoomSnapRef.current = onZoomEnd;
 
-            addSquallHUD(map);
+            // Top-left HUD removed 2026-04-25 — redundant with the
+            // bottom-left SquallLegend chip's status pill which already
+            // shows LIVE / Nm / Nh freshness. Two HUDs saying the same
+            // thing 200px apart was clutter.
             isSetUp.current = true;
             log.warn('⛈️ Squall map active — fetching Rainbow snapshot');
 
@@ -169,18 +172,7 @@ export function useSquallMap(
 
     // Tick the HUD's age display every minute — purely cosmetic so the
     // user can tell at a glance whether the data is still fresh.
-    useEffect(() => {
-        if (!visible) return;
-        const map = mapRef.current;
-        if (!map) return;
-        const tick = () => {
-            const ageMin = Math.round((Date.now() - lastRefreshAtRef.current) / 60000);
-            updateHudAge(map, ageMin);
-        };
-        tick();
-        const t = setInterval(tick, 60_000);
-        return () => clearInterval(t);
-    }, [visible]);
+    // HUD age tick removed — SquallLegend chip handles freshness display now.
 }
 
 // ── Rainbow snapshot fetcher + tile source mounting ──
@@ -249,7 +241,6 @@ async function loadSquallTiles(
         // store through the React tree just for one number.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (window as any).__thalassaSquallLastRefreshAt = lastRefreshAtRef.current;
-        updateHudAge(map, 0);
     } finally {
         inflightRef.current = false;
     }
@@ -325,63 +316,10 @@ function cleanupLayers(map: mapboxgl.Map): void {
     log.info('🧹 Squall layers cleaned up');
 }
 
-// ── HUD ──
-
-function addSquallHUD(map: mapboxgl.Map): void {
-    const old = map.getContainer().querySelector(`#${SQUALL_HUD_ID}`);
-    if (old) old.remove();
-
-    const hud = document.createElement('div');
-    hud.id = SQUALL_HUD_ID;
-    hud.style.cssText = `
-        position: absolute;
-        top: 56px;
-        left: 16px;
-        z-index: 300;
-        background: rgba(10, 12, 20, 0.88);
-        backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        padding: 10px 14px;
-        pointer-events: none;
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    `;
-
-    const title = document.createElement('div');
-    title.style.cssText =
-        'font-size: 10px; font-weight: 800; color: #fff; letter-spacing: 0.5px; text-transform: uppercase;';
-    title.textContent = '⛈️ Squall Threat';
-    hud.appendChild(title);
-
-    const ageText = document.createElement('span');
-    ageText.id = 'squall-age-text';
-    ageText.style.cssText = 'font-size: 10px; font-weight: 700; color: #22c55e; letter-spacing: 0.3px;';
-    ageText.textContent = 'LOADING…';
-    hud.appendChild(ageText);
-
-    map.getContainer().appendChild(hud);
-}
-
-function updateHudAge(map: mapboxgl.Map, ageMin: number): void {
-    const el = map.getContainer().querySelector('#squall-age-text') as HTMLElement | null;
-    if (!el) return;
-
-    if (ageMin <= 5) {
-        el.textContent = 'LIVE';
-        el.style.color = '#22c55e';
-    } else if (ageMin < 60) {
-        el.textContent = `${ageMin}m`;
-        el.style.color = ageMin <= 30 ? '#22c55e' : '#FFA500';
-    } else {
-        const h = Math.floor(ageMin / 60);
-        const m = ageMin % 60;
-        el.textContent = m > 0 ? `${h}h ${m}m` : `${h}h`;
-        el.style.color = '#ef4444';
-    }
-}
+// (Top-left HUD + updateHudAge removed 2026-04-25 — replaced by the
+// SquallLegend chip in the bottom-left corner. Kept SQUALL_HUD_ID as
+// a constant in cleanupLayers in case any stale HUD from a previous
+// build is still lingering in the DOM.)
 
 // ── Cyclone spinner ──
 
