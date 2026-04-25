@@ -102,7 +102,9 @@ import { ThreatBanner } from './ThreatBanner';
 import { ConnectivityChip } from './ConnectivityChip';
 import { LayerSettings } from './LayerSettings';
 import { PerfOverlay } from './PerfOverlay';
+import { PerfDowntierToast } from './PerfDowntierToast';
 import { CoachMark } from '../ui/CoachMark';
+import { PerfGuardian, consumePerfDowntierToast } from '../../services/PerfGuardian';
 const AisGuardAlert = lazyRetry(
     () => import('./AisGuardAlert').then((m) => ({ default: m.AisGuardAlert })),
     'AisGuardAlert',
@@ -354,6 +356,26 @@ export const MapHub: React.FC<MapHubProps> = ({
     // AND there are multiple active cyclones to choose from.
     const [stormPickerOpen, setStormPickerOpen] = useState(false);
     const [layerSettingsOpen, setLayerSettingsOpen] = useState(false);
+    /** One-time toast surfaced when PerfGuardian downtiered the device
+     *  on the previous session. Cleared on dismiss / first render. */
+    const [perfToast, setPerfToast] = useState<boolean>(() => consumePerfDowntierToast());
+
+    // Start the silent FPS watchdog when the chart screen mounts. It
+    // runs essentially free (one rAF callback) and writes to
+    // localStorage when sustained FPS goes below 35 — the next launch
+    // picks up the lower tier automatically.
+    useEffect(() => {
+        PerfGuardian.start();
+        return () => PerfGuardian.stop();
+    }, []);
+
+    // Clear the perf-toast flag a beat after the toast's own auto-
+    // dismiss so we don't keep re-rendering it across mount/remount.
+    useEffect(() => {
+        if (!perfToast) return;
+        const t = setTimeout(() => setPerfToast(false), 6500);
+        return () => clearTimeout(t);
+    }, [perfToast]);
 
     // Fetch all active cyclones for the storm picker menu (runs regardless of layer visibility)
     // Dynamic import — CycloneTrackingService is large and only needed after map loads
@@ -1396,12 +1418,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                     setMpaVisible={(v) => weather.setMpaVisible(v)}
                 />
 
-                {/* First-run coach marks — fire once per device. Three
-                    one-sentence prompts that explain the most important
-                    affordances on the chart screen, in order: Modes
-                    (one-tap presets), Radial menu (per-layer control),
-                    Location box (where the map opens). 6s TTL so they
-                    don't linger if the user is already exploring. */}
+                {/* First-run coach marks — fire once per device. Five
+                    one-sentence prompts covering the chart screen's
+                    main affordances. Each gated by its own seenKey so
+                    they fire independently as the user encounters them. */}
                 {!passage.showPassage && !embedded && !isPinView && (
                     <>
                         <CoachMark
@@ -1429,8 +1449,42 @@ export const MapHub: React.FC<MapHubProps> = ({
                             initialDelayMs={2000}
                             message="The legend in the bottom-left explains every colour you see on the chart."
                         />
+                        {/* Layer-menu surface — fires the FIRST time the
+                            radial menu is opened (which sets
+                            weather.showLayerMenu=true). Explains the
+                            three category structure so users don't have
+                            to discover Sky / Tactical / Charts by tapping
+                            blindly. */}
+                        <CoachMark
+                            seenKey="thalassa_coach_layer_menu"
+                            visibleWhen={mapReady && weather.showLayerMenu}
+                            anchor="center"
+                            arrow="up"
+                            initialDelayMs={400}
+                            message="Sky for weather. Tactical for safety. Charts for navigation. Tap to switch."
+                        />
+                        {/* Chart-library hint — when the user enters the
+                            chart catalog tab specifically. They might
+                            not realise that tapping a chart enables it
+                            and tapping again switches to a different one
+                            (single-select, no hidden multi-toggle). */}
+                        <CoachMark
+                            seenKey="thalassa_coach_chart_catalog"
+                            visibleWhen={mapReady && weather.showLayerMenu && chartCatalog.sources.length > 0}
+                            anchor="bottom-left"
+                            arrow="up"
+                            initialDelayMs={2200}
+                            message="Tap any chart to load it. Tap a different one to switch — only one chart shows at a time."
+                        />
                     </>
                 )}
+
+                {/* Perf-guardian toast — surfaced on session-start when
+                    the previous session hit sustained low FPS and we
+                    auto-downtiered the device. Informs the user that
+                    particle density is reduced for performance.
+                    Auto-clears state after the toast's own TTL. */}
+                <PerfDowntierToast visible={perfToast && !passage.showPassage && !embedded && !isPinView} />
 
                 {/* Performance HUD — only renders when ?perf=1 in URL.
                     Used for diagnosing perf hitches on lower-spec

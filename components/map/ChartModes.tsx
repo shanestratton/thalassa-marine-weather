@@ -402,6 +402,60 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                             ⚙️ Custom — pick any preset to reset
                         </div>
                     )}
+
+                    {/* Replay tips — clears every thalassa_coach_* flag
+                        so the first-run coach marks fire again. Useful
+                        for users who dismissed the hints too quickly,
+                        or for QA validation that the tour copy lands. */}
+                    <button
+                        onClick={() => {
+                            triggerHaptic('light');
+                            try {
+                                const keys: string[] = [];
+                                for (let i = 0; i < localStorage.length; i++) {
+                                    const k = localStorage.key(i);
+                                    if (k && k.startsWith('thalassa_coach_')) keys.push(k);
+                                }
+                                keys.forEach((k) => localStorage.removeItem(k));
+                            } catch {
+                                /* unavailable */
+                            }
+                            setOpen(false);
+                            // Reload so the coach marks re-mount fresh
+                            // and read their seenKey state from the now-
+                            // cleared localStorage. Tiny UX cost, simpler
+                            // than threading reset state through every
+                            // coach mark.
+                            setTimeout(() => window.location.reload(), 200);
+                        }}
+                        className="flex items-center gap-3 text-left transition-colors"
+                        style={{
+                            background: 'transparent',
+                            padding: '8px 10px',
+                            border: '1px solid transparent',
+                            marginTop: 4,
+                            borderTop: '1px solid rgba(255,255,255,0.06)',
+                            borderRadius: 0,
+                        }}
+                    >
+                        <span style={{ fontSize: 14 }} aria-hidden>
+                            💡
+                        </span>
+                        <span className="flex-1 min-w-0">
+                            <span
+                                className="block font-semibold"
+                                style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}
+                            >
+                                Replay tips
+                            </span>
+                            <span
+                                className="block opacity-60"
+                                style={{ color: 'rgba(255,255,255,0.6)', fontSize: 10, marginTop: 1 }}
+                            >
+                                Show the first-run hints again
+                            </span>
+                        </span>
+                    </button>
                 </div>
             )}
             {/* Hide unused storedMode warning while we keep it for future
