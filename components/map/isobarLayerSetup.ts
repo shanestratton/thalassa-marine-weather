@@ -363,6 +363,39 @@ export const RAINVIEWER_COLOR_RAMP: mapboxgl.Expression = [
 ];
 
 /**
+ * Squall-specific dBZ → color ramp.
+ *
+ * The rain layer's RAINVIEWER ramp shows ALL precipitation from drizzle
+ * upward. A squall view is the opposite — we want light/moderate rain
+ * to vanish entirely so only the actual heavy convective cells (the
+ * "where can I get hammered right now" cells) are visible.
+ *
+ * Threshold: pixel values below ~0.196 (corresponding to ~moderate rain
+ * intensity in the dbz_u8 encoding) render fully transparent. Above
+ * that we ramp aggressively through yellow → orange → red → magenta so
+ * a serious cell pops off the chart even at small zoom.
+ */
+export const SQUALL_COLOR_RAMP: mapboxgl.Expression = [
+    'interpolate',
+    ['linear'],
+    ['raster-value'],
+    0.0, // pure no-data
+    'rgba(0,0,0,0)',
+    0.18, // anything below moderate-heavy = invisible
+    'rgba(0,0,0,0)',
+    0.196, // moderate-heavy threshold — squall begins here
+    'rgba(255,235,59,0.55)', // soft yellow — possible squall
+    0.235, // strong cell
+    'rgba(255,150,0,0.8)', // orange
+    0.275, // severe
+    'rgba(229,28,35,0.9)', // red
+    0.31, // extreme — hail-grade
+    'rgba(170,0,180,0.95)', // magenta
+    0.35,
+    'rgba(120,0,160,1)', // deep magenta clamp
+];
+
+/**
  * Navigation layer IDs that should always render above weather layers.
  */
 export const NAV_LAYER_IDS = [

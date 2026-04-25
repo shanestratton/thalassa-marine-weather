@@ -1,39 +1,46 @@
 /**
- * useSquallMap — Global IR Squall Detection Map
+ * useSquallMap — Heavy-precip squall detection map.
  *
- * STATUS (2026-04-22): Xweather decommissioned. The combined
- * satellite-infrared-color + radar-global layer was Xweather-only
- * and we ripped that dependency out (see project notes).
+ * History:
+ *   - Pre 2026-04-22: Xweather satellite-IR + radar global tiles.
+ *     Decommissioned alongside the rest of the Xweather stack.
+ *   - 2026-04-22 → 2026-04-25: Disabled stub — toggling it on did
+ *     nothing past the HUD because we hadn't picked a replacement.
+ *   - 2026-04-25 (this revision): Powered by Rainbow.ai's precip-global
+ *     snapshot tiles, but rendered through SQUALL_COLOR_RAMP so anything
+ *     below moderate-heavy rain intensity is invisible. The result is a
+ *     "where are the actual thunder cells right now" map — light rain
+ *     fades out, only the cells you'd avoid in passage planning remain
+ *     visible. Refreshes every 5 minutes (Rainbow's snapshot cadence).
  *
- * Until we replace this with NOAA GOES IR (via SSEC RealEarth, already
- * in our CSP) layered with RainViewer radar, the squall view is
- * disabled — toggling it on is a no-op apart from a console message.
+ * The hook also keeps the cyclone spinner overlay so a user looking at
+ * an active basin can see both squall cells and the storm centre at
+ * once. Cyclone/squall toggles are mutually exclusive in the radial
+ * menu (enforced in MapHub) so the user never has dual full-screen
+ * overlays competing.
  *
- * Replacement plan (next session):
- *   - GOES-East/West satellite IR via realearth.ssec.wisc.edu tiles
- *   - RainViewer radar (already integrated in the rain layer)
- *   - Combine the two with reduced opacity
- *
- * Zoom: integer-only 3–8 (kept for the eventual replacement)
+ * Zoom: integer-only 3–8 — Rainbow's 1km native res doesn't add detail
+ * past z8 and integer snap stops Mapbox from re-fetching tiles every
+ * pinch frame.
  */
 
 import { useEffect, useRef } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
+import { piCache } from '../../services/PiCacheService';
+import { SQUALL_COLOR_RAMP } from './isobarLayerSetup';
 
 const log = createLogger('SquallMap');
 
-// ── Layer/Source IDs ── (kept for the eventual NOAA replacement)
-const XWEATHER_SOURCE = 'squall-noaa-source';
-const XWEATHER_LAYER = 'squall-noaa-layer';
+// ── Layer/Source IDs ──
+const SQUALL_SOURCE = 'squall-rainbow-source';
+const SQUALL_LAYER = 'squall-rainbow-layer';
 const SQUALL_HUD_ID = 'squall-map-hud';
 
 const SQUALL_MAX_ZOOM = 8;
-
-// ── Feature gate ──
-// Disabled until the NOAA GOES IR + RainViewer replacement ships.
-const SQUALL_ENABLED = false;
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // Rainbow snapshot cadence
+const SNAPSHOT_TTL_MS = 5 * 60 * 1000;
 
 // ── Hook ──
 
@@ -51,6 +58,8 @@ export function useSquallMap(
     const stormMarkersRef = useRef<mapboxgl.Marker[]>([]);
     const prevMaxZoomRef = useRef<number | null>(null);
     const zoomSnapRef = useRef<(() => void) | null>(null);
+    const lastRefreshAtRef = useRef<number>(0);
+    const inflightRef = useRef(false);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -77,12 +86,6 @@ export function useSquallMap(
             return;
         }
 
-        // ── Disabled until NOAA replacement ships ──
-        if (!SQUALL_ENABLED) {
-            log.warn('Squall map temporarily disabled — NOAA GOES IR replacement in next iteration');
-            return;
-        }
-
         // ── Setup ──
         if (!isSetUp.current) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -92,7 +95,7 @@ export function useSquallMap(
             map.setMinZoom(minInt);
             map.setMaxZoom(SQUALL_MAX_ZOOM);
 
-            // Start at AU+NZ fit zoom centred on user
+            // Open at AU+NZ fit (or user location if known)
             const targetZoom = minInt;
             if (userLat && userLon && isFinite(userLat) && isFinite(userLon)) {
                 map.flyTo({ center: [userLon, userLat], zoom: targetZoom, duration: 800 });
@@ -100,7 +103,8 @@ export function useSquallMap(
                 map.easeTo({ center: [145, -28], zoom: targetZoom, duration: 400 });
             }
 
-            // Integer-only zoom snap
+            // Integer-only zoom snap — keeps Rainbow tile fetches stable
+            // (no half-zoom states triggering a fresh fetch every frame).
             const onZoomEnd = () => {
                 const z = map.getZoom();
                 const snapped = Math.max(minInt, Math.min(Math.round(z), SQUALL_MAX_ZOOM));
@@ -111,20 +115,20 @@ export function useSquallMap(
             map.on('zoomend', onZoomEnd);
             zoomSnapRef.current = onZoomEnd;
 
-            // TODO(squall replacement): wire up NOAA GOES IR (via SSEC
-            // RealEarth) + RainViewer radar combined raster sources here.
-            // Until then, just mount the HUD so the user sees something
-            // and knows the layer is "on" — the satellite/radar imagery
-            // itself simply isn't there yet.
             addSquallHUD(map);
             isSetUp.current = true;
-            log.info('⛈️ Squall map active — awaiting NOAA replacement');
+            log.warn('⛈️ Squall map active — fetching Rainbow snapshot');
+
+            // Kick off the first Rainbow load.
+            void loadSquallTiles(map, lastRefreshAtRef, inflightRef);
         }
 
-        // Auto-refresh disabled until NOAA layer ships.
-        // if (!refreshTimer.current) {
-        //     refreshTimer.current = setInterval(() => refreshNoaaLayer(map), 10 * 60 * 1000);
-        // }
+        // Auto-refresh every 5 min so the user always sees recent cells.
+        if (!refreshTimer.current) {
+            refreshTimer.current = setInterval(() => {
+                void loadSquallTiles(map, lastRefreshAtRef, inflightRef);
+            }, REFRESH_INTERVAL_MS);
+        }
 
         return () => {
             if (refreshTimer.current) {
@@ -162,20 +166,152 @@ export function useSquallMap(
         log.info(`🌀 Added ${allCyclones.length} cyclone spinner(s) to squall map`);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [visible, mapReady, allCyclones?.length]);
+
+    // Tick the HUD's age display every minute — purely cosmetic so the
+    // user can tell at a glance whether the data is still fresh.
+    useEffect(() => {
+        if (!visible) return;
+        const map = mapRef.current;
+        if (!map) return;
+        const tick = () => {
+            const ageMin = Math.round((Date.now() - lastRefreshAtRef.current) / 60000);
+            updateHudAge(map, ageMin);
+        };
+        tick();
+        const t = setInterval(tick, 60_000);
+        return () => clearInterval(t);
+    }, [visible]);
 }
 
-// ── Squall layer (placeholder until NOAA replacement) ──
-// The Xweather-backed implementation lived here until 2026-04-22.
-// When we ship NOAA GOES IR + RainViewer, the addXweatherLayer /
-// refreshXweatherLayer functions will get reinstated as
-// addNoaaLayer / refreshNoaaLayer.
+// ── Rainbow snapshot fetcher + tile source mounting ──
+
+/**
+ * Fetch the latest Rainbow precip-global snapshot ID and (re)mount
+ * the squall tile layer using it. Routes through Pi cache when the
+ * boat network is up so the fleet shares one snapshot fetch.
+ *
+ * Tiles themselves go through Mapbox GL's transformRequest →
+ * passthroughTileUrl path automatically (configured in useMapInit), so
+ * there's nothing to wire on the tile-side caching.
+ */
+async function loadSquallTiles(
+    map: mapboxgl.Map,
+    lastRefreshAtRef: React.MutableRefObject<number>,
+    inflightRef: React.MutableRefObject<boolean>,
+): Promise<void> {
+    if (inflightRef.current) {
+        log.info('Squall snapshot fetch already in flight — skipping');
+        return;
+    }
+    inflightRef.current = true;
+    try {
+        const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
+        if (!supabaseUrl) {
+            log.warn('Supabase URL missing — cannot fetch Rainbow snapshot');
+            return;
+        }
+
+        // Use the same snapshot endpoint the rain layer hits. Pi
+        // passthrough so the boat fleet shares one fetch.
+        const upstream = `${supabaseUrl}/functions/v1/proxy-rainbow?action=snapshot&layer=precip-global`;
+        const piUrl = piCache.passthroughUrl(upstream, SNAPSHOT_TTL_MS, 'rainbow-snapshot');
+
+        // Hard 3s timeout so a cold Supabase doesn't lock the layer.
+        const timeoutCtrl = new AbortController();
+        const timer = setTimeout(() => timeoutCtrl.abort(), 3000);
+        let snapshot: number | null = null;
+        try {
+            const res = await fetch(piUrl ?? upstream, { signal: timeoutCtrl.signal });
+            clearTimeout(timer);
+            if (!res.ok) {
+                log.warn(`Rainbow snapshot HTTP ${res.status}`);
+                return;
+            }
+            const data = await res.json();
+            snapshot = data.snapshot ?? null;
+        } catch (err) {
+            log.warn('Rainbow snapshot fetch failed/timed out', err);
+            return;
+        } finally {
+            clearTimeout(timer);
+        }
+
+        if (!snapshot) {
+            log.warn('Rainbow snapshot empty');
+            return;
+        }
+
+        log.warn(`Squall snapshot ${snapshot} — mounting tile layer`);
+        mountSquallLayer(map, supabaseUrl, snapshot);
+        lastRefreshAtRef.current = Date.now();
+        updateHudAge(map, 0);
+    } finally {
+        inflightRef.current = false;
+    }
+}
+
+/**
+ * Add (or replace) the Mapbox raster source + layer for the current
+ * snapshot. We tear down the previous source/layer and add fresh ones
+ * so Mapbox actually re-fetches tiles — `setData` on a raster source
+ * doesn't exist, and just changing the URL string in setTiles isn't
+ * universally supported across Mapbox GL versions.
+ */
+function mountSquallLayer(map: mapboxgl.Map, supabaseUrl: string, snapshot: number): void {
+    // Tile URL: dbz_u8 grayscale encoding so we can apply our own
+    // SQUALL_COLOR_RAMP via raster-color in the layer paint. forecast=0
+    // means "current snapshot" — no forecast offset for the squall view.
+    const tileUrl =
+        `${supabaseUrl}/functions/v1/proxy-rainbow?action=tile&layer=precip-global` +
+        `&snapshot=${snapshot}&forecast=0&z={z}&x={x}&y={y}&color=dbz_u8`;
+
+    // Remove existing layer/source (if any) so the next addSource fetches
+    // fresh tiles for the new snapshot.
+    try {
+        if (map.getLayer(SQUALL_LAYER)) map.removeLayer(SQUALL_LAYER);
+        if (map.getSource(SQUALL_SOURCE)) map.removeSource(SQUALL_SOURCE);
+    } catch (err) {
+        log.warn('Squall pre-mount cleanup error', err);
+    }
+
+    map.addSource(SQUALL_SOURCE, {
+        type: 'raster',
+        tiles: [tileUrl],
+        tileSize: 256,
+        minzoom: 2,
+        // Rainbow's 1km native res — overzoom past z8 looks identical
+        // and saves a 16x tile request multiplication per zoom step.
+        maxzoom: 8,
+    });
+
+    // Insert above satellite/base but below the first symbol layer so
+    // labels/coastlines stay visible over the squall cells.
+    const styleLayers = map.getStyle()?.layers ?? [];
+    const beforeId = styleLayers.find((l) => l.type === 'symbol')?.id;
+
+    map.addLayer(
+        {
+            id: SQUALL_LAYER,
+            type: 'raster',
+            source: SQUALL_SOURCE,
+            paint: {
+                'raster-opacity': 1,
+                'raster-fade-duration': 0,
+                'raster-color': SQUALL_COLOR_RAMP,
+                'raster-color-mix': [1, 0, 0, 0], // R channel = value (R=G=B in grayscale)
+                'raster-color-range': [0, 1],
+            },
+        },
+        beforeId,
+    );
+}
 
 // ── Cleanup ──
 
 function cleanupLayers(map: mapboxgl.Map): void {
     try {
-        if (map.getLayer(XWEATHER_LAYER)) map.removeLayer(XWEATHER_LAYER);
-        if (map.getSource(XWEATHER_SOURCE)) map.removeSource(XWEATHER_SOURCE);
+        if (map.getLayer(SQUALL_LAYER)) map.removeLayer(SQUALL_LAYER);
+        if (map.getSource(SQUALL_SOURCE)) map.removeSource(SQUALL_SOURCE);
         const hud = map.getContainer().querySelector(`#${SQUALL_HUD_ID}`);
         if (hud) hud.remove();
     } catch (err) {
@@ -218,7 +354,7 @@ function addSquallHUD(map: mapboxgl.Map): void {
     const ageText = document.createElement('span');
     ageText.id = 'squall-age-text';
     ageText.style.cssText = 'font-size: 10px; font-weight: 700; color: #22c55e; letter-spacing: 0.3px;';
-    ageText.textContent = 'LIVE';
+    ageText.textContent = 'LOADING…';
     hud.appendChild(ageText);
 
     map.getContainer().appendChild(hud);

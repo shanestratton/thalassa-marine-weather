@@ -180,16 +180,18 @@ function buildCategories(
             action: tacticalState.onToggleCyclones,
         });
     }
-    // Squall still hidden 2026-04-23 — NOAA GOES IR + RainViewer squall
-    // replacement not wired yet. Uncomment when ready.
-    // if (tacticalState?.onToggleSquall) {
-    //     tactical.push({
-    //         id: 'squall',
-    //         label: 'Squall',
-    //         icon: <SquallIcon />,
-    //         action: tacticalState.onToggleSquall,
-    //     });
-    // }
+    // Squall re-enabled 2026-04-25 — useSquallMap now powered by
+    // Rainbow.ai's precip-global tiles, rendered through SQUALL_COLOR_RAMP
+    // so only heavy convective cells show up (light/moderate rain
+    // transparent). Replaces the Xweather decommission.
+    if (tacticalState?.onToggleSquall) {
+        tactical.push({
+            id: 'squall',
+            label: 'Squall',
+            icon: <SquallIcon />,
+            action: tacticalState.onToggleSquall,
+        });
+    }
     // Lightning re-enabled 2026-04-23 — native Swift LightningPlugin now
     // wraps URLSessionWebSocketTask so we bypass Blitzortung's browser-
     // origin rejection (code 1006) and go device → Blitzortung direct. No
