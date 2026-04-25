@@ -29,8 +29,15 @@ const VARIANT_STYLE: Record<
     { color: string; glowColor: string; dasharray: number[] | null; startLabel: string; endLabel: string }
 > = {
     route: {
-        color: '#22c55e', // emerald-500 — planned/suggested
-        glowColor: 'rgba(34, 197, 94, 0.35)',
+        // Violet (purple-500) — distinct from the active follow-route's
+        // sky-blue so the user never confuses "I'm sailing this right
+        // now" with "I'm reviewing a saved plan". Three semantically
+        // separated colours total on the chart:
+        //   sky-blue  = active live voyage (useFollowRouteMapbox)
+        //   violet    = saved planned route (this layer)
+        //   amber     = recorded track (useRouteTrackLayer track variant)
+        color: '#a855f7',
+        glowColor: 'rgba(168, 85, 247, 0.35)',
         dasharray: [2.2, 1.6], // dashed: this is a PLAN, not an actual path
         startLabel: 'A',
         endLabel: 'B',

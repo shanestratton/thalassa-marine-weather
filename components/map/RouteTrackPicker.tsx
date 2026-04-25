@@ -20,6 +20,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { fetchRoutesAndTracks, type RouteOrTrack } from '../../services/shiplog/RoutesAndTracks';
 import { triggerHaptic } from '../../utils/system';
+import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
 
 export type RouteTrackVariant = 'route' | 'track';
 
@@ -36,7 +37,9 @@ const VARIANT_META: Record<RouteTrackVariant, { title: string; emptyMsg: string;
     route: {
         title: 'Routes',
         emptyMsg: 'No saved routes yet. Plan a passage in the Voyage page and tap Save to add it here.',
-        accent: '#22c55e',
+        // Matches useRouteTrackLayer's violet — saved-plan colour kept
+        // semantically separate from the sky-blue active follow-route.
+        accent: '#a855f7',
     },
     track: {
         title: 'Tracks',
@@ -57,6 +60,12 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
     const [loading, setLoading] = useState(false);
     const wrapRef = useRef<HTMLDivElement>(null);
     const meta = VARIANT_META[variant];
+    const deviceClass = useDeviceClass();
+    const sheetMinWidth = pickByDevice(deviceClass, 280, 420);
+    const sheetMaxWidth = pickByDevice(deviceClass, 360, 520);
+    const titleFontSize = pickByDevice(deviceClass, 12, 14);
+    const labelFontSize = pickByDevice(deviceClass, 12, 14);
+    const sublabelFontSize = pickByDevice(deviceClass, 10, 12);
 
     // Load when opened. Cached at the service layer (60s) so re-opening
     // fast is essentially free.
@@ -110,9 +119,9 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                     border: '1px solid rgba(255,255,255,0.1)',
                     borderRadius: 16,
                     boxShadow: '0 12px 32px rgba(0,0,0,0.5)',
-                    minWidth: 280,
-                    maxWidth: 'min(360px, calc(100vw - 24px))',
-                    maxHeight: 'min(500px, calc(100vh - 140px))',
+                    minWidth: sheetMinWidth,
+                    maxWidth: `min(${sheetMaxWidth}px, calc(100vw - 24px))`,
+                    maxHeight: 'min(560px, calc(100vh - 140px))',
                 }}
             >
                 {/* Header */}
@@ -128,7 +137,7 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                         />
                         <span
                             className="font-semibold tracking-wide"
-                            style={{ color: 'rgba(255,255,255,0.92)', fontSize: 12 }}
+                            style={{ color: 'rgba(255,255,255,0.92)', fontSize: titleFontSize }}
                         >
                             {meta.title}
                         </span>
@@ -182,13 +191,16 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                                     <span className="flex-1 min-w-0" style={{ color: 'rgba(255,255,255,0.9)' }}>
                                         <span
                                             className="block font-semibold truncate"
-                                            style={{ fontSize: 12, color: active ? meta.accent : 'inherit' }}
+                                            style={{
+                                                fontSize: labelFontSize,
+                                                color: active ? meta.accent : 'inherit',
+                                            }}
                                         >
                                             {item.label}
                                         </span>
                                         <span
                                             className="block opacity-70 truncate"
-                                            style={{ fontSize: 10, marginTop: 1 }}
+                                            style={{ fontSize: sublabelFontSize, marginTop: 1 }}
                                         >
                                             {item.sublabel}
                                         </span>
