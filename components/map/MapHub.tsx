@@ -1346,6 +1346,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
+                {/* Lightning legend pill — rendered OUTSIDE the AisLegend
+                    Suspense block. The eager-imported BlitzortungAttribution
+                    used to live inside that Suspense, which meant if any
+                    sibling lazy component (AisLegend, etc.) suspended, the
+                    fallback={null} would hide the entire block — including
+                    our chip. The chip then "disappeared" even though its
+                    own code was loaded and ready. Now it stands alone so
+                    it renders independently of any other component's
+                    loading state. */}
+                <BlitzortungAttribution visible={lightningVisible} />
+
                 {/* ═══ AIS COLOUR LEGEND + GUARD ZONE TOGGLE ═══ */}
                 <Suspense fallback={null}>
                     {!passage.showPassage && !embedded && !isPinView && <AisLegend visible={aisVisible} />}
@@ -1354,10 +1365,6 @@ export const MapHub: React.FC<MapHubProps> = ({
                             <CmemsAttribution visible={currentsVisible} />
                         </React.Suspense>
                     )}
-                    {/* Eager import (no Suspense) — chip is the lightning
-                        feed's diagnostic pill, can't risk a broken lazy
-                        chunk failing silently and hiding our debug UI. */}
-                    <BlitzortungAttribution visible={lightningVisible} />
 
                     {/* ═══ VESSEL SEARCH BUTTON ═══ */}
                     {!passage.showPassage && !embedded && !isPinView && aisVisible && (
