@@ -67,6 +67,7 @@ import { useMpaLayer, isMpaEnabled } from './useMpaLayer';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
+import { useDestinationFlag } from './useDestinationFlag';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 import { LayerFABMenu } from './MapHubOverlays';
 import { RadialHelmMenu } from './RadialHelmMenu';
@@ -330,6 +331,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [chokepointVisible, setChokepointVisible] = usePersistedState('thalassa_map_chokepoint_visible', false);
     const [cycloneVisible, setCycloneVisible] = useState(false);
     const [squallVisible, setSquallVisible] = useState(false);
+    // Vessel tracking now defaults to TRUE so a new user always sees
+    // their own boat on the chart from the first frame — without having
+    // to discover the toggle in the radial menu. Existing users who
+    // explicitly turned it off keep their preference (usePersistedState
+    // reads localStorage first). Toggle still works to dim down to the
+    // simpler GPS dot via useLocationDot.
     const [vesselTrackingVisible, setVesselTrackingVisible] = usePersistedState(
         'thalassa_map_vessel_tracking_visible',
         true,
@@ -432,6 +439,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Suppressed during passage planning to avoid visual conflict
     // (both use dashed sky-blue lines, causing confusion)
     useFollowRouteMapbox(mapRef, mapReady && !passage.showPassage);
+
+    // Destination flag — pulsing green flag at the active voyage's
+    // destination, with a live distance + bearing chip from the user's
+    // current GPS. Hidden when no voyage is active. Sits on top of the
+    // follow-route line so the user gets the full "I am here, going
+    // there" picture from one glance at the chart.
+    useDestinationFlag(mapRef, mapReady && !passage.showPassage);
 
     // ── Cyclone Tracking Layer ──
     useCycloneLayer(
