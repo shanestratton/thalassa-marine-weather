@@ -89,13 +89,22 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
 
     return (
         <div
-            // ⚠️ DIAGNOSTIC POSITIONING: temporarily fixed-position centered
-            // with a huge red border, to confirm the chip renders AT ALL.
-            // If the user sees THIS, render path is fine and the only issue
-            // was the previous absolute-bottom-corner being clipped/hidden.
-            // We'll restore the legend-style position once that's confirmed.
-            // `fixed` sidesteps any parent `overflow:hidden` or clipping.
-            className="fixed left-1/2 top-20 -translate-x-1/2 z-[99999] pointer-events-auto max-w-[400px] border-4 border-red-500"
+            // Positioning lessons learned the hard way (2026-04-25):
+            //
+            //  - `absolute left-2 bottom-2` (matching CmemsAttribution
+            //    literally) was invisible — something at the bottom of
+            //    the chart (radial menu, bottom nav?) was sitting on top.
+            //  - `fixed` positioning was proven to render in a diagnostic
+            //    pass. So we keep `fixed` here — it's robust against any
+            //    parent overflow:hidden or stacking-context surprises.
+            //  - bottom-24 (96px) clears the bottom menu/nav area. Earlier
+            //    feedback at bottom-20 (80px) was "half over the menu",
+            //    so 96px gives a small safety margin.
+            //  - Add iOS safe-area inset so the home-indicator zone on
+            //    notched iPhones doesn't push the chip onto the indicator
+            //    in landscape orientations.
+            className="fixed left-2 z-[140] pointer-events-auto max-w-[320px]"
+            style={{ bottom: 'max(96px, calc(env(safe-area-inset-bottom) + 80px))' }}
             role="contentinfo"
             aria-label="Lightning data attribution and connection status"
         >
