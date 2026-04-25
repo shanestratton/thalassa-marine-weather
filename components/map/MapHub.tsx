@@ -68,6 +68,9 @@ import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { useDestinationFlag } from './useDestinationFlag';
+import { useRouteTrackLayer } from './useRouteTrackLayer';
+import { RouteTrackPicker } from './RouteTrackPicker';
+import type { RouteOrTrack } from '../../services/shiplog/RoutesAndTracks';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 import { LayerFABMenu } from './MapHubOverlays';
 import { RadialHelmMenu } from './RadialHelmMenu';
@@ -366,6 +369,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     /** One-time toast surfaced when PerfGuardian downtiered the device
      *  on the previous session. Cleared on dismiss / first render. */
     const [perfToast, setPerfToast] = useState<boolean>(() => consumePerfDowntierToast());
+    /** Currently-displayed planned route on the chart. Null when none.
+     *  Independent from the active follow-route — these come from saved
+     *  ship-log entries, not the live voyage system. */
+    const [activeChartRoute, setActiveChartRoute] = useState<RouteOrTrack | null>(null);
+    /** Currently-displayed recorded track on the chart. Null when none. */
+    const [activeChartTrack, setActiveChartTrack] = useState<RouteOrTrack | null>(null);
+    const [routePickerOpen, setRoutePickerOpen] = useState(false);
+    const [trackPickerOpen, setTrackPickerOpen] = useState(false);
 
     // Start the silent FPS watchdog when the chart screen mounts. It
     // runs essentially free (one rAF callback) and writes to
@@ -446,6 +457,24 @@ export const MapHub: React.FC<MapHubProps> = ({
     // follow-route line so the user gets the full "I am here, going
     // there" picture from one glance at the chart.
     useDestinationFlag(mapRef, mapReady && !passage.showPassage);
+
+    // Routes (planned) and Tracks (sailed) chart layers. Both come
+    // from the user's ship-log entries — Routes are voyageIds prefixed
+    // `planned_*`, Tracks are everything else. Each is its own layer
+    // so the user can have one of each visible simultaneously, with
+    // distinct colours so they read clearly when overlapped.
+    useRouteTrackLayer({
+        mapRef,
+        mapReady: mapReady && !passage.showPassage,
+        variant: 'route',
+        selected: activeChartRoute,
+    });
+    useRouteTrackLayer({
+        mapRef,
+        mapReady: mapReady && !passage.showPassage,
+        variant: 'track',
+        selected: activeChartTrack,
+    });
 
     // ── Cyclone Tracking Layer ──
     useCycloneLayer(
@@ -1191,9 +1220,31 @@ export const MapHub: React.FC<MapHubProps> = ({
                         }}
                         chartsState={{
                             // Compose chart sources from AvNav (o-charts) + free chart
-                            // catalog + local MBTiles so all chart toggles live in the
-                            // radial menu's 4th category.
+                            // catalog + local MBTiles + Routes + Tracks so all chart
+                            // toggles live in the radial menu's 4th category.
                             sources: [
+                                // Routes — picker for saved planned passages from
+                                // the ships log. Tap opens a sheet listing them;
+                                // selection draws the route as a green dashed line
+                                // and fits the map to its bounds.
+                                {
+                                    id: 'routes',
+                                    label: 'Routes',
+                                    iconKind: 'generic' as const,
+                                    enabled: activeChartRoute !== null,
+                                    onToggle: () => setRoutePickerOpen((v) => !v),
+                                },
+                                // Tracks — picker for actually-sailed passages.
+                                // Same UX as Routes; renders amber solid line so
+                                // the two can be visible together without confusing
+                                // which is the plan vs the reality.
+                                {
+                                    id: 'tracks',
+                                    label: 'Tracks',
+                                    iconKind: 'generic' as const,
+                                    enabled: activeChartTrack !== null,
+                                    onToggle: () => setTrackPickerOpen((v) => !v),
+                                },
                                 ...skCharts.availableCharts.map((c) => ({
                                     id: `sk-${c.id}`,
                                     label: c.name.length > 10 ? c.name.substring(0, 10) : c.name,
@@ -1514,6 +1565,27 @@ export const MapHub: React.FC<MapHubProps> = ({
                         (seamarkVisible ? 1 : 0) +
                         (tideStationsVisible ? 1 : 0)
                     }
+                />
+
+                {/* Routes picker — saved planned passages from the
+                    ships log. Selection becomes activeChartRoute; the
+                    useRouteTrackLayer renders + fits bounds. */}
+                <RouteTrackPicker
+                    visible={routePickerOpen && !passage.showPassage && !embedded && !isPinView}
+                    variant="route"
+                    selectedId={activeChartRoute?.id ?? null}
+                    onSelect={(item) => setActiveChartRoute(item)}
+                    onClose={() => setRoutePickerOpen(false)}
+                />
+
+                {/* Tracks picker — actually-sailed passages. Same UX as
+                    Routes; the two can be active simultaneously. */}
+                <RouteTrackPicker
+                    visible={trackPickerOpen && !passage.showPassage && !embedded && !isPinView}
+                    variant="track"
+                    selectedId={activeChartTrack?.id ?? null}
+                    onSelect={(item) => setActiveChartTrack(item)}
+                    onClose={() => setTrackPickerOpen(false)}
                 />
 
                 {/* Layer-opacity settings sheet — opened from the cog
