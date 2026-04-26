@@ -24,7 +24,6 @@ interface MarketplaceConversation {
     listing: MarketplaceListing;
     lastMessage: string | null;
     lastMessageAt: string | null;
-    unread: number;
     otherPartyName: string;
     otherPartyId: string;
 }
@@ -36,7 +35,6 @@ export const ChatHub: React.FC = () => {
     const [conversations, setConversations] = useState<MarketplaceConversation[]>([]);
     const [loading, setLoading] = useState(false);
     const [openThread, setOpenThread] = useState<{ listing: MarketplaceListing; otherPartyId: string } | null>(null);
-    const [unreadMarketplace, setUnreadMarketplace] = useState(0);
 
     // ── Load marketplace conversations ──
     const loadConversations = useCallback(async () => {
@@ -68,31 +66,29 @@ export const ChatHub: React.FC = () => {
                 }
             }
 
-            // Fetch listing details for each conversation
-            const convos: MarketplaceConversation[] = [];
-            for (const [listingId, lastMsg] of grouped) {
-                try {
-                    const listing = await MarketplaceService.getListing(listingId);
-                    if (!listing) continue;
-
-                    const otherPartyId = lastMsg.sender_id === user.id ? lastMsg.recipient_id : lastMsg.sender_id;
-
-                    convos.push({
-                        listing,
-                        lastMessage: lastMsg.content,
-                        lastMessageAt: lastMsg.created_at,
-                        unread: 0, // Simplified — would need read receipts for accurate count
-                        otherPartyName: listing.seller_id === user.id ? 'Buyer' : listing.seller_name || 'Seller',
-                        otherPartyId,
-                    });
-                } catch (e) {
-                    log.warn(e);
-                    // Skip failed listing lookups
-                }
-            }
+            // Fetch listing details in parallel — one round-trip instead of N
+            const fetched = await Promise.all(
+                Array.from(grouped.entries()).map(async ([listingId, lastMsg]) => {
+                    try {
+                        const listing = await MarketplaceService.getListing(listingId);
+                        if (!listing) return null;
+                        const otherPartyId = lastMsg.sender_id === user.id ? lastMsg.recipient_id : lastMsg.sender_id;
+                        return {
+                            listing,
+                            lastMessage: lastMsg.content,
+                            lastMessageAt: lastMsg.created_at,
+                            otherPartyName: listing.seller_id === user.id ? 'Buyer' : listing.seller_name || 'Seller',
+                            otherPartyId,
+                        } satisfies MarketplaceConversation;
+                    } catch (e) {
+                        log.warn(e);
+                        return null;
+                    }
+                }),
+            );
+            const convos = fetched.filter((c): c is MarketplaceConversation => c !== null);
 
             setConversations(convos);
-            setUnreadMarketplace(convos.filter((c) => c.unread > 0).length);
         } catch (e) {
             log.error('Failed to load marketplace conversations:', e);
         } finally {
@@ -185,11 +181,6 @@ export const ChatHub: React.FC = () => {
                             />
                         </svg>
                         <span className="text-xs font-black uppercase tracking-widest">Chandlery</span>
-                        {unreadMarketplace > 0 && (
-                            <span className="absolute -top-0.5 -right-0.5 px-1.5 py-0.5 rounded-full bg-red-500 text-[11px] font-black text-white min-w-[16px] text-center">
-                                {unreadMarketplace}
-                            </span>
-                        )}
                     </button>
                 </div>
             </div>
@@ -257,17 +248,12 @@ export const ChatHub: React.FC = () => {
                                             </p>
                                         </div>
 
-                                        {/* Time + unread */}
+                                        {/* Time */}
                                         <div className="shrink-0 text-right">
                                             {convo.lastMessageAt && (
                                                 <p className="text-[11px] text-gray-400 font-bold">
                                                     {timeAgo(convo.lastMessageAt)}
                                                 </p>
-                                            )}
-                                            {convo.unread > 0 && (
-                                                <span className="inline-block mt-1 px-1.5 py-0.5 rounded-full bg-sky-500 text-[11px] font-black text-white">
-                                                    {convo.unread}
-                                                </span>
                                             )}
                                         </div>
                                     </button>
