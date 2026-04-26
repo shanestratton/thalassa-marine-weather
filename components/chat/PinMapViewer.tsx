@@ -173,7 +173,7 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                         </p>
                     </div>
                     <button
-                        aria-label="Pin drop marker"
+                        aria-label="Export pin as GPX"
                         onClick={() => exportPinAsGPX(lat, lng, caption)}
                         className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-500/20 active:scale-95 transition-transform"
                     >
