@@ -273,4 +273,202 @@ Park it for now. Ship TestFlight. Get real users. Then build the moat that nobod
 
 ---
 
-_Drafted in conversation with Claude (Anthropic) on April 26, 2026, as part of the pre-TestFlight QA cycle. Lives at `docs/BOSUN_AI_SPEC.md` in the Thalassa repo._
+# Addendum 1: Regional cruising-guide integration — the killer compound query
+
+Added April 26, 2026 after Shane's "where to snorkel today?" insight.
+
+## The killer demo query
+
+Skipper anchored in the Whitsundays, mid-morning, asks:
+
+> "Bosun, where's a good spot to go snorkeling today?"
+
+A generic LLM answers with a Wikipedia-tier list of snorkeling spots. **Bosun composes a contextual answer by orchestrating SEVEN parallel queries:**
+
+1. **Geographic context** — current GPS position → "Whitsunday Islands, near Hayman" → load the _100 Magic Miles of the Great Barrier Reef_ RAG corpus
+2. **Activity intent** — "snorkeling" → filter the corpus to anchorages tagged for snorkeling
+3. **Wind constraint** — current wind direction → which side of which island is leeward today? (Hook Island's east side is brilliant in a SE breeze, lethal in a NE)
+4. **Sea state constraint** — wave height + period → too rough for fringing reef snorkeling at exposed spots?
+5. **Tide constraint** — Blue Pearl Bay unreachable at extreme low tide; Manta Ray Bay best on a rising tide for visibility
+6. **Crowd intelligence** — AIS query for current vessels at each candidate location → "Manta Ray has 8 boats, Langford has 2"
+7. **Regulation overlay** — GBR Marine Park zoning (no-anchor zones, transit-only zones, seasonal closures — humpback restrictions July-September)
+
+Bosun then synthesizes:
+
+> "Best bet today: **Langford Reef** on Hook Island. SE 12 knots — Langford's tucked behind the reef on the leeward side, viz looks 8-12m by 2pm with the rising tide peaking at 14:35. AIS shows 2 vessels there now (room for 5 more inside the bommie). Avoid Blue Pearl — strong easterly swell wrapping in, it'll be choppy. Manta Ray Bay viable but has 8 boats already. Anchor on sand patch at the south end, NOT on coral — there's a Marine Park no-anchor zone marked in green."
+
+**No competitor in the world ships that answer.** PredictWind tells you the wind. Navionics shows you the charts. Cruisers Forum has the local knowledge but you have to trawl 200 threads to find it. Nobody composes them. Bosun does.
+
+## The cruising-guide corpus
+
+This is the unfair advantage layer. Niche cruising guides written by retired skippers, self-published or with small marine presses. Authors typically own their rights and would welcome a royalty arrangement with proper attribution — most are individual sailors in their 60s-70s, not Penguin Random House.
+
+**Target authors / titles:**
+
+- **David Colfelt** — _100 Magic Miles of the Great Barrier Reef_ (Whitsundays + GBR — the example that birthed this section)
+- **Alan Lucas** — _Cruising the Coral Coast_, _Cruising the New South Wales Coast_ (Australian east coast cruising bible)
+- **Rod Heikell** — Mediterranean cruising guides (multiple regions)
+- **Skip Rowland & Larry Dozier** — _Skipper Bob's Cruising Guides_ (US East Coast, Bahamas, Great Lakes, Florida)
+- **Don Douglass** / Charlie's Charts — Pacific Northwest, Mexico, Hawaii
+- **Imray Yacht Pilots** — UK & European waters
+- **Earl Hinz** — Pacific Islands cruising guide
+- **Don Watmough** — Pacific Northwest detailed guides
+
+Royalty model: 5–15% of AI-mediated query value flowing back to the author, with proper attribution shown in the answer ("source: 100 Magic Miles, p. 247").
+
+## The regional editions strategy
+
+This unlocks **regionally-deep editions** built on top of the global Thalassa platform:
+
+- **Thalassa Whitsundays Edition** (Colfelt licensed)
+- **Thalassa East Australia Edition** (Lucas licensed)
+- **Thalassa Mediterranean** (Heikell licensed)
+- **Thalassa US East Coast** (Dozier / Skipper Bob licensed)
+- **Thalassa Pacific Northwest** (Douglass / Watmough licensed)
+
+Each becomes a regional moat that no global competitor can replicate without doing the same legwork in every region. PredictWind cannot ship "PredictWind Whitsundays" because they have no Lucas/Colfelt licensing pipeline, no AIS-integrated snorkeling-spot database, no compound-query orchestrator. Even if they tried, every region requires fresh legwork. Thalassa builds the orchestrator once and slots regional content packs in.
+
+## Compound-query patterns beyond snorkeling
+
+The "where to X today?" pattern generalizes to every cruising decision:
+
+- "Where should we anchor tonight?" → wind shift forecast + holding ground + crowd + protection from coming weather
+- "Best fishing spot today?" → tide + bottom structure + recent reports + weather window + access depth for vessel draft
+- "Where can we provision en route?" → next 3 anchorages with marina/town access + business-hours data + chandlery stock
+- "Where can we get the kids ashore safely?" → sandy beach + low surf + dinghy landing spot + walking access
+- "Where's the closest emergency anchorage if this front hits?" → omnidirectional protection + reachable before deterioration + holding ground
+- "Where can I do laundry / get water / dump waste?" → marina services + opening hours + reachable today
+
+All same architecture. Different domain corpus. Same 7-source orchestration.
+
+---
+
+# Addendum 2: The agent loop — query → action → monitoring
+
+Added April 26, 2026 after Shane's "and Bosun sets a route for you, avoiding shallows etc" insight.
+
+## The agent pattern
+
+The compound query gets you the answer. Bosun-as-agent gets you the action. Then it monitors progress.
+
+Three layers:
+
+```
+Layer 1 — ANSWER:  Bosun composes a recommendation from 7 data sources
+Layer 2 — ACTION:  Bosun plots a route, validates with skipper, loads it
+Layer 3 — OVERSIGHT: Bosun monitors the passage, alerts on changing conditions
+```
+
+## Example end-to-end
+
+```
+Skipper: "Where's good for snorkeling today?"
+Bosun:   "Langford Reef. Here's why." [compound query result]
+Skipper: "Go."
+Bosun:   [plots route] [validates against vessel constraints]
+         "12.4 nm, 2h 15m motor-sailing on starboard tack, ETA 13:42,
+         you'll arrive on the rising tide. Engine started, ready when
+         you are. I'll alert you if anything changes."
+[underway]
+Bosun:   "Wind backed 18° to the east — port tack now favorable.
+         ETA improves by 12 minutes."
+[later]
+Bosun:   "Squall on radar 6nm SW, ETA your position 14 minutes.
+         Recommend reef now. Squall projected wind 32-38 knots."
+[arrival]
+Bosun:   "Arriving Langford. Sand patch 47m at bearing 195° from
+         current position, depth 8m, 3 boats present. Recommended
+         anchor swing 30m. Ready to drop?"
+```
+
+Everything is co-pilot, never autonomous. The skipper owns the helm, owns the decision, owns the action. Bosun proposes, monitors, alerts.
+
+## Existing routing infrastructure to reuse
+
+Thalassa already has the routing primitives:
+
+- `services/IsochroneRouter.ts` — weather routing for passages
+- `services/WeatherRoutingService.ts` — orchestration layer
+- `services/isochrone/landAvoidance.ts` — keeps routes in navigable water
+- `services/isochrone/geodesy.ts` — distance/bearing primitives
+- `services/weatherRouter.ts` — the older path
+
+Bosun does NOT re-invent routing. Bosun is the **orchestrator above the existing routers** — knowing when to call which router, feeding it the right inputs, synthesizing the result.
+
+## Two routing modes Bosun composes
+
+### Short coastal hops
+
+Distance: a few nm to ~30 nm. "Let's go to Langford."
+
+Algorithm: A\* pathfinding through bathymetry-cleared water. No need for weather routing — just hazards + depth + vessel draft. Probably warrants a new `services/coastalRouter.ts` module that the isochrone router doesn't currently cover.
+
+Inputs:
+
+- Vessel draft + safety margin → bathymetry filter
+- Known hazards (wrecks, isolated dangers) from chart data
+- Marine park zones (transit-only, no-anchor, seasonal closures)
+- Tide state for shallow passages — time the route through Whitsunday Passage at high water
+- Tidal stream atlas for current-favored vs current-against
+- Wind direction for sail/motor/tack planning
+
+### Long passages
+
+Distance: 100+ nm. "Brisbane → Hobart."
+
+Already implemented in the existing isochrone weather router. Bosun adds the contextual layer: "If you depart Friday 0600 instead of Thursday 1800, the SW shift on day 2 makes the run 6 hours shorter and a lot more comfortable. Here's why."
+
+## The full Bosun input set when routing
+
+- Vessel draft + safety margin
+- Vessel sailing characteristics (polars from settings.polarData)
+- Known hazards from chart data
+- Marine park / regulation zones
+- Traffic Separation Schemes + commercial AIS contacts
+- Tide state + tidal stream atlas
+- Wind forecast over the passage window
+- Sea state limits (skipper's `comfortParams`)
+- Skipper personal preferences (overnight Y/N, motoring tolerance, max heel angle, etc.)
+- Crew composition + experience (single-handed implies different routing)
+- Fuel state + range
+- Battery / power state for autopilot endurance
+
+## The monitoring layer
+
+While underway, Bosun watches the inputs change and alerts on actionable shifts:
+
+- **Wind shifts** — backed/veered enough to warrant a tack change
+- **Squall detection** — radar / nowcast / Blitzortung lightning → reef recommendation
+- **AIS traffic** — converging contacts, CPA calculations, who-stands-on-who under ColRegs
+- **Tide state changes** — earlier/later than predicted, ETA adjustments
+- **Anchor drag** (when anchored) — already implemented via AnchorWatchService
+- **Battery / fuel state** — projection vs remaining passage
+- **Weather front arrival** — nowcast vs forecast deviation
+- **Vessel-state alerts** — engine RPM anomalies via NMEA, depth alarms, bilge pump activity
+
+Each alert is a brief proposal: "I see X, recommend Y, here's why." Skipper acks or overrides. Bosun never auto-actions anything safety-critical.
+
+## What this adds to Thalassa positioning
+
+Three layers now in the killer demo:
+
+1. **Compound query** — composing the answer from 7 data sources
+2. **Route execution** — turning the answer into a passage
+3. **Progress monitoring** — co-piloting the passage as conditions change
+
+This is **Tesla autopilot for sailing** in the realistic sense — assistive, not autonomous, humans always own the helm. The cruising community accepts and rewards co-pilot AI; they would (rightly) reject autonomous-routing AI. The positioning is "your AI bosun in the nav station", not "your AI captain replacing you".
+
+When competitors finally build their version of Bosun-the-LLM, they'll have to also build:
+
+- The chart + bathymetry + hazard integration (months)
+- The isochrone weather routing (months)
+- The AIS + collision-avoidance overlay (months)
+- The Marine Park / regulation database (region by region)
+- The monitoring + alerting layer
+- The integration with autopilot / chartplotter for action loading
+
+Each layer is months of engineering. Compound: 18-36 months for a competitor to ship something equivalent. By then, Thalassa fleets have 2-3 years of vessel-specific personalization on top.
+
+---
+
+_Drafted in conversation with Claude (Anthropic) on April 26, 2026, as part of the pre-TestFlight QA cycle. Lives at `docs/BOSUN_AI_SPEC.md` in the Thalassa repo. Addendums 1 and 2 added the same day after Shane's compound-query and agent-loop insights during a walk discussion._
