@@ -71,7 +71,7 @@ export const ChatDMInbox: React.FC<ChatDMInboxProps> = React.memo(({ conversatio
                 aria-label={`Message ${conv.display_name}${conv.unread_count > 0 ? `, ${conv.unread_count} unread` : ''}`}
                 role="listitem"
                 className="w-full flex items-center gap-3 p-3.5 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.03] hover:border-white/[0.08] transition-all duration-200 active:scale-[0.98] msg-enter min-h-[56px]"
-                style={{ animationDelay: `${i * 50}ms` }}
+                style={{ animationDelay: `${Math.min(i * 50, 300)}ms` }}
             >
                 <div
                     className={`w-11 h-11 rounded-xl bg-gradient-to-br ${getAvatarGradient(conv.user_id)} flex items-center justify-center text-sm font-bold flex-shrink-0 shadow-lg`}
@@ -133,7 +133,7 @@ export const ChatDMThread: React.FC<ChatDMThreadProps> = React.memo(({ thread, p
                         <div
                             className={`max-w-[80%] rounded-2xl px-4 py-2.5 ${
                                 isSelf
-                                    ? 'bg-gradient-to-br from-sky-500/15 to-sky-500/15 border border-sky-500/15 rounded-br-lg'
+                                    ? 'bg-sky-500/15 border border-sky-500/15 rounded-br-lg'
                                     : 'bg-white/[0.04] border border-white/[0.04] rounded-bl-lg'
                             }`}
                         >
