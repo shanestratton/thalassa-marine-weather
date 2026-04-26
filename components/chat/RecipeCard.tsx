@@ -19,6 +19,7 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({ message, isMine }) => {
     const [expanded, setExpanded] = useState(false);
     const [recipe, setRecipe] = useState<StoredRecipe | null>(null);
     const [loading, setLoading] = useState(false);
+    const [imageBroken, setImageBroken] = useState(false);
 
     if (!data) return null;
 
@@ -48,15 +49,13 @@ export const RecipeCard: React.FC<RecipeCardProps> = ({ message, isMine }) => {
             }`}
         >
             {/* Header with image */}
-            {data.imageUrl && (
+            {data.imageUrl && !imageBroken && (
                 <div className="h-28 w-full bg-slate-800 overflow-hidden">
                     <img
                         src={data.imageUrl}
                         alt={data.title}
                         className="w-full h-full object-cover"
-                        onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = 'none';
-                        }}
+                        onError={() => setImageBroken(true)}
                     />
                 </div>
             )}
