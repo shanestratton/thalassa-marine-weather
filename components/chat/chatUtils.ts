@@ -10,7 +10,7 @@ const AVATAR_GRADIENTS = [
     'from-purple-400 to-purple-600',
     'from-red-400 to-red-600',
     'from-amber-400 to-amber-600',
-    'from-sky-400 to-sky-600',
+    'from-rose-400 to-rose-600',
     'from-fuchsia-400 to-purple-600',
     'from-lime-400 to-emerald-600',
     'from-amber-400 to-red-600',
@@ -84,9 +84,14 @@ export function parseTrackMessage(msg: string): { trackId: string; title: string
 }
 
 // ─── GPX Export ──────────────────────────────────────────────────────
+const escapeXml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 export async function exportPinAsGPX(lat: number, lng: number, caption: string): Promise<void> {
     const safeName = caption.replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'pin';
     const now = new Date().toISOString();
+    // safeName is already alphanumeric, but caption is user-controlled —
+    // an unescaped `&` or `<` breaks the GPX for every consumer.
+    const safeDesc = escapeXml(caption);
 
     const gpx = `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="Thalassa Marine Weather"
@@ -97,7 +102,7 @@ export async function exportPinAsGPX(lat: number, lng: number, caption: string):
   </metadata>
   <wpt lat="${lat}" lon="${lng}">
     <name>${safeName}</name>
-    <desc>${caption}</desc>
+    <desc>${safeDesc}</desc>
     <time>${now}</time>
   </wpt>
 </gpx>`;
