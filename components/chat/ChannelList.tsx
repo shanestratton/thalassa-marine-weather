@@ -53,6 +53,8 @@ interface ChannelListProps {
     onOpenCaptainsTable?: () => void;
     /** Whether the skipper has invited crew or the user is on a crew — gates the Crew Chat button */
     hasCrewInvited?: boolean;
+    /** Vessel name from settings — shown in the Crew Chat subtitle. */
+    vesselName?: string;
 }
 
 const ChannelListInner: React.FC<ChannelListProps> = ({
@@ -79,6 +81,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
     setProposalParentId,
     onOpenCaptainsTable,
     hasCrewInvited = false,
+    vesselName,
 }) => {
     const [expandedParents, setExpandedParents] = useState<Set<string>>(new Set());
 
@@ -134,7 +137,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                     <button
                         onClick={() => handleChannelClick(ch)}
                         aria-label={`${getChannelName(ch)}${ch.is_private ? ' — Private channel' : ''}${isPrivateLocked ? ' — Request access' : ''}`}
-                        className={`w-full group flex items-center gap-3 ${isSub ? 'p-3' : 'p-3.5'} rounded-2xl transition-all duration-200 card-press stagger-item min-h-[${isSub ? '48' : '56'}px] ${
+                        className={`w-full group flex items-center gap-3 ${isSub ? 'p-3 min-h-[48px]' : 'p-3.5 min-h-[56px]'} rounded-2xl transition-all duration-200 card-press stagger-item ${
                             isPrivateLocked
                                 ? 'bg-white/[0.01] border border-white/[0.04] opacity-70'
                                 : isSub
@@ -255,10 +258,13 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
 
                             const drafts = await getDraftVoyages();
                             const voyage = drafts.find((v) => v.id === passageId);
+                            // Operator-precedence note: keep voyage_name preferred; fall back to
+                            // a port pair only when no name is set.
                             const voyageName =
-                                voyage?.voyage_name || (voyage?.departure_port && voyage?.destination_port)
-                                    ? `${voyage?.departure_port} → ${voyage?.destination_port}`
-                                    : 'Crew Chat';
+                                voyage?.voyage_name ||
+                                (voyage?.departure_port && voyage?.destination_port
+                                    ? `${voyage.departure_port} → ${voyage.destination_port}`
+                                    : 'Crew Chat');
 
                             const channel = await ChatService.createVoyageChannel(passageId, voyageName);
                             if (channel) {
@@ -286,15 +292,7 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
                             </span>
                         </div>
                         <p className="text-sm text-white/60 truncate mt-0.5">
-                            Only visible to crew on the{' '}
-                            {(() => {
-                                try {
-                                    const s = localStorage.getItem('CapacitorStorage.thalassa_settings');
-                                    return s ? JSON.parse(s)?.vessel?.name || 'vessel' : 'vessel';
-                                } catch {
-                                    return 'vessel';
-                                }
-                            })()}
+                            Only visible to crew on the {vesselName || 'vessel'}
                         </p>
                     </div>
                     <div className="w-6 h-6 rounded-full bg-emerald-500/10 group-hover:bg-emerald-500/20 flex items-center justify-center transition-all group-hover:translate-x-0.5">
