@@ -124,7 +124,6 @@ export const ChatPage: React.FC = React.memo(() => {
 
     // Loading — must be declared before hooks since they receive setLoading
     const [loading, setLoading] = useState(true);
-    const [loadingStatus, _setLoadingStatus] = useState<string | null>(null); // Connecting to Crew Talk…
     const [hasCrewInvited, setHasCrewInvited] = useState(false);
 
     // Passage Planning visibility
@@ -688,9 +687,6 @@ export const ChatPage: React.FC = React.memo(() => {
                     {loading && view === 'channels' && (
                         <div className="pb-24">
                             <SkeletonChannelList />
-                            <div className="flex justify-center pt-2">
-                                <span className="text-xs text-white/40">{loadingStatus}</span>
-                            </div>
                         </div>
                     )}
                     {loading && view === 'messages' && (
@@ -804,6 +800,7 @@ export const ChatPage: React.FC = React.memo(() => {
                             proposalParentId={proposalParentId}
                             setProposalParentId={setProposalParentId}
                             hasCrewInvited={hasCrewInvited}
+                            vesselName={settings.vessel?.name}
                             onOpenCaptainsTable={() => {
                                 setNavDirection('forward');
                                 setView('captains_table');
