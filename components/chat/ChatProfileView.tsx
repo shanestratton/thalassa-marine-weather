@@ -40,7 +40,7 @@ export const ChatProfileView: React.FC<ChatProfileViewProps> = React.memo(
     }) => (
         <div
             className="flex-1 flex flex-col px-5 py-4 gap-4 overflow-y-auto"
-            style={{ maxHeight: 'calc(100vh - 11rem)' }}
+            style={{ maxHeight: 'calc(100dvh - 11rem)' }}
         >
             {/* Avatar section */}
             <div className="flex flex-col items-center gap-3">
