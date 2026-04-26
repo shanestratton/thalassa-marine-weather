@@ -14,6 +14,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNmeaStore } from './useNmeaStore';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
+import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
 import type { TimestampedMetric, DataFreshness } from '../../services/NmeaStore';
 
 interface TheGlassPageProps {
@@ -549,6 +550,28 @@ function resolveMetric(metric: TimestampedMetric, dummy: number): { value: numbe
 
 export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const state = useNmeaStore();
+    const deviceClass = useDeviceClass();
+
+    // Tablet-aware sizing — scales the instrument-panel chrome up so a
+    // 12" iPad reads as a real bridge instrument, not a centred phone
+    // layout floating in white space. Values picked to roughly preserve
+    // the visual relationship between elements (gauge dominant, cards
+    // secondary, sparklines tertiary) at the new scale.
+    const containerPx = pickByDevice(deviceClass, 'px-3', 'px-6');
+    const containerGap = pickByDevice(deviceClass, 'gap-2', 'gap-4');
+    const containerMb = pickByDevice(deviceClass, 'mb-2', 'mb-4');
+    const cardPad = pickByDevice(deviceClass, 'p-3', 'p-5');
+    const sogAwsValueClass = pickByDevice(deviceClass, 'text-3xl', 'text-5xl');
+    const depthValueClass = pickByDevice(deviceClass, 'text-2xl', 'text-4xl');
+    const tripValueClass = pickByDevice(deviceClass, 'text-3xl', 'text-5xl');
+    const sparklineWidth = pickByDevice(deviceClass, 140, 200);
+    const sparklineHeight = pickByDevice(deviceClass, 45, 60);
+    const depthSparkWidth = pickByDevice(deviceClass, 100, 140);
+    const depthSparkHeight = pickByDevice(deviceClass, 55, 75);
+    const heroGaugeSize = pickByDevice(deviceClass, 180, 280);
+    const compassMaxWidth = pickByDevice(deviceClass, 110, 160);
+    const sensorIconSize = pickByDevice(deviceClass, 'text-lg', 'text-2xl');
+    const voltageValueClass = pickByDevice(deviceClass, 'text-xl', 'text-3xl');
 
     // Resolve all metrics with dummy fallbacks
     const sog = resolveMetric(state.sog, DUMMY.sog);
@@ -645,19 +668,21 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
 
                 {/* ═══ INSTRUMENT PANEL ═══ */}
                 <div
-                    className="flex-1 min-h-0 overflow-y-auto px-3 pb-4"
+                    className={`flex-1 min-h-0 overflow-y-auto ${containerPx} pb-4`}
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     {/* ── ROW 1: SOG (left) + TWS GAUGE (center overlap) + AWS (right) ── */}
-                    <div className="relative mb-2">
-                        <div className="grid grid-cols-2 gap-2">
+                    <div className={`relative ${containerMb}`}>
+                        <div className={`grid grid-cols-2 ${containerGap}`}>
                             {/* SOG Card */}
-                            <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+                            <div className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06]`}>
                                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-1">
                                     SOG
                                 </p>
                                 <div className="flex items-baseline gap-1">
-                                    <span className="text-3xl font-black tabular-nums font-mono text-white">
+                                    <span
+                                        className={`${sogAwsValueClass} font-black tabular-nums font-mono text-white`}
+                                    >
                                         {sog.value.toFixed(1)}
                                     </span>
                                     <span className="text-xs font-bold text-gray-500">kts</span>
@@ -676,8 +701,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         min={sogChart.min}
                                         max={sogChart.max}
                                         color="#d946ef"
-                                        width={140}
-                                        height={45}
+                                        width={sparklineWidth}
+                                        height={sparklineHeight}
                                         showAxes
                                         label="sog"
                                     />
@@ -688,12 +713,14 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             </div>
 
                             {/* AWS Card */}
-                            <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+                            <div className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06]`}>
                                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 mb-1">
                                     AWS
                                 </p>
                                 <div className="flex items-baseline gap-1">
-                                    <span className="text-3xl font-black tabular-nums font-mono text-white">
+                                    <span
+                                        className={`${sogAwsValueClass} font-black tabular-nums font-mono text-white`}
+                                    >
                                         {aws.value.toFixed(1)}
                                     </span>
                                     <span className="text-xs font-bold text-gray-500">kts</span>
@@ -712,8 +739,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                         min={awsChart.min}
                                         max={awsChart.max}
                                         color="#38bdf8"
-                                        width={140}
-                                        height={45}
+                                        width={sparklineWidth}
+                                        height={sparklineHeight}
                                         showAxes
                                         label="aws"
                                     />
@@ -754,7 +781,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                             border: '1px solid rgba(255,255,255,0.06)',
                                         }}
                                     >
-                                        <div style={{ width: '180px', height: '180px' }}>
+                                        <div style={{ width: `${heroGaugeSize}px`, height: `${heroGaugeSize}px` }}>
                                             <HeroArcGauge
                                                 value={tws.value}
                                                 min={0}
@@ -791,14 +818,14 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                     </div>
 
                     {/* ── ROW 2: DEPTH + COG COMPASS + HEEL ANGLE (3-col) ── */}
-                    <div className="grid grid-cols-3 gap-2 mb-2">
+                    <div className={`grid grid-cols-3 ${containerGap} ${containerMb}`}>
                         {/* Depth Sounder */}
-                        <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+                        <div className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06]`}>
                             <p className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-400 mb-1">
                                 Depth Sounder
                             </p>
                             <div className="flex items-baseline gap-0.5">
-                                <span className="text-2xl font-black tabular-nums font-mono text-white">
+                                <span className={`${depthValueClass} font-black tabular-nums font-mono text-white`}>
                                     {depth.value.toFixed(1)}
                                 </span>
                                 <span className="text-xs font-bold text-gray-500">m</span>
@@ -810,8 +837,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     min={depthChart.min}
                                     max={depthChart.max}
                                     color="#22d3ee"
-                                    width={100}
-                                    height={55}
+                                    width={depthSparkWidth}
+                                    height={depthSparkHeight}
                                     showAxes
                                     axisUnit="m"
                                     label="depth"
@@ -823,17 +850,21 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         </div>
 
                         {/* COG Compass */}
-                        <div className="p-2 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col items-center">
+                        <div
+                            className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col items-center`}
+                        >
                             <p className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-400 mb-1">
                                 COG Compass
                             </p>
-                            <div style={{ width: '100%', maxWidth: '110px', aspectRatio: '1' }}>
+                            <div style={{ width: '100%', maxWidth: `${compassMaxWidth}px`, aspectRatio: '1' }}>
                                 <HeroCompass value={cog.value} isLive={cog.freshness !== 'dead'} />
                             </div>
                         </div>
 
                         {/* Heel Angle */}
-                        <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col items-center">
+                        <div
+                            className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col items-center`}
+                        >
                             <p className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-400 mb-2">
                                 Heel Angle
                             </p>
@@ -842,9 +873,9 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                     </div>
 
                     {/* ── ROW 3: NMEA DATA + VOYAGE (2-col) ── */}
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className={`grid grid-cols-2 ${containerGap}`}>
                         {/* NMEA Data */}
-                        <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+                        <div className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06]`}>
                             <p className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-400 mb-2">
                                 NMEA Data
                             </p>
@@ -854,8 +885,8 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 <SensorIcon icon="🔵" label="Depth" active />
                             </div>
                             <div className="flex items-center gap-2 mt-1">
-                                <span className="text-lg">🔋</span>
-                                <span className="text-xl font-black tabular-nums font-mono text-white">
+                                <span className={sensorIconSize}>🔋</span>
+                                <span className={`${voltageValueClass} font-black tabular-nums font-mono text-white`}>
                                     {voltage.value.toFixed(1)}
                                 </span>
                                 <span className="text-xs font-bold text-gray-500">V</span>
@@ -863,20 +894,22 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                         </div>
 
                         {/* Voyage */}
-                        <div className="p-3 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
+                        <div className={`${cardPad} rounded-2xl bg-white/[0.03] border border-white/[0.06]`}>
                             <p className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-400 mb-2">
                                 Voyage
                             </p>
                             <p className="text-[10px] font-bold text-gray-500 mb-0.5">Trip Dist:</p>
                             <div className="flex items-baseline gap-1">
-                                <span className="text-3xl font-black tabular-nums font-mono text-white">
+                                <span className={`${tripValueClass} font-black tabular-nums font-mono text-white`}>
                                     {tripDisplay.toFixed(1)}
                                 </span>
                                 <span className="text-xs font-bold text-gray-500">NM</span>
                             </div>
                             <p className="text-[10px] font-bold text-gray-500 mt-2">Avg Speed:</p>
                             <div className="flex items-baseline gap-1">
-                                <span className="text-lg font-black tabular-nums font-mono text-cyan-400">
+                                <span
+                                    className={`${voltageValueClass} font-black tabular-nums font-mono text-cyan-400`}
+                                >
                                     {sog.value.toFixed(1)}
                                 </span>
                                 <span className="text-xs font-bold text-gray-500">kts</span>
