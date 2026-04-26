@@ -353,6 +353,59 @@ Tie into #9 (demo mode) — they're the same problem.
 
 ---
 
+## 14. AuthBanner + ChatHeader — sub-44px tap targets
+
+**Severity**: high (iOS HIG / a11y) · **Effort**: 1h (visual review needed) · **Confidence**: certain
+
+The Scuttlebutt header bar has multiple buttons below Apple's 44pt
+minimum tap target:
+
+- ChatHeader back button: `w-8 h-8` (32×32)
+- ChatHeader Profile / DM-inbox / Propose-channel: `w-10 h-10` (40×40)
+- ChatHeader Leave-channel: `px-2.5 py-1.5` (~30px tall)
+- AuthBanner Sign In + dismiss buttons: ~28–32px tall
+
+UIKit nav-bar pattern is to extend the hit area to 44pt while keeping
+the visual chevron small. Tailwind has no built-in "hit area > visual"
+helper — either bump to `w-11 h-11` (4–12px bigger circle, mild visual
+impact) or wrap the icon in a 44×44 button with a smaller inner
+element holding the bg fill.
+
+**Fix**: design call — Shane to confirm whether to bump visual or
+split visual/hit-area. Same audit applies to other headers (Charts,
+Glass) — do in one sweep so the look is consistent across the app.
+
+---
+
+## 15. Keyboard-offset tracking — two divergent implementations
+
+**Severity**: medium · **Effort**: 1h · **Confidence**: certain
+
+`ChatPage.tsx` and `chat/ChannelProposalModal.tsx` both implement
+keyboard-height tracking against the Capacitor Keyboard plugin with a
+visualViewport fallback for the web. They differ in non-trivial ways:
+
+- ChatPage uses `keyboardWillShow` / `keyboardWillHide` (fires before
+  the animation, smoother visual)
+- ChannelProposalModal uses `keyboardDidShow` / `keyboardWillHide`
+  (mismatched events; `Did` fires after animation completes — feels
+  laggy on first focus)
+- ChatPage stashes a cleanup function on `window.__chatKbCleanup` (a
+  global) for the visualViewport branch; ChannelProposalModal scopes
+  cleanup via a local closure variable
+- Platform detection differs: ChatPage uses dynamic `import()` +
+  `.catch()`; ChannelProposalModal uses `Capacitor.isNativePlatform()`
+
+These should converge into a single `useKeyboardOffset()` hook at
+`hooks/useKeyboardOffset.ts`, used by ChatPage, ChannelProposalModal,
+DiaryPage (which the proposal-modal comment references as the
+template), and any future surface that needs keyboard-aware layout.
+
+**Fix**: extract the hook, return `{ keyboardOffset: number }`,
+delete the inline implementations.
+
+---
+
 ## Running list — last updated this morning
 
 Each audit pass (Charts → Scuttlebutt → Nav Station) will likely
