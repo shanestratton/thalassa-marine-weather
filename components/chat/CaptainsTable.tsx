@@ -144,6 +144,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
     const [userRating, setUserRating] = useState<number | null>(null);
     const [submitting, setSubmitting] = useState(false);
     const [reportSent, setReportSent] = useState(false);
+    const [imageBroken, setImageBroken] = useState(false);
 
     useEffect(() => {
         if (recipe.supabaseId) {
@@ -186,20 +187,21 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Hero image or fallback */}
-                {recipe.image ? (
+                {recipe.image && !imageBroken ? (
                     <div className="relative">
                         <img
                             src={recipe.image}
                             alt={recipe.title}
                             className="w-full h-48 object-cover rounded-t-3xl"
                             style={{ filter: 'brightness(1.05) contrast(1.05) saturate(1.15)' }}
+                            onError={() => setImageBroken(true)}
                         />
                         {/* Galley light vignette — smooths out harsh galley lighting */}
                         <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-black/10 rounded-t-3xl" />
                         <button
                             onClick={onClose}
                             className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white text-xs"
-                            aria-label="Close captain table"
+                            aria-label="Close recipe detail"
                         >
                             ✕
                         </button>
@@ -210,7 +212,7 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                         <button
                             onClick={onClose}
                             className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white text-xs"
-                            aria-label="Close captain table"
+                            aria-label="Close recipe detail"
                         >
                             ✕
                         </button>
@@ -333,6 +335,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
     const [activeFilters, setActiveFilters] = useState<Set<NauticalTag>>(new Set());
     const [showFavouritesOnly, setShowFavouritesOnly] = useState(false);
     const [favouriteIds, setFavouriteIds] = useState<Set<string>>(new Set());
+    const [brokenImageIds, setBrokenImageIds] = useState<Set<string>>(new Set());
 
     // Bilge Dive mode
     const [bilgeDiveMode, setBilgeDiveMode] = useState(false);
@@ -775,7 +778,7 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                         className="w-full flex items-stretch gap-3 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-amber-500/[0.04] hover:border-amber-500/15 transition-all text-left active:scale-[0.98]"
                                     >
                                         {/* Thumbnail with galley light filter */}
-                                        {recipe.image ? (
+                                        {recipe.image && !brokenImageIds.has(recipe.supabaseId) ? (
                                             <div className="w-16 h-16 rounded-lg flex-shrink-0 overflow-hidden relative">
                                                 <img
                                                     src={recipe.image}
@@ -783,9 +786,13 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                                     className="w-full h-full object-cover"
                                                     style={{ filter: 'brightness(1.05) contrast(1.05) saturate(1.15)' }}
                                                     loading="lazy"
-                                                    onError={(e) => {
-                                                        (e.target as HTMLImageElement).style.display = 'none';
-                                                    }}
+                                                    onError={() =>
+                                                        setBrokenImageIds((prev) => {
+                                                            const next = new Set(prev);
+                                                            next.add(recipe.supabaseId);
+                                                            return next;
+                                                        })
+                                                    }
                                                 />
                                                 <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-black/5 rounded-lg pointer-events-none" />
                                             </div>
