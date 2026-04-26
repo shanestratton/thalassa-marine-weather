@@ -13,7 +13,7 @@ export const AuthBanner: React.FC<AuthBannerProps> = ({ onSignIn, onDismiss }) =
         </div>
         <div className="flex-1">
             <p className="text-xs font-bold text-white">Sign In Required</p>
-            <p className="text-[11px] text-gray-400">Sign in to share registers with crew</p>
+            <p className="text-[11px] text-gray-400">Sign in to chat with the crew</p>
         </div>
         <button
             onClick={() => {
@@ -27,7 +27,7 @@ export const AuthBanner: React.FC<AuthBannerProps> = ({ onSignIn, onDismiss }) =
         <button
             onClick={onDismiss}
             className="p-1 text-gray-500 hover:text-gray-300 transition-colors"
-            aria-label="Dismiss install prompt"
+            aria-label="Dismiss sign-in banner"
         >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
