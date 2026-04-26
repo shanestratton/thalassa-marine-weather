@@ -60,10 +60,6 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
     const [activeTab, setActiveTab] = useState<'' | 'food' | 'shopping'>('');
     const [activeMeals, setActiveMeals] = useState<MealPlan[]>([]);
     const [shoppingSummary, setShoppingSummary] = useState<ShoppingListSummary | null>(null);
-    const [galleyMessages, setGalleyMessages] = useState<{ id: string; text: string; sender: string; time: string }[]>(
-        [],
-    );
-    const [galleyInput, setGalleyInput] = useState('');
     const [cookingMealId, setCookingMealId] = useState<string | null>(null);
     const [provisioned, setProvisioned] = useState(() => {
         try {
@@ -138,14 +134,6 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
         const cooking = getMealsByStatus('cooking');
         setActiveMeals([...cooking, ...reserved]);
         setShoppingSummary(getShoppingList());
-
-        // Load cached galley messages
-        try {
-            const raw = localStorage.getItem('thalassa_galley_chat');
-            if (raw) setGalleyMessages(JSON.parse(raw));
-        } catch (e) {
-            console.warn('Failed to load galley chat cache:', e);
-        }
     }, [expanded]);
 
     const handleToggle = useCallback(() => {
@@ -173,26 +161,6 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
         },
         [onOpenCookingMode],
     );
-
-    const _handleSendGalleyMsg = useCallback(() => {
-        if (!galleyInput.trim()) return;
-        const msg = {
-            id: Date.now().toString(),
-            text: galleyInput.trim(),
-            sender: 'Skipper',
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        };
-        const updated = [...galleyMessages, msg];
-        setGalleyMessages(updated);
-        setGalleyInput('');
-        triggerHaptic('light');
-
-        try {
-            localStorage.setItem('thalassa_galley_chat', JSON.stringify(updated.slice(-50)));
-        } catch (e) {
-            console.warn('Failed to save galley chat:', e);
-        }
-    }, [galleyInput, galleyMessages]);
 
     return (
         <div className={className ?? 'mx-4 mt-3 mb-2'}>
@@ -261,7 +229,6 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                                       : 'Plan your meals'
                             }
                             color="amber"
-                            defaultOpen={activeTab === 'food'}
                             onToggle={() => setActiveTab(activeTab === 'food' ? '' : 'food')}
                             isOpen={activeTab === 'food'}
                         >
@@ -295,7 +262,6 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                             title="Shopping List"
                             subtitle={`${shoppingSummary.remaining} item${shoppingSummary.remaining !== 1 ? 's' : ''} to buy`}
                             color="emerald"
-                            defaultOpen={false}
                             onToggle={() => setActiveTab(activeTab === 'shopping' ? '' : 'shopping')}
                             isOpen={activeTab === 'shopping'}
                         >
