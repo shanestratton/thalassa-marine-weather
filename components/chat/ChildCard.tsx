@@ -30,7 +30,6 @@ interface ChildCardProps {
     color: string;
     isOpen: boolean;
     onToggle: () => void;
-    defaultOpen?: boolean;
     children: React.ReactNode;
 }
 
@@ -47,7 +46,6 @@ export const ChildCard: React.FC<ChildCardProps> = ({ icon, title, subtitle, col
                 }`}
                 aria-expanded={isOpen}
                 aria-label={`${title} — ${subtitle}`}
-                role="button"
             >
                 <div
                     className={`w-11 h-11 rounded-xl ${c.iconBg} border ${c.border} flex items-center justify-center text-xl flex-shrink-0`}
