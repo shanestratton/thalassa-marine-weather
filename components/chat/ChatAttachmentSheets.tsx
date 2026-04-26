@@ -114,7 +114,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                 <h3 className="text-sm font-bold text-white/80">📍 Drop a Pin</h3>
                 <button
                     onClick={onClose}
-                    className="text-white/60 hover:text-white/60 text-lg transition-colors px-2"
+                    className="text-white/60 hover:text-white/80 text-lg transition-colors px-2"
                     aria-label="Close attachment sheet"
                 >
                     ✕
@@ -206,7 +206,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                         <button
                             aria-label="Send attachment"
                             onClick={onSendPin}
-                            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-500/20 to-sky-500/20 hover:from-sky-500/30 hover:to-sky-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
+                            className="px-4 py-2.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
                         >
                             📍 Drop
                         </button>
@@ -237,7 +237,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                 <h3 className="text-sm font-bold text-white/80">🗺️ Share Point of Interest</h3>
                 <button
                     onClick={onClose}
-                    className="text-white/60 hover:text-white/60 text-lg transition-colors px-2"
+                    className="text-white/60 hover:text-white/80 text-lg transition-colors px-2"
                     aria-label="Close attachment sheet"
                 >
                     ✕
@@ -272,7 +272,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                         <button
                             aria-label="Send attachment"
                             onClick={onSendPoi}
-                            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500/20 to-emerald-500/20 hover:from-emerald-500/30 hover:to-emerald-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
+                            className="px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
                         >
                             🗺️ Share
                         </button>
@@ -308,7 +308,7 @@ export const TrackPickerSheet: React.FC<TrackPickerSheetProps> = React.memo(
                 <h3 className="text-sm font-bold text-white/80">⛵ Share a Voyage</h3>
                 <button
                     onClick={onClose}
-                    className="text-white/60 hover:text-white/60 text-lg transition-colors px-2"
+                    className="text-white/60 hover:text-white/80 text-lg transition-colors px-2"
                     aria-label="Close attachment sheet"
                 >
                     ✕
@@ -342,7 +342,7 @@ export const TrackPickerSheet: React.FC<TrackPickerSheetProps> = React.memo(
                                 key={v.voyageId}
                                 className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-all"
                             >
-                                <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500/15 to-sky-500/15 flex items-center justify-center">
+                                <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-sky-500/15 flex items-center justify-center">
                                     <span className="text-lg">⛵</span>
                                 </div>
                                 <div className="flex-1 min-w-0">
@@ -355,7 +355,7 @@ export const TrackPickerSheet: React.FC<TrackPickerSheetProps> = React.memo(
                                     aria-label="Send attachment"
                                     onClick={() => onSendTrack(v)}
                                     disabled={trackSharing}
-                                    className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-gradient-to-r from-emerald-500/15 to-emerald-500/15 hover:from-emerald-500/25 hover:to-emerald-500/25 text-xs text-emerald-400/80 font-bold transition-all active:scale-95 disabled:opacity-40"
+                                    className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-xs text-emerald-400/80 font-bold transition-all active:scale-95 disabled:opacity-40"
                                 >
                                     {trackSharing ? (
                                         <div className="w-4 h-4 border-2 border-emerald-500/30 rounded-full border-t-teal-500 animate-spin" />
@@ -412,9 +412,9 @@ export const TrackDisclaimerModal: React.FC<TrackDisclaimerModalProps> = React.m
                     Cancel
                 </button>
                 <button
-                    aria-label="Import from photo library"
+                    aria-label="Import shared track to ship's log"
                     onClick={() => onImport(track.trackId, track.title)}
-                    className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-sky-600 text-white text-sm font-bold transition-all active:scale-95 shadow-lg shadow-sky-500/20"
+                    className="flex-1 py-2.5 rounded-xl bg-sky-600 text-white text-sm font-bold transition-all active:scale-95 shadow-lg shadow-sky-500/20"
                 >
                     ⬇ Import Track
                 </button>
