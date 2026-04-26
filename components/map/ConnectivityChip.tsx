@@ -83,7 +83,11 @@ export const ConnectivityChip: React.FC<ConnectivityChipProps> = ({ visible }) =
             // Bottom-right, above the Mapbox scale control which sits at
             // bottom-right by default. z high enough to clear the chip
             // backdrop but below the modal layer.
-            className="fixed right-2 z-[140] pointer-events-auto chart-chip-up"
+            // right-[16px] aligns this chip with the right-rail FAB column
+            // (Layer/Offline/Vessel Search at top-[80/144/208]) and the
+            // bottom-right MapActionFabs (right-4 = also 16px). Every right-
+            // edge element on the chart now sits on the same vertical gridline.
+            className="fixed right-[16px] z-[140] pointer-events-auto chart-chip-up"
             style={{ bottom: 'max(40px, calc(env(safe-area-inset-bottom) + 32px))' }}
             title={s.tooltip}
         >

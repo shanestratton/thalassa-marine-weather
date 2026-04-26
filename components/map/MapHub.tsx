@@ -1648,7 +1648,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 setShowVesselSearch(true);
                                 triggerHaptic('light');
                             }}
-                            className="absolute z-[500] top-[56px] right-[128px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 text-slate-400"
+                            // Right-rail column — sits below Layer FAB (top-[80px]) and
+                            // Offline FAB (top-[144px]) at top-[208px]. z-[700] matches the
+                            // rail's other FABs (was z-[500]) so it doesn't get stacked under
+                            // the Layer expanded menu when both are visible.
+                            className="absolute z-[700] top-[208px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95 text-slate-400"
                             aria-label="Search vessels"
                         >
                             🔍
@@ -1714,7 +1718,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 triggerHaptic('light');
                                 setShowOfflineArea(true);
                             }}
-                            className="absolute z-[500] top-[184px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                            // Right-rail column — second FAB below the Layer FAB.
+                            // top-[144px] = top-[80px] + 48 (FAB height) + 16 (gap),
+                            // matching the 64px rhythm of the rest of the right rail.
+                            // z-[700] matches the rest of the rail.
+                            className="absolute z-[700] top-[144px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
                             aria-label="Download offline map area"
                             title="Download offline area"
                         >

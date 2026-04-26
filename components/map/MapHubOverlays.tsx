@@ -436,6 +436,21 @@ export const LayerFABMenu: React.FC<{
         }
     }, [showLayerMenu]);
 
+    // Mutual exclusion with the top-center ChartModes dropdown — when
+    // this menu opens we dispatch an event the modes chip listens for
+    // (closing itself), and we listen for the modes-chip-open event so
+    // we close ourselves. Stops the two big dropdowns from visually
+    // overlapping on narrow phones.
+    useEffect(() => {
+        if (showLayerMenu) window.dispatchEvent(new CustomEvent('thalassa:layer-menu-open'));
+    }, [showLayerMenu]);
+    useEffect(() => {
+        const onModesOpen = () => setShowLayerMenu(false);
+        window.addEventListener('thalassa:chart-modes-open', onModesOpen);
+        return () => window.removeEventListener('thalassa:chart-modes-open', onModesOpen);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // Sort cyclones by distance from user
     const sortedCyclones = [...allCyclones].sort((a, b) => {
         const dA = Math.hypot(a.currentPosition.lat - userLat, a.currentPosition.lon - userLon);
@@ -481,7 +496,13 @@ export const LayerFABMenu: React.FC<{
     const hasCharts = skCharts.length > 0 || chartCatalogSources.length > 0 || localCharts.length > 0;
 
     return (
-        <div className={`absolute z-[700] flex flex-col items-end gap-2 top-[120px] right-[16px]`}>
+        // Right-rail FAB column — anchors at top-[80px] so it clears the
+        // safe-area + the ChartModes chip with a 16px gap. Stacks evenly
+        // at 64px increments (48 FAB + 16 gap). The Offline FAB and the
+        // Vessel Search FAB (both in MapHub.tsx) sit on the same
+        // right-[16px] column at top-[144px] and top-[208px] respectively
+        // so the entire right rail reads as one designed column.
+        <div className={`absolute z-[700] flex flex-col items-end gap-2 top-[80px] right-[16px]`}>
             {/* ── FAB Button ── */}
             <button
                 aria-label="Toggle chart layer menu"
