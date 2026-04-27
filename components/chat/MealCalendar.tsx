@@ -5,7 +5,7 @@
  * Includes SlotPicker for recipe search, Provision Passage CTA,
  * crew stepper, and copy/move context menu.
  */
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
     scheduleMeal,
@@ -26,6 +26,9 @@ import { triggerHaptic } from '../../utils/system';
 import { ChefPlate } from './ChefPlate';
 import { CustomRecipeForm } from './CustomRecipeForm';
 import { SLOT_CONFIG, STRIP_WORDS } from './galleyTokens';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('MealCalendar');
 
 export interface MealCalendarProps {
     mealDays: MealDayInfo | null;
@@ -34,7 +37,6 @@ export interface MealCalendarProps {
     voyageName: string | null;
     activeMeals: MealPlan[];
     onMealsChanged: () => void;
-    onOpenCookingMode?: (meal: MealPlan) => void;
     cookingMealId: string | null;
     onCookNow: (meal: MealPlan) => void;
     shoppingSummary: ShoppingListSummary | null;
@@ -49,8 +51,6 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
     voyageName,
     activeMeals,
     onMealsChanged,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    onOpenCookingMode,
     cookingMealId,
     onCookNow,
     shoppingSummary,
@@ -124,10 +124,21 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
         }
     }, []);
 
+    // Force re-render when stores change (e.g. after shopping/purchasing)
+    const [storesVersion, setStoresVersion] = useState(0);
+    useEffect(() => {
+        const handler = () => setStoresVersion((v) => v + 1);
+        window.addEventListener('thalassa:stores-changed', handler);
+        return () => window.removeEventListener('thalassa:stores-changed', handler);
+    }, []);
+
     // ── Shared shortfall computation ──
     // Single source of truth for what needs to go on the shopping list.
     // Used by both the CTA badge count AND the add-to-list handler.
-    const computeShortfalls = useCallback(() => {
+    // Memoised so the inner loop runs once per relevant change instead of
+    // 2× per render (badge count + expanded ChefPlate aggregate set).
+    const shortfalls = useMemo(() => {
+        void storesVersion; // reactive dep — re-compute when stores change
         if (!mealDays || activeMeals.length === 0) return [];
 
         const storesAvail = getStoresAvailability();
@@ -176,7 +187,7 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
         }
 
         // Calculate remaining shortfall for each ingredient
-        const shortfalls: { name: string; qty: number; unit: string }[] = [];
+        const out: { name: string; qty: number; unit: string }[] = [];
         for (const [key, need] of needs) {
             const store = fuzzyMatch(need.name);
             // Use on_hand (not available) — available subtracts reservations from
@@ -185,34 +196,23 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
             const onList = onListQty.get(key) || 0;
             const remaining = Math.round((need.qty - inStores - onList) * 10) / 10;
             if (remaining > 0) {
-                shortfalls.push({ name: need.name, qty: remaining, unit: need.unit });
+                out.push({ name: need.name, qty: remaining, unit: need.unit });
             }
         }
-        return shortfalls;
-    }, [mealDays, activeMeals, crewCount]);
+        return out;
+    }, [mealDays, activeMeals, crewCount, storesVersion]);
+
+    const shortfallCount = shortfalls.length;
+    const aggregateShortfallNames = useMemo(() => new Set(shortfalls.map((s) => s.name.toLowerCase())), [shortfalls]);
 
     // ── Add to Shopping List: aggregate all shortfalls at once ──
     const [provisioning, setProvisioning] = useState(false);
     const [lastAddedCount, setLastAddedCount] = useState<number | null>(null);
 
-    // Force re-render when stores change (e.g. after shopping/purchasing)
-    const [storesVersion, setStoresVersion] = useState(0);
-    useEffect(() => {
-        const handler = () => setStoresVersion((v) => v + 1);
-        window.addEventListener('thalassa:stores-changed', handler);
-        return () => window.removeEventListener('thalassa:stores-changed', handler);
-    }, []);
-
     // Reset success state when meals change (new meal added/removed)
     useEffect(() => {
         setLastAddedCount(null);
     }, [activeMeals]);
-
-    // CTA badge: how many items still need adding
-    const shortfallCount = (() => {
-        void storesVersion; // reactive dependency — re-runs when stores change
-        return computeShortfalls().length;
-    })();
 
     const handleAddToShoppingList = useCallback(async () => {
         if (!mealDays || activeMeals.length === 0) return;
@@ -220,9 +220,6 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
         setLastAddedCount(null);
         try {
             const { addManualItem } = await import('../../services/ShoppingListService');
-
-            // Use the SAME computation as the badge count
-            const shortfalls = computeShortfalls();
 
             let added = 0;
             for (const sf of shortfalls) {
@@ -241,11 +238,10 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
             setLastAddedCount(added);
             // Success state persists until activeMeals changes (new meal added/removed)
         } catch (e) {
-            console.error('Add to shopping list error:', e);
+            log.error('Add to shopping list error:', e);
         }
         setProvisioning(false);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mealDays, activeMeals, crewCount, onShoppingChanged, computeShortfalls]);
+    }, [mealDays, activeMeals, onShoppingChanged, shortfalls]);
 
     // No dates set — prompt user
     if (!mealDays) {
@@ -486,55 +482,25 @@ export const MealCalendar: React.FC<MealCalendarProps> = ({
                             })}
                         </div>
 
-                        {/* Expanded ChefPlate for selected meal */}
-                        {expandedMeal && mealMap.get(`${date}_breakfast`)?.id === expandedMeal && (
-                            <div className="mt-2">
-                                <ChefPlate
-                                    meal={activeMeals.find((m) => m.id === expandedMeal)!}
-                                    baseServings={
-                                        activeMeals.find((m) => m.id === expandedMeal)?.servings_planned || crewCount
-                                    }
-                                    cooking={cookingMealId === expandedMeal}
-                                    onCook={() => onCookNow(activeMeals.find((m) => m.id === expandedMeal)!)}
-                                    shoppingSummary={shoppingSummary}
-                                    aggregateShortfallNames={
-                                        new Set(computeShortfalls().map((s) => s.name.toLowerCase()))
-                                    }
-                                />
-                            </div>
-                        )}
-                        {expandedMeal && mealMap.get(`${date}_lunch`)?.id === expandedMeal && (
-                            <div className="mt-2">
-                                <ChefPlate
-                                    meal={activeMeals.find((m) => m.id === expandedMeal)!}
-                                    baseServings={
-                                        activeMeals.find((m) => m.id === expandedMeal)?.servings_planned || crewCount
-                                    }
-                                    cooking={cookingMealId === expandedMeal}
-                                    onCook={() => onCookNow(activeMeals.find((m) => m.id === expandedMeal)!)}
-                                    shoppingSummary={shoppingSummary}
-                                    aggregateShortfallNames={
-                                        new Set(computeShortfalls().map((s) => s.name.toLowerCase()))
-                                    }
-                                />
-                            </div>
-                        )}
-                        {expandedMeal && mealMap.get(`${date}_dinner`)?.id === expandedMeal && (
-                            <div className="mt-2">
-                                <ChefPlate
-                                    meal={activeMeals.find((m) => m.id === expandedMeal)!}
-                                    baseServings={
-                                        activeMeals.find((m) => m.id === expandedMeal)?.servings_planned || crewCount
-                                    }
-                                    cooking={cookingMealId === expandedMeal}
-                                    onCook={() => onCookNow(activeMeals.find((m) => m.id === expandedMeal)!)}
-                                    shoppingSummary={shoppingSummary}
-                                    aggregateShortfallNames={
-                                        new Set(computeShortfalls().map((s) => s.name.toLowerCase()))
-                                    }
-                                />
-                            </div>
-                        )}
+                        {/* Expanded ChefPlate for the selected meal in this day, regardless of slot */}
+                        {expandedMeal &&
+                            SLOT_CONFIG.some((s) => mealMap.get(`${date}_${s.slot}`)?.id === expandedMeal) &&
+                            (() => {
+                                const meal = activeMeals.find((m) => m.id === expandedMeal);
+                                if (!meal) return null;
+                                return (
+                                    <div className="mt-2">
+                                        <ChefPlate
+                                            meal={meal}
+                                            baseServings={meal.servings_planned || crewCount}
+                                            cooking={cookingMealId === expandedMeal}
+                                            onCook={() => onCookNow(meal)}
+                                            shoppingSummary={shoppingSummary}
+                                            aggregateShortfallNames={aggregateShortfallNames}
+                                        />
+                                    </div>
+                                );
+                            })()}
                     </div>
                 );
             })}
@@ -677,6 +643,7 @@ const SlotPicker: React.FC<{
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [keyboardOpen, setKeyboardOpen] = useState(false);
     const [showRecipeForm, setShowRecipeForm] = useState(false);
+    const [brokenImageIds, setBrokenImageIds] = useState<Set<string | number>>(new Set());
 
     // ── Keyboard tracking for iOS ──
     useEffect(() => {
@@ -744,7 +711,7 @@ const SlotPicker: React.FC<{
             triggerHaptic('medium');
             onScheduled();
         } catch (e) {
-            console.warn('Failed to schedule recipe:', e);
+            log.warn('Failed to schedule recipe:', e);
         }
         setScheduling(false);
     };
@@ -766,7 +733,7 @@ const SlotPicker: React.FC<{
             triggerHaptic('medium');
             onScheduled();
         } catch (e) {
-            console.warn('Failed to add custom meal:', e);
+            log.warn('Failed to add custom meal:', e);
         }
         setScheduling(false);
     };
@@ -899,15 +866,19 @@ const SlotPicker: React.FC<{
                                 role="option"
                                 aria-label={`${meal.title} — ${meal.readyInMinutes} minutes, ${meal.ingredients.length} ingredients`}
                             >
-                                {meal.image ? (
+                                {meal.image && !brokenImageIds.has(meal.id) ? (
                                     <img
                                         src={meal.image}
                                         alt=""
                                         className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
                                         loading="lazy"
-                                        onError={(e) => {
-                                            (e.target as HTMLImageElement).style.display = 'none';
-                                        }}
+                                        onError={() =>
+                                            setBrokenImageIds((prev) => {
+                                                const next = new Set(prev);
+                                                next.add(meal.id);
+                                                return next;
+                                            })
+                                        }
                                     />
                                 ) : (
                                     <div className="w-14 h-14 rounded-lg bg-amber-500/10 flex items-center justify-center text-xl flex-shrink-0">

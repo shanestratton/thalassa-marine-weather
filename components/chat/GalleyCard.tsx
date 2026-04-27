@@ -244,7 +244,6 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                                         const cooking = getMealsByStatus('cooking');
                                         setActiveMeals([...cooking, ...reserved]);
                                     }}
-                                    onOpenCookingMode={onOpenCookingMode}
                                     cookingMealId={cookingMealId}
                                     onCookNow={handleCookNow}
                                     shoppingSummary={shoppingSummary}
