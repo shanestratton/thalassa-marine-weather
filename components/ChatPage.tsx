@@ -91,10 +91,6 @@ if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
             from { opacity: 0; transform: translateY(12px) scale(0.97); }
             to { opacity: 1; transform: translateY(0) scale(1); }
         }
-        @keyframes pulseGlow {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
-            50% { box-shadow: 0 0 20px 4px rgba(245, 158, 11, 0.15); }
-        }
         @keyframes fadeSlideDown {
             from { opacity: 0; transform: translateY(-8px); }
             to { opacity: 1; transform: translateY(0); }
@@ -104,7 +100,6 @@ if (typeof document !== 'undefined' && !document.getElementById(STYLE_ID)) {
             100% { background-position: 200% 0; }
         }
         .msg-enter { animation: msgSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) both; }
-        .question-glow { animation: pulseGlow 3s ease-in-out infinite; }
         .fade-slide-down { animation: fadeSlideDown 0.25s ease-out both; }
     `;
     document.head.appendChild(style);

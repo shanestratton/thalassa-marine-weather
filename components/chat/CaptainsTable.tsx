@@ -30,22 +30,25 @@ import { triggerHaptic } from '../../utils/system';
 import { CustomRecipeForm } from './CustomRecipeForm';
 import { toast } from '../Toast';
 
-// ── Group accent palette — gives each filter group its own pop colour ─────
+// ── Group accent palette — quieter, no pulse shadows ──
+// Active state retains the group hue so the user knows what they tapped;
+// idle is uniform white-on-dark for restraint (the group emoji handles
+// at-a-glance differentiation).
 const TAG_GROUP_ACCENT: Record<
     NonNullable<(typeof NAUTICAL_TAG_DEFS)[number]['group']>,
     { active: string; idle: string }
 > = {
     sea_state: {
-        active: 'bg-sky-500/20 text-sky-200 border-sky-400/40 shadow-md shadow-sky-500/20',
-        idle: 'bg-sky-500/[0.04] text-sky-300/60 border-sky-400/10 hover:bg-sky-500/10 hover:text-sky-200',
+        active: 'bg-sky-500/15 text-sky-200 border-sky-400/30',
+        idle: 'bg-white/[0.03] text-white/50 border-white/[0.06] hover:bg-white/[0.06] hover:text-white/70',
     },
     provisioning: {
-        active: 'bg-emerald-500/20 text-emerald-200 border-emerald-400/40 shadow-md shadow-emerald-500/20',
-        idle: 'bg-emerald-500/[0.04] text-emerald-300/60 border-emerald-400/10 hover:bg-emerald-500/10 hover:text-emerald-200',
+        active: 'bg-emerald-500/15 text-emerald-200 border-emerald-400/30',
+        idle: 'bg-white/[0.03] text-white/50 border-white/[0.06] hover:bg-white/[0.06] hover:text-white/70',
     },
     gear: {
-        active: 'bg-amber-500/20 text-amber-200 border-amber-400/40 shadow-md shadow-amber-500/20',
-        idle: 'bg-amber-500/[0.04] text-amber-300/60 border-amber-400/10 hover:bg-amber-500/10 hover:text-amber-200',
+        active: 'bg-amber-500/15 text-amber-200 border-amber-400/30',
+        idle: 'bg-white/[0.03] text-white/50 border-white/[0.06] hover:bg-white/[0.06] hover:text-white/70',
     },
 };
 
@@ -227,9 +230,9 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                         <div className="flex items-center gap-3 mt-1.5">
                             <WheelRating rating={recipe.ratingAvg} count={recipe.ratingCount} size={12} />
                             <span className="text-[11px] text-gray-500">·</span>
-                            <span className="text-[11px] text-gray-500">⏱️ {recipe.readyInMinutes}min</span>
+                            <span className="text-[11px] text-gray-500">{recipe.readyInMinutes} min</span>
                             <span className="text-[11px] text-gray-500">·</span>
-                            <span className="text-[11px] text-gray-500">👤 {recipe.authorName}</span>
+                            <span className="text-[11px] text-gray-500">by {recipe.authorName}</span>
                         </div>
                     </div>
 
@@ -670,9 +673,8 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                         </div>
                         <button
                             onClick={() => setShowUploadForm(true)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500/15 to-orange-500/15 border border-amber-500/25 text-[11px] font-bold text-amber-300 hover:from-amber-500/25 hover:to-orange-500/25 transition-all active:scale-95 whitespace-nowrap"
+                            className="flex items-center gap-1.5 px-3 min-h-[44px] rounded-full bg-amber-500/15 border border-amber-500/25 text-[11px] font-bold text-amber-300 hover:bg-amber-500/25 transition-all active:scale-95 whitespace-nowrap"
                         >
-                            <span className="text-sm leading-none">📝</span>
                             <span>Share</span>
                         </button>
                     </div>
@@ -752,9 +754,9 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                             {!bilgeDiveMode && !showFavouritesOnly && !debouncedQuery && activeFilters.size === 0 && (
                                 <button
                                     onClick={() => setShowUploadForm(true)}
-                                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-xs font-bold text-black shadow-lg shadow-amber-500/20 active:scale-95 transition-transform"
+                                    className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-xl bg-amber-500 text-xs font-bold text-black shadow-lg shadow-amber-500/20 active:scale-95 transition-transform"
                                 >
-                                    📝 Share Your First Recipe
+                                    Share Your First Recipe
                                 </button>
                             )}
                         </div>
@@ -807,15 +809,11 @@ export const CaptainsTable: React.FC<CaptainsTableProps> = ({ className, fullPag
                                             <div>
                                                 <p className="text-xs font-bold text-white truncate">{recipe.title}</p>
                                                 <p className="text-[11px] text-gray-500 mt-0.5">
-                                                    by {recipe.authorName} · ⏱️ {recipe.readyInMinutes}min
+                                                    by {recipe.authorName} · {recipe.readyInMinutes} min
                                                 </p>
                                             </div>
                                             <div className="flex items-center gap-2 mt-1">
-                                                <WheelRating
-                                                    rating={recipe.ratingAvg}
-                                                    count={recipe.ratingCount}
-                                                    size={11}
-                                                />
+                                                <WheelRating rating={recipe.ratingAvg} size={11} />
                                                 {bilgeResult && (
                                                     <span
                                                         className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${
