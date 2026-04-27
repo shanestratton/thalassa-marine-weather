@@ -50,7 +50,6 @@ interface ChannelListProps {
     /** Parent channel ID for sub-channel proposals */
     proposalParentId: string | null;
     setProposalParentId: (id: string | null) => void;
-    onOpenCaptainsTable?: () => void;
     /** Whether the skipper has invited crew or the user is on a crew — gates the Crew Chat button */
     hasCrewInvited?: boolean;
     /** Vessel name from settings — shown in the Crew Chat subtitle. */
@@ -79,7 +78,6 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
     memberChannelIds,
     proposalParentId,
     setProposalParentId,
-    onOpenCaptainsTable,
     hasCrewInvited = false,
     vesselName,
 }) => {
@@ -305,36 +303,8 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
 
             <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/60 px-1 mb-2">Channels</p>
 
-            {/* Channel list — split to inject Captain's Table after Find Crew */}
-            {topLevel
-                .filter((ch) => (CHANNEL_PRIORITY[ch.name] ?? 99) <= 2)
-                .map((ch, i) => renderChannelCard(ch, false, i))}
-
-            {/* ── The Captain's Table (between Find Crew and General) ── */}
-            {onOpenCaptainsTable && (
-                <button
-                    onClick={onOpenCaptainsTable}
-                    className="w-full group flex items-center gap-3 p-3.5 rounded-2xl bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.03] hover:border-white/[0.08] transition-all duration-200 active:scale-[0.98]"
-                    aria-label="The Captain's Table — Community Recipe Hub"
-                >
-                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-white/[0.06] to-white/[0.02] border border-white/[0.05] flex items-center justify-center text-xl group-hover:scale-110 transition-transform duration-200">
-                        ☸
-                    </div>
-                    <div className="text-left flex-1 min-w-0">
-                        <p className="text-lg font-semibold text-white/85 group-hover:text-white transition-colors">
-                            The Captain's Table
-                        </p>
-                        <p className="text-sm text-white/60 truncate mt-0.5">Community recipes · Share & rate</p>
-                    </div>
-                    <div className="w-6 h-6 rounded-full bg-white/[0.03] group-hover:bg-white/[0.06] flex items-center justify-center transition-all group-hover:translate-x-0.5">
-                        <span className="text-white/40 group-hover:text-white/60 text-xs transition-colors">›</span>
-                    </div>
-                </button>
-            )}
-
-            {topLevel
-                .filter((ch) => (CHANNEL_PRIORITY[ch.name] ?? 99) > 2)
-                .map((ch, i) => renderChannelCard(ch, false, i))}
+            {/* Channel list */}
+            {topLevel.map((ch, i) => renderChannelCard(ch, false, i))}
 
             {/* Proposal Modal */}
             {showProposalForm && (

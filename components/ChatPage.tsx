@@ -52,8 +52,6 @@ import {
 } from './chat/ChatAttachmentSheets';
 import { SkeletonChannelList, SkeletonMessageList } from './ui/Skeleton';
 import { ChatErrorBoundary } from './chat/ChatErrorBoundary';
-import { MaritimeIntelCard } from './chat/MaritimeIntelCard';
-import { CaptainsTable } from './chat/CaptainsTable';
 
 import { type PassageStatus, getPassageStatus, getPassageStatusSync } from '../services/PassagePlanService';
 import { WelcomeBanner } from './chat/WelcomeBanner';
@@ -81,7 +79,6 @@ type ChatView =
     | 'profile'
     | 'find_crew'
     | 'marketplace'
-    | 'captains_table'
     | 'admin_panel';
 
 // --- CSS KEYFRAMES (injected once) ---
@@ -576,8 +573,6 @@ export const ChatPage: React.FC = React.memo(() => {
             setView('channels');
         } else if (view === 'marketplace') {
             setView('channels');
-        } else if (view === 'captains_table') {
-            setView('channels');
         } else if (view === 'admin_panel') {
             setView('channels');
         }
@@ -769,9 +764,6 @@ export const ChatPage: React.FC = React.memo(() => {
                         />
                     )}
 
-                    {/* ══════ MARITIME INTEL CARD (news ticker) ══════ */}
-                    {view === 'channels' && !loading && <MaritimeIntelCard />}
-
                     {/* ══════ CHANNEL LIST ══════ */}
                     {view === 'channels' && !loading && (
                         <ChannelList
@@ -801,15 +793,8 @@ export const ChatPage: React.FC = React.memo(() => {
                             setProposalParentId={setProposalParentId}
                             hasCrewInvited={hasCrewInvited}
                             vesselName={settings.vessel?.name}
-                            onOpenCaptainsTable={() => {
-                                setNavDirection('forward');
-                                setView('captains_table');
-                            }}
                         />
                     )}
-
-                    {/* ══════ THE CAPTAIN'S TABLE (full page) ══════ */}
-                    {view === 'captains_table' && !loading && <CaptainsTable fullPage />}
 
                     {/* ══════ JOIN REQUEST MODAL ══════ */}
                     {joinRequestChannel && (

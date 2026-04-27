@@ -25,6 +25,7 @@ import { type ShoppingListSummary, getShoppingList } from '../../services/Shoppi
 import { triggerHaptic } from '../../utils/system';
 import { ChefPlate } from './ChefPlate';
 import { CustomRecipeForm } from './CustomRecipeForm';
+import { CaptainsTable } from './CaptainsTable';
 import { SLOT_CONFIG, STRIP_WORDS } from './galleyTokens';
 import { createLogger } from '../../utils/createLogger';
 
@@ -643,6 +644,7 @@ const SlotPicker: React.FC<{
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const [keyboardOpen, setKeyboardOpen] = useState(false);
     const [showRecipeForm, setShowRecipeForm] = useState(false);
+    const [showCaptainsTable, setShowCaptainsTable] = useState(false);
     const [brokenImageIds, setBrokenImageIds] = useState<Set<string | number>>(new Set());
 
     // ── Keyboard tracking for iOS ──
@@ -937,15 +939,20 @@ const SlotPicker: React.FC<{
                                 </button>
                             </div>
 
+                            {/* Browse community recipe library */}
+                            <button
+                                onClick={() => setShowCaptainsTable(true)}
+                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/[0.04] border border-white/[0.08] text-[11px] font-bold text-white/80 hover:bg-white/[0.08] transition-all active:scale-[0.98] min-h-[44px]"
+                            >
+                                Browse Community Recipes
+                            </button>
+
                             {/* Full recipe creator */}
                             <button
                                 onClick={() => setShowRecipeForm(true)}
-                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/20 text-[11px] font-bold text-amber-300 hover:from-amber-500/15 hover:to-orange-500/15 transition-all active:scale-[0.98]"
+                                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] font-bold text-amber-300 hover:bg-amber-500/15 transition-all active:scale-[0.98] min-h-[44px]"
                             >
-                                📝 Create Full Recipe
-                                <span className="text-[11px] text-amber-400/50 font-normal">
-                                    (with ingredients, directions & photo)
-                                </span>
+                                Create Custom Recipe
                             </button>
                         </div>
                     </div>
@@ -961,6 +968,31 @@ const SlotPicker: React.FC<{
                     }}
                     onClose={() => setShowRecipeForm(false)}
                 />
+            )}
+
+            {/* Captain's Table — community recipe browser */}
+            {showCaptainsTable && (
+                <div className="fixed inset-0 z-[955] bg-slate-950 flex flex-col">
+                    <div
+                        className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] flex-shrink-0"
+                        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+                    >
+                        <button
+                            onClick={() => setShowCaptainsTable(false)}
+                            aria-label="Close recipe browser"
+                            className="w-11 h-11 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center transition-all active:scale-90"
+                        >
+                            <span className="text-sky-400 text-lg">‹</span>
+                        </button>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-base font-bold text-white truncate">Recipe Library</p>
+                            <p className="text-[11px] text-white/60">Browse community recipes</p>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto">
+                        <CaptainsTable fullPage />
+                    </div>
+                </div>
             )}
         </>
     );

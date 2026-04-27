@@ -14,7 +14,6 @@ type ChatView =
     | 'profile'
     | 'find_crew'
     | 'marketplace'
-    | 'captains_table'
     | 'admin_panel';
 
 export interface ChatHeaderProps {
@@ -61,9 +60,9 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                             <button
                                 aria-label="Go back"
                                 onClick={onGoBack}
-                                className="w-8 h-8 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center transition-all active:scale-90"
+                                className="w-11 h-11 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center transition-all active:scale-90"
                             >
-                                <span className="text-sky-400 text-sm">‹</span>
+                                <span className="text-sky-400 text-lg">‹</span>
                             </button>
                         )}
                         {view === 'channels' ? (
@@ -76,9 +75,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                 {view === 'dm_thread' && `${dmPartnerName || 'DM'}`}
                                 {view === 'profile' && '⚓ Sailor Profile'}
 
-                                {view === 'find_crew' && '👥 Crew Finder'}
-                                {view === 'marketplace' && '⚓ Chandlery'}
-                                {view === 'captains_table' && "☸ The Captain's Table"}
+                                {view === 'find_crew' && 'Crew Finder'}
+                                {view === 'marketplace' && 'Chandlery'}
                             </h1>
                         )}
                         {view === 'messages' && activeChannel?.description && (
@@ -92,7 +90,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                     <button
                                         onClick={onPropose}
                                         aria-label="Propose a new channel"
-                                        className="w-10 h-10 rounded-xl bg-white/[0.08] hover:bg-sky-500/15 border border-white/[0.12] hover:border-sky-500/30 flex items-center justify-center transition-all active:scale-95"
+                                        className="w-11 h-11 rounded-xl bg-white/[0.08] hover:bg-sky-500/15 border border-white/[0.12] hover:border-sky-500/30 flex items-center justify-center transition-all active:scale-95"
                                     >
                                         <svg
                                             className="w-5 h-5 text-sky-400"
@@ -112,7 +110,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                 <button
                                     aria-label="Open Profile"
                                     onClick={onOpenProfile}
-                                    className="relative w-10 h-10 rounded-xl border border-white/[0.12] hover:border-white/[0.18] bg-white/[0.08] hover:bg-white/[0.12] transition-all active:scale-95"
+                                    className="relative w-11 h-11 rounded-xl border border-white/[0.12] hover:border-white/[0.18] bg-white/[0.08] hover:bg-white/[0.12] transition-all active:scale-95"
                                 >
                                     <div className="w-full h-full rounded-xl overflow-hidden">
                                         {myAvatarUrl ? (
@@ -134,7 +132,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                 <button
                                     aria-label="Open DMInbox"
                                     onClick={onOpenDMInbox}
-                                    className="relative w-10 h-10 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.12] flex items-center justify-center transition-all active:scale-95"
+                                    className="relative w-11 h-11 rounded-xl bg-white/[0.08] hover:bg-white/[0.12] border border-white/[0.12] flex items-center justify-center transition-all active:scale-95"
                                 >
                                     <span className="text-xl">✉️</span>
                                     {unreadDMs > 0 && (
@@ -152,7 +150,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = React.memo(
                                     <button
                                         aria-label="Leave channel"
                                         onClick={onLeaveChannel}
-                                        className="px-2.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-red-500/10 border border-white/[0.06] text-white/50 hover:text-red-400 text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95"
+                                        className="px-3 min-h-[44px] rounded-lg bg-white/[0.04] hover:bg-red-500/10 border border-white/[0.06] text-white/50 hover:text-red-400 text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95"
                                     >
                                         Leave
                                     </button>
