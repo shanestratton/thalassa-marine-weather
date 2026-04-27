@@ -225,7 +225,19 @@ const HeroSlideComponent = ({
     // essential-mode slot swaps from EssentialMapSlide to EssentialAnchorView
     // (swing circle + radar + nearby AIS). Subscribe once at the HeroSlide
     // level so every slide in the carousel sees the same state.
-    const [anchorSnapshot, setAnchorSnapshot] = useState<AnchorWatchSnapshot | null>(null);
+    //
+    // CRITICAL: lazy-initialise from `AnchorWatchService.getSnapshot()` — NOT
+    // from `null`. The previous implementation defaulted to null on first
+    // render, then the useEffect subscribed and the listener immediately fired
+    // with the real state, causing a re-render. Visible result: when the
+    // anchor was already deployed at app startup, the EssentialMapSlide
+    // rendered for one frame before being replaced by EssentialAnchorView,
+    // creating a visible "jump" in the Glass page on cold start. Lazy-init
+    // means the FIRST render already has the correct snapshot, so the right
+    // view (map vs anchor) is chosen from frame 1. No flash, no jump.
+    const [anchorSnapshot, setAnchorSnapshot] = useState<AnchorWatchSnapshot | null>(() =>
+        AnchorWatchService.getSnapshot(),
+    );
     useEffect(() => {
         const unsub = AnchorWatchService.subscribe(setAnchorSnapshot);
         return unsub;
