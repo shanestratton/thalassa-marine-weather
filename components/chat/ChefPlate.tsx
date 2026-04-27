@@ -16,6 +16,9 @@ import {
 import { type ShoppingListSummary } from '../../services/ShoppingListService';
 import { triggerHaptic } from '../../utils/system';
 import { getIngredientEmoji, getStorageLocation, STRIP_WORDS } from './galleyTokens';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('ChefPlate');
 
 interface ChefPlateProps {
     meal: MealPlan;
@@ -159,7 +162,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                 const steps = await getRecipeInstructions(meal.spoonacular_id);
                 setInstructions(steps);
             } catch (e) {
-                console.warn('Failed to load instructions:', e);
+                log.warn('Failed to load instructions:', e);
             }
             setLoadingInstructions(false);
         }
@@ -380,7 +383,7 @@ export const ChefPlate: React.FC<ChefPlateProps> = ({
                                     const steps = await getRecipeInstructions(meal.spoonacular_id);
                                     setInstructions(steps);
                                 } catch (e) {
-                                    console.warn('Failed to load instructions:', e);
+                                    log.warn('Failed to load instructions:', e);
                                 }
                                 setLoadingInstructions(false);
                             }
