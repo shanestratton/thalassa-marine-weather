@@ -198,7 +198,7 @@ class ChatServiceClass {
     private _refreshChannelsCache(): void {
         // Fire-and-forget background refresh
         this._fetchAndCacheChannels().catch((e) => {
-            log.warn(``, e);
+            log.warn('Background channel-cache refresh failed:', e);
         });
     }
 
@@ -1327,11 +1327,22 @@ class ChatServiceClass {
     private async queueOffline(msg: QueuedMessage): Promise<void> {
         try {
             const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
-            const queue: QueuedMessage[] = value ? JSON.parse(value) : [];
+            let queue: QueuedMessage[] = [];
+            if (value) {
+                try {
+                    const parsed = JSON.parse(value);
+                    if (Array.isArray(parsed)) queue = parsed;
+                    else throw new Error('queue is not an array');
+                } catch (parseErr) {
+                    // Corrupt queue — drop it so we don't keep tripping over the same bad payload
+                    log.warn('Offline queue corrupt, resetting:', parseErr);
+                    await Preferences.remove({ key: OFFLINE_QUEUE_KEY });
+                }
+            }
             queue.push(msg);
             await Preferences.set({ key: OFFLINE_QUEUE_KEY, value: JSON.stringify(queue) });
         } catch (e) {
-            log.warn('best effort:', e);
+            log.warn('queueOffline best effort:', e);
         }
     }
 
@@ -1340,7 +1351,16 @@ class ChatServiceClass {
         try {
             const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
             if (!value) return;
-            const queue: QueuedMessage[] = JSON.parse(value);
+            let queue: QueuedMessage[];
+            try {
+                const parsed = JSON.parse(value);
+                if (!Array.isArray(parsed)) throw new Error('queue is not an array');
+                queue = parsed;
+            } catch (parseErr) {
+                log.warn('Offline queue corrupt, dropping:', parseErr);
+                await Preferences.remove({ key: OFFLINE_QUEUE_KEY });
+                return;
+            }
             if (queue.length === 0) return;
 
             // Clear queue first to avoid double-sends
