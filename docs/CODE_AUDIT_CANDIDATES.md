@@ -407,6 +407,38 @@ delete the inline implementations.
 
 ---
 
+## 16. Z-index magic numbers — no documented stacking order
+
+**Severity**: medium · **Effort**: 1–2h · **Confidence**: certain
+
+The Scuttlebutt surface alone uses these z-index values:
+
+| Value      | Where                                                                     | Purpose                                     |
+| ---------- | ------------------------------------------------------------------------- | ------------------------------------------- |
+| `z-10`     | various                                                                   | in-page chrome (status pills, layered text) |
+| `z-40`     | ChatComposer attach menu backdrop                                         | dropdown                                    |
+| `z-50`     | ChannelProposalModal, multiple modals                                     | "modal"                                     |
+| `z-[900]`  | MealCalendar SlotPicker                                                   | full modal                                  |
+| `z-[950]`  | RecipeDetail, CustomRecipeForm                                            | recipe modals                               |
+| `z-[955]`  | CaptainsTable in MealCalendar                                             | recipe browser takeover                     |
+| `z-[9998]` | Track import status toast                                                 | toast                                       |
+| `z-[9999]` | PinMapViewer fullscreen, copy/move context, join request, TrackDisclaimer | "make sure this is on top"                  |
+
+The 9998 / 9999 values are the smell. Each was added by a different
+PR with the reasoning "I want this above everything else", with no
+shared layer dictionary. Result: when two such layers are open
+simultaneously, ordering is decided by mount order, not intent. The
+TrackDisclaimer (over a track import) and the pin map viewer (over a
+pin tap) both claim z-9999 — visible bug if both fire.
+
+**Fix**: add `utils/zIndex.ts` exporting a small dictionary of named
+layers (`inPage: 10`, `dropdown: 30`, `bottomSheet: 40`, `modal: 50`,
+`fullscreenTakeover: 60`, `toast: 70`, `criticalDialog: 80`).
+Replace every magic z-index in components with `Z.modal`, `Z.toast`,
+etc. Numbers can grow over time, but the hierarchy stays explicit.
+
+---
+
 ## Running list — last updated this morning
 
 Each audit pass (Charts → Scuttlebutt → Nav Station) will likely
