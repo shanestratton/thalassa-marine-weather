@@ -91,10 +91,16 @@ export const EssentialAnchorView: React.FC<EssentialAnchorViewProps> = ({
     speedUnit = 'kts',
     hourlyForecast,
 }) => {
-    const [snapshot, setSnapshot] = useState<AnchorWatchSnapshot | null>(null);
+    // Lazy-init the snapshot from the service's current state so the first
+    // render already has the correct values (anchor position, swing radius,
+    // GPS quality, etc.). Defaulting to null and waiting for the subscribe
+    // listener caused a one-frame "loading" flash on cold start when the
+    // anchor was already deployed.
+    const initialSnapshot = AnchorWatchService.getSnapshot();
+    const [snapshot, setSnapshot] = useState<AnchorWatchSnapshot | null>(initialSnapshot);
     const [aisTargets, setAisTargets] = useState<AisTargetDot[]>([]);
     const [nmeaState, setNmeaState] = useState<NmeaStoreState | null>(null);
-    const snapshotRef = useRef<AnchorWatchSnapshot | null>(null);
+    const snapshotRef = useRef<AnchorWatchSnapshot | null>(initialSnapshot);
 
     // Subscribe to anchor-watch snapshot updates.
     useEffect(() => {
