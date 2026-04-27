@@ -377,29 +377,30 @@ Glass) — do in one sweep so the look is consistent across the app.
 
 ---
 
-## 15. Keyboard-offset tracking — two divergent implementations
+## 15. Keyboard-offset tracking — FOUR divergent implementations
 
 **Severity**: medium · **Effort**: 1h · **Confidence**: certain
 
-`ChatPage.tsx` and `chat/ChannelProposalModal.tsx` both implement
-keyboard-height tracking against the Capacitor Keyboard plugin with a
-visualViewport fallback for the web. They differ in non-trivial ways:
+There are now four copies of "track Capacitor keyboard show/hide with
+a visualViewport fallback" scattered across the chat surface, each
+with subtle differences:
 
-- ChatPage uses `keyboardWillShow` / `keyboardWillHide` (fires before
-  the animation, smoother visual)
-- ChannelProposalModal uses `keyboardDidShow` / `keyboardWillHide`
-  (mismatched events; `Did` fires after animation completes — feels
-  laggy on first focus)
-- ChatPage stashes a cleanup function on `window.__chatKbCleanup` (a
-  global) for the visualViewport branch; ChannelProposalModal scopes
-  cleanup via a local closure variable
-- Platform detection differs: ChatPage uses dynamic `import()` +
-  `.catch()`; ChannelProposalModal uses `Capacitor.isNativePlatform()`
+| File                                 | Show event                                            | Hide event         | Cleanup pattern                 | Platform check                  |
+| ------------------------------------ | ----------------------------------------------------- | ------------------ | ------------------------------- | ------------------------------- |
+| `ChatPage.tsx`                       | `keyboardWillShow`                                    | `keyboardWillHide` | `window.__chatKbCleanup` global | dynamic `import()` + `.catch()` |
+| `chat/ChannelProposalModal.tsx`      | `keyboardDidShow`                                     | `keyboardWillHide` | local closure                   | `Capacitor.isNativePlatform()`  |
+| `chat/MealCalendar.tsx` (SlotPicker) | `keyboardDidShow`                                     | `keyboardWillHide` | local closure                   | dynamic `import()` + `.catch()` |
+| `DiaryPage.tsx`                      | (referenced by ProposalModal comment as the template) |                    |                                 |                                 |
+
+The `Will` vs `Did` event split is the most user-visible bug — `Did`
+events fire AFTER the keyboard animation completes, which looks laggy.
+ChatPage gets it right; the other two surfaces feel a beat behind on
+first focus.
 
 These should converge into a single `useKeyboardOffset()` hook at
-`hooks/useKeyboardOffset.ts`, used by ChatPage, ChannelProposalModal,
-DiaryPage (which the proposal-modal comment references as the
-template), and any future surface that needs keyboard-aware layout.
+`hooks/useKeyboardOffset.ts`. Pin the event names to the smoother
+`Will` variant. One source of truth, four call sites collapse to
+imports.
 
 **Fix**: extract the hook, return `{ keyboardOffset: number }`,
 delete the inline implementations.
