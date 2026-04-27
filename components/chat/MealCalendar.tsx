@@ -785,7 +785,7 @@ const SlotPicker: React.FC<{
                         <input
                             value={searchQuery}
                             onChange={(e) => handleSearch(e.target.value)}
-                            placeholder="🔍 Search recipes…"
+                            placeholder="Search recipes…"
                             autoFocus
                             data-no-keyboard-scroll
                             className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
@@ -804,7 +804,7 @@ const SlotPicker: React.FC<{
                         {!searchQuery && results.length === 0 && !searching && (
                             <div className="space-y-2 pb-2">
                                 <p className="text-[11px] text-gray-500 font-bold uppercase tracking-wider px-1">
-                                    💡 Suggestions for {slotLabel?.label || 'this meal'}
+                                    Suggestions for {slotLabel?.label || 'this meal'}
                                 </p>
                                 <div className="flex flex-wrap gap-1.5">
                                     {(slot === 'breakfast'

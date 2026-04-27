@@ -107,41 +107,32 @@ export const ChatComposer: React.FC<ChatComposerProps> = React.memo(
                             {showAttachMenu && (
                                 <>
                                     <div className="fixed inset-0 z-40" onClick={() => setShowAttachMenu(false)} />
-                                    <div className="absolute bottom-12 left-0 z-50 w-52 rounded-2xl bg-black border border-white/[0.1] shadow-2xl overflow-hidden fade-slide-down">
+                                    <div className="absolute bottom-12 left-0 z-50 w-56 rounded-2xl bg-slate-900 border border-white/[0.1] shadow-2xl overflow-hidden fade-slide-down">
                                         <button
                                             onClick={onOpenPinDrop}
                                             aria-label="Drop a pin to share location"
-                                            className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/[0.06] transition-colors text-left min-h-[48px]"
+                                            className="w-full flex flex-col items-start px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[48px]"
                                         >
-                                            <span className="text-lg">📍</span>
-                                            <div>
-                                                <p className="text-sm text-white/80 font-medium">Drop a Pin</p>
-                                                <p className="text-[11px] text-white/60">Share your location</p>
-                                            </div>
+                                            <p className="text-sm text-white/85 font-medium">Drop a Pin</p>
+                                            <p className="text-[11px] text-white/50 mt-0.5">Share your location</p>
                                         </button>
                                         <div className="h-px bg-white/[0.06]" />
                                         <button
                                             onClick={onOpenPoiPicker}
                                             aria-label="Share a point of interest"
-                                            className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/[0.06] transition-colors text-left min-h-[48px]"
+                                            className="w-full flex flex-col items-start px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[48px]"
                                         >
-                                            <span className="text-lg">🗺️</span>
-                                            <div>
-                                                <p className="text-sm text-white/80 font-medium">Share POI</p>
-                                                <p className="text-[11px] text-white/60">Browse & pick any spot</p>
-                                            </div>
+                                            <p className="text-sm text-white/85 font-medium">Share Point</p>
+                                            <p className="text-[11px] text-white/50 mt-0.5">Pick any spot on the map</p>
                                         </button>
                                         <div className="h-px bg-white/[0.06]" />
                                         <button
                                             onClick={onOpenTrackPicker}
                                             aria-label="Share a voyage track"
-                                            className="w-full flex items-center gap-3 px-4 py-3.5 hover:bg-white/[0.06] transition-colors text-left min-h-[48px]"
+                                            className="w-full flex flex-col items-start px-4 py-3 hover:bg-white/[0.06] transition-colors text-left min-h-[48px]"
                                         >
-                                            <span className="text-lg">⛵</span>
-                                            <div>
-                                                <p className="text-sm text-white/80 font-medium">Share Track</p>
-                                                <p className="text-[11px] text-white/60">Share a voyage</p>
-                                            </div>
+                                            <p className="text-sm text-white/85 font-medium">Share Voyage Track</p>
+                                            <p className="text-[11px] text-white/50 mt-0.5">From your ship's log</p>
                                         </button>
                                     </div>
                                 </>

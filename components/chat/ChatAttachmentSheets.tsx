@@ -34,7 +34,7 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                     </div>
                 ) : (
                     <>
-                        <p className="text-sm font-bold text-white/80 mb-1">🚩 Report Message</p>
+                        <p className="text-sm font-bold text-white/80 mb-1">Report Message</p>
                         <p className="text-[11px] text-white/60 mb-4 truncate">
                             From {reportingMsg.display_name}: "{reportingMsg.message.substring(0, 50)}"
                         </p>
@@ -50,11 +50,11 @@ export const ReportModal: React.FC<ReportModalProps> = React.memo(
                                             : 'bg-white/[0.02] border border-white/[0.04] text-white/60 hover:bg-white/[0.04]'
                                     }`}
                                 >
-                                    {r === 'spam' && '📧 Spam'}
-                                    {r === 'harassment' && '😡 Harassment'}
-                                    {r === 'hate_speech' && '🚫 Hate Speech'}
-                                    {r === 'inappropriate' && '⚠️ Inappropriate'}
-                                    {r === 'other' && '📋 Other'}
+                                    {r === 'spam' && 'Spam'}
+                                    {r === 'harassment' && 'Harassment'}
+                                    {r === 'hate_speech' && 'Hate speech'}
+                                    {r === 'inappropriate' && 'Inappropriate'}
+                                    {r === 'other' && 'Other'}
                                 </button>
                             ))}
                         </div>
@@ -111,7 +111,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
     }) => (
         <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3">
             <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-bold text-white/80">📍 Drop a Pin</h3>
+                <h3 className="text-sm font-bold text-white/80">Drop a Pin</h3>
                 <button
                     onClick={onClose}
                     className="text-white/60 hover:text-white/80 text-lg transition-colors px-2"
@@ -130,7 +130,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                     {savedPins.length > 0 && (
                         <div className="mb-2">
                             <p className="text-[11px] font-bold uppercase tracking-[0.15em] text-white/40 mb-1.5">
-                                📌 Recent Pins
+                                Recent Pins
                             </p>
                             <div
                                 className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1"
@@ -208,7 +208,7 @@ export const PinDropSheet: React.FC<PinDropSheetProps> = React.memo(
                             onClick={onSendPin}
                             className="px-4 py-2.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
                         >
-                            📍 Drop
+                            Drop
                         </button>
                     </div>
                 </>
@@ -234,7 +234,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
     ({ pinLat, pinLng, pinCaption, setPinCaption, pinLoading, poiMapRef, onSendPoi, onClose }) => (
         <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3">
             <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-bold text-white/80">🗺️ Share Point of Interest</h3>
+                <h3 className="text-sm font-bold text-white/80">Share Point of Interest</h3>
                 <button
                     onClick={onClose}
                     className="text-white/60 hover:text-white/80 text-lg transition-colors px-2"
@@ -274,7 +274,7 @@ export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
                             onClick={onSendPoi}
                             className="px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
                         >
-                            🗺️ Share
+                            Share
                         </button>
                     </div>
                 </>
@@ -305,7 +305,7 @@ export const TrackPickerSheet: React.FC<TrackPickerSheetProps> = React.memo(
     ({ voyageList, trackLoadingVoyages, trackSharing, onSendTrack, onClose }) => (
         <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3 max-h-[320px] overflow-hidden">
             <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-bold text-white/80">⛵ Share a Voyage</h3>
+                <h3 className="text-sm font-bold text-white/80">Share a Voyage</h3>
                 <button
                     onClick={onClose}
                     className="text-white/60 hover:text-white/80 text-lg transition-colors px-2"
@@ -360,7 +360,7 @@ export const TrackPickerSheet: React.FC<TrackPickerSheetProps> = React.memo(
                                     {trackSharing ? (
                                         <div className="w-4 h-4 border-2 border-emerald-500/30 rounded-full border-t-teal-500 animate-spin" />
                                     ) : (
-                                        '⛵ Share'
+                                        'Share'
                                     )}
                                 </button>
                             </div>

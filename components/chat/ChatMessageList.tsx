@@ -143,7 +143,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                     {pinnedMessages.length > 0 && (
                         <div className="mx-4 mt-2 p-3 rounded-xl bg-amber-500/[0.04] border border-amber-500/[0.08] fade-slide-down">
                             <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-400/40 mb-1.5">
-                                📌 Pinned
+                                Pinned
                             </p>
                             {pinnedMessages.map((pm) => (
                                 <div key={pm.id} className="flex items-center gap-2 py-0.5">
@@ -230,7 +230,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                     <div
                                         className={`msg-enter group relative ${isGroupContinuation ? 'py-0.5' : 'py-2'} ${
                                             msg.is_question && !isDeleted
-                                                ? 'question-glow bg-amber-500/[0.04] border border-amber-500/[0.08] rounded-2xl px-3 mx-[-4px] my-2'
+                                                ? 'bg-amber-500/[0.04] border border-amber-500/[0.08] rounded-2xl px-3 mx-[-4px] my-2'
                                                 : ''
                                         }`}
                                         style={
@@ -245,7 +245,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                         {msg.is_question && !isDeleted && (
                                             <div className="flex items-center gap-1.5 mb-2">
                                                 <span className="text-sm font-bold text-amber-400/80 uppercase tracking-[0.15em]">
-                                                    📢 Question
+                                                    Question
                                                 </span>
                                                 {msg.helpful_count > 0 && (
                                                     <span className="text-sm text-emerald-400/50 ml-auto">
@@ -380,10 +380,10 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                             }`}
                                                                         >
                                                                             {isLoc
-                                                                                ? '📍 Live Location'
+                                                                                ? 'Live Location'
                                                                                 : isPoi
-                                                                                  ? '🗺️ Shared Pin'
-                                                                                  : '📍 Pin'}
+                                                                                  ? 'Shared Pin'
+                                                                                  : 'Pin'}
                                                                         </span>
                                                                     </button>
                                                                     <div className="px-3 py-2">
@@ -484,15 +484,15 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                             aria-label={`Mark as helpful${msg.helpful_count > 0 ? `, ${msg.helpful_count} found helpful` : ''}`}
                                                             className={`text-sm transition-colors flex items-center gap-1 active:scale-95 min-h-[36px] ${likedMessages.has(msg.id) ? 'text-emerald-400/70 cursor-default' : 'text-emerald-400/40 hover:text-emerald-400'}`}
                                                         >
-                                                            {likedMessages.has(msg.id) ? '✅' : '👍'} Helpful
-                                                            {msg.helpful_count > 0 && ` (${msg.helpful_count})`}
+                                                            Helpful
+                                                            {msg.helpful_count > 0 && ` · ${msg.helpful_count}`}
                                                         </button>
                                                         <button
                                                             onClick={() => onReportMsg(msg)}
                                                             aria-label="Report message"
-                                                            className="text-sm text-white/10 hover:text-amber-400/60 transition-colors min-h-[36px]"
+                                                            className="text-sm text-white/30 hover:text-amber-400/60 transition-colors min-h-[36px]"
                                                         >
-                                                            🚩 Report
+                                                            Report
                                                         </button>
                                                         {isMod && (
                                                             <button
@@ -500,7 +500,7 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                 onClick={() => onToggleModMenu(msg.id)}
                                                                 className="text-[11px] text-white/40 hover:text-red-400/60 transition-colors"
                                                             >
-                                                                🛡️ Mod
+                                                                Mod
                                                             </button>
                                                         )}
                                                     </div>
@@ -512,16 +512,16 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                         <button
                                                             onClick={() => onDeleteMessage(msg.id)}
                                                             aria-label="Delete message"
-                                                            className="w-full text-left text-[11px] text-red-400/80 hover:bg-red-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[40px]"
+                                                            className="w-full text-left text-[11px] text-red-400/80 hover:bg-red-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[44px]"
                                                         >
-                                                            🗑 Delete message
+                                                            Delete message
                                                         </button>
                                                         <button
                                                             onClick={() => onPinMessage(msg.id, msg.is_pinned)}
                                                             aria-label={msg.is_pinned ? 'Unpin message' : 'Pin message'}
-                                                            className="w-full text-left text-[11px] text-amber-400/80 hover:bg-amber-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[40px]"
+                                                            className="w-full text-left text-[11px] text-amber-400/80 hover:bg-amber-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[44px]"
                                                         >
-                                                            {msg.is_pinned ? '📌 Unpin' : '📌 Pin message'}
+                                                            {msg.is_pinned ? 'Unpin' : 'Pin message'}
                                                         </button>
                                                         <div className="h-px bg-white/[0.04] my-1" />
                                                         <p className="text-[11px] text-white/60 px-2.5 uppercase tracking-wider">
@@ -534,10 +534,10 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                 { hrs: 168, label: '7d' },
                                                             ].map(({ hrs, label }) => (
                                                                 <button
-                                                                    aria-label="Mute conversation notifications"
+                                                                    aria-label={`Mute ${msg.display_name} for ${label}`}
                                                                     key={hrs}
                                                                     onClick={() => onMuteUser(msg.user_id, hrs)}
-                                                                    className="text-[11px] text-amber-400/70 hover:bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/10 transition-colors min-h-[36px]"
+                                                                    className="text-[11px] text-amber-400/70 hover:bg-amber-500/10 px-2.5 py-1.5 rounded-lg border border-amber-500/10 transition-colors min-h-[44px]"
                                                                 >
                                                                     {label}
                                                                 </button>
@@ -552,18 +552,18 @@ export const ChatMessageList: React.FC<ChatMessageListProps> = React.memo(
                                                                         onBlockUser(msg.user_id, msg.display_name)
                                                                     }
                                                                     aria-label={`Block ${msg.display_name}`}
-                                                                    className="w-full text-left text-[11px] text-red-500/80 hover:bg-red-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[40px]"
+                                                                    className="w-full text-left text-[11px] text-red-500/80 hover:bg-red-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[44px]"
                                                                 >
-                                                                    🚫 Block {msg.display_name}
+                                                                    Block {msg.display_name}
                                                                 </button>
                                                                 <button
                                                                     onClick={() =>
                                                                         onMakeAdmin(msg.user_id, msg.display_name)
                                                                     }
                                                                     aria-label={`Make ${msg.display_name} admin`}
-                                                                    className="w-full text-left text-[11px] text-sky-400/80 hover:bg-sky-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[40px]"
+                                                                    className="w-full text-left text-[11px] text-sky-400/80 hover:bg-sky-500/10 px-2.5 py-2 rounded-lg transition-colors min-h-[44px]"
                                                                 >
-                                                                    👑 Make Admin
+                                                                    Make Admin
                                                                 </button>
                                                             </>
                                                         )}
