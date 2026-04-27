@@ -19,6 +19,10 @@ import {
     isScalable,
 } from '../../services/GalleyRecipeService';
 import { triggerHaptic } from '../../utils/system';
+import { toast } from '../Toast';
+import { createLogger } from '../../utils/createLogger';
+
+const log = createLogger('CustomRecipeForm');
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -175,15 +179,22 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
             tags: [...selectedTags],
         };
 
-        const result = await saveCustomRecipe(input);
-        setSaving(false);
-
-        if (result) {
-            triggerHaptic('light');
-            onSaved();
-        } else {
+        try {
+            const result = await saveCustomRecipe(input);
+            if (result) {
+                triggerHaptic('light');
+            } else {
+                // Service returned null — likely saved locally only (offline / no auth).
+                // Tell the user so they're not surprised when it doesn't show in community.
+                triggerHaptic('heavy');
+                toast.info('Saved locally — will sync when you reconnect');
+            }
+        } catch (e) {
+            log.error('Failed to save recipe:', e);
             triggerHaptic('heavy');
-            // Still close — recipe might have saved locally
+            toast.error('Could not save recipe — please try again');
+        } finally {
+            setSaving(false);
             onSaved();
         }
     };
@@ -482,7 +493,7 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
             onClick={onClose}
         >
             <div
-                className="w-[calc(100%-1.5rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-[85vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-300"
+                className="w-[calc(100%-1.5rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-[85dvh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-300"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
