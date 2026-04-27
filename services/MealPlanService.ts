@@ -243,8 +243,10 @@ export async function completeMeal(mealPlanId: string, servingsConsumed?: number
     const meal = query<MealPlan>(TABLE, (m) => m.id === mealPlanId)[0];
     if (!meal) return null;
 
-    // Calculate consumption ratio
-    const ratio = servingsConsumed ? servingsConsumed / meal.servings_planned : 1;
+    // Calculate consumption ratio. Guard against zero / corrupt servings_planned:
+    // an Infinity ratio would propagate into every store DELTA and trash the inventory.
+    const planned = meal.servings_planned > 0 ? meal.servings_planned : 1;
+    const ratio = servingsConsumed ? servingsConsumed / planned : 1;
 
     // DELTA subtract each ingredient from Ship's Stores
     const storeItems = getAll<{ id: string; item_name: string }>(STORES_TABLE);
