@@ -11,6 +11,9 @@
 import { getAll, insertLocal, query, updateLocal, generateUUID } from './vessel/LocalDatabase';
 import { supabase } from './supabase';
 import { compressImage } from './ProfilePhotoService';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('GalleyRecipe');
 
 const API_BASE = 'https://api.spoonacular.com';
 const CACHE_PREFIX = 'thalassa_galley_';
@@ -404,7 +407,7 @@ export async function getRecipeInstructions(spoonacularId: number | null): Promi
 
         return steps;
     } catch (err) {
-        console.warn('[GalleyRecipe] Failed to fetch instructions:', err);
+        log.warn('Failed to fetch instructions:', err);
         return [];
     }
 }
@@ -483,7 +486,7 @@ export async function generateGalleyPlan(days: number, crew: number): Promise<Ga
 
             const resp = await fetch(`${API_BASE}/mealplanner/generate?${params}`);
             if (!resp.ok) {
-                console.warn(`[GalleyRecipe] API error: ${resp.status}`);
+                log.warn(`API error: ${resp.status}`);
                 return null;
             }
 
@@ -573,7 +576,7 @@ export async function generateGalleyPlan(days: number, crew: number): Promise<Ga
         setCache(cacheKey(days, crew), plan);
         return plan;
     } catch (err) {
-        console.warn('[GalleyRecipe] Failed to generate plan:', err);
+        log.warn('Failed to generate plan:', err);
         return null;
     }
 }
@@ -639,7 +642,7 @@ export async function getShoppingList(recipeIds: number[]): Promise<ShoppingItem
 
         return list;
     } catch (err) {
-        console.warn('[GalleyRecipe] Failed to get shopping list:', err);
+        log.warn('Failed to get shopping list:', err);
         return [];
     }
 }
@@ -670,11 +673,9 @@ export async function uploadRecipePhoto(file: File | Blob, recipeId: string): Pr
     let uploadBlob: Blob = file;
     try {
         uploadBlob = await compressImage(file, 800);
-        console.log(
-            `[GalleyRecipe] Compressed photo: ${(file.size / 1024).toFixed(0)}KB → ${(uploadBlob.size / 1024).toFixed(0)}KB`,
-        );
+        log.info(`Compressed photo: ${(file.size / 1024).toFixed(0)}KB → ${(uploadBlob.size / 1024).toFixed(0)}KB`);
     } catch (e) {
-        console.warn('[GalleyRecipe] Compression failed, uploading original:', e);
+        log.warn('Compression failed, uploading original:', e);
         // Fall through with original file
     }
 
@@ -685,7 +686,7 @@ export async function uploadRecipePhoto(file: File | Blob, recipeId: string): Pr
         .upload(path, uploadBlob, { contentType: 'image/jpeg', cacheControl: '31536000', upsert: true });
 
     if (error) {
-        console.warn('[GalleyRecipe] Photo upload failed:', error.message);
+        log.warn('Photo upload failed:', error.message);
         return '';
     }
 
@@ -699,7 +700,7 @@ export async function uploadRecipePhoto(file: File | Blob, recipeId: string): Pr
  */
 export async function saveCustomRecipe(input: CustomRecipeInput): Promise<GalleyMeal | null> {
     if (!supabase) {
-        console.warn('[GalleyRecipe] Cannot save custom recipe — no Supabase connection');
+        log.warn('Cannot save custom recipe — no Supabase connection');
         return null;
     }
 
@@ -744,7 +745,7 @@ export async function saveCustomRecipe(input: CustomRecipeInput): Promise<Galley
         .single();
 
     if (error) {
-        console.error('[GalleyRecipe] saveCustomRecipe failed:', error.message);
+        log.error('saveCustomRecipe failed:', error.message);
         return null;
     }
 
@@ -910,7 +911,7 @@ async function searchSpoonacular(query: string, maxResults = 8): Promise<GalleyM
             sort: 'popularity',
         });
 
-        console.log(`[GalleyRecipe] Spoonacular search: "${query}" (${maxResults} results)`);
+        log.info(`Spoonacular search: "${query}" (${maxResults} results)`);
         const resp = await fetch(`${API_BASE}/recipes/complexSearch?${params}`);
         if (!resp.ok) return [];
 
@@ -949,7 +950,7 @@ async function searchSpoonacular(query: string, maxResults = 8): Promise<GalleyM
 
         return results;
     } catch (err) {
-        console.warn('[GalleyRecipe] Spoonacular search failed:', err);
+        log.warn('Spoonacular search failed:', err);
         return [];
     }
 }
@@ -1427,8 +1428,12 @@ export function bilgeDiveSearch(
 ): BilgeDiveResult[] {
     if (haveIngredients.length === 0) return [];
 
-    const normHave = haveIngredients.map(normaliseIngredient);
-    const normExclude = excludeIngredients.map(normaliseIngredient);
+    // Drop tokens shorter than 3 chars — single letters (e.g. 'a', 'b')
+    // would substring-match into half the recipe corpus and ruin the score.
+    const MIN_TOKEN_LEN = 3;
+    const normHave = haveIngredients.map(normaliseIngredient).filter((t) => t.length >= MIN_TOKEN_LEN);
+    const normExclude = excludeIngredients.map(normaliseIngredient).filter((t) => t.length >= MIN_TOKEN_LEN);
+    if (normHave.length === 0) return [];
     const results: BilgeDiveResult[] = [];
 
     for (const recipe of recipes) {
@@ -1918,7 +1923,7 @@ export async function rateRecipe(recipeId: string, rating: number): Promise<bool
         .upsert({ recipe_id: recipeId, user_id: user.id, rating }, { onConflict: 'recipe_id,user_id' });
 
     if (error) {
-        console.warn('[GalleyRecipe] rateRecipe failed:', error.message);
+        log.warn('rateRecipe failed:', error.message);
         return false;
     }
 
@@ -1967,7 +1972,7 @@ export async function reportRecipeImage(recipeId: string, reason: string = 'inap
     });
 
     if (error) {
-        console.warn('[GalleyRecipe] reportRecipeImage failed:', error.message);
+        log.warn('reportRecipeImage failed:', error.message);
         return false;
     }
     return true;
