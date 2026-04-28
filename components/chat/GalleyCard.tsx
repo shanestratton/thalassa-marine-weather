@@ -15,6 +15,7 @@ import { toPurchasable } from '../../services/PurchaseUnits';
 import { type PassageStatus } from '../../services/PassagePlanService';
 import { ChildCard } from './ChildCard';
 import { MealCalendar } from './MealCalendar';
+import { CaptainsTable } from './CaptainsTable';
 import { ZONE_EMOJI } from './galleyTokens';
 import { useCrewCount } from '../../contexts/CrewCountContext';
 import { DelegationBadge } from '../crew/DelegationBadge';
@@ -57,7 +58,7 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
         canViewChecklist: true,
     };
     const [expanded, setExpanded] = useState(false);
-    const [activeTab, setActiveTab] = useState<'' | 'food' | 'shopping'>('');
+    const [activeTab, setActiveTab] = useState<'' | 'food' | 'shopping' | 'recipes'>('');
     const [activeMeals, setActiveMeals] = useState<MealPlan[]>([]);
     const [shoppingSummary, setShoppingSummary] = useState<ShoppingListSummary | null>(null);
     const [cookingMealId, setCookingMealId] = useState<string | null>(null);
@@ -348,6 +349,18 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                             </div>
                         </ChildCard>
                     )}
+
+                    {/* ── Recipe Library — always available, opens Captain's Table fullscreen ── */}
+                    <ChildCard
+                        icon="☸"
+                        title="Recipe Library"
+                        subtitle="Browse community recipes · save favourites"
+                        color="sky"
+                        onToggle={() => setActiveTab(activeTab === 'recipes' ? '' : 'recipes')}
+                        isOpen={activeTab === 'recipes'}
+                    >
+                        <CaptainsTable fullPage />
+                    </ChildCard>
 
                     {/* ── Provisioned Toggle ── */}
                     <button

@@ -21,6 +21,10 @@ const AdminPanel = lazyRetry(
     () => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })),
     'AdminPanel_Vessel',
 );
+const CaptainsTable = lazyRetry(
+    () => import('./chat/CaptainsTable').then((m) => ({ default: m.CaptainsTable })),
+    'CaptainsTable_Vessel',
+);
 
 interface VesselHubProps {
     onNavigate: (page: string) => void;
@@ -59,6 +63,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
     const [anchorRadius, setAnchorRadius] = useState(0);
     const [showAdminPanel, setShowAdminPanel] = useState(false);
+    const [showRecipeLibrary, setShowRecipeLibrary] = useState(false);
     const [expanded, setExpanded] = useState<Set<string>>(new Set(['watch', 'passage']));
     const [_isAdmin, setIsAdmin] = useState(false);
 
@@ -423,6 +428,17 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             />
                             <ListDivider />
                             <OfficeRow
+                                icon={<BookIcon color="#0ea5e9" />}
+                                label="Recipe Library"
+                                status="Community Galley"
+                                statusColor="#9ca3af"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    setShowRecipeLibrary(true);
+                                }}
+                            />
+                            <ListDivider />
+                            <OfficeRow
                                 icon={<ChecklistIcon color="#22d3ee" />}
                                 label="Checklists"
                                 status="Safety & Passage"
@@ -562,6 +578,31 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
             {/* Admin Panel Modal */}
             <AdminPanel isOpen={showAdminPanel} onClose={() => setShowAdminPanel(false)} />
+
+            {/* Recipe Library — Captain's Table fullscreen takeover */}
+            {showRecipeLibrary && (
+                <div className="fixed inset-0 z-[955] bg-slate-950 flex flex-col">
+                    <div
+                        className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] flex-shrink-0"
+                        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
+                    >
+                        <button
+                            onClick={() => setShowRecipeLibrary(false)}
+                            aria-label="Close recipe library"
+                            className="w-11 h-11 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center transition-all active:scale-90"
+                        >
+                            <span className="text-sky-400 text-lg">‹</span>
+                        </button>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-base font-bold text-white truncate">Recipe Library</p>
+                            <p className="text-[11px] text-white/60">Browse community galley recipes</p>
+                        </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto">
+                        <CaptainsTable fullPage />
+                    </div>
+                </div>
+            )}
         </div>
     );
 });
