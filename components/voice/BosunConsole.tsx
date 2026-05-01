@@ -194,74 +194,78 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         setTurns((prev) => [...prev.slice(-9), turn]);
     }, []);
 
-    const handlePressStart = useCallback(
-        (which: 'bosun' | 'cloud') => {
-            if (!isSpeechRecognitionSupported()) {
-                setErrorMessage('Voice input not supported on this device. Use the text box below instead.');
+    /**
+     * Tap-to-toggle the talk button. State machine:
+     *   idle      → start listening (state becomes 'recording')
+     *   recording → stop listening + send transcript (state becomes 'sending')
+     *   any other → ignore the tap
+     *
+     * Replaces the older hold-to-talk gesture. iOS WKWebView Web Speech is
+     * also more reliable when toggled rather than rapidly restarted, so this
+     * change tends to fix the "second query does nothing" symptom too.
+     */
+    const handleTalkTap = useCallback(
+        async (which: 'bosun' | 'cloud') => {
+            const currentState = buttonState[which];
+
+            // ── Start listening ─────────────────────────────────────────
+            if (currentState === 'idle' || currentState === 'error' || currentState === 'playing') {
+                if (!isSpeechRecognitionSupported()) {
+                    setErrorMessage('Voice input not supported on this device. Use the text box below instead.');
+                    return;
+                }
+                // Free the iOS audio session before claiming the mic.
+                stopAudio();
+                // Cancel any lingering recognition from a prior session.
+                if (recognitionRef.current) {
+                    try {
+                        recognitionRef.current.cancel();
+                    } catch {
+                        /* ignore */
+                    }
+                    recognitionRef.current = null;
+                }
+                setErrorMessage(null);
+                setPartialTranscript('');
+                try {
+                    const handle = startListening();
+                    handle.onPartial(setPartialTranscript);
+                    recognitionRef.current = handle;
+                    setTarget(which);
+                    setOneButton(which, 'recording');
+                } catch (err) {
+                    setErrorMessage((err as Error).message);
+                    setOneButton(which, 'error');
+                    setTimeout(() => setOneButton(which, 'idle'), 1200);
+                }
                 return;
             }
-            // Free the iOS audio session before starting the mic. Without
-            // this, a second consecutive recording is silently denied while
-            // the previous response audio is still playing on the speaker.
-            stopAudio();
-            // Aggressive reset — ensures the new press starts from a clean
-            // state regardless of how the previous query exited.
-            if (recognitionRef.current) {
-                try {
-                    recognitionRef.current.cancel();
-                } catch {
-                    /* ignore */
+
+            // ── Stop listening + send ───────────────────────────────────
+            if (currentState === 'recording') {
+                const handle = recognitionRef.current;
+                if (!handle) {
+                    // Defensive — shouldn't happen, but recover cleanly.
+                    setOneButton(which, 'idle');
+                    return;
                 }
                 recognitionRef.current = null;
+                setOneButton(which, 'sending');
+                try {
+                    const finalText = await handle.stop();
+                    const text = (finalText || partialTranscript).trim();
+                    setPartialTranscript('');
+                    setTarget(null);
+                    await sendQueryTo(text, which);
+                } catch (err) {
+                    setErrorMessage((err as Error).message);
+                    setOneButton(which, 'error');
+                    setTimeout(() => setOneButton(which, 'idle'), 1200);
+                }
             }
-            setErrorMessage(null);
-            setButtonState((s) => ({ ...s, [which]: 'idle' }));
-            try {
-                const handle = startListening();
-                handle.onPartial(setPartialTranscript);
-                recognitionRef.current = handle;
-                setPartialTranscript('');
-                setTarget(which);
-                setOneButton(which, 'recording');
-            } catch (err) {
-                setErrorMessage((err as Error).message);
-                setOneButton(which, 'error');
-                setTimeout(() => setOneButton(which, 'idle'), 1200);
-            }
+            // sending / awaiting: ignore — user has to wait for the round-trip.
         },
-        [setOneButton, stopAudio],
-    );
-
-    const handlePressEnd = useCallback(
-        async (which: 'bosun' | 'cloud') => {
-            const handle = recognitionRef.current;
-            if (!handle || target !== which) return;
-            recognitionRef.current = null;
-            setOneButton(which, 'sending');
-            try {
-                const finalText = await handle.stop();
-                const text = (finalText || partialTranscript).trim();
-                setPartialTranscript('');
-                setTarget(null);
-                await sendQueryTo(text, which);
-            } catch (err) {
-                setErrorMessage((err as Error).message);
-                setOneButton(which, 'error');
-                setTimeout(() => setOneButton(which, 'idle'), 1200);
-            }
-        },
-        [partialTranscript, sendQueryTo, setOneButton, target],
-    );
-
-    const handleCancel = useCallback(
-        (which: 'bosun' | 'cloud') => {
-            recognitionRef.current?.cancel();
-            recognitionRef.current = null;
-            setPartialTranscript('');
-            setTarget(null);
-            setOneButton(which, 'idle');
-        },
-        [setOneButton],
+        [buttonState, partialTranscript, sendQueryTo, setOneButton, stopAudio],
     );
 
     const handleTypedSubmit = useCallback(
@@ -357,18 +361,14 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                     state={buttonState.bosun}
                     subtitle={bosunAvailable === true ? 'On-boat' : bosunAvailable === false ? 'Offline' : 'Checking'}
                     disabled={!bosunAvailable}
-                    onPressStart={() => handlePressStart('bosun')}
-                    onPressEnd={() => handlePressEnd('bosun')}
-                    onCancel={() => handleCancel('bosun')}
+                    onTap={() => handleTalkTap('bosun')}
                 />
                 <TalkButton
                     variant="cloud"
                     state={buttonState.cloud}
                     subtitle={cloudAvailable === true ? 'Shore' : cloudAvailable === false ? 'Offline' : 'Checking'}
                     disabled={!cloudAvailable}
-                    onPressStart={() => handlePressStart('cloud')}
-                    onPressEnd={() => handlePressEnd('cloud')}
-                    onCancel={() => handleCancel('cloud')}
+                    onTap={() => handleTalkTap('cloud')}
                 />
             </div>
 

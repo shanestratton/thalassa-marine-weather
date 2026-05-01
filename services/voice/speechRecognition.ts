@@ -59,7 +59,10 @@ export function startListening(): SpeechRecognitionHandle {
     }
 
     const recog = new Ctor();
-    recog.continuous = false; // single utterance per PTT press
+    // Continuous mode: keeps listening through natural speech pauses so the
+    // user can finish their thought without the recognizer cutting off
+    // prematurely. The console driver decides when to stop (tap-to-toggle).
+    recog.continuous = true;
     recog.interimResults = true; // emit partials so UI can show live transcript
     recog.maxAlternatives = 1;
     recog.lang = navigator.language || 'en-US';
