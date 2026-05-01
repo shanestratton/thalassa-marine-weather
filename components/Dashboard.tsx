@@ -247,7 +247,13 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         let cancelled = false;
         setRainStatus('loading');
 
-        // 5-minute local cache key to prevent re-fetch on every remount
+        // 30-min local cache + 30-min auto-refresh — Rainbow.ai's paid quota
+        // is small and the previous 5-min cadence burned it within hours of
+        // a few users hitting the app. A 30-min stale read on a 4-hour
+        // nowcast is barely perceptible.
+        const RAIN_CACHE_TTL_MS = 30 * 60 * 1000;
+        const RAIN_REFRESH_INTERVAL_MS = 30 * 60 * 1000;
+
         const source = isSkipper ? 'rainbow' : 'wk';
         const cacheKey = `thalassa_rain_${source}_${lat.toFixed(2)}_${lon.toFixed(2)}`;
         const cached = localStorage.getItem(cacheKey);
@@ -264,30 +270,27 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                     summary?: string;
                     source?: 'rainbow' | 'weatherkit';
                 };
-                if (Date.now() - ts < 5 * 60 * 1000 && cachedData.length > 0) {
+                if (Date.now() - ts < RAIN_CACHE_TTL_MS && cachedData.length > 0) {
                     setMinutelyRain(cachedData);
                     if (cachedSummary) setRainSummary(cachedSummary);
                     if (cachedSource) setRainSource(cachedSource);
                     setRainStatus('loaded');
                     // Still set up the refresh timer below, but skip initial fetch
-                    const rainTimer = setInterval(
-                        () => {
-                            if (document.hidden) return; // Battery: skip when backgrounded
-                            if (!navigator.onLine || cancelled) return;
-                            fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary, src) => {
-                                setMinutelyRain(rain);
-                                setRainSummary(summary);
-                                setRainSource(src);
-                                setRainStatus('loaded');
-                                log.info(`[rain] source=${src} minutes=${rain.length} summary="${summary}"`);
-                                localStorage.setItem(
-                                    cacheKey,
-                                    JSON.stringify({ ts: Date.now(), data: rain, summary, source: src }),
-                                );
-                            });
-                        },
-                        5 * 60 * 1000,
-                    );
+                    const rainTimer = setInterval(() => {
+                        if (document.hidden) return; // Battery: skip when backgrounded
+                        if (!navigator.onLine || cancelled) return;
+                        fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary, src) => {
+                            setMinutelyRain(rain);
+                            setRainSummary(summary);
+                            setRainSource(src);
+                            setRainStatus('loaded');
+                            log.info(`[rain] source=${src} minutes=${rain.length} summary="${summary}"`);
+                            localStorage.setItem(
+                                cacheKey,
+                                JSON.stringify({ ts: Date.now(), data: rain, summary, source: src }),
+                            );
+                        });
+                    }, RAIN_REFRESH_INTERVAL_MS);
                     return () => {
                         cancelled = true;
                         clearInterval(rainTimer);
@@ -323,39 +326,36 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             }
         });
 
-        // Live refresh every 5 minutes
-        const rainTimer = setInterval(
-            () => {
-                if (document.hidden) return;
-                if (!navigator.onLine) return;
-                fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary, src) => {
-                    if (rain.length > 0) {
-                        setMinutelyRain(rain);
-                        setRainSummary(summary);
-                        setRainSource(src);
-                        setRainStatus('loaded');
-                        log.info(`[rain] source=${src} minutes=${rain.length} summary="${summary}"`);
-                        localStorage.setItem(
-                            cacheKey,
-                            JSON.stringify({ ts: Date.now(), data: rain, summary, source: src }),
-                        );
-                    } else {
-                        const fallback = synthesizeFromHourly();
-                        setMinutelyRain(fallback);
-                        setRainSource(fallback.length > 0 ? 'synthetic' : 'unknown');
-                        setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
-                    }
-                }).catch(() => {
-                    if (!cancelled) {
-                        const fallback = synthesizeFromHourly();
-                        setMinutelyRain(fallback);
-                        setRainSource(fallback.length > 0 ? 'synthetic' : 'unknown');
-                        setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
-                    }
-                });
-            },
-            5 * 60 * 1000,
-        );
+        // Live refresh on the rationed interval (30 min by default)
+        const rainTimer = setInterval(() => {
+            if (document.hidden) return;
+            if (!navigator.onLine) return;
+            fetchRainData(lat, lon, isSkipper, cancelled, (rain, summary, src) => {
+                if (rain.length > 0) {
+                    setMinutelyRain(rain);
+                    setRainSummary(summary);
+                    setRainSource(src);
+                    setRainStatus('loaded');
+                    log.info(`[rain] source=${src} minutes=${rain.length} summary="${summary}"`);
+                    localStorage.setItem(
+                        cacheKey,
+                        JSON.stringify({ ts: Date.now(), data: rain, summary, source: src }),
+                    );
+                } else {
+                    const fallback = synthesizeFromHourly();
+                    setMinutelyRain(fallback);
+                    setRainSource(fallback.length > 0 ? 'synthetic' : 'unknown');
+                    setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
+                }
+            }).catch(() => {
+                if (!cancelled) {
+                    const fallback = synthesizeFromHourly();
+                    setMinutelyRain(fallback);
+                    setRainSource(fallback.length > 0 ? 'synthetic' : 'unknown');
+                    setRainStatus(fallback.length > 0 ? 'loaded' : 'error');
+                }
+            });
+        }, RAIN_REFRESH_INTERVAL_MS);
 
         return () => {
             cancelled = true;
