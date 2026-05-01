@@ -11,7 +11,9 @@
 	<key>NSMotionUsageDescription</key>
 	<string>Thalassa uses motion detection to optimize GPS battery usage by detecting when you are stationary at anchor versus underway.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Thalassa uses the microphone for voice-to-text dictation in the Captain's Journal, allowing you to record voice memos that are automatically transcribed to text.</string>
+	<string>Thalassa uses the microphone for voice-to-text dictation in the Captain's Journal and for the Bosun voice console, allowing you to talk to the boat's AI first mate hands-free.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Thalassa uses speech recognition to transcribe your spoken questions to the Bosun voice console — letting you ask the boat about weather, systems, and live state without typing.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Thalassa uses the camera to scan barcodes on inventory items and spare parts for quick identification and stock management.</string>
 	<key>UIBackgroundModes</key>
