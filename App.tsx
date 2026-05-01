@@ -18,6 +18,7 @@ import { StormGlassNavIcon } from './components/icons/StormGlassNavIcon';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemStatusButton } from './components/SystemStatusButton';
 import { BosunConsole } from './components/voice/BosunConsole';
+import { canAccess } from './services/SubscriptionService';
 import { ToastPortal, toast } from './components/Toast';
 import { ConnectivityBanner } from './components/ui/ConnectivityBanner';
 import { PushToast } from './components/PushToast';
@@ -68,7 +69,10 @@ const App: React.FC = () => {
 
     // Bosun voice console (PTT) — global, accessible from every screen via
     // the mic button in the app header beside the system-status (i) button.
+    // Gated to Skipper (owner) tier — top tier only, since the voice console
+    // wraps the most expensive features (Pi AI, cloud Haiku, ElevenLabs TTS).
     const [showVoiceConsole, setShowVoiceConsole] = useState(false);
+    const canUseBosunVoice = canAccess(settings.subscriptionTier, 'bosunVoice');
 
     // ── Bootstrap: chat badge, push notifications, keyboard, DB sync, etc. ──
     const { chatUnread } = useAppBootstrap();
@@ -257,8 +261,10 @@ const App: React.FC = () => {
                 <ToastPortal />
 
                 {/* BOSUN VOICE CONSOLE — global overlay, opened by mic button
-                    in the app header. Available from every screen. */}
-                <BosunConsole isOpen={showVoiceConsole} onClose={() => setShowVoiceConsole(false)} />
+                    in the app header. Available from every screen for Skipper-tier users. */}
+                {canUseBosunVoice && (
+                    <BosunConsole isOpen={showVoiceConsole} onClose={() => setShowVoiceConsole(false)} />
+                )}
 
                 {/* PUSH NOTIFICATION FOREGROUND TOAST */}
                 <PushToast
@@ -321,19 +327,21 @@ const App: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Bosun mic + System status ℹ — paired top-right */}
+                            {/* Bosun mic (Skipper-tier) + System status ℹ — paired top-right */}
                             <div className="flex items-center gap-2 pointer-events-auto">
-                                <button
-                                    onClick={() => setShowVoiceConsole(true)}
-                                    className="w-11 h-11 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md"
-                                    aria-label="Open Bosun voice console"
-                                    title="Talk to Bosun"
-                                >
-                                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                                        <path d="M19 11h-1.7c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72z" />
-                                    </svg>
-                                </button>
+                                {canUseBosunVoice && (
+                                    <button
+                                        onClick={() => setShowVoiceConsole(true)}
+                                        className="w-11 h-11 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md"
+                                        aria-label="Open Bosun voice console"
+                                        title="Talk to Bosun"
+                                    >
+                                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                                            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                                            <path d="M19 11h-1.7c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72z" />
+                                        </svg>
+                                    </button>
+                                )}
                                 <div className="flex flex-col items-end gap-1">
                                     <SystemStatusButton
                                         currentView={currentView}
@@ -592,7 +600,7 @@ const App: React.FC = () => {
                         >
                             <ConnectivityBanner variant="floating" />
                         </div>
-                        {/* Bosun mic + System status ℹ — paired top-right on map view */}
+                        {/* Bosun mic (Skipper-tier) + System status ℹ — paired top-right on map view */}
                         <div
                             className="absolute z-[601] pointer-events-auto flex items-center gap-2"
                             style={{
@@ -600,17 +608,19 @@ const App: React.FC = () => {
                                 right: '16px',
                             }}
                         >
-                            <button
-                                onClick={() => setShowVoiceConsole(true)}
-                                className="w-11 h-11 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md shadow-lg"
-                                aria-label="Open Bosun voice console"
-                                title="Talk to Bosun"
-                            >
-                                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                                    <path d="M19 11h-1.7c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72z" />
-                                </svg>
-                            </button>
+                            {canUseBosunVoice && (
+                                <button
+                                    onClick={() => setShowVoiceConsole(true)}
+                                    className="w-11 h-11 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md shadow-lg"
+                                    aria-label="Open Bosun voice console"
+                                    title="Talk to Bosun"
+                                >
+                                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                                        <path d="M19 11h-1.7c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72z" />
+                                    </svg>
+                                </button>
+                            )}
                             <SystemStatusButton currentView={currentView} onNavigateAnchor={() => setPage('compass')} />
                         </div>
                         {/* Back chevron — middle-left of screen */}

@@ -94,7 +94,8 @@ export type Feature =
     | 'aiAdvice' // Captain's AI advice
     | 'anchorWatch' // Anchor watch alarm
     | 'polars' // Polar diagrams & smart polars
-    | 'piCache'; // Raspberry Pi local cache server
+    | 'piCache' // Raspberry Pi local cache server
+    | 'bosunVoice'; // Bosun voice console (PTT to on-boat AI + cloud Haiku)
 
 /**
  * Minimum tier required for each feature.
@@ -124,6 +125,7 @@ const FEATURE_GATES: Record<Feature, SubscriptionTier> = {
     anchorWatch: 'crew',
     polars: 'owner',
     piCache: 'owner',
+    bosunVoice: 'owner', // Skipper-tier (top tier) only — voice console wraps the most expensive features (Pi-based AI, cloud Haiku, ElevenLabs TTS)
 };
 
 // ── Tier Ranking ──────────────────────────────────────────────
