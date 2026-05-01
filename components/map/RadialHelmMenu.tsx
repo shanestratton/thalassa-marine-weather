@@ -443,9 +443,9 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
     const categories = useMemo(() => buildCategories(tacticalState, chartsState), [tacticalState, chartsState]);
 
     // ── Arc layout parameters ──
-    // Categories fan out DOWN-LEFT from the FAB. With the FAB now anchored at
-    // top-[128px] (below the legacy chart FAB), we have ~100px of headroom for
-    // the upper arc and unlimited room below.
+    // Categories fan out DOWN-LEFT from the FAB. With the FAB anchored at
+    // top-[192px] (below the Offline FAB on the right rail) we have ample
+    // upper headroom — and the menu opens away from the top-center mode chip.
     //
     // Chord geometry for no-overlap:
     //   chord = 2 * R * sin(step/2)
@@ -651,7 +651,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
 
     return (
         <div
-            className={`absolute z-[700] top-[128px] right-[16px] ${isOpen ? 'pointer-events-auto' : ''}`}
+            className={`absolute z-[700] top-[192px] right-[16px] ${isOpen ? 'pointer-events-auto' : ''}`}
             onPointerDown={handleContainerPointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
@@ -701,10 +701,10 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                     // Tier 1 category arc. Fixed (not absolute) so it escapes the
                                     // 48px FAB container.
                                     right: 12,
-                                    // FAB now at top-[128], arc radius 125 → lowest bubble center at
-                                    // y ≈ 128 + sin(97.5°)*125 = ~251, plus 30px bubble half-height
-                                    // = 281 bottom. Anchor grid at 300 with a 20px gap.
-                                    top: 300,
+                                    // FAB at top-[192], arc radius 125 → lowest bubble center at
+                                    // y ≈ 192 + sin(97.5°)*125 = ~315, plus 30px bubble half-height
+                                    // = 345 bottom. Anchor grid at 364 with a ~20px gap.
+                                    top: 364,
                                     // Span most of the viewport width on phones; cap on tablets.
                                     width: 'calc(100vw - 24px)',
                                     maxWidth: 360,
@@ -906,8 +906,8 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             {/* ── Tier-1 Clear All pill ── Shown only when the menu is open,
                 NO category is selected (so the tier-2 grid isn't on screen),
                 AND there are active layers. Positioned below the category arc —
-                with FAB at top-[128] + radius 125, the bottom-most bubble
-                reaches ~281; this pill sits clear at 320px. */}
+                with FAB at top-[192] + radius 125, the bottom-most bubble
+                reaches ~345; this pill sits clear at 384px. */}
             <AnimatePresence>
                 {isOpen && !activeCategory && totalActive > 0 && (
                     <motion.button
@@ -932,8 +932,8 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                             setIsOpen(false);
                             setActiveCategory(null);
                         }}
-                        className="fixed right-3 whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
-                        style={{ top: 320 }}
+                        className="fixed right-[16px] whitespace-nowrap rounded-xl border border-red-500/30 bg-red-500/15 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-red-400 backdrop-blur-md shadow-lg transition-colors hover:bg-red-500/25"
+                        style={{ top: 384 }}
                     >
                         Clear All · {totalActive}
                     </motion.button>
