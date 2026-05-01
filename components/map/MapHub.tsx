@@ -1624,15 +1624,21 @@ export const MapHub: React.FC<MapHubProps> = ({
                     them and whether live feeds will update. */}
                 <ConnectivityChip visible={!passage.showPassage && !embedded && !isPinView} />
 
-                {/* Bottom-left legend stack. Each child legend is a plain
-                    card; this wrapper owns the anchor + safe-area math so
-                    multiple legends compose without colliding. flex-col-
-                    reverse keeps the most-recently-added legend visually
-                    on top while preserving render order in source. */}
+                {/* Bottom-left legend stack. flex-col-reverse → first child
+                    sits at the bottom of the column. When any weather layer
+                    is active, ThalassaHelixControl / LegendDock occupies the
+                    bottom-left corner with a ~140px-tall vertical legend bar;
+                    lift the stack above that whole control to keep both
+                    readable. */}
                 {(lightningVisible || squallVisible) && (
                     <div
                         className="fixed left-2 z-[140] flex flex-col-reverse gap-2 pointer-events-none"
-                        style={{ bottom: 'max(96px, calc(env(safe-area-inset-bottom) + 80px))' }}
+                        style={{
+                            bottom:
+                                weather.activeLayers.size > 0
+                                    ? 'calc(env(safe-area-inset-bottom) + 240px)'
+                                    : 'max(96px, calc(env(safe-area-inset-bottom) + 80px))',
+                        }}
                     >
                         <BlitzortungAttribution visible={lightningVisible} />
                         <SquallLegend visible={squallVisible} />
