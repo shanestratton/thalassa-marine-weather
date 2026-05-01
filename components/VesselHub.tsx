@@ -17,7 +17,6 @@ import { supabase } from '../services/supabase';
 import { getPendingInviteCount, getMyCrew } from '../services/CrewService';
 import { lazyRetry } from '../utils/lazyRetry';
 import { FirstRunHint } from './ui/FirstRunHint';
-import { BosunConsole } from './voice/BosunConsole';
 const AdminPanel = lazyRetry(
     () => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })),
     'AdminPanel_Vessel',
@@ -67,11 +66,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [showRecipeLibrary, setShowRecipeLibrary] = useState(false);
     const [expanded, setExpanded] = useState<Set<string>>(new Set(['watch', 'passage']));
     const [_isAdmin, setIsAdmin] = useState(false);
-
-    // ── Bosun voice console (PTT) ──
-    // Lives at the Nav Station root so the mic is reachable from every
-    // sub-section (Active Watch, Passage, Ship's Office, Networking).
-    const [showVoiceConsole, setShowVoiceConsole] = useState(false);
 
     const toggleSection = (id: string) => {
         triggerHaptic('light');
@@ -143,35 +137,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
     return (
         <div
-            className="w-full h-full flex flex-col animate-in fade-in duration-300 vessel-hub-no-scrollbar relative"
+            className="w-full h-full flex flex-col animate-in fade-in duration-300 vessel-hub-no-scrollbar"
             style={{
                 paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)',
                 backgroundImage: CONTOUR_BG,
                 backgroundSize: '400px 400px',
             }}
         >
-            {/* ── Bosun voice console PTT entry — always-visible top-right
-                 floating button so the mic is reachable from any sub-section
-                 of the Nav Station, not buried inside Boat Network. ── */}
-            <button
-                onClick={() => {
-                    triggerHaptic('light');
-                    setShowVoiceConsole(true);
-                }}
-                className="absolute z-30 w-11 h-11 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors shadow-lg backdrop-blur-md"
-                style={{
-                    top: 'calc(env(safe-area-inset-top) + 12px)',
-                    right: '16px',
-                }}
-                aria-label="Open Bosun voice console"
-                title="Talk to Bosun"
-            >
-                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                    <path d="M19 11h-1.7c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72z" />
-                </svg>
-            </button>
-
             {/* Scrollable content area */}
             <div className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-4 stagger-in">
                 {/* ═══════════════════════════════════════════ */}
@@ -631,9 +603,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     </div>
                 </div>
             )}
-
-            {/* ── Bosun voice console (full-screen overlay) ── */}
-            <BosunConsole isOpen={showVoiceConsole} onClose={() => setShowVoiceConsole(false)} />
         </div>
     );
 });
