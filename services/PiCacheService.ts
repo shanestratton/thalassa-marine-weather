@@ -61,6 +61,7 @@ const DISCOVERY_HOSTS = [
     'openplotter.local', // OpenPlotter default hostname
     'raspberrypi.local', // Default Pi mDNS hostname
     'thalassa.local', // If they renamed it
+    'bosun.local', // Bosun-branded Pi (Shane's setup)
     'pi.local', // Common shortname
     'thalassa-cache.local', // If they used our suggested hostname
 ];

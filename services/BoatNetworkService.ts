@@ -132,6 +132,7 @@ const MDNS_HOSTS = [
     'openplotter.local',
     'raspberrypi.local',
     'thalassa.local',
+    'bosun.local',
     'pi.local',
     'thalassa-cache.local',
     'signalk.local',
