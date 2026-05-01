@@ -259,7 +259,7 @@ export const LayerSettings: React.FC<LayerSettingsProps> = ({
     return (
         <div
             ref={wrapRef}
-            className="fixed left-1/2 -translate-x-1/2 z-[185] pointer-events-auto chart-chip-in"
+            className="fixed left-1/2 chart-chip-centered z-[185] pointer-events-auto chart-chip-in"
             style={{ top: 'max(56px, calc(env(safe-area-inset-top) + 56px))' }}
             role="dialog"
             aria-label="Layer settings"

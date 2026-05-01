@@ -651,7 +651,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
 
     return (
         <div
-            className={`absolute z-[700] top-[128px] right-3 ${isOpen ? 'pointer-events-auto' : ''}`}
+            className={`absolute z-[700] top-[128px] right-[16px] ${isOpen ? 'pointer-events-auto' : ''}`}
             onPointerDown={handleContainerPointerDown}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}

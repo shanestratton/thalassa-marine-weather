@@ -1341,29 +1341,31 @@ body,
    that makes the screen feel composed instead of popped-in. Used by
    ChartModes, ThreatBanner, ConnectivityChip, BlitzortungAttribution,
    SquallLegend — all the floating chips on the chart. */
+/* --chip-x lets centered chips preserve their horizontal translate
+   through the animation — without it, animation-fill-mode:both pins
+   the element at translateY(0) and clobbers any -translate-x-1/2
+   from Tailwind, leaving centered chips offset by half their width. */
 @keyframes chart-chip-in {
     from {
         opacity: 0;
-        transform: translateY(-4px);
+        transform: translate(var(--chip-x, 0px), -4px);
     }
 
     to {
         opacity: 1;
-        transform: translateY(0);
+        transform: translate(var(--chip-x, 0px), 0);
     }
 }
 
-/* Same idea but slides UP from below — for chips anchored to the
-   bottom of the screen. */
 @keyframes chart-chip-up {
     from {
         opacity: 0;
-        transform: translateY(6px);
+        transform: translate(var(--chip-x, 0px), 6px);
     }
 
     to {
         opacity: 1;
-        transform: translateY(0);
+        transform: translate(var(--chip-x, 0px), 0);
     }
 }
 
@@ -1373,6 +1375,13 @@ body,
 
 .chart-chip-up {
     animation: chart-chip-up 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Use on chips that need horizontal centering alongside chart-chip-in.
+   Replaces Tailwind's -translate-x-1/2, which the animation keyframes
+   would otherwise overwrite. */
+.chart-chip-centered {
+    --chip-x: -50%;
 }
 
 /* ThreatBanner danger-tier pulse — gentle "this is urgent" breathing

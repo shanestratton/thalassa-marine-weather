@@ -33,7 +33,7 @@ export const PerfDowntierToast: React.FC<PerfDowntierToastProps> = ({ visible })
         <div
             // Sits below the threat banner so they don't fight for the
             // top-center slot. Z above all map overlays.
-            className="fixed left-1/2 -translate-x-1/2 z-[175] pointer-events-auto chart-chip-in"
+            className="fixed left-1/2 chart-chip-centered z-[175] pointer-events-auto chart-chip-in"
             style={{ top: 'max(110px, calc(env(safe-area-inset-top) + 110px))' }}
             role="status"
             aria-live="polite"
