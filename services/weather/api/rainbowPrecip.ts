@@ -49,7 +49,10 @@ function getSupabaseKey(): string {
 
 // ── Cache ─────────────────────────────────────────────────────
 
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+// 30 min — Rainbow.ai's paid quota is small. A 30-min stale read on a
+// 4-hour nowcast is barely perceptible to the user but cuts API load by
+// 6× vs the previous 5-min cache, so the quota actually lasts.
+const CACHE_TTL = 30 * 60 * 1000;
 let cached: { data: RainbowPrecipResult; fetchedAt: number; key: string } | null = null;
 
 // ── Intensity helpers ──────────────────────────────────────────
