@@ -24,7 +24,6 @@ import {
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { ModalSheet } from '../ui/ModalSheet';
-import { BosunConsole } from '../voice/BosunConsole';
 
 const SETUP_GUIDE_KEY = 'thalassa_avnav_setup_dismissed';
 
@@ -244,9 +243,6 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
         return localStorage.getItem(SETUP_GUIDE_KEY) !== 'true';
     });
     const [dontShowAgain, setDontShowAgain] = useState(false);
-
-    // Voice console (Bosun PTT) — full-screen overlay launched from header
-    const [showVoiceConsole, setShowVoiceConsole] = useState(false);
 
     const handleCloseGuide = useCallback(() => {
         if (dontShowAgain) {
@@ -492,27 +488,7 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
 
     return (
         <div className="w-full h-full flex flex-col bg-slate-950 slide-up-enter">
-            <PageHeader
-                title="Boat Network"
-                subtitle="Ship's Office"
-                onBack={onBack}
-                action={
-                    <button
-                        onClick={() => {
-                            triggerHaptic('light');
-                            setShowVoiceConsole(true);
-                        }}
-                        className="w-10 h-10 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors"
-                        aria-label="Open Bosun voice console"
-                        title="Voice console"
-                    >
-                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                            <path d="M19 11h-1.7c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72z" />
-                        </svg>
-                    </button>
-                }
-            />
+            <PageHeader title="Boat Network" subtitle="Ship's Office" onBack={onBack} />
 
             <div className="flex-1 overflow-y-auto px-4 pb-32">
                 {/* ═══ BOAT NETWORK HERO ═══ */}
@@ -1448,9 +1424,6 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                         </div>
                     </div>
                 </ModalSheet>
-
-                {/* ── Bosun voice console (full-screen) ── */}
-                <BosunConsole isOpen={showVoiceConsole} onClose={() => setShowVoiceConsole(false)} />
             </div>
         </div>
     );
