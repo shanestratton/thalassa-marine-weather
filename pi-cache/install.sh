@@ -164,6 +164,37 @@ systemctl daemon-reload >/dev/null 2>&1
 systemctl enable thalassa-cache >/dev/null 2>&1
 systemctl restart thalassa-cache >/dev/null 2>&1
 
+# ── Publish mDNS service record ──
+# Advertise _thalassa-cache._tcp so the iOS app can discover this Pi by
+# service type instead of guessing hostnames. This way the user can rename
+# the host to anything (bosun, helm, whatever) and discovery still works.
+
+if ! command -v avahi-daemon &>/dev/null; then
+    echo -e "  Installing avahi..."
+    apt-get install -y avahi-daemon avahi-utils >/dev/null 2>&1
+fi
+systemctl enable --now avahi-daemon >/dev/null 2>&1
+
+AVAHI_SERVICE_FILE="/etc/avahi/services/thalassa-cache.service"
+tee "$AVAHI_SERVICE_FILE" > /dev/null <<'AVAHIEOF'
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name replace-wildcards="yes">Thalassa Pi Cache on %h</name>
+  <service>
+    <type>_thalassa-cache._tcp</type>
+    <port>3001</port>
+    <txt-record>service=thalassa-pi-cache</txt-record>
+    <txt-record>version=1</txt-record>
+  </service>
+</service-group>
+AVAHIEOF
+
+# Avahi watches /etc/avahi/services/ and reloads automatically, but a
+# restart guarantees the record is live before we report success.
+systemctl restart avahi-daemon >/dev/null 2>&1
+echo -e "  ${GREEN}✓${NC} mDNS published (_thalassa-cache._tcp)"
+
 sleep 2
 
 # ── Done ──
