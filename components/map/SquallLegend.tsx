@@ -67,53 +67,49 @@ export const SquallLegend: React.FC<SquallLegendProps> = ({ visible }) => {
         statusLabel = `${ageMin}m`;
     }
 
+    // Positioning is owned by MapHub's bottom-left legend stack so this
+    // chip composes cleanly with BlitzortungAttribution / others when
+    // multiple layers are active (e.g. Storm Watch enables both).
     return (
         <div
-            // Same anchor as BlitzortungAttribution — fixed bottom-left,
-            // lifted above the menu bar, iOS safe-area aware.
-            className="fixed left-2 z-[140] pointer-events-auto chart-chip-up"
-            style={{ bottom: 'max(96px, calc(env(safe-area-inset-bottom) + 80px))' }}
+            className="flex items-center gap-3 text-[11px] leading-tight text-white/85 pointer-events-auto chart-chip-up"
+            style={{
+                background: 'rgba(15, 23, 42, 0.80)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 16,
+                padding: '6px 12px',
+            }}
             role="contentinfo"
             aria-label="Squall intensity legend"
         >
-            <div
-                className="flex items-center gap-3 text-[11px] leading-tight text-white/85"
-                style={{
-                    background: 'rgba(15, 23, 42, 0.80)',
-                    backdropFilter: 'blur(20px)',
-                    WebkitBackdropFilter: 'blur(20px)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: 16,
-                    padding: '6px 12px',
-                }}
-            >
-                {/* Vertical colormap legend — four tiers, swatch + label */}
-                <div className="flex flex-col gap-1">
-                    {TIERS.map(({ label, color }) => (
-                        <div key={label} className="flex items-center gap-1.5">
-                            <span
-                                className="inline-block h-3 w-3 rounded-sm shrink-0"
-                                style={{ background: color, border: '0.5px solid rgba(255,255,255,0.2)' }}
-                                aria-hidden
-                            />
-                            <span className="text-[10px] font-semibold tracking-wide text-white/75">{label}</span>
-                        </div>
-                    ))}
+            {/* Vertical colormap legend — four tiers, swatch + label */}
+            <div className="flex flex-col gap-1">
+                {TIERS.map(({ label, color }) => (
+                    <div key={label} className="flex items-center gap-1.5">
+                        <span
+                            className="inline-block h-3 w-3 rounded-sm shrink-0"
+                            style={{ background: color, border: '0.5px solid rgba(255,255,255,0.2)' }}
+                            aria-hidden
+                        />
+                        <span className="text-[10px] font-semibold tracking-wide text-white/75">{label}</span>
+                    </div>
+                ))}
+            </div>
+
+            {/* Vertical divider */}
+            <div className="self-stretch w-px bg-white/10" aria-hidden />
+
+            {/* Status + label */}
+            <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2">
+                    <span className={`inline-block h-2 w-2 rounded-full ${dotClass}`} aria-hidden />
+                    <span className="font-semibold">{statusLabel}</span>
                 </div>
-
-                {/* Vertical divider */}
-                <div className="self-stretch w-px bg-white/10" aria-hidden />
-
-                {/* Status + label */}
-                <div className="flex flex-col gap-0.5">
-                    <div className="flex items-center gap-2">
-                        <span className={`inline-block h-2 w-2 rounded-full ${dotClass}`} aria-hidden />
-                        <span className="font-semibold">{statusLabel}</span>
-                    </div>
-                    <div className="flex items-center gap-1 text-[10px] opacity-80">
-                        <span>⛈️</span>
-                        <span className="font-bold text-white/85">Squall</span>
-                    </div>
+                <div className="flex items-center gap-1 text-[10px] opacity-80">
+                    <span>⛈️</span>
+                    <span className="font-bold text-white/85">Squall</span>
                 </div>
             </div>
         </div>
