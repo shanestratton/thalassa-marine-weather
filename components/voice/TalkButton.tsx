@@ -1,18 +1,17 @@
 /**
- * TalkButton — parameterized hold-to-talk button.
+ * TalkButton — tap-to-toggle voice button.
  *
  * Two variants: 'bosun' (deep marine blue, anchor icon) for the on-boat
  * brain, and 'cloud' (off-white/cloud, cloud icon) for Haiku via shore
  * internet. The skipper picks which brain to ask. Each button greys out
  * when its respective path is unavailable.
  *
- * Hold-to-talk gesture:
- *   - Press and hold to record
- *   - Release to send
- *   - Cancel cleanly if pointer leaves while pressed
- *   - Haptic tick on press start and release
+ * Tap-to-toggle gesture:
+ *   - Tap once to start listening (button glows + pulses)
+ *   - Tap again to stop and send the transcript
+ *   - Haptic tick on each tap
  */
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback } from 'react';
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 
 export type TalkButtonVariant = 'bosun' | 'cloud';
@@ -26,12 +25,10 @@ interface TalkButtonProps {
     label?: string;
     /** Caption under the button (e.g. "On-boat", "Shore answer") */
     subtitle?: string;
-    /** Disable the button (greyed out, no gesture) */
+    /** Disable the button (greyed out, no tap) */
     disabled?: boolean;
-    /** Press-and-hold gesture handlers */
-    onPressStart: () => void;
-    onPressEnd: () => void;
-    onCancel: () => void;
+    /** Tap to toggle listening on/off. Caller decides which transition based on state. */
+    onTap: () => void;
 }
 
 const DEFAULT_LABEL: Record<TalkButtonVariant, string> = {
@@ -40,8 +37,8 @@ const DEFAULT_LABEL: Record<TalkButtonVariant, string> = {
 };
 
 const STATE_HINT: Record<TalkButtonState, string> = {
-    idle: 'Hold to talk',
-    recording: 'Listening...',
+    idle: 'Tap to talk',
+    recording: 'Tap to send',
     sending: 'Sending...',
     awaiting: 'Thinking...',
     playing: 'Speaking',
@@ -77,18 +74,7 @@ const CloudIcon: React.FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
-export const TalkButton: React.FC<TalkButtonProps> = ({
-    variant,
-    state,
-    label,
-    subtitle,
-    disabled,
-    onPressStart,
-    onPressEnd,
-    onCancel,
-}) => {
-    const isPressed = useRef(false);
-
+export const TalkButton: React.FC<TalkButtonProps> = ({ variant, state, label, subtitle, disabled, onTap }) => {
     const triggerHaptic = useCallback(async (style: ImpactStyle) => {
         try {
             await Haptics.impact({ style });
@@ -97,37 +83,12 @@ export const TalkButton: React.FC<TalkButtonProps> = ({
         }
     }, []);
 
-    const handlePointerDown = useCallback(
-        (e: React.PointerEvent<HTMLButtonElement>) => {
-            if (disabled || state === 'sending' || state === 'awaiting') return;
-            (e.target as HTMLElement).setPointerCapture(e.pointerId);
-            isPressed.current = true;
-            void triggerHaptic(ImpactStyle.Medium);
-            onPressStart();
-        },
-        [disabled, state, onPressStart, triggerHaptic],
-    );
-
-    const handlePointerUp = useCallback(
-        (e: React.PointerEvent<HTMLButtonElement>) => {
-            if (!isPressed.current) return;
-            isPressed.current = false;
-            try {
-                (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-            } catch {
-                /* already released */
-            }
-            void triggerHaptic(ImpactStyle.Light);
-            onPressEnd();
-        },
-        [onPressEnd, triggerHaptic],
-    );
-
-    const handlePointerCancel = useCallback(() => {
-        if (!isPressed.current) return;
-        isPressed.current = false;
-        onCancel();
-    }, [onCancel]);
+    const handleClick = useCallback(() => {
+        if (disabled || state === 'sending' || state === 'awaiting') return;
+        // Toggling — light haptic when entering recording, medium when sending.
+        void triggerHaptic(state === 'recording' ? ImpactStyle.Medium : ImpactStyle.Light);
+        onTap();
+    }, [disabled, state, onTap, triggerHaptic]);
 
     const isRecording = state === 'recording';
     const isBusy = state === 'sending' || state === 'awaiting';
@@ -175,9 +136,7 @@ export const TalkButton: React.FC<TalkButtonProps> = ({
             )}
 
             <button
-                onPointerDown={handlePointerDown}
-                onPointerUp={handlePointerUp}
-                onPointerCancel={handlePointerCancel}
+                onClick={handleClick}
                 onContextMenu={(e) => e.preventDefault()}
                 disabled={disabled || isBusy}
                 aria-label={`${displayLabel} - ${STATE_HINT[state]}`}
