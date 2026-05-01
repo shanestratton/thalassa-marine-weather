@@ -126,13 +126,21 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 return;
             }
             try {
+                // ALWAYS create a fresh Audio element. Reusing the same one
+                // across responses on iOS WKWebView keeps the previous audio
+                // session attached, which then blocks SpeechRecognition from
+                // claiming the mic on the next press.
+                if (audioRef.current) {
+                    try {
+                        audioRef.current.pause();
+                        audioRef.current.src = '';
+                    } catch {
+                        /* ignore */
+                    }
+                }
                 const url = audioFromBase64(response.audio_b64);
                 audioUrlsRef.current.push(url);
-                const audio = audioRef.current ?? new Audio();
-                audio.src = url;
-                // Drive 'playing' → 'idle' from the actual audio lifecycle
-                // rather than a fixed timer. Both 'ended' and 'pause' (in case
-                // the user interrupts) flip the button back.
+                const audio = new Audio(url);
                 audio.onended = () => setOneButton(to, 'idle');
                 audio.onerror = () => setOneButton(to, 'idle');
                 audioRef.current = audio;

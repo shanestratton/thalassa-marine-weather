@@ -15,7 +15,11 @@ import type { VoiceQueryRequest, VoiceQueryResponse } from '../../types/voice';
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
 
-const CLOUD_REQUEST_TIMEOUT_MS = 30_000; // Cloud is fast; 30s is generous
+// Cloud Haiku in tool-use mode can chain through web_search + thalassa_weather
+// + final synthesis + ElevenLabs TTS. Each tool call adds 1-5s, and the cold
+// Edge Function startup can add another 5-10s. 90s is a generous ceiling that
+// still surfaces real hangs (e.g. tools looping) without false-positive timeouts.
+const CLOUD_REQUEST_TIMEOUT_MS = 90_000;
 
 export class CloudFallbackError extends Error {
     constructor(message: string) {

@@ -121,7 +121,26 @@ export function startListening(): SpeechRecognitionHandle {
             } catch {
                 /* recog may already be stopping */
             }
-            return finalPromise;
+            // iOS WKWebView quirk: on the second-or-later consecutive
+            // SpeechRecognition session, recog.stop() sometimes never
+            // triggers the onend/onerror callbacks. The finalPromise then
+            // hangs forever, leaving the button stuck on 'sending'. Race
+            // against a 3s deadline so the user can always make another
+            // attempt — we still return whatever transcript was collected
+            // on partials.
+            return Promise.race([
+                finalPromise,
+                new Promise<string>((resolve) => {
+                    setTimeout(() => {
+                        try {
+                            recog.abort();
+                        } catch {
+                            /* already gone */
+                        }
+                        resolve(bestTranscript.trim());
+                    }, 3000);
+                }),
+            ]);
         },
         cancel: () => {
             stopRequested = false;
@@ -131,6 +150,8 @@ export function startListening(): SpeechRecognitionHandle {
                 /* already aborted */
             }
             partialCallbacks = [];
+            // Also resolve the finalPromise so any pending await unwedges.
+            resolveStop('');
         },
         onPartial: (cb) => {
             partialCallbacks.push(cb);
