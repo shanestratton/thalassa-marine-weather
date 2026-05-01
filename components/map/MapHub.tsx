@@ -1716,10 +1716,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 triggerHaptic('light');
                                 setShowOfflineArea(true);
                             }}
-                            // Right-rail column — sits below Radial Helm FAB (top-[128px])
-                            // at top-[192px], on the 64px rhythm (48 FAB + 16 gap).
-                            // z-[700] matches the rest of the rail.
-                            className="absolute z-[700] top-[192px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
+                            // Right-rail column — sits at top-[128px], directly below the
+                            // SysStatus button. Above the Radial Helm FAB (top-[192px]) so
+                            // opening the radial menu doesn't fan upward into the top-center
+                            // mode chip.
+                            className="absolute z-[700] top-[128px] right-[16px] w-12 h-12 rounded-2xl bg-slate-900/90 border border-white/[0.08] flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-95"
                             aria-label="Download offline map area"
                             title="Download offline area"
                         >
