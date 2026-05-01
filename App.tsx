@@ -17,6 +17,7 @@ import { NAV_ICON_MAP, NAV_ICON_CHAT, NAV_ICON_VESSEL } from './components/icons
 import { StormGlassNavIcon } from './components/icons/StormGlassNavIcon';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemStatusButton } from './components/SystemStatusButton';
+import { BosunConsole } from './components/voice/BosunConsole';
 import { ToastPortal, toast } from './components/Toast';
 import { ConnectivityBanner } from './components/ui/ConnectivityBanner';
 import { PushToast } from './components/PushToast';
@@ -64,6 +65,10 @@ const App: React.FC = () => {
     // Track if map was opened from WX page (auto-return) vs tab bar (stay on map)
     const mapFromWxRef = useRef(false);
     const [mapPickerActive, setMapPickerActive] = useState(false);
+
+    // Bosun voice console (PTT) — global, accessible from every screen via
+    // the mic button in the app header beside the system-status (i) button.
+    const [showVoiceConsole, setShowVoiceConsole] = useState(false);
 
     // ── Bootstrap: chat badge, push notifications, keyboard, DB sync, etc. ──
     const { chatUnread } = useAppBootstrap();
@@ -251,6 +256,10 @@ const App: React.FC = () => {
                 {/* GLOBAL TOAST PORTAL */}
                 <ToastPortal />
 
+                {/* BOSUN VOICE CONSOLE — global overlay, opened by mic button
+                    in the app header. Available from every screen. */}
+                <BosunConsole isOpen={showVoiceConsole} onClose={() => setShowVoiceConsole(false)} />
+
                 {/* PUSH NOTIFICATION FOREGROUND TOAST */}
                 <PushToast
                     onTap={(data) => {
@@ -312,12 +321,25 @@ const App: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* System status ℹ button — replaces all individual badges */}
-                            <div className="flex flex-col items-end gap-1 pointer-events-auto">
-                                <SystemStatusButton
-                                    currentView={currentView}
-                                    onNavigateAnchor={() => setPage('compass')}
-                                />
+                            {/* Bosun mic + System status ℹ — paired top-right */}
+                            <div className="flex items-center gap-2 pointer-events-auto">
+                                <button
+                                    onClick={() => setShowVoiceConsole(true)}
+                                    className="w-11 h-11 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md"
+                                    aria-label="Open Bosun voice console"
+                                    title="Talk to Bosun"
+                                >
+                                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                                        <path d="M19 11h-1.7c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72z" />
+                                    </svg>
+                                </button>
+                                <div className="flex flex-col items-end gap-1">
+                                    <SystemStatusButton
+                                        currentView={currentView}
+                                        onNavigateAnchor={() => setPage('compass')}
+                                    />
+                                </div>
                             </div>
                         </div>
 
@@ -557,26 +579,38 @@ const App: React.FC = () => {
                                 />
                             </Suspense>
                         </ErrorBoundary>
-                        {/* Offline pill — sits inline with the ℹ button, fills the horizontal
-                            space from the left edge up to the button (at right:16 + w-12 + 16 gap = 80). */}
+                        {/* Offline pill — sits inline with the mic + ℹ pair, fills the
+                            horizontal space from the left edge up to the buttons. Pair
+                            occupies: 44px mic + 8px gap + 48px ℹ + 16px right inset = 116. */}
                         <div
                             className="absolute z-[601] pointer-events-auto"
                             style={{
                                 top: '56px',
                                 left: '16px',
-                                right: '80px',
+                                right: '124px',
                             }}
                         >
                             <ConnectivityBanner variant="floating" />
                         </div>
-                        {/* System status ℹ button — floating on map view, aligned with layer FAB row (top-14 = 56px) */}
+                        {/* Bosun mic + System status ℹ — paired top-right on map view */}
                         <div
-                            className="absolute z-[601] pointer-events-auto"
+                            className="absolute z-[601] pointer-events-auto flex items-center gap-2"
                             style={{
                                 top: '56px',
                                 right: '16px',
                             }}
                         >
+                            <button
+                                onClick={() => setShowVoiceConsole(true)}
+                                className="w-11 h-11 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md shadow-lg"
+                                aria-label="Open Bosun voice console"
+                                title="Talk to Bosun"
+                            >
+                                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                                    <path d="M19 11h-1.7c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72z" />
+                                </svg>
+                            </button>
                             <SystemStatusButton currentView={currentView} onNavigateAnchor={() => setPage('compass')} />
                         </div>
                         {/* Back chevron — middle-left of screen */}
