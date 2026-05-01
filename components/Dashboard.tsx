@@ -31,7 +31,6 @@ import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRend
 import { UnitPreferences, SourcedWeatherMetrics } from '../types';
 import { fetchMinutelyRainWithSummary, MinutelyRain } from '../services/weather/api/weatherkit';
 import { fetchRainbowPrecip } from '../services/weather/api/rainbowPrecip';
-import { toast } from './Toast';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useUIStore } from '../stores/uiStore';
 import {
@@ -58,31 +57,22 @@ async function fetchRainData(
 ): Promise<void> {
     if (cancelled) return;
 
-    // ── DIAG: temporary toasts to surface why Rainbow.ai isn't winning.
-    //         Remove once we've identified the failure mode (see commit msg).
-    let rainbowFailReason: string | null = null;
-
     if (useRainbow) {
         try {
             const result = await fetchRainbowPrecip(lat, lon);
             if (cancelled) return;
             if (result && result.rain.length > 0) {
-                toast.success(`✓ Rainbow.ai: ${result.rain.length} min`);
                 onData(result.rain, result.summary, 'rainbow');
                 return;
             }
-            rainbowFailReason = result === null ? 'returned null' : 'empty rain';
-        } catch (err) {
-            rainbowFailReason = `threw: ${(err as Error)?.message ?? String(err)}`;
+        } catch {
+            // Rainbow.ai failed — fall through to WeatherKit
         }
-    } else {
-        rainbowFailReason = 'tier ≠ Skipper';
     }
 
     // WeatherKit fallback (all tiers, or if Rainbow.ai fails)
     const { rain, summary } = await fetchMinutelyRainWithSummary(lat, lon);
     if (!cancelled) {
-        toast.error(`✗ Apple WK fallback (Rainbow ${rainbowFailReason})`);
         onData(rain, summary, 'weatherkit');
     }
 }
