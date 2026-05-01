@@ -99,6 +99,56 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         setButtonState((prev) => ({ ...prev, [which]: s }));
     }, []);
 
+    /**
+     * Stop any audio currently playing.
+     *
+     * Called before starting a new recording so iOS's audio session frees up
+     * for the mic — without this, the second SpeechRecognition.start() is
+     * silently denied while the previous response audio is still playing.
+     */
+    const stopAudio = useCallback(() => {
+        const audio = audioRef.current;
+        if (audio && !audio.paused) {
+            try {
+                audio.pause();
+                audio.currentTime = 0;
+            } catch {
+                /* ignore */
+            }
+        }
+    }, []);
+
+    const playResponseAudio = useCallback(
+        (response: VoiceQueryResponse, to: 'bosun' | 'cloud') => {
+            if (!response.audio_b64) {
+                // No audio? Skip the 'playing' state and go straight back to idle.
+                setOneButton(to, 'idle');
+                return;
+            }
+            try {
+                const url = audioFromBase64(response.audio_b64);
+                audioUrlsRef.current.push(url);
+                const audio = audioRef.current ?? new Audio();
+                audio.src = url;
+                // Drive 'playing' → 'idle' from the actual audio lifecycle
+                // rather than a fixed timer. Both 'ended' and 'pause' (in case
+                // the user interrupts) flip the button back.
+                audio.onended = () => setOneButton(to, 'idle');
+                audio.onerror = () => setOneButton(to, 'idle');
+                audioRef.current = audio;
+                void audio.play().catch(() => {
+                    // Autoplay may be blocked (no user interaction). Text is
+                    // still rendered. Treat as if audio finished so the button
+                    // doesn't stay stuck on 'playing'.
+                    setOneButton(to, 'idle');
+                });
+            } catch {
+                setOneButton(to, 'idle');
+            }
+        },
+        [setOneButton],
+    );
+
     const sendQueryTo = useCallback(
         async (text: string, to: 'bosun' | 'cloud') => {
             if (!text.trim()) {
@@ -110,17 +160,20 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             try {
                 const response = to === 'bosun' ? await askBosun({ text }) : await askCloud({ text });
                 appendTurn(text, response);
-                playResponseAudio(response);
                 setOneButton(to, 'playing');
-                // Auto-return to idle once audio could plausibly have played
-                setTimeout(() => setOneButton(to, 'idle'), 600);
+                playResponseAudio(response, to);
+                // Safety net: if audio.onended somehow doesn't fire (corrupt MP3,
+                // platform quirk), force idle after 60s so the button never sticks.
+                setTimeout(() => {
+                    setButtonState((s) => (s[to] === 'playing' ? { ...s, [to]: 'idle' } : s));
+                }, 60_000);
             } catch (err) {
                 setErrorMessage((err as Error).message || 'Something went wrong.');
                 setOneButton(to, 'error');
                 setTimeout(() => setOneButton(to, 'idle'), 1500);
             }
         },
-        [setOneButton],
+        [setOneButton, playResponseAudio],
     );
 
     const appendTurn = useCallback((transcript: string, response: VoiceQueryResponse) => {
@@ -133,28 +186,28 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         setTurns((prev) => [...prev.slice(-9), turn]);
     }, []);
 
-    const playResponseAudio = useCallback((response: VoiceQueryResponse) => {
-        if (!response.audio_b64) return;
-        try {
-            const url = audioFromBase64(response.audio_b64);
-            audioUrlsRef.current.push(url);
-            const audio = audioRef.current ?? new Audio();
-            audio.src = url;
-            audioRef.current = audio;
-            void audio.play().catch(() => {
-                /* autoplay may be blocked - text is still there */
-            });
-        } catch {
-            /* invalid base64 */
-        }
-    }, []);
-
     const handlePressStart = useCallback(
         (which: 'bosun' | 'cloud') => {
             if (!isSpeechRecognitionSupported()) {
                 setErrorMessage('Voice input not supported on this device. Use the text box below instead.');
                 return;
             }
+            // Free the iOS audio session before starting the mic. Without
+            // this, a second consecutive recording is silently denied while
+            // the previous response audio is still playing on the speaker.
+            stopAudio();
+            // Aggressive reset — ensures the new press starts from a clean
+            // state regardless of how the previous query exited.
+            if (recognitionRef.current) {
+                try {
+                    recognitionRef.current.cancel();
+                } catch {
+                    /* ignore */
+                }
+                recognitionRef.current = null;
+            }
+            setErrorMessage(null);
+            setButtonState((s) => ({ ...s, [which]: 'idle' }));
             try {
                 const handle = startListening();
                 handle.onPartial(setPartialTranscript);
@@ -162,14 +215,13 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 setPartialTranscript('');
                 setTarget(which);
                 setOneButton(which, 'recording');
-                setErrorMessage(null);
             } catch (err) {
                 setErrorMessage((err as Error).message);
                 setOneButton(which, 'error');
                 setTimeout(() => setOneButton(which, 'idle'), 1200);
             }
         },
-        [setOneButton],
+        [setOneButton, stopAudio],
     );
 
     const handlePressEnd = useCallback(
@@ -217,7 +269,10 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
 
     const handleReplay = useCallback(
         (response: VoiceQueryResponse) => {
-            playResponseAudio(response);
+            // Replay re-uses the source button's slot for the audio-driven
+            // 'playing' → 'idle' transition. Treat as a brand-new playback.
+            const to: 'bosun' | 'cloud' = response.source === 'cloud' ? 'cloud' : 'bosun';
+            playResponseAudio(response, to);
         },
         [playResponseAudio],
     );
