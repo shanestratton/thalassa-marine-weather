@@ -1624,13 +1624,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                     them and whether live feeds will update. */}
                 <ConnectivityChip visible={!passage.showPassage && !embedded && !isPinView} />
 
-                <BlitzortungAttribution visible={lightningVisible} />
-
-                {/* Squall colormap legend — same anchor as the lightning
-                    chip. Both layers are mutually exclusive in the radial
-                    menu so there's no risk of them rendering on top of
-                    each other in the bottom-left corner. */}
-                <SquallLegend visible={squallVisible} />
+                {/* Bottom-left legend stack. Each child legend is a plain
+                    card; this wrapper owns the anchor + safe-area math so
+                    multiple legends compose without colliding. flex-col-
+                    reverse keeps the most-recently-added legend visually
+                    on top while preserving render order in source. */}
+                {(lightningVisible || squallVisible) && (
+                    <div
+                        className="fixed left-2 z-[140] flex flex-col-reverse gap-2 pointer-events-none"
+                        style={{ bottom: 'max(96px, calc(env(safe-area-inset-bottom) + 80px))' }}
+                    >
+                        <BlitzortungAttribution visible={lightningVisible} />
+                        <SquallLegend visible={squallVisible} />
+                    </div>
+                )}
 
                 {/* ═══ AIS COLOUR LEGEND + GUARD ZONE TOGGLE ═══ */}
                 <Suspense fallback={null}>

@@ -93,84 +93,64 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
         { label: 'Unknown', color: '#312e81' }, // deep indigo
     ];
 
+    // Positioning is owned by MapHub's bottom-left legend stack so this
+    // chip composes cleanly with SquallLegend / others when multiple
+    // layers are active (e.g. Storm Watch enables both lightning + squall).
     return (
         <div
-            // Positioning lessons learned the hard way (2026-04-25):
-            //  - `absolute left-2 bottom-2` was invisible — something at
-            //    the bottom of the chart was sitting on top.
-            //  - `fixed` positioning was proven to render in a diagnostic
-            //    pass. We keep it — robust against any parent overflow
-            //    or stacking-context surprises.
-            //  - bottom-96px clears the menu bar.
-            //  - max(96px, env(safe-area-inset-bottom)+80px) for iPhone
-            //    safe-area on notched phones.
-            className="fixed left-2 z-[140] pointer-events-auto chart-chip-up"
-            style={{ bottom: 'max(96px, calc(env(safe-area-inset-bottom) + 80px))' }}
+            className={`flex items-center gap-3 text-[11px] leading-tight pointer-events-auto chart-chip-up ${styles.text}`}
+            style={{
+                background: 'rgba(15, 23, 42, 0.80)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: 16,
+                padding: '6px 12px',
+            }}
             role="contentinfo"
             aria-label="Lightning data attribution and connection status"
         >
-            <div
-                // Match ThalassaHelixControl's scrubber-pill look so the
-                // lightning chip reads as part of the same control family
-                // — slate translucent fill, heavy blur, subtle white
-                // border, 16px radius.
-                //
-                // Two-column layout: vertical polarity legend on the left
-                // (so the user knows which colour means what), status +
-                // attribution stack on the right. Mirrors the other map
-                // legends' "swatch + label" style, applied to lightning.
-                className={`flex items-center gap-3 text-[11px] leading-tight ${styles.text}`}
-                style={{
-                    background: 'rgba(15, 23, 42, 0.80)',
-                    backdropFilter: 'blur(20px)',
-                    WebkitBackdropFilter: 'blur(20px)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: 16,
-                    padding: '6px 12px',
-                }}
-            >
-                {/* Vertical polarity legend — three rows, each showing a
-                    miniature of the actual strike rendering (white ⚡ on
-                    a dark polarity-tinted disc) plus its label. */}
-                <div className="flex flex-col gap-1">
-                    {POLARITY_LEGEND.map(({ label: l, color }) => (
-                        <div key={l} className="flex items-center gap-1.5">
-                            <span
-                                className="inline-flex items-center justify-center h-4 w-4 rounded-full text-[10px] leading-none"
-                                style={{
-                                    background: color,
-                                    border: '0.5px solid rgba(255,255,255,0.45)',
-                                    color: '#ffffff',
-                                }}
-                                aria-hidden
-                            >
-                                ⚡
-                            </span>
-                            <span className="text-[10px] font-semibold tracking-wide text-white/75">{l}</span>
-                        </div>
-                    ))}
-                </div>
-
-                {/* Vertical divider */}
-                <div className="self-stretch w-px bg-white/10" aria-hidden />
-
-                {/* Status + attribution stack */}
-                <div className="flex flex-col gap-0.5">
-                    <div className="flex items-center gap-2">
-                        <span className={`inline-block h-2 w-2 rounded-full ${styles.dot}`} aria-hidden />
-                        <span className="font-semibold">{label}</span>
-                    </div>
-                    <div className="flex items-center gap-1 text-[10px] opacity-80">
-                        <span className="font-bold text-amber-300">⚡</span>
-                        <a
-                            href="https://www.blitzortung.org"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-white/85 underline-offset-2 hover:underline"
+            {/* Vertical polarity legend — three rows, each showing a
+                miniature of the actual strike rendering (white ⚡ on
+                a dark polarity-tinted disc) plus its label. */}
+            <div className="flex flex-col gap-1">
+                {POLARITY_LEGEND.map(({ label: l, color }) => (
+                    <div key={l} className="flex items-center gap-1.5">
+                        <span
+                            className="inline-flex items-center justify-center h-4 w-4 rounded-full text-[10px] leading-none"
+                            style={{
+                                background: color,
+                                border: '0.5px solid rgba(255,255,255,0.45)',
+                                color: '#ffffff',
+                            }}
+                            aria-hidden
                         >
-                            Blitzortung.org
-                        </a>
+                            ⚡
+                        </span>
+                        <span className="text-[10px] font-semibold tracking-wide text-white/75">{l}</span>
                     </div>
+                ))}
+            </div>
+
+            {/* Vertical divider */}
+            <div className="self-stretch w-px bg-white/10" aria-hidden />
+
+            {/* Status + attribution stack */}
+            <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2">
+                    <span className={`inline-block h-2 w-2 rounded-full ${styles.dot}`} aria-hidden />
+                    <span className="font-semibold">{label}</span>
+                </div>
+                <div className="flex items-center gap-1 text-[10px] opacity-80">
+                    <span className="font-bold text-amber-300">⚡</span>
+                    <a
+                        href="https://www.blitzortung.org"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-white/85 underline-offset-2 hover:underline"
+                    >
+                        Blitzortung.org
+                    </a>
                 </div>
             </div>
         </div>
