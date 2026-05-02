@@ -36,8 +36,15 @@ import { gatherThalassaContext } from '../../services/voice/thalassaContext';
 import { useVoiceHistoryStore } from '../../stores/voiceHistoryStore';
 import type { VoiceHistoryTurn, VoiceQueryResponse, VoiceTurn } from '../../types/voice';
 
-/** How many prior turns to send for context. Each turn = one user + one assistant message. */
-const HISTORY_TURN_LIMIT = 10;
+/**
+ * How many prior turns to send for context. Each turn = one user + one
+ * assistant message, so 4 turns = 8 messages. Lower than the persisted
+ * cap (50) so the UI can show longer history than what we actually pay
+ * to send to Haiku. Tuned down from 10 to keep input-token cost
+ * predictable; pirate-mode-style instructions still persist within a
+ * few turns, but ancient history gets trimmed.
+ */
+const HISTORY_TURN_LIMIT = 4;
 
 /**
  * Detect "over" at the end of an utterance. The skipper can say "over"

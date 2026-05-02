@@ -145,7 +145,19 @@ interface AnthropicMessage {
 interface AnthropicResponse {
     content: ContentBlock[];
     stop_reason: string;
-    usage?: { input_tokens: number; output_tokens: number };
+    /**
+     * Anthropic includes per-call token usage on every response. Cache
+     * fields are present when prompt caching is in play — `cache_read_input_tokens`
+     * being non-zero on a request after the first means caching is working
+     * and we're paying ~10% of base for that prefix. `cache_creation_input_tokens`
+     * is the cold-write cost (1.25x base, ~5min TTL).
+     */
+    usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_creation_input_tokens?: number;
+        cache_read_input_tokens?: number;
+    };
 }
 
 // ── Anthropic call ─────────────────────────────────────────────────────
@@ -212,8 +224,42 @@ async function callHaikuWithTools(
     const priorMessages = sanitizeHistory(history);
     const messages: AnthropicMessage[] = [...priorMessages, { role: 'user', content: userText }];
 
+    // Aggregate token usage across all tool-loop iterations so the final
+    // `[token-cost]` log line tells the operator what a single skipper
+    // query actually cost.
+    let totalInput = 0;
+    let totalOutput = 0;
+    let totalCacheCreate = 0;
+    let totalCacheRead = 0;
+    let iters = 0;
+
+    const logTokenCost = (outcome: 'final' | 'tool-loop-exhausted'): void => {
+        // Pricing reference (Haiku 4.5, May 2026):
+        //   input        $1 / M tokens
+        //   output       $5 / M tokens
+        //   cache write  $1.25 / M tokens
+        //   cache read   $0.10 / M tokens
+        const usdEstimate =
+            (totalInput / 1_000_000) * 1 +
+            (totalOutput / 1_000_000) * 5 +
+            (totalCacheCreate / 1_000_000) * 1.25 +
+            (totalCacheRead / 1_000_000) * 0.1;
+        console.log(
+            `[token-cost] outcome=${outcome} in=${totalInput} out=${totalOutput} ` +
+                `cache_create=${totalCacheCreate} cache_read=${totalCacheRead} ` +
+                `iters=${iters} ms=${Date.now() - t0} usd≈${usdEstimate.toFixed(5)}`,
+        );
+    };
+
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
         const response = await callAnthropic(messages, stateBlock);
+        iters++;
+        if (response.usage) {
+            totalInput += response.usage.input_tokens ?? 0;
+            totalOutput += response.usage.output_tokens ?? 0;
+            totalCacheCreate += response.usage.cache_creation_input_tokens ?? 0;
+            totalCacheRead += response.usage.cache_read_input_tokens ?? 0;
+        }
 
         // Append assistant turn with all blocks (text + tool_use), so the
         // next request preserves the model's reasoning chain
@@ -226,6 +272,7 @@ async function callHaikuWithTools(
                 .map((b) => b.text!)
                 .join('')
                 .trim();
+            logTokenCost('final');
             return { answer: text, ms: Date.now() - t0 };
         }
 
@@ -256,6 +303,7 @@ async function callHaikuWithTools(
         messages.push({ role: 'user', content: toolResults });
     }
 
+    logTokenCost('tool-loop-exhausted');
     return {
         answer: 'I tried calling tools too many times without resolving the question. Try rephrasing?',
         ms: Date.now() - t0,
