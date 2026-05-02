@@ -287,13 +287,13 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     // messages show up in the debug strip. Runs once per mount.
     useEffect(() => {
         setSrEventTap((msg) => {
-            setSrEventLog((prev) => [...prev.slice(-5), { ts: Date.now(), msg }]);
+            setSrEventLog((prev) => [...prev.slice(-19), { ts: Date.now(), msg }]);
         });
         // Same hook for [DG] (Deepgram) events — share the debug strip so
         // the skipper can see the full path: token mint → ws open → first
         // partial → close, all in one timeline.
         setDeepgramEventTap((msg) => {
-            setSrEventLog((prev) => [...prev.slice(-5), { ts: Date.now(), msg }]);
+            setSrEventLog((prev) => [...prev.slice(-19), { ts: Date.now(), msg }]);
         });
         return () => {
             setSrEventTap(null);
@@ -460,7 +460,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     const setOneButton = useCallback((which: 'bosun' | 'cloud', s: TalkButtonState) => {
         // Mirror state transitions into the debug strip so the skipper can
         // see exactly where a lockup landed without needing Web Inspector.
-        setSrEventLog((prev) => [...prev.slice(-5), { ts: Date.now(), msg: `[btn] ${which} → ${s}` }]);
+        setSrEventLog((prev) => [...prev.slice(-19), { ts: Date.now(), msg: `[btn] ${which} → ${s}` }]);
         setButtonState((prev) => ({ ...prev, [which]: s }));
     }, []);
 
@@ -842,7 +842,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                                 const { matched, cleaned } = detectOverSuffix(text);
                                 if (matched && cleaned.length > 0) {
                                     setSrEventLog((prev) => [
-                                        ...prev.slice(-5),
+                                        ...prev.slice(-19),
                                         { ts: Date.now(), msg: `[over] fired: "${cleaned.slice(0, 60)}"` },
                                     ]);
                                     void handleOverGesture(cleaned, which);
@@ -861,7 +861,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                         // in the debug strip and fall through to Apple SR.
                         const msg = (err as Error).message || 'unknown';
                         setSrEventLog((prev) => [
-                            ...prev.slice(-5),
+                            ...prev.slice(-19),
                             { ts: Date.now(), msg: `[DG] start failed → fallback: ${msg.slice(0, 80)}` },
                         ]);
                     }
@@ -875,7 +875,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 // looks like a bug.
                 if (!ENABLE_APPLE_SR_FALLBACK && !recognizerStarted) {
                     setSrEventLog((prev) => [
-                        ...prev.slice(-5),
+                        ...prev.slice(-19),
                         {
                             ts: Date.now(),
                             msg: '[skip] Apple SR fallback disabled — going straight to MediaRecorder',
@@ -894,7 +894,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                                     // Surface in the debug strip so the skipper
                                     // can see the gesture actually fired.
                                     setSrEventLog((prev) => [
-                                        ...prev.slice(-5),
+                                        ...prev.slice(-19),
                                         { ts: Date.now(), msg: `[over] fired: "${cleaned.slice(0, 60)}"` },
                                     ]);
                                     void handleOverGesture(cleaned, which);
@@ -922,7 +922,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                             // why SR went silent without needing the
                             // Xcode console.
                             setSrEventLog((prev) => [
-                                ...prev.slice(-5),
+                                ...prev.slice(-19),
                                 {
                                     ts: Date.now(),
                                     msg: '[SR] iOS quota — falling back to Scribe',
@@ -960,7 +960,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                             : rawMsg;
                         if (isAppleSrQuota) {
                             setSrEventLog((prev) => [
-                                ...prev.slice(-5),
+                                ...prev.slice(-19),
                                 {
                                     ts: Date.now(),
                                     msg: '[SR] Apple device quota — voice path locked until iOS unblocks',
@@ -1039,7 +1039,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                             const det = detectOverSuffix(dg.text);
                             if (det.matched && det.cleaned.length > 0) {
                                 setSrEventLog((prev) => [
-                                    ...prev.slice(-5),
+                                    ...prev.slice(-19),
                                     {
                                         ts: Date.now(),
                                         msg: `[over] stripped at stop: "${det.cleaned.slice(0, 60)}"`,
@@ -1076,7 +1076,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                             const det = detectOverSuffix(sr.text);
                             if (det.matched && det.cleaned.length > 0) {
                                 setSrEventLog((prev) => [
-                                    ...prev.slice(-5),
+                                    ...prev.slice(-19),
                                     {
                                         ts: Date.now(),
                                         msg: `[over] stripped at stop: "${det.cleaned.slice(0, 60)}"`,
