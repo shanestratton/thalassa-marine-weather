@@ -1,16 +1,22 @@
 /**
  * BosunConsole — full-screen voice console.
  *
- * Two big tap-to-toggle buttons, skipper picks:
- *   - Big Blue Bosun (anchor icon) — on-boat brain over LAN
- *   - White Haiku (cloud icon)     — shore brain via Anthropic Haiku 4.5
+ * One big blue Bosun button. The brain it routes to is decided here
+ * based on connectivity, with cloud as the primary path:
+ *   - Cloud reachable       → "Bosun cloud"      — Anthropic Haiku 4.5 (primary)
+ *   - Offline, Pi reachable → "Bosun local (3B)" — Llama 3.2 3B fallback
+ *   - Neither               → button greyed out, "Bosun offline"
+ *
+ * The active brain is shown in the subtitle under the button — there is
+ * one Bosun, the brain swaps in behind it. Local 3B is a graceful
+ * degradation, never the preferred path.
  *
  * Voice transport: MediaRecorder + getUserMedia. The previous Web Speech
  * API approach was unreliable on iOS WKWebView (audio session conflicts,
  * second-query failures, inconsistent onend firing). MediaRecorder is a
  * standards-based API supported on iOS 14.3+ that behaves the same way
  * as on Chrome. STT happens server-side (Whisper.cpp on the Pi for the
- * Bosun path; ElevenLabs Scribe in the Edge Function for the cloud path).
+ * local path; ElevenLabs Scribe in the Edge Function for the cloud path).
  *
  * Both audio AND text are always rendered. Audio auto-plays on response;
  * text is right there if speakers are off, the wind is loud, etc.
@@ -388,8 +394,17 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         [playResponseAudio, unlockAudio],
     );
 
-    /** Default target for typed queries — Bosun if up, else cloud. */
-    const typedTarget: 'bosun' | 'cloud' = bosunAvailable ? 'bosun' : 'cloud';
+    /**
+     * Active route — cloud Haiku is primary (faster, smarter). Local Pi
+     * (Llama 3.2 3B) is the OFFLINE fallback only, used when the cloud is
+     * unreachable. Null when neither path is available.
+     *
+     * The single Bosun button + typed input both target this route, and
+     * the subtitle reflects which brain is currently active.
+     */
+    const route: 'bosun' | 'cloud' | null = cloudAvailable ? 'cloud' : bosunAvailable ? 'bosun' : null;
+    const brainSubtitle = route === 'cloud' ? 'Bosun cloud' : route === 'bosun' ? 'Bosun local (3B)' : 'Bosun offline';
+    const typedTarget: 'bosun' | 'cloud' = route ?? 'cloud';
 
     const isAnyAwaiting = useMemo(
         () => buttonState.bosun === 'awaiting' || buttonState.cloud === 'awaiting',
@@ -413,7 +428,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 <div>
                     <p className="text-base font-bold text-white">Voice Console</p>
                     <p className="text-[10px] uppercase tracking-widest text-gray-400">
-                        Tap a button to start, tap again to send
+                        Tap to talk, tap again to send
                     </p>
                 </div>
                 <button
@@ -431,9 +446,10 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
                 {turns.length === 0 && !errorMessage && (
                     <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 gap-2 pt-8">
-                        <p className="text-sm font-bold text-gray-400">Pick your brain, tap to talk.</p>
+                        <p className="text-sm font-bold text-gray-400">Tap Bosun to talk.</p>
                         <p className="text-xs max-w-[280px]">
-                            Bosun knows your boat. Haiku is faster but generic. Either is greyed out when not reachable.
+                            One Bosun, two brains behind it. Local 3B on the Pi when reachable, cloud Haiku otherwise —
+                            the active brain shows under the button.
                         </p>
                     </div>
                 )}
@@ -452,21 +468,13 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 <div ref={conversationEndRef} />
             </div>
 
-            {/* ── Two big talk buttons ─────────────────────── */}
-            <div className="shrink-0 flex justify-center gap-6 pt-4 pb-6 px-4">
+            {/* ── One Bosun button — auto-routed to active brain ────── */}
+            <div className="shrink-0 flex justify-center pt-4 pb-6 px-4">
                 <TalkButton
-                    variant="bosun"
-                    state={buttonState.bosun}
-                    subtitle={bosunAvailable === true ? 'On-boat' : bosunAvailable === false ? 'Offline' : 'Checking'}
-                    disabled={!bosunAvailable}
-                    onTap={() => handleTalkTap('bosun')}
-                />
-                <TalkButton
-                    variant="cloud"
-                    state={buttonState.cloud}
-                    subtitle={cloudAvailable === true ? 'Shore' : cloudAvailable === false ? 'Offline' : 'Checking'}
-                    disabled={!cloudAvailable}
-                    onTap={() => handleTalkTap('cloud')}
+                    state={route ? buttonState[route] : 'idle'}
+                    subtitle={brainSubtitle}
+                    disabled={!route}
+                    onTap={() => route && handleTalkTap(route)}
                 />
             </div>
 
@@ -480,7 +488,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                         type="text"
                         value={typedQuery}
                         onChange={(e) => setTypedQuery(e.target.value)}
-                        placeholder={`Or type — sends to ${typedTarget === 'bosun' ? 'Bosun' : 'Haiku'}...`}
+                        placeholder={`Or type — sends to ${brainSubtitle.toLowerCase()}...`}
                         className="flex-1 px-4 py-3 rounded-full bg-white/5 border border-white/10 text-white placeholder:text-gray-500 text-sm focus:outline-none focus:border-sky-500/50"
                         disabled={isAnyAwaiting || isAnySending}
                     />
@@ -525,7 +533,7 @@ const ConversationTurn: React.FC<{
                 <div className="flex items-center justify-between mb-1">
                     <p className="text-[10px] uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
                         <span className={`w-1.5 h-1.5 rounded-full ${isBosun ? 'bg-sky-400' : 'bg-slate-300'}`} />
-                        {isBosun ? 'Bosun (on-boat)' : 'Haiku (shore)'}
+                        {isBosun ? 'Bosun local (3B)' : 'Bosun cloud'}
                     </p>
                     {turn.response.audio_b64 && (
                         <button
