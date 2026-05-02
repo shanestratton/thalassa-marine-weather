@@ -1,0 +1,16 @@
+{
+    "name": "thalassa-deepgram-proxy",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Cloudflare Worker that bridges iOS WKWebView WebSocket clients to Deepgram's /v1/listen streaming endpoint. Sidesteps WKWebView's inability to negotiate Sec-WebSocket-Protocol with api.deepgram.com directly, and avoids Supabase Edge Functions' Deno-runtime instability under sustained iOS audio load.",
+    "scripts": {
+        "deploy": "wrangler deploy",
+        "dev": "wrangler dev",
+        "tail": "wrangler tail"
+    },
+    "devDependencies": {
+        "@cloudflare/workers-types": "^4.20241218.0",
+        "typescript": "^5.6.3",
+        "wrangler": "^3.99.0"
+    }
+}

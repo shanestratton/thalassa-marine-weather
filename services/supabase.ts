@@ -1,8 +1,65 @@
 import { createClient } from '@supabase/supabase-js';
+import { Preferences } from '@capacitor/preferences';
 
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('supabase');
+
+/**
+ * Capacitor-Preferences-backed storage adapter for Supabase auth.
+ *
+ * Why: the default `window.localStorage` is evictable on iOS WKWebView
+ * — under storage pressure, after ~7 days of app inactivity, or when
+ * the user clears Safari data — which silently signs the user out.
+ * Capacitor Preferences proxies to native iOS UserDefaults (and
+ * Android SharedPreferences) which survive all of those.
+ *
+ * Supabase calls these synchronously-styled but actually awaits the
+ * returned promises internally. Returning a Promise from getItem /
+ * setItem / removeItem is the correct shape per
+ * @supabase/supabase-js's `SupportedStorage` interface.
+ *
+ * Web fallback: when Preferences isn't installed (browser dev), we
+ * fall back to localStorage transparently — same behaviour as before
+ * the swap.
+ */
+const capacitorAuthStorage = {
+    async getItem(key: string): Promise<string | null> {
+        try {
+            const { value } = await Preferences.get({ key });
+            return value ?? null;
+        } catch {
+            // Web / Preferences plugin missing — fall back to localStorage.
+            try {
+                return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+            } catch {
+                return null;
+            }
+        }
+    },
+    async setItem(key: string, value: string): Promise<void> {
+        try {
+            await Preferences.set({ key, value });
+        } catch {
+            try {
+                if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
+            } catch {
+                /* storage full or unavailable */
+            }
+        }
+    },
+    async removeItem(key: string): Promise<void> {
+        try {
+            await Preferences.remove({ key });
+        } catch {
+            try {
+                if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
+            } catch {
+                /* storage unavailable */
+            }
+        }
+    },
+};
 
 const logConfig = (_msg: string) => {};
 

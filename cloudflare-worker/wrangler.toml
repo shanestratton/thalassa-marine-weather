@@ -1,0 +1,24 @@
+# Cloudflare Worker: Deepgram WebSocket proxy for the Thalassa voice console.
+#
+# Deploy:
+#   cd cloudflare-worker
+#   npx wrangler login                        (one-time)
+#   npx wrangler secret put DEEPGRAM_API_KEY  (paste the long-lived Deepgram key)
+#   npx wrangler secret put SUPABASE_ANON_KEY (paste the same anon key the iOS app uses)
+#   npx wrangler deploy
+#
+# After deploy, set in /Users/.../thalassa-marine-weather/.env.local:
+#   VITE_DEEPGRAM_PROXY_URL=https://thalassa-deepgram-proxy.<your-account>.workers.dev
+# The deepgramRecognizer.ts reads that env var; falls back to the Supabase
+# proxy when unset (handy during the cutover).
+
+name = "thalassa-deepgram-proxy"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+# Workers free tier already includes 100K requests/day and unmetered bandwidth.
+# WebSocket connections count as 1 request each. Should be plenty for
+# personal/test usage; bump to Workers Paid ($5/month) if hitting limits.
+
+[observability]
+enabled = true
