@@ -327,8 +327,19 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     // Probe SR availability on console open. Surfaces the result in the
     // header pill so the skipper doesn't need Web Inspector or Xcode logs
     // to tell whether the on-device fast-path is going to be in play.
+    //
+    // Skipped entirely when ENABLE_APPLE_SR_FALLBACK is false — calling
+    // even the availability check on Apple's SFSpeechRecognizer API
+    // counts against iOS's per-device rate limit and can lock the
+    // audio session for 30-60 minutes if quota was already low.
     useEffect(() => {
         if (!isOpen) return;
+        if (!ENABLE_APPLE_SR_FALLBACK) {
+            // Don't even ask iOS about SR — keep the audio system clean.
+            setSrStatus('unsupported');
+            setSrStatusError('Apple SR disabled by feature flag');
+            return;
+        }
         let cancelled = false;
         const probe = async () => {
             try {
