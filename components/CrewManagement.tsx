@@ -209,6 +209,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         // Force-refresh so a stale 60s RoutesAndTracks cache can't
         // miss a just-saved route or include a just-deleted one.
         const [routesAndTracks, allDrafts] = await Promise.all([fetchRoutesAndTracks(true), getDraftVoyages()]);
+        // Diagnostic: surface what the dropdown loader actually sees so
+        // we can tell whether the problem is "no data fetched" vs "data
+        // fetched but mapped to zero rows". Uses console.warn so it
+        // shows up even in production builds.
+        console.warn(
+            `[CrewManagement] reloadDropdown — routes:${routesAndTracks.routes.length} tracks:${routesAndTracks.tracks.length} drafts:${allDrafts.length}`,
+            { routeLabels: routesAndTracks.routes.map((r) => r.label) },
+        );
         const norm = (s: string) => s.trim().toLowerCase();
         const draftByName = new Map(allDrafts.map((d) => [norm(d.voyage_name), d] as const));
 
