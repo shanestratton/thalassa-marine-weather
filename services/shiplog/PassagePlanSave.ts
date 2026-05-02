@@ -54,8 +54,9 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
         // time. If the saved logbook entry comes out as "Queensland →
         // South Province" instead of "Newport QLD → Port Moselle NC",
         // this line tells us whether the bad name arrived in the plan
-        // or got built from something else further down.
-        log.info(`savePassagePlan input — origin="${plan.origin}", destination="${plan.destination}"`);
+        // or got built from something else further down. Uses .warn
+        // because .info is silenced in production builds (createLogger).
+        log.warn(`savePassagePlan input — origin="${plan.origin}", destination="${plan.destination}"`);
 
         // ── Duplicate check ─────────────────────────────────────────────
         // Prevent the same (origin → destination) pair on the same calendar

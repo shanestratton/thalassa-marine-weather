@@ -119,11 +119,19 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const voyageId = await ShipLogService.savePassagePlanToLogbook(plan as any);
             if (voyageId) {
-                setPassageToast('Route saved to logbook ✓');
+                // Diagnostic: surface the exact saved name so the user
+                // can see at a glance whether the right origin/destination
+                // is making it through the pipeline. If the toast says
+                // "Saved: Newport QLD → Port Moselle NC", great. If it
+                // says "Saved: Queensland → South Province", the bug is
+                // upstream in usePassagePlanner / event-detail handling.
+                const dep0 = (plan.origin as string).split(',')[0];
+                const arr0 = (plan.destination as string).split(',')[0];
+                setPassageToast(`Saved: ${dep0} → ${arr0}`);
             } else {
-                setPassageToast('Save failed ✗');
+                setPassageToast('Save failed — check sign-in');
             }
-            setTimeout(() => setPassageToast(null), 2000);
+            setTimeout(() => setPassageToast(null), 4000);
         } catch (err) {
             // Differentiate the duplicate-route-for-the-same-day case
             // from a generic save failure so the user knows they can
