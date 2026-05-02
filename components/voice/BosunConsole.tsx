@@ -1503,12 +1503,19 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
             )}
 
             {/* ── One Bosun button — auto-routed to active brain ────── */}
+            {/* Locked out until ALL prewarms complete (mic, token, WS,
+                worklet, GPS reverse-geocode). Once prewarmReady flips
+                true, the button colors back in + a medium haptic
+                fires elsewhere — both visual and tactile cue that
+                the system is fully ready for the tap. Prevents the
+                skipper from tapping into a still-cold pipeline and
+                experiencing a 1-2s lag before audio actually flows. */}
             <div className="shrink-0 flex justify-center pt-4 pb-6 px-4">
                 <TalkButton
                     state={route ? buttonState[route] : 'idle'}
                     subtitle={brainSubtitle}
-                    disabled={!route}
-                    onTap={() => route && handleTalkTap(route)}
+                    disabled={!route || !prewarmReady}
+                    onTap={() => route && prewarmReady && handleTalkTap(route)}
                 />
             </div>
 
@@ -1522,14 +1529,22 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                         type="text"
                         value={typedQuery}
                         onChange={(e) => setTypedQuery(e.target.value)}
-                        placeholder={`Or type — sends to ${brainSubtitle.toLowerCase()}...`}
-                        className="flex-1 px-4 py-3 rounded-full bg-white/5 border border-white/10 text-white placeholder:text-gray-500 text-sm focus:outline-none focus:border-sky-500/50"
-                        disabled={isAnyAwaiting || isAnySending}
+                        placeholder={
+                            !prewarmReady
+                                ? 'Warming up Calypso…'
+                                : `Or type — sends to ${brainSubtitle.toLowerCase()}...`
+                        }
+                        className="flex-1 px-4 py-3 rounded-full bg-white/5 border border-white/10 text-white placeholder:text-gray-500 text-sm focus:outline-none focus:border-sky-500/50 disabled:opacity-50"
+                        disabled={!prewarmReady || isAnyAwaiting || isAnySending}
                     />
                     <button
                         type="submit"
                         disabled={
-                            !typedQuery.trim() || (!bosunAvailable && !cloudAvailable) || isAnyAwaiting || isAnySending
+                            !prewarmReady ||
+                            !typedQuery.trim() ||
+                            (!bosunAvailable && !cloudAvailable) ||
+                            isAnyAwaiting ||
+                            isAnySending
                         }
                         className="w-12 h-12 rounded-full bg-sky-500 hover:bg-sky-400 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center text-white transition-colors shrink-0"
                         aria-label="Send"
