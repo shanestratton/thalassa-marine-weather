@@ -1,5 +1,5 @@
 /**
- * Gmail integration for Calypso — OAuth 2.0 + Gmail REST API.
+ * Gmail integration for Calypso — OAuth 2.0 (PKCE) + Gmail REST API.
  *
  * Scopes:
  *   gmail.readonly  — search + read messages
@@ -16,17 +16,23 @@
  *   backed by Keychain — encrypted at rest, survives reinstalls only
  *   if iCloud Keychain is on.
  *
- * Auth flow:
+ * Auth flow (PKCE, no client secret — the iOS bundle isn't a
+ * "confidential client" by Google's classification, so PKCE is the
+ * right primitive here):
  *   1. User toggles "Email access" ON in Settings → Calypso Integrations.
- *   2. Settings handler calls authorizeGmail() → opens system browser
- *      with Google's OAuth consent URL (PKCE, no client secret).
- *   3. User signs in + consents, Google redirects back to our app
- *      via the Capacitor App URL Open listener (custom URL scheme:
- *      `com.thalassa.app://oauth/gmail/callback`).
- *   4. App exchanges the auth code for an access + refresh token,
- *      stores both via Capacitor Preferences, fetches the user's
- *      email address for display.
- *   5. Settings UI shows "Connected as cap'n@gmail.com".
+ *   2. Settings calls beginAuthorization() — generates a PKCE
+ *      code_verifier (cached in Preferences), derives the
+ *      code_challenge, builds the authorization URL.
+ *   3. Settings opens the URL via @capacitor/browser. User signs in
+ *      and consents on Google's screens.
+ *   4. Google redirects to our reversed-client-ID URL scheme:
+ *      `com.googleusercontent.apps.<reversed>:/oauth2redirect?code=...`
+ *      The Capacitor App.addListener('appUrlOpen') in the settings UI
+ *      catches the redirect and pulls the `code` query param.
+ *   5. Settings calls completeAuthorization(code) — exchanges the
+ *      code (+ cached verifier) for access + refresh tokens, fetches
+ *      the user's email via the userinfo endpoint, persists everything.
+ *   6. Settings UI shows "Connected as cap'n@gmail.com".
  *
  * Tools registered with Calypso when this is enabled:
  *   search_emails({ query, max })  — Gmail search syntax, returns thread list
@@ -57,6 +63,25 @@ const GOOGLE_OAUTH_CLIENT_ID =
     (typeof import.meta !== 'undefined' && import.meta.env?.VITE_GOOGLE_OAUTH_CLIENT_ID) || '';
 
 /**
+ * Reversed-client-ID URL scheme for the OAuth redirect. Google's iOS
+ * client docs prescribe this exact format: take the client ID, strip
+ * the `.apps.googleusercontent.com` suffix, and prepend
+ * `com.googleusercontent.apps.`. Single colon + single forward slash
+ * separator is standard for Google's OAuth iOS flows (not `://`).
+ */
+function reversedClientIdScheme(): string {
+    if (!GOOGLE_OAUTH_CLIENT_ID) return '';
+    const trimmed = GOOGLE_OAUTH_CLIENT_ID.replace(/\.apps\.googleusercontent\.com$/, '');
+    return `com.googleusercontent.apps.${trimmed}`;
+}
+
+function redirectUri(): string {
+    const scheme = reversedClientIdScheme();
+    if (!scheme) return '';
+    return `${scheme}:/oauth2redirect`;
+}
+
+/**
  * Storage keys for the OAuth tokens. Prefixed with `calypso:gmail:`
  * so they're discoverable + clearable as a group when the skipper
  * disables the integration.
@@ -65,6 +90,11 @@ const KEY_ACCESS_TOKEN = 'calypso:gmail:access_token';
 const KEY_REFRESH_TOKEN = 'calypso:gmail:refresh_token';
 const KEY_TOKEN_EXPIRY = 'calypso:gmail:token_expiry'; // unix ms
 const KEY_EMAIL = 'calypso:gmail:email';
+/** PKCE verifier — set when beginAuthorization() runs, consumed +
+ *  cleared by completeAuthorization() once the code has been exchanged.
+ *  Cached in Preferences so it survives the app being backgrounded
+ *  while the user is on Google's consent screen. */
+const KEY_PKCE_VERIFIER = 'calypso:gmail:pkce_verifier';
 
 const GMAIL_SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly',
@@ -170,36 +200,164 @@ async function getValidAccessToken(): Promise<string | null> {
     return updated.access;
 }
 
+// ── PKCE helpers ───────────────────────────────────────────────────────
+
+/**
+ * Generate a high-entropy PKCE code_verifier per RFC 7636 §4.1 — a
+ * random URL-safe string between 43 and 128 chars. We use 96 bytes of
+ * crypto-randomness encoded as base64url (= 128 chars before stripping
+ * padding), which sits comfortably inside the spec range.
+ */
+function generateCodeVerifier(): string {
+    const bytes = new Uint8Array(96);
+    crypto.getRandomValues(bytes);
+    return base64UrlEncode(bytes);
+}
+
+/**
+ * Derive the code_challenge from a verifier per RFC 7636 §4.2. We use
+ * the S256 transform exclusively (Google requires it for PKCE flows
+ * without a client secret) — never `plain`.
+ */
+async function deriveCodeChallenge(verifier: string): Promise<string> {
+    const enc = new TextEncoder().encode(verifier);
+    const digest = await crypto.subtle.digest('SHA-256', enc);
+    return base64UrlEncode(new Uint8Array(digest));
+}
+
+function base64UrlEncode(bytes: Uint8Array): string {
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
 // ── OAuth authorization (entry point from settings UI) ────────────────
 
 /**
- * Initiate the OAuth flow. Returns a URL the caller should open in
- * the system browser (or in-app browser via @capacitor/browser).
- * The user signs in + consents, Google redirects to our custom
- * URL scheme, and the App URL listener (registered separately)
- * picks up the auth code and calls completeAuthorization().
+ * Step 1 of OAuth: kick off the consent flow. Generates a fresh PKCE
+ * code_verifier, caches it in Preferences (so it survives the app
+ * being backgrounded while the user is on Google's screens), derives
+ * the S256 code_challenge, and returns the authorization URL the
+ * caller should open via @capacitor/browser.
  *
- * NOT yet implemented: the actual browser launch + redirect handler.
- * The settings UI will surface a "Connect Gmail" button that calls
- * this and a "Disconnect" button that calls clearGmailTokens().
- * The PKCE + browser launch + code-exchange wiring lands in a
- * follow-up commit once the Google Cloud project is set up by the
- * skipper.
+ * Returns null if the integration isn't configured (no client ID in
+ * .env). Caller should show a setup-instructions message in that case.
  */
-export async function getAuthorizationUrl(): Promise<string | null> {
+export async function beginAuthorization(): Promise<string | null> {
     if (!GOOGLE_OAUTH_CLIENT_ID) return null;
-    // PKCE: generate code_verifier + code_challenge
-    // For now this is a scaffold — actual PKCE generation lives in
-    // the next commit alongside the @capacitor/browser launcher.
+    const verifier = generateCodeVerifier();
+    const challenge = await deriveCodeChallenge(verifier);
+    await Preferences.set({ key: KEY_PKCE_VERIFIER, value: verifier });
+
     const params = new URLSearchParams({
         client_id: GOOGLE_OAUTH_CLIENT_ID,
-        redirect_uri: 'com.thalassa.app://oauth/gmail/callback',
+        redirect_uri: redirectUri(),
         response_type: 'code',
         scope: GMAIL_SCOPES.join(' '),
         access_type: 'offline',
+        // `prompt=consent` forces Google to re-issue a refresh_token
+        // even on re-auth — without it, returning users get only an
+        // access_token and we can't keep them connected long-term.
         prompt: 'consent',
+        code_challenge: challenge,
+        code_challenge_method: 'S256',
     });
     return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+}
+
+/**
+ * Backward-compat alias for the old Settings UI call. Same as
+ * beginAuthorization() — exists so the settings tab compiles while
+ * we transition. Remove once all callers have moved to the new name.
+ */
+export async function getAuthorizationUrl(): Promise<string | null> {
+    return beginAuthorization();
+}
+
+/**
+ * Step 2 of OAuth: the redirect handler caught the callback URL,
+ * parsed `?code=...` out of the query string, and is handing it back
+ * to us. We pull the cached verifier, exchange the auth code for an
+ * access + refresh token at Google's token endpoint, fetch the
+ * connected user's email via the userinfo endpoint, and persist
+ * everything via Capacitor Preferences (Keychain on iOS).
+ *
+ * Returns the connected email on success, null on any failure
+ * (network, expired code, mismatched verifier, missing refresh_token).
+ * On failure the cached verifier is cleared so the next attempt
+ * starts fresh.
+ */
+export async function completeAuthorization(code: string): Promise<string | null> {
+    if (!GOOGLE_OAUTH_CLIENT_ID || !code) return null;
+    const { value: verifier } = await Preferences.get({ key: KEY_PKCE_VERIFIER });
+    if (!verifier) return null;
+
+    try {
+        const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                client_id: GOOGLE_OAUTH_CLIENT_ID,
+                code,
+                code_verifier: verifier,
+                grant_type: 'authorization_code',
+                redirect_uri: redirectUri(),
+            }).toString(),
+        });
+        if (!tokenResp.ok) {
+            await Preferences.remove({ key: KEY_PKCE_VERIFIER });
+            return null;
+        }
+        const tokenData = (await tokenResp.json()) as {
+            access_token?: string;
+            refresh_token?: string;
+            expires_in?: number;
+        };
+        if (!tokenData.access_token || !tokenData.refresh_token) {
+            await Preferences.remove({ key: KEY_PKCE_VERIFIER });
+            return null;
+        }
+
+        // Fetch the user's primary email so the settings UI can show
+        // "Connected as cap'n@gmail.com". Single-purpose call — we
+        // don't keep the userinfo around beyond the email string.
+        const infoResp = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+            headers: { Authorization: `Bearer ${tokenData.access_token}` },
+        });
+        const info = infoResp.ok ? ((await infoResp.json()) as { email?: string }) : null;
+        const email = info?.email ?? 'unknown@gmail.com';
+
+        const expiresIn = tokenData.expires_in ?? 3600;
+        await saveTokens({
+            access: tokenData.access_token,
+            refresh: tokenData.refresh_token,
+            expiresAt: Date.now() + expiresIn * 1000,
+            email,
+        });
+        await Preferences.remove({ key: KEY_PKCE_VERIFIER });
+        return email;
+    } catch {
+        await Preferences.remove({ key: KEY_PKCE_VERIFIER });
+        return null;
+    }
+}
+
+/**
+ * Parse the `code` parameter out of an OAuth callback URL like
+ * `com.googleusercontent.apps.<id>:/oauth2redirect?code=4/...&scope=...`.
+ *
+ * Custom URL schemes don't parse cleanly with the standard URL
+ * constructor on every platform (single-slash form trips iOS's parser
+ * historically), so we fall back to a manual query-string split.
+ */
+export function extractAuthCodeFromCallbackUrl(callbackUrl: string): string | null {
+    if (!callbackUrl) return null;
+    const queryIdx = callbackUrl.indexOf('?');
+    if (queryIdx < 0) return null;
+    const qs = callbackUrl.slice(queryIdx + 1);
+    const params = new URLSearchParams(qs);
+    const code = params.get('code');
+    return code && code.length > 0 ? code : null;
 }
 
 // ── Gmail API helpers (used by the Calypso tools below) ───────────────

@@ -22,5 +22,5 @@
         "noEmit": true
     },
     "include": ["./**/*"],
-    "exclude": ["supabase/**/*", "pi-cache/**/*"]
+    "exclude": ["supabase/**/*", "pi-cache/**/*", "cloudflare-worker/**/*"]
 }
