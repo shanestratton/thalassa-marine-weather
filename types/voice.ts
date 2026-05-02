@@ -8,11 +8,67 @@
 
 export type VoiceSource = 'bosun' | 'cloud' | 'unknown';
 
+// ── Thalassa state snapshot — bundled with every voice/text request ─────
+//
+// Sent to the cloud edge function so Haiku has current "what's on the
+// skipper's screen" context alongside the cached static vessel profile.
+// All fields optional — only what's populated is rendered into the prompt.
+
+export interface ThalassaLocation {
+    lat: number;
+    lon: number;
+    name: string;
+    source: 'gps' | 'map_pin' | 'search' | 'favorite' | 'initial';
+    /** Seconds since this location was set. */
+    ageSec: number;
+}
+
+export interface ThalassaConditions {
+    locationName: string;
+    windKt?: number;
+    windDirDeg?: number;
+    windDirCompass?: string;
+    gustKt?: number;
+    waveHeightM?: number;
+    wavePeriodSec?: number;
+    airTempC?: number;
+    waterTempC?: number;
+    pressureHpa?: number;
+    humidityPct?: number;
+    condition?: string;
+    description?: string;
+    /** Provider/model that generated the data (e.g. "open-meteo", "weatherkit"). */
+    source?: string;
+    /** Seconds since the data was generated. */
+    ageSec?: number;
+}
+
+export interface ThalassaPassage {
+    from: string;
+    to: string;
+    distanceNm: number;
+    durationHours: number;
+    departureTime?: string;
+    arrivalTime?: string;
+    maxWindKt?: number;
+    maxWaveM?: number;
+}
+
+export interface ThalassaContext {
+    /** Device local time at request time (ISO 8601). */
+    localTimeIso: string;
+    location?: ThalassaLocation;
+    conditions?: ThalassaConditions;
+    passage?: ThalassaPassage;
+}
+
 export interface VoiceQueryRequest {
     /** What the skipper said (already transcribed by iOS Web Speech API). */
     text: string;
     /** Optional: device-side conversation id, for future thread continuity. */
     sessionId?: string;
+    /** Optional: snapshot of Thalassa state (location, weather, passage). */
+    context?: ThalassaContext;
 }
 
 export interface VoiceQueryResponse {

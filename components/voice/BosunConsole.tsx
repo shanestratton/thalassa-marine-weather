@@ -26,6 +26,7 @@ import { TalkButton, type TalkButtonState } from './TalkButton';
 import { isAudioRecordingSupported, startRecording } from '../../services/voice/audioRecorder';
 import { askBosunText, askBosunVoice, isBosunReachable } from '../../services/voice/bosunVoice';
 import { askCloudText, askCloudVoice } from '../../services/voice/cloudFallback';
+import { gatherThalassaContext } from '../../services/voice/thalassaContext';
 import type { VoiceQueryResponse, VoiceTurn } from '../../types/voice';
 
 interface BosunConsoleProps {
@@ -270,7 +271,12 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             setOneButton(to, 'awaiting');
             setErrorMessage(null);
             try {
-                const response = to === 'bosun' ? await askBosunVoice(audioBlob) : await askCloudVoice(audioBlob);
+                // Snapshot Thalassa state RIGHT NOW so Bosun answers against
+                // what the skipper currently sees on screen, not whatever was
+                // selected when the console was first opened.
+                const context = gatherThalassaContext();
+                const response =
+                    to === 'bosun' ? await askBosunVoice(audioBlob) : await askCloudVoice(audioBlob, context);
                 handleResponse(response, to);
             } catch (err) {
                 setErrorMessage((err as Error).message || 'Something went wrong.');
@@ -287,7 +293,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             setOneButton(to, 'awaiting');
             setErrorMessage(null);
             try {
-                const response = to === 'bosun' ? await askBosunText({ text }) : await askCloudText({ text });
+                const context = gatherThalassaContext();
+                const response = to === 'bosun' ? await askBosunText({ text }) : await askCloudText({ text, context });
                 handleResponse(response, to);
             } catch (err) {
                 setErrorMessage((err as Error).message || 'Something went wrong.');

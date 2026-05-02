@@ -38,7 +38,9 @@ const DEFAULT_VOICE_ID = 'Wq15xSaY3gWvazBRaGEU';
 // total round-trip well under the iOS 90s client timeout.
 const MAX_TOOL_ITERATIONS = 2;
 
-const SYSTEM_PROMPT = `You are Bosun, AI first mate aboard "Serene Summer", a 55-foot Tayana cutter skippered by Shane Stratton. You are the primary cloud brain — you reason about weather, marine knowledge, and general sailing topics, calling tools when they help. You do NOT have access to live vessel instruments or the boat's private logs and manuals; that boundary is intentional and you must be honest about it.
+const SYSTEM_PROMPT = `You are Bosun, AI first mate aboard "Serene Summer", a 55-foot Tayana cutter skippered by Shane Stratton. You are the primary cloud brain — you reason about weather, marine knowledge, and general sailing topics, calling tools when they help.
+
+A snapshot of what the skipper currently sees in the Thalassa app — selected location, the weather on their Glass page, any active passage plan — is appended to your context as "CURRENT THALASSA STATE" before each query. Read it. Answer against it when relevant. You do NOT have access to live boat instruments (battery SOC, depth, fuel, NMEA), and that snapshot does not contain them.
 
 ## VESSEL PROFILE
 
@@ -63,19 +65,21 @@ You have two tools. Choose deliberately:
 
 Apparent helpfulness must never come at the cost of honesty. These rules override every other consideration.
 
-1. **Live boat data is unreachable.** You CANNOT read state of charge, battery voltage, GPS position, depth, fuel level, water level, engine hours, alternator output, bilge state, or any other instrument value. If the skipper asks for any of these, say: "I'm answering from the cloud — I can't see the boat's instruments. Tap the blue Bosun button for live readings." NEVER fabricate, infer, or estimate sensor values.
+1. **What you CAN see vs. what you CAN'T.** The Thalassa state snapshot gives you the skipper's selected location, the weather currently on their Glass page, and any active passage. Use that. You CANNOT read live boat instruments — battery SOC, voltage, depth, fuel level, water level, engine hours, alternator output, bilge state, masthead wind, NMEA sensors. If asked for any of those, say: "I can't read the boat's instruments from out here — that needs the Cerbo or YachtSense, not me." NEVER fabricate, infer, or estimate sensor values.
 
-2. **Vessel facts beyond the profile are unknown.** Stick to the profile above. The engine is a Perkins 6.3544 — never substitute Westerbeke, Yanmar, Volvo Penta, or any other manufacturer. For sail inventory, tank capacities, rigging specs, mast height, and similar details: "I don't have that on record — check the vessel documents or your previous logs."
+2. **The skipper's selected location ≠ the skipper's vessel position.** The location in the Thalassa snapshot is whatever the skipper has tapped or pinned in the app — it may be where they are, or it may be somewhere they're investigating. Don't assume "your position is X" from the snapshot; if they ask where they are, treat it as the selected location and say so plainly. Live GPS-vessel-position lives on the boat, not in this snapshot.
 
-3. **Safety-critical numbers require a real source.** For torque values, valve clearances, oil grades, fuel pressures, electrical voltages, anchor and rigging working loads, sail dimensions, medical doses, tide heights, or anything where being wrong could hurt someone or damage the boat: refuse to guess. Direct to the workshop manual, manufacturer data sheet, or local pilot/almanac. "Best to check the manual on that one, Cap'n — I don't trust myself to be right within the safety margin."
+3. **Vessel facts beyond the profile are unknown.** Stick to the profile above. The engine is a Perkins 6.3544 — never substitute Westerbeke, Yanmar, Volvo Penta, or any other manufacturer. For sail inventory, tank capacities, rigging specs, mast height, and similar details: "I don't have that on record — check the vessel documents or your previous logs."
 
-4. **Tool failures get reported plainly.** If thalassa_weather returns an error, say so: "I tried the Newport Qld forecast but the weather service didn't respond — try again in a moment, or check BoM directly." Do not paper over tool failures with generic plausible-sounding answers.
+4. **Safety-critical numbers require a real source.** For torque values, valve clearances, oil grades, fuel pressures, electrical voltages, anchor and rigging working loads, sail dimensions, medical doses, tide heights, or anything where being wrong could hurt someone or damage the boat: refuse to guess. Direct to the workshop manual, manufacturer data sheet, or local pilot/almanac. "Best to check the manual on that one, Cap'n — I don't trust myself to be right within the safety margin."
 
-5. **Hedge estimates explicitly.** When approximating, use hedge words: "around 15 knots", "roughly 4 hours", "I'd estimate". Never assert specific numbers you didn't get from a tool.
+5. **Tool failures get reported plainly.** If thalassa_weather returns an error, say so: "I tried the Newport Qld forecast but the weather service didn't respond — try again in a moment, or check BoM directly." Do not paper over tool failures with generic plausible-sounding answers.
 
-6. **Cite tool output with timestamp context.** When narrating thalassa_weather results, name the source and recency: "Per the latest Open-Meteo forecast for Newport Qld, current wind is 14 knots ESE — that's from a few minutes ago."
+6. **Hedge estimates explicitly.** When approximating, use hedge words: "around 15 knots", "roughly 4 hours", "I'd estimate". Never assert specific numbers you didn't get from a tool.
 
-7. **Don't speculate beyond your training.** If asked about Serene Summer's specific quirks, prior maintenance history, or anything personal to this vessel beyond the profile, say "That's not something I have access to from out here."
+7. **Cite tool output with timestamp context.** When narrating thalassa_weather results, name the source and recency: "Per the latest Open-Meteo forecast for Newport Qld, current wind is 14 knots ESE — that's from a few minutes ago."
+
+8. **Don't speculate beyond your training.** If asked about Serene Summer's specific quirks, prior maintenance history, or anything personal to this vessel beyond the profile, say "That's not something I have access to from out here."
 
 ## STYLE
 
@@ -145,9 +149,25 @@ interface AnthropicResponse {
 
 // ── Anthropic call ─────────────────────────────────────────────────────
 
-async function callAnthropic(messages: AnthropicMessage[]): Promise<AnthropicResponse> {
+async function callAnthropic(messages: AnthropicMessage[], stateBlock?: string): Promise<AnthropicResponse> {
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
+
+    // Two-block system: cached vessel profile + per-request Thalassa state.
+    // BP1 (vessel profile) carries cache_control so the static prefix hits
+    // the prompt cache on warm calls. BP2 (state) intentionally has no
+    // cache marker — it changes per request, and caching it would just
+    // burn write cost.
+    const systemBlocks: Array<Record<string, unknown>> = [
+        {
+            type: 'text',
+            text: SYSTEM_PROMPT,
+            cache_control: { type: 'ephemeral' },
+        },
+    ];
+    if (stateBlock && stateBlock.length > 0) {
+        systemBlocks.push({ type: 'text', text: stateBlock });
+    }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -162,18 +182,7 @@ async function callAnthropic(messages: AnthropicMessage[]): Promise<AnthropicRes
             // 200 tokens is plenty and prevents Haiku from drifting long
             // (which directly translates to extra TTS time on the wire).
             max_tokens: 200,
-            // Structured system field with ephemeral cache_control. Anthropic
-            // caches the prompt prefix (5-min TTL) — repeat queries within a
-            // session pay ~10% of base input cost. Cache only activates if the
-            // prompt clears the model's minimum size threshold; otherwise the
-            // marker is silently ignored, no error.
-            system: [
-                {
-                    type: 'text',
-                    text: SYSTEM_PROMPT,
-                    cache_control: { type: 'ephemeral' },
-                },
-            ],
+            system: systemBlocks,
             tools: TOOLS,
             messages,
         }),
@@ -188,12 +197,16 @@ async function callAnthropic(messages: AnthropicMessage[]): Promise<AnthropicRes
 
 // ── Tool-use loop ──────────────────────────────────────────────────────
 
-async function callHaikuWithTools(userText: string): Promise<{ answer: string; ms: number }> {
+async function callHaikuWithTools(
+    userText: string,
+    context: ThalassaContext | undefined,
+): Promise<{ answer: string; ms: number }> {
     const t0 = Date.now();
+    const stateBlock = context ? formatStateBlock(context) : undefined;
     const messages: AnthropicMessage[] = [{ role: 'user', content: userText }];
 
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-        const response = await callAnthropic(messages);
+        const response = await callAnthropic(messages, stateBlock);
 
         // Append assistant turn with all blocks (text + tool_use), so the
         // next request preserves the model's reasoning chain
@@ -434,11 +447,146 @@ async function elevenlabsScribe(audioB64: string, mimeType: string): Promise<{ t
 
 // ── Edge Function entrypoint ───────────────────────────────────────────
 
+// ── Thalassa state snapshot ────────────────────────────────────────────
+//
+// The iOS app bundles a snapshot of what the skipper currently sees in
+// Thalassa with every request: selected location, Glass-section weather,
+// active passage. This gets formatted into a state block and injected
+// into the system prompt so Haiku has BP2-style "current state" alongside
+// the cached static vessel profile.
+
+interface ThalassaContextLocation {
+    lat: number;
+    lon: number;
+    name: string;
+    source: string;
+    ageSec: number;
+}
+
+interface ThalassaContextConditions {
+    locationName: string;
+    windKt?: number;
+    windDirDeg?: number;
+    windDirCompass?: string;
+    gustKt?: number;
+    waveHeightM?: number;
+    wavePeriodSec?: number;
+    airTempC?: number;
+    waterTempC?: number;
+    pressureHpa?: number;
+    humidityPct?: number;
+    condition?: string;
+    description?: string;
+    source?: string;
+    ageSec?: number;
+}
+
+interface ThalassaContextPassage {
+    from: string;
+    to: string;
+    distanceNm: number;
+    durationHours: number;
+    departureTime?: string;
+    arrivalTime?: string;
+    maxWindKt?: number;
+    maxWaveM?: number;
+}
+
+interface ThalassaContext {
+    localTimeIso: string;
+    location?: ThalassaContextLocation;
+    conditions?: ThalassaContextConditions;
+    passage?: ThalassaContextPassage;
+}
+
 interface AskRequest {
     text?: string;
     audio_b64?: string;
     mime_type?: string;
     session_id?: string;
+    context?: ThalassaContext;
+}
+
+// ── Render Thalassa state into a markdown block for the system prompt ──
+
+function formatAge(sec: number | undefined): string {
+    if (sec === undefined || !Number.isFinite(sec)) return 'just now';
+    if (sec < 60) return `${sec}s ago`;
+    if (sec < 3600) return `${Math.round(sec / 60)}m ago`;
+    if (sec < 86400) return `${Math.round(sec / 3600)}h ago`;
+    return `${Math.round(sec / 86400)}d ago`;
+}
+
+function formatStateBlock(ctx: ThalassaContext): string {
+    const lines: string[] = [
+        '## CURRENT THALASSA STATE',
+        "(Snapshot from the skipper's phone, sent with this request)",
+        '',
+    ];
+
+    lines.push(`Skipper local time: ${ctx.localTimeIso}`);
+
+    if (ctx.location) {
+        const { lat, lon, name, source, ageSec } = ctx.location;
+        const sourceLabel =
+            source === 'gps'
+                ? 'GPS'
+                : source === 'map_pin'
+                  ? 'a long-press pin on the map'
+                  : source === 'search'
+                    ? 'a search'
+                    : source === 'favorite'
+                      ? 'a saved favorite'
+                      : 'app default';
+        lines.push('');
+        lines.push(
+            `Selected location: ${name} (${lat.toFixed(4)}, ${lon.toFixed(4)}), set from ${sourceLabel} ${formatAge(ageSec)}.`,
+        );
+    }
+
+    if (ctx.conditions) {
+        const c = ctx.conditions;
+        const bits: string[] = [];
+        if (typeof c.windKt === 'number') {
+            const dir = c.windDirCompass ?? (typeof c.windDirDeg === 'number' ? `${c.windDirDeg}°` : '');
+            const gust = typeof c.gustKt === 'number' ? `, gust ${c.gustKt.toFixed(0)} kt` : '';
+            bits.push(`wind ${c.windKt.toFixed(0)} kt ${dir}${gust}`.trim());
+        }
+        if (typeof c.waveHeightM === 'number') {
+            const period = typeof c.wavePeriodSec === 'number' ? ` at ${c.wavePeriodSec.toFixed(0)}s` : '';
+            bits.push(`wave ${c.waveHeightM.toFixed(1)}m${period}`);
+        }
+        if (typeof c.airTempC === 'number') bits.push(`air ${c.airTempC.toFixed(0)}°C`);
+        if (typeof c.waterTempC === 'number') bits.push(`water ${c.waterTempC.toFixed(0)}°C`);
+        if (typeof c.pressureHpa === 'number') bits.push(`pressure ${c.pressureHpa.toFixed(0)} hPa`);
+        if (typeof c.humidityPct === 'number') bits.push(`humidity ${c.humidityPct.toFixed(0)}%`);
+        if (c.description) bits.push(c.description);
+
+        if (bits.length > 0) {
+            lines.push('');
+            lines.push(`Current conditions at ${c.locationName} (Glass section):`);
+            lines.push(`- ${bits.join(', ')}`);
+            if (c.source) lines.push(`- Source: ${c.source}, ${formatAge(c.ageSec)}`);
+        }
+    }
+
+    if (ctx.passage) {
+        const p = ctx.passage;
+        lines.push('');
+        lines.push(`Active passage plan: ${p.from} → ${p.to}`);
+        lines.push(`- ${p.distanceNm.toFixed(0)} nm, ~${p.durationHours.toFixed(0)} hrs`);
+        if (p.departureTime) lines.push(`- Departs: ${p.departureTime}`);
+        if (p.arrivalTime) lines.push(`- Arrives: ${p.arrivalTime}`);
+        if (typeof p.maxWindKt === 'number') lines.push(`- Max forecast wind: ${p.maxWindKt.toFixed(0)} kt`);
+        if (typeof p.maxWaveM === 'number') lines.push(`- Max forecast wave: ${p.maxWaveM.toFixed(1)} m`);
+    }
+
+    lines.push('');
+    lines.push(
+        'NOTE: This state reflects what the skipper sees in the Thalassa app on their phone — selected location, weather they are looking at, planned passage. It is NOT live boat instruments — battery SOC, depth, fuel, engine state and similar sensor values are not in this snapshot and you cannot read them from the cloud.',
+    );
+
+    return lines.join('\n');
 }
 
 Deno.serve(async (req: Request) => {
@@ -502,7 +650,7 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-        const { answer, ms: llmMs } = await callHaikuWithTools(transcript);
+        const { answer, ms: llmMs } = await callHaikuWithTools(transcript, body.context);
         const { audio_b64, ms: ttsMs } = await callElevenLabs(answer);
 
         return new Response(
