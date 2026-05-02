@@ -126,6 +126,53 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         }
     }, []);
 
+    /**
+     * Unlock audio playback for iOS WKWebView.
+     *
+     * iOS only lets HTMLAudio.play() succeed without warning when called
+     * from a synchronous user-gesture handler. After our async fetch + STT
+     * round-trip, that gesture context is gone, and audio.play() rejects
+     * with NotAllowedError (silently — text shows but no voice plays).
+     *
+     * The fix: when the user taps the talk button (real user gesture),
+     * synchronously create + play a silent buffer on a persistent Audio
+     * element. iOS marks that element as "user-gesture-authorized" for the
+     * lifetime of the page. Future src changes + play() calls on the SAME
+     * element work without needing a fresh gesture.
+     *
+     * Must be called synchronously inside the tap handler — NOT inside
+     * useCallback (callbacks are fine but they must run before any await).
+     */
+    const unlockAudio = useCallback(() => {
+        if (!audioRef.current) {
+            audioRef.current = new Audio();
+            audioRef.current.preload = 'auto';
+        }
+        const audio = audioRef.current;
+        // Tiny silent WAV (44-byte RIFF header, no samples) — just enough
+        // to satisfy iOS that this Audio element is in a "playing" lineage.
+        const silentWav = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+        try {
+            audio.muted = true;
+            audio.src = silentWav;
+            // .play() returns a Promise we don't await — fire and continue.
+            // The promise resolves successfully on iOS when called from
+            // within a user gesture, even with the silent buffer.
+            const p = audio.play();
+            if (p && typeof p.then === 'function') {
+                p.then(() => {
+                    audio.pause();
+                    audio.muted = false;
+                    audio.currentTime = 0;
+                }).catch(() => {
+                    audio.muted = false;
+                });
+            }
+        } catch {
+            /* ignore — we'll surface the real error on actual playback */
+        }
+    }, []);
+
     const playResponseAudio = useCallback(
         (response: VoiceQueryResponse, to: 'bosun' | 'cloud') => {
             if (!response.audio_b64) {
@@ -133,21 +180,41 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 return;
             }
             try {
-                if (audioRef.current) {
-                    try {
-                        audioRef.current.pause();
-                        audioRef.current.src = '';
-                    } catch {
-                        /* ignore */
-                    }
-                }
                 const url = audioFromBase64(response.audio_b64);
                 audioUrlsRef.current.push(url);
-                const audio = new Audio(url);
+
+                // Reuse the unlocked Audio element from the user tap. If it
+                // doesn't exist (text-input path), create one — playback may
+                // not work on iOS but text is still rendered.
+                let audio = audioRef.current;
+                if (!audio) {
+                    audio = new Audio();
+                    audioRef.current = audio;
+                }
+                try {
+                    audio.pause();
+                } catch {
+                    /* ignore */
+                }
+                audio.src = url;
+                audio.muted = false;
+                audio.currentTime = 0;
                 audio.onended = () => setOneButton(to, 'idle');
                 audio.onerror = () => setOneButton(to, 'idle');
-                audioRef.current = audio;
-                void audio.play().catch(() => setOneButton(to, 'idle'));
+
+                const playPromise = audio.play();
+                if (playPromise && typeof playPromise.then === 'function') {
+                    playPromise.catch((err: Error) => {
+                        // Surface autoplay-blocked failures rather than
+                        // silently going idle, so the user knows why.
+                        if (err?.name === 'NotAllowedError') {
+                            setErrorMessage(
+                                'Audio playback blocked by iOS — tap a talk button first to enable, then replay this answer.',
+                            );
+                        }
+                        setOneButton(to, 'idle');
+                    });
+                }
             } catch {
                 setOneButton(to, 'idle');
             }
@@ -227,6 +294,12 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
      */
     const handleTalkTap = useCallback(
         async (which: 'bosun' | 'cloud') => {
+            // CRITICAL: unlock audio playback for iOS WKWebView synchronously,
+            // BEFORE any await. iOS only lets us prime the Audio element from
+            // within a user-gesture handler — once we await anything, the
+            // gesture context evaporates and the response audio won't play.
+            unlockAudio();
+
             const currentState = buttonState[which];
 
             // Start recording
@@ -279,26 +352,32 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             }
             // sending / awaiting: ignore.
         },
-        [buttonState, activeTarget, sendVoiceQuery, setOneButton, stopAudio],
+        [buttonState, activeTarget, sendVoiceQuery, setOneButton, stopAudio, unlockAudio],
     );
 
     const handleTypedSubmit = useCallback(
         (e: React.FormEvent, to: 'bosun' | 'cloud') => {
             e.preventDefault();
+            // Same iOS audio-unlock trick as the talk button — synchronous
+            // priming inside the user gesture (form submit click).
+            unlockAudio();
             const text = typedQuery.trim();
             if (!text) return;
             setTypedQuery('');
             void sendTextQuery(text, to);
         },
-        [typedQuery, sendTextQuery],
+        [typedQuery, sendTextQuery, unlockAudio],
     );
 
     const handleReplay = useCallback(
         (response: VoiceQueryResponse) => {
+            // The replay button click IS a user gesture — unlock again to
+            // be safe in case the page audio context lapsed.
+            unlockAudio();
             const to: 'bosun' | 'cloud' = response.source === 'cloud' ? 'cloud' : 'bosun';
             playResponseAudio(response, to);
         },
-        [playResponseAudio],
+        [playResponseAudio, unlockAudio],
     );
 
     /** Default target for typed queries — Bosun if up, else cloud. */
