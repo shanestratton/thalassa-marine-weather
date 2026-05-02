@@ -26,7 +26,11 @@ import { TalkButton, type TalkButtonState } from './TalkButton';
 import { isAudioRecordingSupported, startRecording } from '../../services/voice/audioRecorder';
 import { askBosunText, askBosunVoice, isBosunReachable } from '../../services/voice/bosunVoice';
 import { askCloudText, askCloudVoice } from '../../services/voice/cloudFallback';
-import { startSpeechRecognition, type SpeechRecognizerHandle } from '../../services/voice/speechRecognizer';
+import {
+    isSpeechRecognitionAvailable,
+    startSpeechRecognition,
+    type SpeechRecognizerHandle,
+} from '../../services/voice/speechRecognizer';
 import { gatherThalassaContext } from '../../services/voice/thalassaContext';
 import { useVoiceHistoryStore } from '../../stores/voiceHistoryStore';
 import type { VoiceHistoryTurn, VoiceQueryResponse, VoiceTurn } from '../../types/voice';
@@ -137,6 +141,21 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
      */
     const [srActive, setSrActive] = useState(false);
 
+    /**
+     * Persistent SR availability status, checked on console open. Visible as
+     * a pill in the header so the skipper can tell at a glance whether the
+     * Apple SR fast-path will be in play before they ever tap the button.
+     *
+     *   'unknown'    initial / probing
+     *   'available'  plugin loaded + permission granted
+     *   'denied'     permission denied — go to iOS Settings to grant
+     *   'unsupported' plugin not registered (Xcode build missing the pod)
+     *                or device doesn't have SFSpeechRecognizer
+     *   'error'      probe threw an exception; check srStatusError
+     */
+    const [srStatus, setSrStatus] = useState<'unknown' | 'available' | 'denied' | 'unsupported' | 'error'>('unknown');
+    const [srStatusError, setSrStatusError] = useState<string | null>(null);
+
     // ── Effects ─────────────────────────────────────────────────────────
 
     // Probe availability when console opens + every 30s
@@ -155,6 +174,47 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         return () => {
             cancelled = true;
             clearInterval(interval);
+        };
+    }, [isOpen]);
+
+    // Probe SR availability on console open. Surfaces the result in the
+    // header pill so the skipper doesn't need Web Inspector or Xcode logs
+    // to tell whether the on-device fast-path is going to be in play.
+    useEffect(() => {
+        if (!isOpen) return;
+        let cancelled = false;
+        const probe = async () => {
+            try {
+                const available = await isSpeechRecognitionAvailable(true);
+                if (cancelled) return;
+                if (available) {
+                    setSrStatus('available');
+                    setSrStatusError(null);
+                } else {
+                    // Distinguish "unsupported" from "denied" by re-checking
+                    // permission state directly. If the bridge throws, the
+                    // catch below sets 'unsupported'.
+                    try {
+                        const { SpeechRecognition } = await import('@capacitor-community/speech-recognition');
+                        const status = await SpeechRecognition.checkPermissions();
+                        if (cancelled) return;
+                        setSrStatus(status.speechRecognition === 'denied' ? 'denied' : 'unsupported');
+                        setSrStatusError(null);
+                    } catch (err) {
+                        if (cancelled) return;
+                        setSrStatus('unsupported');
+                        setSrStatusError((err as Error).message);
+                    }
+                }
+            } catch (err) {
+                if (cancelled) return;
+                setSrStatus('error');
+                setSrStatusError((err as Error).message);
+            }
+        };
+        void probe();
+        return () => {
+            cancelled = true;
         };
     }, [isOpen]);
 
@@ -621,6 +681,29 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                     <p className="text-[10px] uppercase tracking-widest text-gray-400">
                         Tap to talk — tap again or say &ldquo;over&rdquo; to send
                     </p>
+                    {/* Persistent SR availability pill. If it shows */}
+                    {/* "unsupported" the new pod isn't in the Xcode build — */}
+                    {/* clean rebuild needed (Cmd+Shift+K, then Cmd+R). */}
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                        <span
+                            className={`inline-block w-1.5 h-1.5 rounded-full ${
+                                srStatus === 'available'
+                                    ? 'bg-emerald-400'
+                                    : srStatus === 'denied'
+                                      ? 'bg-amber-400'
+                                      : srStatus === 'unsupported' || srStatus === 'error'
+                                        ? 'bg-red-400'
+                                        : 'bg-gray-500 animate-pulse'
+                            }`}
+                        />
+                        <p className="text-[10px] tracking-wide text-gray-400">
+                            {srStatus === 'available' && 'Apple SR ready (fast path)'}
+                            {srStatus === 'denied' && 'SR permission denied — Settings > Thalassa'}
+                            {srStatus === 'unsupported' && 'SR plugin missing — clean rebuild Xcode'}
+                            {srStatus === 'error' && `SR error: ${srStatusError ?? 'unknown'}`}
+                            {srStatus === 'unknown' && 'Probing SR…'}
+                        </p>
+                    </div>
                 </div>
                 <div className="flex items-center gap-2">
                     {turns.length > 0 && (
