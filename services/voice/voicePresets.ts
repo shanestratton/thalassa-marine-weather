@@ -103,6 +103,13 @@ export const CALYPSO_VOICE_PRESETS: VoicePreset[] = [
         description: 'Crisp American male. Direct, no-nonsense.',
         samplePhrase: 'Battery low, Skipper. Eleven point eight volts. Reduce load.',
     },
+    {
+        id: 'hal-9001',
+        voiceId: 'ZB3fKarIMtHu9I46TQSu', // skipper's custom Instant Voice Clone
+        label: 'HAL 9001',
+        description: "Calm, considered, faintly ominous. Skipper's own clone.",
+        samplePhrase: "I'm afraid I cannot allow that, Skipper.",
+    },
 ];
 
 /** Lookup the live voice_id for a stored preset key. Returns the
