@@ -132,4 +132,17 @@ export interface UserSettings {
      * the integration is disabled.
      */
     calypsoEmailAccount?: string;
+
+    /**
+     * Calypso proactive alerts ("speak up" mode) — when ON and the
+     * user is on Skipper tier, the AlertMonitorService runs persistently:
+     * subscribes to NmeaStore, evaluates threshold rules every tick,
+     * and dispatches AlertEvents (chime + voice + voice-page takeover
+     * + history turn) when something looks wrong on the boat.
+     *
+     * Default OFF — the skipper has to opt in. Same model as anchor
+     * watch: a safety feature that's invasive when it triggers, so
+     * we don't enable it by default.
+     */
+    calypsoAlertsEnabled?: boolean;
 }

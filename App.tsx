@@ -18,6 +18,7 @@ import { StormGlassNavIcon } from './components/icons/StormGlassNavIcon';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemStatusButton } from './components/SystemStatusButton';
 import { canAccess } from './services/SubscriptionService';
+import { AlertMonitorService } from './services/AlertMonitorService';
 import { ToastPortal, toast } from './components/Toast';
 import { ConnectivityBanner } from './components/ui/ConnectivityBanner';
 import { PushToast } from './components/PushToast';
@@ -134,6 +135,24 @@ const App: React.FC = () => {
         window.addEventListener('thalassa:openUpgrade', handler);
         return () => window.removeEventListener('thalassa:openUpgrade', handler);
     }, [setIsUpgradeOpen]);
+
+    // Calypso "speak up" alerts — singleton AlertMonitorService runs as
+    // long as the toggle is on AND the user has Skipper-tier access.
+    // The service subscribes to NmeaStore and dispatches AlertEvents
+    // through AlertNotifier (chime + voice + page takeover + history).
+    // Tearing down on tier loss (subscription expiry) stops the alerts
+    // immediately — no waiting for the user to flip the toggle off.
+    const alertsToggle = settings.calypsoAlertsEnabled ?? false;
+    const alertsAllowed = canAccess(settings.subscriptionTier, 'calypsoAlerts');
+    useEffect(() => {
+        if (alertsToggle && alertsAllowed) {
+            AlertMonitorService.start();
+            return () => AlertMonitorService.stop();
+        }
+        // If we're not running, ensure any prior session is torn down.
+        AlertMonitorService.stop();
+        return undefined;
+    }, [alertsToggle, alertsAllowed]);
 
     // Live GPS-derived location name — subscribed here (above the
     // conditional early return) so React's rules-of-hooks are happy.
