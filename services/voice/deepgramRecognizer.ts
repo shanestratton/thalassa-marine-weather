@@ -508,28 +508,46 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         params.append('keywords', `${kw.word}:${kw.boost}`);
     }
 
-    // ── 5. Connect WebSocket ────────────────────────────────────────
-    // Single auth path: Sec-WebSocket-Protocol: ['token', <api_key>].
+    // ── 5. Connect WebSocket via Supabase proxy ─────────────────────
+    // We don't connect directly to api.deepgram.com from the iOS
+    // client. iOS WKWebView's WebSocket implementation has issues
+    // with multi-element Sec-WebSocket-Protocol arrays — both with
+    // long values (485-char JWT) and with normal-length values
+    // (40-char API key). The handshake dies with code=1006 reason="ws
+    // error" before Deepgram ever sees the upgrade.
     //
-    // The natural design here would be to use Deepgram's auth-grant
-    // ephemeral JWTs and the 'bearer' subprotocol. We tried that first.
-    // The JWTs are ~485 chars long, and iOS WKWebView's WebSocket
-    // implementation can't pass subprotocol values that long through
-    // its handshake — the WS dies with code=1006 reason="ws error"
-    // before Deepgram even sees the upgrade. The edge function
-    // (deepgram-token) now skips the grant and returns the long-lived
-    // API key (40 hex chars), which fits comfortably into the
-    // subprotocol value field.
+    // Workaround: connect to a Supabase Edge Function (deepgram-ws-proxy)
+    // which iOS handles fine — it's the same WebSocket gateway that
+    // Realtime uses successfully. The proxy opens its own socket to
+    // Deepgram with the API key in the subprotocol header (server-side,
+    // no client-side length quirks) and bridges audio + transcript
+    // frames bidirectionally.
     //
-    // The 'token' subprotocol is the documented Deepgram pattern for
-    // long-lived API keys; the JS SDK uses the same shape internally.
-    const wsUrl = `wss://api.deepgram.com/v1/listen?${params.toString()}`;
+    // The `token` parameter passed in here is intentionally unused for
+    // the upstream auth (the proxy holds the key) but we keep the
+    // round-trip to deepgram-token because it warms the network path
+    // and confirms the function is reachable before we open the WS.
+    void token;
+    if (!SUPABASE_URL || !SUPABASE_KEY) {
+        stream.getTracks().forEach((t) => t.stop());
+        await audioContext.close().catch(() => {});
+        throw new Error('Supabase credentials missing — cannot reach Deepgram proxy');
+    }
+    // The Supabase WebSocket gateway accepts the anon JWT via the
+    // `apikey` URL parameter (same pattern Realtime uses). Edge
+    // functions inherit JWT verification from the gateway, so this
+    // covers our auth gate without any subprotocol handshake.
+    const proxyHost = SUPABASE_URL.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+    const wsUrl = `${proxyHost}/functions/v1/deepgram-ws-proxy?${params.toString()}&apikey=${encodeURIComponent(SUPABASE_KEY)}`;
 
-    async function tryConnect(strategy: 'subprotocol-token'): Promise<WebSocket> {
+    async function tryConnect(strategy: 'supabase-proxy'): Promise<WebSocket> {
         const stratStart = Date.now();
         let s: WebSocket;
         try {
-            s = new WebSocket(wsUrl, ['token', token]);
+            // No subprotocols — iOS WKWebView negotiates these cleanly
+            // when the array is empty/absent. Auth is via the URL
+            // ?apikey= param at the Supabase gateway.
+            s = new WebSocket(wsUrl);
             s.binaryType = 'arraybuffer';
         } catch (err) {
             emitEvent(`[DG] ws ctor (${strategy}) threw: ${(err as Error).message}`);
@@ -599,14 +617,14 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     let ws: WebSocket;
     const wsStart = Date.now();
     try {
-        ws = await tryConnect('subprotocol-token');
+        ws = await tryConnect('supabase-proxy');
     } catch (err) {
         stream.getTracks().forEach((t) => t.stop());
         await audioContext.close().catch(() => {});
-        emitEvent(`[DG] ws failed: ${(err as Error).message}`);
-        throw new Error(`Deepgram WebSocket failed: ${(err as Error).message}`);
+        emitEvent(`[DG] proxy ws failed: ${(err as Error).message}`);
+        throw new Error(`Deepgram proxy failed: ${(err as Error).message}`);
     }
-    emitEvent(`[DG] ws open total ${Date.now() - wsStart}ms (full cold-start ${Date.now() - t0}ms)`);
+    emitEvent(`[DG] proxy ws open total ${Date.now() - wsStart}ms (full cold-start ${Date.now() - t0}ms)`);
 
     // ── 6. Wire incoming Deepgram messages ──────────────────────────
     ws.addEventListener('message', (event: MessageEvent<string>) => {
