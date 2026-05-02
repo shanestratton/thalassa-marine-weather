@@ -26,6 +26,7 @@ import { TalkButton, type TalkButtonState } from './TalkButton';
 import { isAudioRecordingSupported, startRecording } from '../../services/voice/audioRecorder';
 import { askBosunText, askBosunVoice, isBosunReachable } from '../../services/voice/bosunVoice';
 import { askCloudText, askCloudVoice } from '../../services/voice/cloudFallback';
+import { startSpeechRecognition, type SpeechRecognizerHandle } from '../../services/voice/speechRecognizer';
 import { gatherThalassaContext } from '../../services/voice/thalassaContext';
 import type { VoiceQueryResponse, VoiceTurn } from '../../types/voice';
 
@@ -69,9 +70,17 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     const [cloudAvailable, setCloudAvailable] = useState<boolean | null>(null);
 
     const recorderRef = useRef<Awaited<ReturnType<typeof startRecording>> | null>(null);
+    const speechRecognizerRef = useRef<SpeechRecognizerHandle | null>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const audioUrlsRef = useRef<string[]>([]);
     const conversationEndRef = useRef<HTMLDivElement | null>(null);
+
+    /**
+     * Live partial-transcript shown under the talk button while recording.
+     * Updates from Apple SR's partialResults stream — the skipper sees their
+     * words appear as they speak, instead of waiting for Scribe round-trip.
+     */
+    const [liveTranscript, setLiveTranscript] = useState('');
 
     // ── Effects ─────────────────────────────────────────────────────────
 
@@ -99,7 +108,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         conversationEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }, [turns.length, errorMessage, buttonState.bosun, buttonState.cloud]);
 
-    // Cleanup on unmount: free Blob URLs, abort any in-flight recording
+    // Cleanup on unmount: free Blob URLs, abort any in-flight recording + SR
     useEffect(() => {
         const urls = audioUrlsRef.current;
         return () => {
@@ -108,6 +117,14 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             if (rec) {
                 try {
                     rec.cancel();
+                } catch {
+                    /* ignore */
+                }
+            }
+            const sr = speechRecognizerRef.current;
+            if (sr) {
+                try {
+                    void sr.cancel();
                 } catch {
                     /* ignore */
                 }
@@ -261,8 +278,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     );
 
     const sendVoiceQuery = useCallback(
-        async (audioBlob: Blob, to: 'bosun' | 'cloud') => {
-            if (audioBlob.size === 0) {
+        async (audioBlob: Blob, to: 'bosun' | 'cloud', preTranscribed?: string | null) => {
+            if (audioBlob.size === 0 && !preTranscribed) {
                 setErrorMessage('No audio captured — try holding for a moment longer.');
                 setOneButton(to, 'error');
                 setTimeout(() => setOneButton(to, 'idle'), 1500);
@@ -275,8 +292,16 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 // what the skipper currently sees on screen, not whatever was
                 // selected when the console was first opened.
                 const context = gatherThalassaContext();
-                const response =
-                    to === 'bosun' ? await askBosunVoice(audioBlob) : await askCloudVoice(audioBlob, context);
+                let response: VoiceQueryResponse;
+                if (to === 'cloud' && preTranscribed) {
+                    // FAST PATH: Apple SR already gave us an on-device
+                    // transcript — skip the Scribe round-trip entirely and
+                    // hit Haiku directly with the text.
+                    response = await askCloudText({ text: preTranscribed, context });
+                } else {
+                    response =
+                        to === 'bosun' ? await askBosunVoice(audioBlob) : await askCloudVoice(audioBlob, context);
+                }
                 handleResponse(response, to);
             } catch (err) {
                 setErrorMessage((err as Error).message || 'Something went wrong.');
@@ -338,12 +363,36 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                     }
                     recorderRef.current = null;
                 }
+                if (speechRecognizerRef.current) {
+                    try {
+                        void speechRecognizerRef.current.cancel();
+                    } catch {
+                        /* ignore */
+                    }
+                    speechRecognizerRef.current = null;
+                }
                 setErrorMessage(null);
+                setLiveTranscript('');
                 try {
                     const handle = await startRecording();
                     recorderRef.current = handle;
                     setActiveTarget(which);
                     setOneButton(which, 'recording');
+
+                    // Best-effort: kick off Apple SR alongside MediaRecorder
+                    // for the on-device fast-path. If it fails (permission,
+                    // unavailable, mic-share conflict) we silently fall back
+                    // to the Scribe path on the recorded blob.
+                    if (which === 'cloud') {
+                        try {
+                            const srHandle = await startSpeechRecognition({
+                                onPartial: (text) => setLiveTranscript(text),
+                            });
+                            speechRecognizerRef.current = srHandle;
+                        } catch (err) {
+                            console.warn('[BosunConsole] SR unavailable, will use Scribe:', err);
+                        }
+                    }
                 } catch (err) {
                     setErrorMessage((err as Error).message);
                     setOneButton(which, 'error');
@@ -355,16 +404,26 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             // Stop + send
             if (currentState === 'recording') {
                 const handle = recorderRef.current;
+                const srHandle = speechRecognizerRef.current;
                 if (!handle || activeTarget !== which) {
                     setOneButton(which, 'idle');
                     return;
                 }
                 recorderRef.current = null;
+                speechRecognizerRef.current = null;
                 setOneButton(which, 'sending');
                 try {
-                    const blob = await handle.stop();
+                    // Stop both in parallel — MediaRecorder yields the audio
+                    // blob (Scribe fallback), SR yields the on-device text
+                    // (fast path). Resolving both before deciding the route
+                    // means we always have the audio backup ready.
+                    const [blob, sr] = await Promise.all([
+                        handle.stop(),
+                        srHandle ? srHandle.stop() : Promise.resolve(null),
+                    ]);
                     setActiveTarget(null);
-                    await sendVoiceQuery(blob, which);
+                    setLiveTranscript('');
+                    await sendVoiceQuery(blob, which, sr?.text ?? null);
                 } catch (err) {
                     setErrorMessage((err as Error).message);
                     setOneButton(which, 'error');
@@ -474,6 +533,17 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
 
                 <div ref={conversationEndRef} />
             </div>
+
+            {/* ── Live partial transcript (Apple SR) ─────────────── */}
+            {/* Only shown while recording — disappears on send. Italic so */}
+            {/* it reads as in-progress, not final. */}
+            {route && buttonState[route] === 'recording' && (
+                <div className="shrink-0 px-5 pt-2 pb-1 min-h-[28px] flex items-center justify-center">
+                    <p className="text-xs italic text-sky-200/70 text-center max-w-[320px] line-clamp-2">
+                        {liveTranscript || 'Listening…'}
+                    </p>
+                </div>
+            )}
 
             {/* ── One Bosun button — auto-routed to active brain ────── */}
             <div className="shrink-0 flex justify-center pt-4 pb-6 px-4">
